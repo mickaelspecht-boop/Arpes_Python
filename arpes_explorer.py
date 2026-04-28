@@ -1402,24 +1402,34 @@ class ArpesExplorer(QMainWindow):
 
         suffix = path.suffix.lower()
         if suffix in {".xlsx", ".xls"}:
-            df = pd.read_excel(path)
+            raw = pd.read_excel(path, header=None)
+            if raw.dropna(how="all").empty:
+                raise ValueError("Le logbook ne contient aucune ligne exploitable.")
+            candidates = self._excel_header_candidates(raw)
+            guessed = self._best_excel_table(raw, candidates)
+            if guessed is None:
+                guessed = self._choose_excel_table(raw, candidates)
+            if guessed is None:
+                raise ValueError("Aucune ligne d'en-tête sélectionnée pour le logbook.")
+            df, mapping = guessed
         elif suffix == ".tsv":
             df = pd.read_csv(path, sep="\t")
+            df = df.dropna(how="all")
+            if df.empty:
+                raise ValueError("Le logbook ne contient aucune ligne exploitable.")
+            df.columns = [str(c).strip() for c in df.columns]
+            mapping = _infer_logbook_mapping(list(df.columns))
         else:
             try:
                 df = pd.read_csv(path, sep=None, engine="python")
             except Exception:
                 df = pd.read_csv(path)
+            df = df.dropna(how="all")
+            if df.empty:
+                raise ValueError("Le logbook ne contient aucune ligne exploitable.")
+            df.columns = [str(c).strip() for c in df.columns]
+            mapping = _infer_logbook_mapping(list(df.columns))
 
-        df = df.dropna(how="all")
-        if df.empty:
-            raise ValueError("Le logbook ne contient aucune ligne exploitable.")
-        df.columns = [str(c).strip() for c in df.columns]
-        mapping = _infer_logbook_mapping(list(df.columns))
-        if suffix in {".xlsx", ".xls"} and (not mapping.get("file") or not mapping.get("hv")):
-            guessed = self._read_excel_with_header_guess(path)
-            if guessed is not None:
-                df, mapping = guessed
         if not mapping.get("file") or not mapping.get("hv"):
             mapping = self._choose_logbook_mapping(list(df.columns), mapping)
         if not mapping.get("file") or not mapping.get("hv"):
@@ -1427,24 +1437,67 @@ class ArpesExplorer(QMainWindow):
         records = df.where(pd.notnull(df), None).to_dict(orient="records")
         return records, mapping
 
-    def _read_excel_with_header_guess(self, path: Path):
-        import pandas as pd
-        raw = pd.read_excel(path, header=None)
+    def _excel_header_candidates(self, raw) -> list[int]:
+        candidates: list[int] = []
+        for row_idx in range(min(len(raw), 120)):
+            values = [_cell_text(v) for v in raw.iloc[row_idx].tolist()]
+            nonempty = [v for v in values if v]
+            if len(nonempty) >= 2:
+                candidates.append(row_idx)
+        return candidates
+
+    def _excel_table_from_header(self, raw, row_idx: int):
+        headers = [_cell_text(v) for v in raw.iloc[row_idx].tolist()]
+        cols = [h if h else f"column_{i}" for i, h in enumerate(headers)]
+        seen: dict[str, int] = {}
+        unique_cols = []
+        for col in cols:
+            n = seen.get(col, 0)
+            seen[col] = n + 1
+            unique_cols.append(col if n == 0 else f"{col}_{n+1}")
+        df = raw.iloc[row_idx + 1:].copy()
+        df.columns = unique_cols
+        df = df.dropna(how="all")
+        mapping = _infer_logbook_mapping(list(df.columns))
+        return df, mapping
+
+    def _best_excel_table(self, raw, candidates: list[int]):
         best = None
-        for row_idx in range(min(len(raw), 60)):
-            headers = [str(v).strip() if pd.notnull(v) else "" for v in raw.iloc[row_idx].tolist()]
-            if sum(bool(h) for h in headers) < 2:
-                continue
-            mapping = _infer_logbook_mapping(headers)
-            score = int(bool(mapping.get("file"))) + int(bool(mapping.get("hv")))
-            if score < 2:
-                continue
-            df = raw.iloc[row_idx + 1:].copy()
-            df.columns = [h or f"column_{i}" for i, h in enumerate(headers)]
-            df = df.dropna(how="all")
-            best = (df, mapping)
-            break
-        return best
+        best_score = -1
+        for row_idx in candidates:
+            df, mapping = self._excel_table_from_header(raw, row_idx)
+            score = int(bool(mapping.get("file"))) * 3 + int(bool(mapping.get("hv"))) * 3
+            score += int(bool(mapping.get("temperature"))) + int(bool(mapping.get("polarization")))
+            score += min(len(df), 20) / 1000
+            if score > best_score:
+                best = (df, mapping, row_idx)
+                best_score = score
+        if best is None or best_score < 6:
+            return None
+        return best[0], best[1]
+
+    def _choose_excel_table(self, raw, candidates: list[int]):
+        if not candidates:
+            return None
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Ligne d'en-tête du logbook")
+        lay = QVBoxLayout(dlg)
+        label = QLabel("Choisis la ligne qui contient les vrais noms de colonnes.")
+        label.setWordWrap(True)
+        lay.addWidget(label)
+        cmb = QComboBox()
+        for row_idx in candidates:
+            values = [_cell_text(v) for v in raw.iloc[row_idx].tolist()]
+            preview = " | ".join(v for v in values if v)
+            cmb.addItem(f"Ligne {row_idx + 1}: {preview[:140]}", row_idx)
+        lay.addWidget(cmb)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return self._excel_table_from_header(raw, int(cmb.currentData()))
 
     def _choose_logbook_mapping(self, columns: list[str], mapping: dict[str, str]) -> dict[str, str]:
         dlg = QDialog(self)
