@@ -782,6 +782,7 @@ class FitParamsPanel(QScrollArea):
     copy_params_requested = pyqtSignal()
     ef_calib_requested = pyqtSignal()
     logbook_requested = pyqtSignal()
+    gamma_bm_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -920,6 +921,11 @@ class FitParamsPanel(QScrollArea):
         btn_g.setStyleSheet("background:#1a6b3a;color:white;font-weight:bold;padding:6px;")
         btn_g.clicked.connect(self.guess_requested)
         _fcl.addWidget(btn_g)
+
+        btn_gamma = QPushButton("◎  Auto Γ BM")
+        btn_gamma.setToolTip("Estime le centre Γ par la médiane des milieux de paires MDC.")
+        btn_gamma.clicked.connect(self.gamma_bm_requested)
+        _fcl.addWidget(btn_gamma)
 
         btn_f = QPushButton("▶  Fit complet  [Ctrl+F]")
         btn_f.setStyleSheet("background:#2a6099;color:white;font-weight:bold;padding:6px;")
@@ -1296,6 +1302,7 @@ class ArpesExplorer(QMainWindow):
         self._params.copy_params_requested.connect(self._copy_params)
         self._params.ef_calib_requested.connect(self._ef_calibrate)
         self._params.logbook_requested.connect(self._load_logbook_dialog)
+        self._params.gamma_bm_requested.connect(self._estimate_gamma_bm)
         self._params.set_fit_controls_visible(False)  # caché sur BM (tab 0 par défaut)
         right_split.addWidget(self._params)
         right_split.setSizes([550])
@@ -2048,6 +2055,43 @@ class ArpesExplorer(QMainWindow):
             traceback.print_exc()
         self._mdc_edc.fig.tight_layout(pad=0.5)
         self._mdc_edc.redraw()
+
+    def _estimate_gamma_bm(self):
+        if AP is None:
+            self._status("⚠ arpes_plots non chargé")
+            return
+        data, kpar, ev = self._get_work_data()
+        if data is None:
+            return
+        try:
+            res = AP.estimate_gamma_bm_mdc(
+                data, kpar, ev,
+                ev_range=(self._params.sp_evs.value(), self._params.sp_eve.value()),
+                k_range=(self._params.sp_kmin.value(), self._params.sp_kmax.value()),
+                center_guess=self._params.sp_cx.value(),
+                center_window=max(self._params.sp_xg.value() * 2.0, 0.25),
+                smooth_sigma=self._params.sp_sfd.value(),
+                verbose=False,
+            )
+            gamma = float(res["gamma"])
+            if not np.isfinite(gamma):
+                QMessageBox.warning(
+                    self, "Auto Γ BM",
+                    "Impossible d'estimer Γ : pas assez de paires MDC valides. "
+                    "Ajuste la plage d'énergie, k_min/k_max ou centre_init."
+                )
+                return
+            self._params.sp_cx.setValue(gamma)
+            self._params.lbl_res.setText(
+                f"Γ BM = {gamma:+.4f} π/a\n"
+                f"n={res['n']}  MAD={res['mad']:.4f}"
+            )
+            self._draw_bm()
+            self._draw_mdc_edc()
+            self._status(f"Γ BM estimé : {gamma:+.4f} π/a  n={res['n']}  MAD={res['mad']:.4f}")
+        except Exception as exc:
+            QMessageBox.warning(self, "Auto Γ BM", str(exc))
+            self._status(f"⚠ Auto Γ BM : {exc}")
 
     def _fit_full(self):
         if AP is None: self._status("⚠ arpes_plots non chargé"); return
