@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import traceback
+import unicodedata
 import warnings
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -108,6 +110,11 @@ def _to_serial(obj):
         return obj.tolist()
     if isinstance(obj, (np.floating, np.integer)):
         return obj.item()
+    if hasattr(obj, "isoformat"):
+        try:
+            return obj.isoformat()
+        except Exception:
+            pass
     if isinstance(obj, dict):
         return {k: _to_serial(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -122,6 +129,9 @@ class Session:
         self.folder:    Path | None = folder
         self.work_func: float       = work_func
         self.files:     dict[str, FileEntry] = {}
+        self.logbook_path: str = ""
+        self.logbook_mapping: dict[str, str] = {}
+        self.logbook_records: list[dict] = []
 
     # ── persistance ───────────────────────────────────────────────────────────
     @property
@@ -135,6 +145,9 @@ class Session:
             "version":   self.VERSION,
             "folder":    str(self.folder),
             "work_func": self.work_func,
+            "logbook_path": self.logbook_path,
+            "logbook_mapping": _to_serial(self.logbook_mapping),
+            "logbook_records": _to_serial(self.logbook_records),
             "files": {
                 name: _to_serial(asdict(entry))
                 for name, entry in self.files.items()
@@ -145,6 +158,9 @@ class Session:
     def load(self, path: Path):
         raw = json.loads(path.read_text())
         self.work_func = raw.get("work_func", 4.031)
+        self.logbook_path = raw.get("logbook_path", "")
+        self.logbook_mapping = raw.get("logbook_mapping", {})
+        self.logbook_records = raw.get("logbook_records", [])
         for name, edict in raw.get("files", {}).items():
             fp = FitParams(**edict.get("fit_params", {}))
             mt = FileMeta(**edict.get("meta", {}))
@@ -178,6 +194,93 @@ class Session:
             except Exception:
                 pass
         return p.name
+
+
+def _norm_text(value) -> str:
+    s = "" if value is None else str(value)
+    s = s.replace("ν", "nu").replace("Ν", "nu")
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "", s.lower())
+
+
+def _cell_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and np.isnan(value):
+        return ""
+    return str(value).strip()
+
+
+def _cell_float(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.replace(",", ".")
+        m = re.search(r"[-+]?\d+(?:\.\d+)?", value)
+        if not m:
+            return None
+        value = m.group(0)
+    try:
+        out = float(value)
+    except Exception:
+        return None
+    return out if np.isfinite(out) else None
+
+
+def _pick_column(columns: list[str], groups: list[list[str]]) -> str:
+    normalized = {c: _norm_text(c) for c in columns}
+    for group in groups:
+        keys = [_norm_text(k) for k in group]
+        for col, name in normalized.items():
+            if all(k in name for k in keys):
+                return col
+    return ""
+
+
+def _infer_logbook_mapping(columns: list[str]) -> dict[str, str]:
+    return {
+        "file": _pick_column(columns, [
+            ["file"], ["filename"], ["fichier"], ["scan"], ["measurement"],
+            ["measure"], ["name"], ["nom"], ["run"], ["sample"],
+        ]),
+        "hv": _pick_column(columns, [
+            ["hv"], ["hnu"], ["photon", "energy"], ["photon", "energie"],
+            ["energy", "ev"], ["energie", "ev"], ["hn"],
+        ]),
+        "temperature": _pick_column(columns, [
+            ["temperature"], ["temp"], ["t", "k"],
+        ]),
+        "polarization": _pick_column(columns, [
+            ["polarization"], ["polarisation"], ["pol"],
+        ]),
+    }
+
+
+def _path_match_tokens(path: str | Path, session_folder: Path | None) -> list[str]:
+    p = Path(path)
+    tokens = [p.name, p.stem]
+    if session_folder is not None:
+        try:
+            rel = p.resolve().relative_to(session_folder.resolve())
+            tokens.extend([str(rel), rel.name, rel.stem])
+        except Exception:
+            pass
+    return sorted({t for t in tokens if t}, key=len, reverse=True)
+
+
+def _record_matches_path(record_value, path: str | Path, session_folder: Path | None) -> bool:
+    value = _cell_text(record_value)
+    if not value:
+        return False
+    value_norm = value.lower()
+    for token in _path_match_tokens(path, session_folder):
+        token_norm = token.lower()
+        if value_norm == token_norm:
+            return True
+        pat = r"(?<![A-Za-z0-9])" + re.escape(token_norm) + r"(?![A-Za-z0-9])"
+        if re.search(pat, value_norm):
+            return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -675,6 +778,7 @@ class FitParamsPanel(QScrollArea):
     clear_kf_requested = pyqtSignal()
     copy_params_requested = pyqtSignal()
     ef_calib_requested = pyqtSignal()
+    logbook_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -716,12 +820,15 @@ class FitParamsPanel(QScrollArea):
         self.chk_norm.stateChanged.connect(self.params_changed)
         btn_ef = QPushButton("🎛  Calibrer EF auto")
         btn_ef.clicked.connect(self.ef_calib_requested)
+        btn_log = QPushButton("📒  Charger logbook")
+        btn_log.clicked.connect(self.logbook_requested)
         btn_copy = QPushButton("📋  Copier params → fichier suivant")
         btn_copy.clicked.connect(self.copy_params_requested)
         fl_ef.addRow("φ (eV):",       self.sp_phi)
         fl_ef.addRow("hν (eV):", self.sp_hv)
         fl_ef.addRow("EF offset:",    self.sp_ef)
         fl_ef.addRow(self.chk_norm)
+        fl_ef.addRow(btn_log)
         fl_ef.addRow(btn_ef)
         fl_ef.addRow(btn_copy)
         lay.addWidget(grp_ef)
@@ -1185,6 +1292,7 @@ class ArpesExplorer(QMainWindow):
         self._params.clear_kf_requested.connect(self._clear_kf)
         self._params.copy_params_requested.connect(self._copy_params)
         self._params.ef_calib_requested.connect(self._ef_calibrate)
+        self._params.logbook_requested.connect(self._load_logbook_dialog)
         self._params.set_fit_controls_visible(False)  # caché sur BM (tab 0 par défaut)
         right_split.addWidget(self._params)
         right_split.setSizes([550])
@@ -1258,6 +1366,159 @@ class ArpesExplorer(QMainWindow):
             lambda: self._browser.navigate(+1))
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Logbook souple CLS/SOLARIS
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _load_logbook_dialog(self):
+        start = str(self._session.folder or Path.home())
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Logbook ARPES", start,
+            "Logbook (*.xlsx *.xls *.csv *.tsv);;Tous les fichiers (*)")
+        if not path:
+            return
+        try:
+            records, mapping = self._read_logbook(Path(path))
+            self._session.logbook_path = path
+            self._session.logbook_mapping = mapping
+            self._session.logbook_records = records
+            self._session.save()
+            used = ", ".join(f"{k}={v or '—'}" for k, v in mapping.items())
+            self._status(f"Logbook chargé : {Path(path).name} | {len(records)} lignes | {used}")
+            QMessageBox.information(
+                self, "Logbook chargé",
+                f"{Path(path).name}\n{len(records)} lignes lues.\n\nColonnes détectées :\n{used}"
+            )
+            if self._current_path:
+                self._apply_logbook_to_controls(self._current_path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Logbook", str(exc))
+            self._status(f"⚠ Logbook : {exc}")
+
+    def _read_logbook(self, path: Path) -> tuple[list[dict], dict[str, str]]:
+        try:
+            import pandas as pd
+        except Exception as exc:
+            raise ImportError("pandas est nécessaire pour lire les logbooks Excel/CSV.") from exc
+
+        suffix = path.suffix.lower()
+        if suffix in {".xlsx", ".xls"}:
+            df = pd.read_excel(path)
+        elif suffix == ".tsv":
+            df = pd.read_csv(path, sep="\t")
+        else:
+            try:
+                df = pd.read_csv(path, sep=None, engine="python")
+            except Exception:
+                df = pd.read_csv(path)
+
+        df = df.dropna(how="all")
+        if df.empty:
+            raise ValueError("Le logbook ne contient aucune ligne exploitable.")
+        df.columns = [str(c).strip() for c in df.columns]
+        mapping = _infer_logbook_mapping(list(df.columns))
+        if suffix in {".xlsx", ".xls"} and (not mapping.get("file") or not mapping.get("hv")):
+            guessed = self._read_excel_with_header_guess(path)
+            if guessed is not None:
+                df, mapping = guessed
+        if not mapping.get("file") or not mapping.get("hv"):
+            mapping = self._choose_logbook_mapping(list(df.columns), mapping)
+        if not mapping.get("file") or not mapping.get("hv"):
+            raise ValueError("Les colonnes fichier et hν sont obligatoires pour appliquer un logbook.")
+        records = df.where(pd.notnull(df), None).to_dict(orient="records")
+        return records, mapping
+
+    def _read_excel_with_header_guess(self, path: Path):
+        import pandas as pd
+        raw = pd.read_excel(path, header=None)
+        best = None
+        for row_idx in range(min(len(raw), 60)):
+            headers = [str(v).strip() if pd.notnull(v) else "" for v in raw.iloc[row_idx].tolist()]
+            if sum(bool(h) for h in headers) < 2:
+                continue
+            mapping = _infer_logbook_mapping(headers)
+            score = int(bool(mapping.get("file"))) + int(bool(mapping.get("hv")))
+            if score < 2:
+                continue
+            df = raw.iloc[row_idx + 1:].copy()
+            df.columns = [h or f"column_{i}" for i, h in enumerate(headers)]
+            df = df.dropna(how="all")
+            best = (df, mapping)
+            break
+        return best
+
+    def _choose_logbook_mapping(self, columns: list[str], mapping: dict[str, str]) -> dict[str, str]:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Colonnes du logbook")
+        lay = QFormLayout(dlg)
+        combos: dict[str, QComboBox] = {}
+        labels = {
+            "file": "Fichier / scan:",
+            "hv": "hν:",
+            "temperature": "Température:",
+            "polarization": "Polarisation:",
+        }
+        choices = [""] + columns
+        for key, label in labels.items():
+            cmb = QComboBox()
+            cmb.addItems(choices)
+            current = mapping.get(key, "")
+            if current in choices:
+                cmb.setCurrentText(current)
+            lay.addRow(label, cmb)
+            combos[key] = cmb
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addRow(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return mapping
+        return {key: cmb.currentText() for key, cmb in combos.items()}
+
+    def _find_logbook_record(self, path: str | Path) -> dict | None:
+        mapping = self._session.logbook_mapping or {}
+        file_col = mapping.get("file", "")
+        if not file_col:
+            return None
+        for rec in self._session.logbook_records:
+            if _record_matches_path(rec.get(file_col), path, self._session.folder):
+                return rec
+        return None
+
+    def _apply_logbook_to_controls(self, path: str | Path) -> bool:
+        rec = self._find_logbook_record(path)
+        if rec is None:
+            return False
+        mapping = self._session.logbook_mapping or {}
+        changed = False
+
+        hv = _cell_float(rec.get(mapping.get("hv", "")))
+        if hv is not None and hv > 0:
+            self._params.sp_hv.blockSignals(True)
+            self._params.sp_hv.setValue(hv)
+            self._params.sp_hv.blockSignals(False)
+            entry = self._session.get_or_create(self._session.key_for_path(path))
+            entry.meta.hv = hv
+            changed = True
+
+        temp_col = mapping.get("temperature", "")
+        temp = _cell_float(rec.get(temp_col)) if temp_col else None
+        if temp is not None:
+            entry = self._session.get_or_create(self._session.key_for_path(path))
+            entry.meta.temperature = temp
+            changed = True
+
+        pol_col = mapping.get("polarization", "")
+        pol = _cell_text(rec.get(pol_col)) if pol_col else ""
+        if pol:
+            entry = self._session.get_or_create(self._session.key_for_path(path))
+            entry.meta.polarization = pol
+            changed = True
+
+        if changed:
+            self._session.save()
+        return changed
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Chargement fichier
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -1276,6 +1537,7 @@ class ArpesExplorer(QMainWindow):
             self._params.sp_ef.blockSignals(True)
             self._params.sp_ef.setValue(entry.ef_offset)
             self._params.sp_ef.blockSignals(False)
+            logbook_hit = self._apply_logbook_to_controls(path)
             if entry.meta.hv and entry.meta.hv > 0 and self._params.sp_hv.value() <= 0:
                 self._params.sp_hv.blockSignals(True)
                 self._params.sp_hv.setValue(float(entry.meta.hv))
@@ -1330,10 +1592,11 @@ class ArpesExplorer(QMainWindow):
 
             self._browser.select_file(path)
             hv_txt = f"{d['hv']:.0f} eV" if d.get("hv") is not None else "—"
+            lb_txt = "  |  logbook" if logbook_hit else ""
             self._status(
                 f"Chargé : {Path(path).name}  hν={hv_txt}  |  "
                 f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
-                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV"
+                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV{lb_txt}"
             )
         except Exception as e:
             self._status(f"⚠ {e}")
