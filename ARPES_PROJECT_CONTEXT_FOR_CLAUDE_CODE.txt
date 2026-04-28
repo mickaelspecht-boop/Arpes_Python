@@ -1,0 +1,524 @@
+# ARPES Explorer — contexte projet pour Claude Code
+
+## Objectif général
+
+On développe une petite application Python/PyQt6 pour analyser des données ARPES provenant de différents laboratoires et donc de formats différents. Le but n'est pas d'harmoniser les fichiers bruts, mais d'harmoniser la sortie des loaders vers une structure commune, afin que l'interface et les algorithmes travaillent toujours sur les mêmes champs.
+
+Objectif utilisateur :
+- charger des Band Maps (BM) et des Fermi Surfaces (FS) ;
+- gérer au moins deux familles de données : Solaris/DA30 et CLS/LNLS ;
+- pouvoir calibrer EF ;
+- convertir correctement les axes en k ;
+- visualiser BM, fit MDC, résultats et FS dans des onglets séparés ;
+- garder une interface organisée par dossiers pliables/dépliables ;
+- permettre l'analyse de FS avec superposition de ZDB théorique et détection automatique du centre Gamma.
+
+## Architecture actuelle souhaitée
+
+Fichiers principaux :
+
+- `arpes_explorer.py`
+  Interface graphique PyQt6 principale.
+
+- `arpes_io.py`
+  Couche IO commune. C'est le point d'entrée unique pour charger les données ARPES.
+
+- `arpes_fs.py`
+  Module séparé pour tout ce qui concerne les surfaces de Fermi : affichage FS, contrôles lattice/ZDB, normalisation, détection Gamma.
+
+- `arpes_plots.py`
+  Fonctions historiques d'analyse ARPES, notamment fitting EF, MDC, courbures, etc. L'explorer peut encore s'en servir.
+
+- `bm.py`
+  Script batch historique pour Band Maps Solaris/BaNi2As2.
+
+- `fs_batch.py`
+  Script batch historique pour Fermi Surfaces Solaris/BaNi2As2.
+
+- `kz_calc.py`
+  Script de calcul kz / V0 pour BaNi2As2.
+
+- `CLS.py`
+  Ancien loader CLS écrit comme plugin `peaks`. À conserver comme référence, mais l'application principale ne doit pas dépendre de `peaks` pour CLS.
+
+## Principe fondamental du loader
+
+L'application ne doit plus appeler directement `erlab.io.load(...)` depuis l'interface.
+
+Elle doit toujours faire :
+
+```python
+from arpes_io import load_arpes
+
+ds = load_arpes(path, work_func=..., ef_offset=..., a_lattice=..., hv=...)
+```
+
+`arpes_io.py` choisit ensuite le loader approprié via `detect_format(path)`.
+
+Logique attendue :
+
+```text
+chemin fichier/dossier
+    -> detect_format(path)
+    -> "solaris_da30" ou "cls_txt"
+    -> loader correspondant
+    -> ARPESData standard
+```
+
+## Structure standard `ARPESData`
+
+`arpes_io.py` doit contenir une dataclass proche de :
+
+```python
+@dataclass
+class ARPESData:
+    data: np.ndarray
+    energy: np.ndarray
+    kx: Optional[np.ndarray] = None
+    ky: Optional[np.ndarray] = None
+    hv: Optional[float] = None
+    path: Optional[Path] = None
+    source_format: str = "unknown"
+    metadata: dict[str, Any] = field(default_factory=dict)
+    xarray: Any = None
+```
+
+Convention pour BM 2D :
+
+```text
+data.shape = (n_k, n_E)
+kx.shape   = (n_k,)
+energy.shape = (n_E,)
+```
+
+Convention pour FS 3D :
+
+```text
+metadata["fs_data"]   = volume FS, idéalement (n_ky, n_kx, n_E)
+metadata["fs_kx"]     = axe kx
+metadata["fs_ky"]     = axe ky
+metadata["fs_energy"] = axe énergie
+metadata["fs_kind"]   = "kxky"
+```
+
+L'ancien code de l'interface attend encore parfois un dictionnaire legacy. `ARPESData.as_legacy_bandmap_dict()` doit donc retourner :
+
+```python
+{
+    "kpar": self.kx,
+    "ev_arr": self.energy,
+    "data": self.data,
+    "hv": self.hv,
+    "path": str(self.path),
+    "source_format": self.source_format,
+    "metadata": self.metadata,
+}
+```
+
+## Loaders supportés
+
+### Solaris / DA30
+
+Formats : `.ibw`, `.pxt`, `.zip`.
+
+Détection : extension dans `{'.ibw', '.pxt', '.zip'}`.
+
+Loader : `load_solaris_da30_bandmap(...)`.
+
+Comportement attendu :
+- utiliser `erlab.io` ;
+- appeler `erlab.io.set_loader("da30")` si possible ;
+- lire `hv` dans les attributs du fichier ;
+- calculer l'énergie relative :
+
+```python
+EF_kin = hv - work_func
+E_minus_EF = Ekin - EF_kin + ef_offset
+```
+
+- appliquer `da_be.kspace.convert()` ;
+- convertir `kx` et `ky` en unités `pi/a` :
+
+```python
+kx_pi_a = kx_Ainv * a_lattice / np.pi
+ky_pi_a = ky_Ainv * a_lattice / np.pi
+```
+
+- si c'est un volume 3D avec kx/ky/eV, stocker le volume dans `metadata['fs_data']`, etc. ;
+- si c'est une BM 2D, retourner `data` en shape `(nk, nE)`.
+
+### CLS / LNLS txt autonome
+
+Le fichier `CLS.py` original dépend de `peaks`. Il faut garder cette version comme référence seulement.
+
+L'application principale doit charger CLS via `arpes_io.py`, sans importer `peaks`.
+
+Formats CLS :
+
+1. BM CLS :
+
+```text
+BM8
+BM8_param.txt
+```
+
+Le fichier de données n'a pas forcément d'extension. Le param associé est `<nom>_param.txt`.
+
+2. FS CLS :
+
+```text
+FS_folder/
+    prefix_param.txt
+    prefix_Cycle_C_Step_S.txt
+```
+
+Cycles = répétitions à moyenner.
+Steps = positions de tilt/phi à convertir en axe FS vertical.
+
+Paramètres dans `_param.txt` :
+
+```text
+Pass energy: ...
+Lens mode: ...
+Acquisition mode: ...
+Central Energy: ...
+Dwell Time: ...
+Energy min: ...; Energy delta: ...
+Angle min: ...; Angle delta: ...
+{ JSON positions manipulateur }
+```
+
+Le fichier CLS ne stocke pas toujours `hv`. L'utilisateur doit pouvoir renseigner `CLS hν` manuellement dans l'interface. Cette valeur doit persister dans la session et être réutilisée pour les BM/FS suivantes.
+
+Pour CLS :
+- reconstruire l'axe énergie brute cinétique à partir de `Energy min` et `Energy delta` ;
+- reconstruire l'axe angle à partir de `Angle min` et `Angle delta` ;
+- utiliser `Central Energy` comme référence EF cinétique initiale quand c'est plus fiable pour Ba122 CLS ;
+- convertir l'énergie vers `E - EF` avec `ef_offset` ;
+- convertir `theta_par` en `kx (pi/a)` ;
+- pour FS, convertir `tilt/phi` en `ky (pi/a)`.
+
+Conversion typique :
+
+```python
+k = 0.51233 * sqrt(Ekin_EF) * sin(angle_deg) * a_lattice / np.pi
+```
+
+Attention : pour CLS/Ba122, dans le notebook V4 l'axe FS utilisait une logique de centrage Gamma et conversion tilt/phi spécifique. Le loader doit éviter de laisser l'axe vertical en degrés dans l'onglet FS.
+
+## Interface `arpes_explorer.py`
+
+### Onglets attendus
+
+L'interface principale doit contenir au moins :
+
+1. `BM`
+   - affichage de la Band Map ;
+   - contrôles EF / Chargement ;
+   - pas de panneaux de fitting MDC visibles ici.
+
+2. `MDC Fit`
+   - mini-BM/diagramme d'énergie visible en permanence en haut ;
+   - MDC/EDC live ;
+   - paramètres de plage d'analyse ;
+   - paramètres de fit MDC ;
+   - boutons Guess / Fit complet / export.
+
+3. `Résultats`
+   - table et visualisation des résultats de fit.
+
+4. `FS`
+   - affichage de Surface de Fermi ;
+   - panneaux spécifiques lattice, ZDB, normalisation, détection Gamma ;
+   - pas de contrôles MDC/BM ici.
+
+### Panneau droit
+
+Le panneau droit doit changer selon l'onglet :
+
+- Onglet `BM` : afficher seulement `EF / Chargement`.
+- Onglet `MDC Fit` : afficher les contrôles de fit MDC et plage d'analyse.
+- Onglet `FS` : afficher les contrôles FS (`FSControlPanel`).
+
+Problème déjà rencontré : les fenêtres `Plage d'analyse` et `Fit MDC` étaient restées visibles dans BM. À éviter.
+
+### Chargement FS
+
+Quand on charge un dataset FS :
+- il doit être dessiné dans l'onglet `FS`, pas dans `BM` ;
+- l'application doit basculer automatiquement vers `FS` ;
+- les données FS doivent venir de `metadata['fs_data']`, `fs_kx`, `fs_ky`, `fs_energy`.
+
+Problème déjà rencontré : les FS se chargeaient dans BM mais pas dans FS. À vérifier.
+
+## Calibration EF
+
+Objectif : placer le bord de Fermi à `E = 0 eV`.
+
+Workflow :
+
+```text
+données chargées
+-> moyenne sur k pour obtenir une EDC moyenne
+-> fit du bord de Fermi
+-> mesure du décalage EF
+-> correction de ef_offset
+-> sauvegarde dans la session
+-> reload du fichier avec le nouvel offset
+```
+
+Le fit utilise une Fermi-Dirac convoluée par une gaussienne de résolution avec fond simple.
+
+La calibration doit être robuste :
+- si EF n'est pas déjà proche de zéro, chercher automatiquement le plus fort gradient de l'EDC et adapter la fenêtre de fit ;
+- afficher un dialogue ou message avec :
+  - EF trouvé en meV ;
+  - fenêtre utilisée ;
+  - FWHM résolution ;
+  - résidu RMS ;
+  - ancien offset ;
+  - nouvel offset proposé.
+
+Important : l'offset doit être écrit dans la session AVANT de recharger le fichier. Un bug précédent faisait que `_load_file()` restaurait l'ancien offset et écrasait le nouveau.
+
+Important aussi : l'offset sauvegardé doit être appliqué AVANT le chargement du fichier.
+
+### Raw / EDCnorm
+
+Le mode `Raw` doit vraiment afficher les données brutes.
+
+Le mode `EDCnorm` doit afficher :
+
+```python
+edc = np.nanmean(data, axis=0, keepdims=True)
+data_norm = data / safe_edc
+```
+
+`SecDev` / `Curvature` peuvent utiliser soit le brut soit EDCnorm selon le checkbox, mais `Raw` ne doit jamais être modifié par EDCnorm.
+
+## FS / ZDB / Gamma
+
+`arpes_fs.py` doit contenir la logique FS séparée.
+
+### Contrôles FS attendus
+
+`FSControlPanel` doit permettre :
+- `a_lattice` ;
+- `b_lattice` ;
+- centre `kx`, `ky` ;
+- fenêtre EF ;
+- lissage ;
+- colormap ;
+- normalisation profil ;
+- afficher/masquer ZDB ;
+- afficher/masquer points de haute symétrie ;
+- demi-ZDB x/y ;
+- limite d'affichage ;
+- bouton redessiner ;
+- bouton `Trouver Gamma et centrer`.
+
+### ZDB théorique
+
+Overlay attendu : carré/rectangle de ZDB en unités `pi/a`, centré sur Gamma défini par `kx_center`, `ky_center`.
+
+Points typiques :
+- Gamma au centre ;
+- X sur les milieux des côtés ;
+- M aux coins.
+
+### Normalisation FS
+
+Pour Solaris fastmap, la normalisation de profil historique était plutôt selon l'axe lent `ky`.
+
+Pour CLS/Ba122, les bandes verticales observées venaient surtout d'un profil détecteur selon `theta/kx`. Il faut donc une normalisation adaptée au format/source.
+
+Toujours garder une option utilisateur pour activer/désactiver la normalisation profil.
+
+### Détection Gamma depuis FS
+
+Dans le notebook V4, il y avait des variables et une logique de centrage :
+
+```python
+GAMMA_FROM_FS = (-0.116, +0.055)
+POLAR_FS = 1.36
+POLAR_BM = 1.36
+```
+
+et surtout un algo de type :
+
+```python
+gamma_result = ap.find_gamma_mdc(...)
+```
+
+Principe : trouver Gamma par milieu des paires de pics kF sur la FS.
+
+À implémenter dans `arpes_fs.py` :
+- bouton `◎ Trouver Γ et centrer` ;
+- détection automatique par coupes horizontales et verticales ;
+- recherche de deux pics kF sur chaque coupe ;
+- Gamma = médiane des milieux des paires ;
+- mise à jour automatique de `centre kx`, `centre ky` ;
+- overlay diagnostic des paires utilisées si possible.
+
+Paramètres utiles :
+- k range min/max ;
+- scan ky min/max ;
+- scan kx min/max ;
+- nombre de coupes.
+
+## Navigateur fichiers
+
+Le navigateur doit rester organisé par dossiers.
+
+Fonctionnalités attendues :
+- affichage groupé par dossier ;
+- dossiers pliables/dépliables ;
+- double-clic sur dossier : ouvrir/réduire ;
+- bouton `Charger` sur dossier : ouvrir/réduire ;
+- navigation clavier doit ignorer les lignes de dossier ;
+- fichiers avec même nom dans des dossiers différents ne doivent pas entrer en collision dans la session ;
+- les clés de session doivent idéalement être des chemins relatifs au dossier racine.
+
+Pour CLS FS, un dossier contenant `*_param.txt` doit apparaître comme dataset chargeable, idéalement avec un label `[FS]`.
+
+## Session
+
+Le fichier `.arpes_session.json` doit sauvegarder :
+- `work_func` ;
+- `CLS hν manuel` global ;
+- pour chaque fichier :
+  - `ef_offset` ;
+  - `edcnorm` ;
+  - `view_mode` ;
+  - paramètres de fit ;
+  - résultats de fit ;
+  - métadonnées utiles.
+
+Le `CLS hν` ne doit pas être écrasé par le `hv` lu dans les fichiers Solaris.
+
+## Ancien loader CLS avec peaks
+
+`CLS.py` original :
+- dépend de `peaks.core.fileIO...` ;
+- enregistre `LOC_REGISTRY['CLS']` ;
+- expose `load_cls(...)` qui fait `pks.load(..., loc='CLS')`.
+
+Ce fichier peut rester dans le dépôt comme référence historique, mais l'app ne doit pas en dépendre.
+
+## Packaging / app autosuffisante
+
+Objectif futur : pouvoir lancer l'app sans activer manuellement l'environnement `peaks`.
+
+Approche recommandée à court terme : dossier-app avec environnement Python embarqué, pas tout de suite PyInstaller.
+
+Structure possible :
+
+```text
+ARPES_Explorer/
+  run.command
+  app/
+    arpes_explorer.py
+    arpes_io.py
+    arpes_fs.py
+    arpes_plots.py
+    bm.py
+    fs_batch.py
+    kz_calc.py
+  env/
+    bin/python
+    packages...
+```
+
+`run.command` :
+
+```bash
+#!/bin/bash
+cd "$(dirname "$0")"
+./env/bin/python app/arpes_explorer.py
+```
+
+Dépendances importantes :
+- numpy
+- scipy
+- pandas
+- xarray
+- matplotlib
+- PyQt6
+- erlab pour Solaris/DA30
+
+CLS autonome ne doit plus nécessiter `peaks`.
+
+PyInstaller `.app` est possible ensuite, mais non garanti sans hooks spécifiques pour PyQt6/scipy/matplotlib/erlab.
+
+## Points à vérifier rigoureusement après chaque patch
+
+1. Compilation :
+
+```bash
+python -S -m py_compile arpes_io.py arpes_fs.py arpes_explorer.py bm.py fs_batch.py kz_calc.py
+```
+
+2. Lancement GUI :
+
+```bash
+python arpes_explorer.py
+```
+
+3. Test Solaris BM :
+- charger `.ibw` ou `.pxt` ;
+- vérifier onglet BM ;
+- vérifier EF / Chargement ;
+- tester calibration EF ;
+- vérifier onglet MDC Fit.
+
+4. Test CLS BM :
+- entrer `CLS hν` manuel ;
+- charger BM sans extension + `_param.txt` ;
+- vérifier axe énergie ;
+- vérifier axe k ;
+- vérifier que `CLS hν` persiste pour le fichier suivant.
+
+5. Test CLS FS :
+- charger dossier FS contenant `*_param.txt` et Cycle/Step ;
+- l'app doit basculer vers FS ;
+- vérifier que l'axe vertical est `ky (pi/a)`, pas tilt brut ;
+- vérifier ZDB ;
+- tester normalisation ;
+- tester `Trouver Gamma et centrer`.
+
+6. Test navigateur :
+- charger un dossier contenant plusieurs sous-dossiers ;
+- vérifier groupement ;
+- vérifier pliage/dépliage ;
+- vérifier que deux fichiers de même nom dans deux dossiers différents restent séparés.
+
+## Bugs déjà rencontrés à ne pas réintroduire
+
+- Le patch ZIP incomplet qui supprimait ou cassait la fenêtre MDC Fit.
+- Les panneaux `Plage d'analyse` et `Fit MDC` visibles dans BM.
+- Les FS qui se dessinent dans BM au lieu de FS.
+- Le bouton calibration EF qui fit mais ne change rien parce que l'ancien offset est restauré après.
+- `Raw` qui affiche en fait EDCnorm.
+- `CLS hν` manuel qui ne persiste pas entre BM.
+- Axe FS CLS vertical resté en degrés au lieu de `ky (pi/a)`.
+- Détection loader CLS dépendante de `peaks`.
+
+## État attendu du dernier ZIP complet
+
+Le ZIP complet doit contenir au minimum :
+- `arpes_explorer.py`
+- `arpes_io.py`
+- `arpes_fs.py`
+- `arpes_plots.py`
+- `bm.py`
+- `fs_batch.py`
+- `kz_calc.py`
+- `CLS.py` comme référence seulement
+- éventuellement un README
+
+Le lancement principal reste :
+
+```bash
+python arpes_explorer.py
+```
+
