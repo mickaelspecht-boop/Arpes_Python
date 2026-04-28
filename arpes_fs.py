@@ -47,6 +47,7 @@ class FSParams:
 class FSControlPanel(QScrollArea):
     params_changed = pyqtSignal()
     redraw_requested = pyqtSignal()
+    gamma_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -115,6 +116,10 @@ class FSControlPanel(QScrollArea):
         btn = QPushButton("↻ Redessiner FS")
         btn.clicked.connect(self.redraw_requested)
         lay.addWidget(btn)
+        btn_g = QPushButton("◎ Détecter Γ FS")
+        btn_g.setToolTip("Détecte Γ par milieux de paires MDC sur la FS et recentre la carte.")
+        btn_g.clicked.connect(self.gamma_requested)
+        lay.addWidget(btn_g)
         lay.addStretch(1)
 
     def params(self) -> FSParams:
@@ -125,6 +130,12 @@ class FSControlPanel(QScrollArea):
             bz_half_x=self.sp_bzx.value(), bz_half_y=self.sp_bzy.value(),
             normalize_profile=self.chk_norm.isChecked(), overlay_bz=self.chk_bz.isChecked(),
             show_hsym=self.chk_hsym.isChecked(), cmap=self.cmb_cmap.currentText())
+
+    def set_center(self, kx: float, ky: float):
+        self.sp_kx0.blockSignals(True); self.sp_ky0.blockSignals(True)
+        self.sp_kx0.setValue(float(kx)); self.sp_ky0.setValue(float(ky))
+        self.sp_kx0.blockSignals(False); self.sp_ky0.blockSignals(False)
+        self.params_changed.emit()
 
 
 def _robust_norm(img: np.ndarray) -> np.ndarray:
@@ -220,6 +231,55 @@ class FermiSurfaceCanvas(QWidget):
             self.ax.text(0.5, 0.5, str(exc), transform=self.ax.transAxes,
                          ha="center", va="center", color="tomato", wrap=True)
             self.canvas.draw_idle(); return f"Erreur FS: {exc}"
+
+    def detect_gamma(self, raw_data: dict[str, Any] | None, params: FSParams):
+        kx, ky, fs, _ = extract_fs_map(raw_data, params)
+        if len(ky) < 3:
+            raise ValueError("Détection Γ FS impossible sans volume FS 2D.")
+        meta = raw_data.get("metadata", {}) or {}
+        if meta.get("fs_kind") != "kxky":
+            raise ValueError("Détection Γ FS disponible seulement avec deux axes en π/a.")
+
+        img = np.asarray(fs, dtype=float)
+        kx_arr = np.asarray(kx, dtype=float)
+        ky_arr = np.asarray(ky, dtype=float)
+        kx_centers = []
+        ky_centers = []
+
+        def center_from_profile(axis, prof):
+            y = np.asarray(prof, dtype=float)
+            if not np.isfinite(y).any():
+                return np.nan
+            lo, hi = np.nanpercentile(y, [5, 99])
+            if hi - lo <= 1e-12:
+                return np.nan
+            y = np.clip((y - lo) / (hi - lo), 0, None)
+            left = axis < 0
+            right = axis > 0
+            if not left.any() or not right.any():
+                return np.nan
+            kl = axis[left][int(np.nanargmax(y[left]))]
+            kr = axis[right][int(np.nanargmax(y[right]))]
+            return float((kl + kr) / 2)
+
+        y_samples = np.linspace(max(ky_arr.min(), -params.klim), min(ky_arr.max(), params.klim), 15)
+        for y0 in y_samples:
+            iy = int(np.argmin(np.abs(ky_arr - y0)))
+            c = center_from_profile(kx_arr, img[iy, :])
+            if np.isfinite(c): kx_centers.append(c)
+
+        x_samples = np.linspace(max(kx_arr.min(), -params.klim), min(kx_arr.max(), params.klim), 15)
+        for x0 in x_samples:
+            ix = int(np.argmin(np.abs(kx_arr - x0)))
+            c = center_from_profile(ky_arr, img[:, ix])
+            if np.isfinite(c): ky_centers.append(c)
+
+        if len(kx_centers) < 3 or len(ky_centers) < 3:
+            raise ValueError("Pas assez de paires symétriques détectées sur la FS.")
+        gx = float(np.nanmedian(kx_centers))
+        gy = float(np.nanmedian(ky_centers))
+        return {"kx": gx, "ky": gy,
+                "gamma_kx_list": kx_centers, "gamma_ky_list": ky_centers}
 
     def _overlay_bz(self, p: FSParams):
         if not p.overlay_bz: return

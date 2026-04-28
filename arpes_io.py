@@ -209,6 +209,8 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
         "energy_raw_min": float(energy_raw[0]), "energy_raw_max": float(energy_raw[-1]),
         "ef_kinetic_nominal_from_hv": float(ef_kin_nominal) if np.isfinite(ef_kin_nominal) else None,
         "theta_par_deg": theta, "x_axis_unit": "pi/a", "kx_unit": "pi/a",
+        "kx_conversion": "theta_minus_polar",
+        "polar_already_applied_to_kx": True,
         "hv": hv_val if np.isfinite(hv_val) else None, "temperature": temp_val, "pol": pol, "azi": azi,
         "polar": float(p.get("polar",0.0)), "tilt_ref": float(p.get("tilt_ref",0.0)),
         "x": float(p.get("x",0.0)), "y": float(p.get("y",0.0)), "z": float(p.get("z",0.0)),
@@ -218,8 +220,11 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
     ky = None
     if volume is not None and tilt_coords is not None:
         fs_data = np.transpose(volume, (0, 2, 1))  # (tilt, theta/kx, E)
-        ky = np.asarray(tilt_coords, dtype=float)
-        meta.update({"fs_data": fs_data, "fs_kx": kx, "fs_ky": ky, "fs_energy": energy, "fs_kind": "tilt_theta"})
+        tilt_angle = np.asarray(tilt_coords, dtype=float)
+        ky = _cls_angle_to_k_pi_over_a(tilt_angle, ef_kin_nominal, a_lattice, 0.0)
+        meta.update({"fs_data": fs_data, "fs_kx": kx, "fs_ky": ky, "fs_energy": energy,
+                     "fs_kind": "kxky", "fs_ky_angle_deg": tilt_angle,
+                     "ky_conversion": "small_angle_tilt"})
     return ARPESData(data=data, energy=energy, kx=kx, ky=ky,
                      hv=hv_val if np.isfinite(hv_val) else None, path=path,
                      source_format="cls_txt", metadata=meta)

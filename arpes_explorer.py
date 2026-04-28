@@ -133,6 +133,7 @@ class Session:
         self.logbook_sheet: str = ""
         self.logbook_mapping: dict[str, str] = {}
         self.logbook_records: list[dict] = []
+        self.gamma_reference: dict = {}
 
     # ── persistance ───────────────────────────────────────────────────────────
     @property
@@ -150,6 +151,7 @@ class Session:
             "logbook_sheet": self.logbook_sheet,
             "logbook_mapping": _to_serial(self.logbook_mapping),
             "logbook_records": _to_serial(self.logbook_records),
+            "gamma_reference": _to_serial(self.gamma_reference),
             "files": {
                 name: _to_serial(asdict(entry))
                 for name, entry in self.files.items()
@@ -164,6 +166,7 @@ class Session:
         self.logbook_sheet = raw.get("logbook_sheet", "")
         self.logbook_mapping = raw.get("logbook_mapping", {})
         self.logbook_records = raw.get("logbook_records", [])
+        self.gamma_reference = raw.get("gamma_reference", {})
         for name, edict in raw.get("files", {}).items():
             fp = FitParams(**edict.get("fit_params", {}))
             mt = FileMeta(**edict.get("meta", {}))
@@ -783,6 +786,7 @@ class FitParamsPanel(QScrollArea):
     ef_calib_requested = pyqtSignal()
     logbook_requested = pyqtSignal()
     gamma_bm_requested = pyqtSignal()
+    gamma_ref_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -926,6 +930,11 @@ class FitParamsPanel(QScrollArea):
         btn_gamma.setToolTip("Estime le centre Γ par la médiane des milieux de paires MDC.")
         btn_gamma.clicked.connect(self.gamma_bm_requested)
         _fcl.addWidget(btn_gamma)
+
+        btn_ref = QPushButton("↳  Γ FS → BM")
+        btn_ref.setToolTip("Applique le Γ de référence mesuré sur une FS à la BM courante.")
+        btn_ref.clicked.connect(self.gamma_ref_requested)
+        _fcl.addWidget(btn_ref)
 
         btn_f = QPushButton("▶  Fit complet  [Ctrl+F]")
         btn_f.setStyleSheet("background:#2a6099;color:white;font-weight:bold;padding:6px;")
@@ -1303,6 +1312,7 @@ class ArpesExplorer(QMainWindow):
         self._params.ef_calib_requested.connect(self._ef_calibrate)
         self._params.logbook_requested.connect(self._load_logbook_dialog)
         self._params.gamma_bm_requested.connect(self._estimate_gamma_bm)
+        self._params.gamma_ref_requested.connect(self._apply_gamma_reference_to_bm)
         self._params.set_fit_controls_visible(False)  # caché sur BM (tab 0 par défaut)
         right_split.addWidget(self._params)
         right_split.setSizes([550])
@@ -1353,6 +1363,16 @@ class ArpesExplorer(QMainWindow):
             params = self._fs_controls.params()
             res = self._fs_canvas.detect_gamma(self._raw_data, params)
             self._fs_controls.set_center(res["kx"], res["ky"])
+            meta = (self._raw_data or {}).get("metadata", {}) or {}
+            self._session.gamma_reference = {
+                "kx": float(res["kx"]),
+                "ky": float(res["ky"]),
+                "polar": float(meta.get("polar", 0.0) or 0.0),
+                "hv": self._raw_data.get("hv"),
+                "path": self._raw_data.get("path"),
+                "polar_already_applied_to_kx": bool(meta.get("polar_already_applied_to_kx", False)),
+            }
+            self._session.save()
             self._draw_fs_tab()
             msg = (f"Gamma FS détecté : kx={res['kx']:+.4f}, ky={res['ky']:+.4f} π/a "
                    f"| {len(res.get('gamma_kx_list', []))} coupes kx, "
@@ -2092,6 +2112,44 @@ class ArpesExplorer(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, "Auto Γ BM", str(exc))
             self._status(f"⚠ Auto Γ BM : {exc}")
+
+    def _apply_gamma_reference_to_bm(self):
+        ref = self._session.gamma_reference or {}
+        if not ref:
+            QMessageBox.warning(self, "Γ FS → BM", "Aucun Γ de référence. Va sur l'onglet FS et clique d'abord sur Détecter Γ FS.")
+            return
+        if self._raw_data is None:
+            return
+        meta = self._raw_data.get("metadata", {}) or {}
+        gamma = float(ref.get("kx", np.nan))
+        if not np.isfinite(gamma):
+            QMessageBox.warning(self, "Γ FS → BM", "La référence Γ stockée est invalide.")
+            return
+
+        correction = 0.0
+        ref_polar_applied = bool(ref.get("polar_already_applied_to_kx", False))
+        bm_polar_applied = bool(meta.get("polar_already_applied_to_kx", False))
+        if not (ref_polar_applied and bm_polar_applied):
+            hv = self._raw_data.get("hv") or ref.get("hv")
+            work_func = self._params.sp_phi.value()
+            if hv is not None and float(hv) > work_func:
+                c_arpes = 0.51233
+                a = 3.96
+                ek = float(hv) - float(work_func)
+                p_ref = float(ref.get("polar", 0.0) or 0.0)
+                p_bm = float(meta.get("polar", 0.0) or 0.0)
+                correction = c_arpes * np.sqrt(ek) * (
+                    np.sin(np.radians(p_bm)) - np.sin(np.radians(p_ref))
+                ) * a / np.pi
+        gamma_bm = gamma + correction
+        self._params.sp_cx.setValue(gamma_bm)
+        self._params.lbl_res.setText(
+            f"Γ FS→BM = {gamma_bm:+.4f} π/a\n"
+            f"corr polar={correction:+.4f}"
+        )
+        self._draw_bm()
+        self._draw_mdc_edc()
+        self._status(f"Γ FS appliqué à la BM : {gamma_bm:+.4f} π/a  correction={correction:+.4f}")
 
     def _fit_full(self):
         if AP is None: self._status("⚠ arpes_plots non chargé"); return
