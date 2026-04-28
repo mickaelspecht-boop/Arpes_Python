@@ -130,6 +130,7 @@ class Session:
         self.work_func: float       = work_func
         self.files:     dict[str, FileEntry] = {}
         self.logbook_path: str = ""
+        self.logbook_sheet: str = ""
         self.logbook_mapping: dict[str, str] = {}
         self.logbook_records: list[dict] = []
 
@@ -146,6 +147,7 @@ class Session:
             "folder":    str(self.folder),
             "work_func": self.work_func,
             "logbook_path": self.logbook_path,
+            "logbook_sheet": self.logbook_sheet,
             "logbook_mapping": _to_serial(self.logbook_mapping),
             "logbook_records": _to_serial(self.logbook_records),
             "files": {
@@ -159,6 +161,7 @@ class Session:
         raw = json.loads(path.read_text())
         self.work_func = raw.get("work_func", 4.031)
         self.logbook_path = raw.get("logbook_path", "")
+        self.logbook_sheet = raw.get("logbook_sheet", "")
         self.logbook_mapping = raw.get("logbook_mapping", {})
         self.logbook_records = raw.get("logbook_records", [])
         for name, edict in raw.get("files", {}).items():
@@ -1377,16 +1380,18 @@ class ArpesExplorer(QMainWindow):
         if not path:
             return
         try:
-            records, mapping = self._read_logbook(Path(path))
+            records, mapping, sheet_name = self._read_logbook(Path(path))
             self._session.logbook_path = path
+            self._session.logbook_sheet = sheet_name
             self._session.logbook_mapping = mapping
             self._session.logbook_records = records
             self._session.save()
             used = ", ".join(f"{k}={v or '—'}" for k, v in mapping.items())
-            self._status(f"Logbook chargé : {Path(path).name} | {len(records)} lignes | {used}")
+            sheet_txt = f" [{sheet_name}]" if sheet_name else ""
+            self._status(f"Logbook chargé : {Path(path).name}{sheet_txt} | {len(records)} lignes | {used}")
             QMessageBox.information(
                 self, "Logbook chargé",
-                f"{Path(path).name}\n{len(records)} lignes lues.\n\nColonnes détectées :\n{used}"
+                f"{Path(path).name}{sheet_txt}\n{len(records)} lignes lues.\n\nColonnes détectées :\n{used}"
             )
             if self._current_path:
                 self._apply_logbook_to_controls(self._current_path)
@@ -1394,15 +1399,20 @@ class ArpesExplorer(QMainWindow):
             QMessageBox.warning(self, "Logbook", str(exc))
             self._status(f"⚠ Logbook : {exc}")
 
-    def _read_logbook(self, path: Path) -> tuple[list[dict], dict[str, str]]:
+    def _read_logbook(self, path: Path) -> tuple[list[dict], dict[str, str], str]:
         try:
             import pandas as pd
         except Exception as exc:
             raise ImportError("pandas est nécessaire pour lire les logbooks Excel/CSV.") from exc
 
         suffix = path.suffix.lower()
+        sheet_name = ""
         if suffix in {".xlsx", ".xls"}:
-            raw = pd.read_excel(path, header=None)
+            book = pd.ExcelFile(path)
+            sheet_name = self._choose_excel_sheet(book.sheet_names)
+            if not sheet_name:
+                raise ValueError("Aucune feuille Excel sélectionnée.")
+            raw = pd.read_excel(path, sheet_name=sheet_name, header=None)
             if raw.dropna(how="all").empty:
                 raise ValueError("Le logbook ne contient aucune ligne exploitable.")
             candidates = self._excel_header_candidates(raw)
@@ -1435,7 +1445,43 @@ class ArpesExplorer(QMainWindow):
         if not mapping.get("file") or not mapping.get("hv"):
             raise ValueError("Les colonnes fichier et hν sont obligatoires pour appliquer un logbook.")
         records = df.where(pd.notnull(df), None).to_dict(orient="records")
-        return records, mapping
+        return records, mapping, sheet_name
+
+    def _choose_excel_sheet(self, sheet_names: list[str]) -> str:
+        if not sheet_names:
+            return ""
+        if len(sheet_names) == 1:
+            return sheet_names[0]
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Feuille du logbook")
+        lay = QVBoxLayout(dlg)
+        label = QLabel("Choisis la feuille qui correspond au compound / dataset.")
+        label.setWordWrap(True)
+        lay.addWidget(label)
+        cmb = QComboBox()
+        cmb.addItems(sheet_names)
+        preferred = ""
+        if self._session.folder is not None:
+            preferred = self._session.folder.name
+        preferred_norm = _norm_text(preferred)
+        if self._session.logbook_sheet in sheet_names:
+            cmb.setCurrentText(self._session.logbook_sheet)
+        elif preferred in sheet_names:
+            cmb.setCurrentText(preferred)
+        else:
+            for sheet in sheet_names:
+                sheet_norm = _norm_text(sheet)
+                if sheet_norm and sheet_norm in preferred_norm:
+                    cmb.setCurrentText(sheet)
+                    break
+        lay.addWidget(cmb)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return ""
+        return cmb.currentText()
 
     def _excel_header_candidates(self, raw) -> list[int]:
         candidates: list[int] = []
