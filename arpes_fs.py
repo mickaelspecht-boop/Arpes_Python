@@ -32,6 +32,8 @@ class FSParams:
     a_lattice: float = 3.96
     b_lattice: float = 3.96
     ef_window: float = 0.030
+    norm_ref_lo: float = -0.60
+    norm_ref_hi: float = -0.20
     smooth_sigma: float = 1.0
     klim: float = 1.3
     kx_center: float = 0.0
@@ -82,12 +84,16 @@ class FSControlPanel(QScrollArea):
         grp_fs = QGroupBox("Carte FS")
         fl2 = QFormLayout(grp_fs)
         self.sp_win = self._dspin(0.030, 0.001, 0.500, 0.005)
+        self.sp_ref_lo = self._dspin(-0.600, -5.000, 1.000, 0.050)
+        self.sp_ref_hi = self._dspin(-0.200, -5.000, 1.000, 0.050)
         self.sp_sm = self._dspin(1.0, 0.0, 8.0, 0.25, dec=2)
         self.cmb_cmap = QComboBox(); self.cmb_cmap.addItems(["inferno", "viridis", "magma", "gray", "hot"])
         self.cmb_cmap.currentIndexChanged.connect(self.params_changed)
-        self.chk_norm = QCheckBox("Normalisation profil y/ky"); self.chk_norm.setChecked(True)
+        self.chk_norm = QCheckBox("Normalisation flux par slice"); self.chk_norm.setChecked(True)
         self.chk_norm.stateChanged.connect(self.params_changed)
         fl2.addRow("Fenêtre EF ±eV:", self.sp_win)
+        fl2.addRow("Norm ref min:", self.sp_ref_lo)
+        fl2.addRow("Norm ref max:", self.sp_ref_hi)
         fl2.addRow("Lissage σ:", self.sp_sm)
         fl2.addRow("Colormap:", self.cmb_cmap)
         fl2.addRow(self.chk_norm)
@@ -125,7 +131,9 @@ class FSControlPanel(QScrollArea):
     def params(self) -> FSParams:
         return FSParams(
             a_lattice=self.sp_a.value(), b_lattice=self.sp_b.value(),
-            ef_window=self.sp_win.value(), smooth_sigma=self.sp_sm.value(),
+            ef_window=self.sp_win.value(),
+            norm_ref_lo=self.sp_ref_lo.value(), norm_ref_hi=self.sp_ref_hi.value(),
+            smooth_sigma=self.sp_sm.value(),
             klim=self.sp_klim.value(), kx_center=self.sp_kx0.value(), ky_center=self.sp_ky0.value(),
             bz_half_x=self.sp_bzx.value(), bz_half_y=self.sp_bzy.value(),
             normalize_profile=self.chk_norm.isChecked(), overlay_bz=self.chk_bz.isChecked(),
@@ -143,6 +151,31 @@ def _robust_norm(img: np.ndarray) -> np.ndarray:
     if not np.isfinite(arr).any(): return arr
     lo, hi = np.nanpercentile(arr, [1, 99])
     return np.clip((arr - lo) / (hi - lo + 1e-12), 0, 1)
+
+
+def _normalize_volume_by_slice(fs_data: np.ndarray, ev: np.ndarray, params: FSParams):
+    data = np.asarray(fs_data, dtype=float)
+    ev_arr = np.asarray(ev, dtype=float)
+    if data.ndim != 3 or data.shape[-1] != len(ev_arr) or data.shape[0] <= 1:
+        return data, "sans norm"
+
+    ref_lo, ref_hi = sorted((params.norm_ref_lo, params.norm_ref_hi))
+    ev_min, ev_max = float(np.nanmin(ev_arr)), float(np.nanmax(ev_arr))
+    ref_lo = max(ref_lo, ev_min)
+    ref_hi = min(ref_hi, ev_max)
+    mask = (ev_arr >= ref_lo) & (ev_arr <= ref_hi)
+    if mask.sum() == 0:
+        return data, "norm ref vide"
+
+    # Profil flux par slice y/ky : moyenne sur kx et sur la fenêtre énergie.
+    profile = np.nanmean(data[:, :, mask], axis=(1, 2))
+    finite = np.isfinite(profile) & (np.abs(profile) > 1e-12)
+    if finite.sum() < max(2, len(profile) // 4):
+        return data, "norm profil invalide"
+    fill = float(np.nanmedian(profile[finite]))
+    safe = np.where(finite, profile, fill)
+    safe = safe / (np.nanmedian(safe[np.isfinite(safe)]) + 1e-12)
+    return data / safe[:, None, None], f"norm flux [{ref_lo:.2f},{ref_hi:.2f}] eV"
 
 
 def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
@@ -170,13 +203,14 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
     if fs_data.shape[-1] != len(ev):
         raise ValueError("Volume FS: dernier axe ≠ énergie")
 
+    norm_note = "sans norm"
+    if params.normalize_profile:
+        fs_data, norm_note = _normalize_volume_by_slice(fs_data, ev, params)
+
     mask = np.abs(ev) <= params.ef_window
     if mask.sum() == 0: mask[np.argmin(np.abs(ev))] = True
     fs = np.nanmean(fs_data[:, :, mask], axis=2)
 
-    if params.normalize_profile and fs.shape[0] > 1:
-        prof = np.nanmean(fs, axis=1, keepdims=True)
-        fs = fs / (prof + 1e-12)
     if params.smooth_sigma > 0 and gaussian_filter is not None:
         nan = ~np.isfinite(fs)
         tmp = np.where(nan, np.nanmedian(fs[np.isfinite(fs)]) if np.isfinite(fs).any() else 0, fs)
@@ -186,7 +220,7 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
 
     # CLS: ky est souvent tilt en degrés. On l'affiche tel quel sauf si l'utilisateur recentre.
     source = meta.get("fs_source", raw_data.get("source_format", ""))
-    return kx, ky, fs_n, f"FS {source} — intégration ±{params.ef_window*1000:.0f} meV"
+    return kx, ky, fs_n, f"FS {source} — ±{params.ef_window*1000:.0f} meV | {norm_note}"
 
 
 class FermiSurfaceCanvas(QWidget):
