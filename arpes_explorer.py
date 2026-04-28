@@ -79,7 +79,7 @@ class FitParams:
 
 @dataclass
 class FileMeta:
-    hv: float          = 100.0
+    hv: float          = 0.0
     temperature: float = 0.0
     direction: str     = ""
     polarization: str  = ""
@@ -446,7 +446,13 @@ class FileBrowserPanel(QWidget):
         self._populate()
 
     def _is_cls_dataset_dir(self, p: Path) -> bool:
-        return p.is_dir() and any(p.glob("*_param.txt"))
+        if not p.is_dir():
+            return False
+        for param_file in p.glob("*_param.txt"):
+            prefix = param_file.name.removesuffix("_param.txt")
+            if any(p.glob(f"{prefix}_Cycle_*_Step_*.txt")):
+                return True
+        return False
 
     def _is_data_file(self, p: Path) -> bool:
         if not p.is_file():
@@ -1267,10 +1273,18 @@ class ArpesExplorer(QMainWindow):
         QApplication.processEvents()
         try:
             entry = self._session.get_or_create(self._session.key_for_path(path))
+            self._params.sp_ef.blockSignals(True)
+            self._params.sp_ef.setValue(entry.ef_offset)
+            self._params.sp_ef.blockSignals(False)
+            if entry.meta.hv and entry.meta.hv > 0 and self._params.sp_hv.value() <= 0:
+                self._params.sp_hv.blockSignals(True)
+                self._params.sp_hv.setValue(float(entry.meta.hv))
+                self._params.sp_hv.blockSignals(False)
+            hv_for_load = self._params.sp_hv.value()
             d = load_arpes_file(path,
                                 self._params.sp_phi.value(),
                                 self._params.sp_ef.value(),
-                                hv=self._params.sp_hv.value())
+                                hv=hv_for_load)
             if d is None:
                 self._status("⚠ erlab non disponible")
                 return
@@ -1284,6 +1298,9 @@ class ArpesExplorer(QMainWindow):
                 self._params.sp_hv.blockSignals(True)
                 self._params.sp_hv.setValue(float(hv_in_data))
                 self._params.sp_hv.blockSignals(False)
+                entry.meta.hv = float(hv_in_data)
+            elif hv_for_load and hv_for_load > 0:
+                entry.meta.hv = float(hv_for_load)
 
             # Restaurer params depuis session
             self._params.sp_ef.blockSignals(True)
@@ -1328,13 +1345,16 @@ class ArpesExplorer(QMainWindow):
         d    = self._raw_data
         raw  = d["data"]
         mode = self._cmb_view.currentText()
-        norm = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
 
-        if mode in ("Raw", "EDCnorm"):
-            self._data_disp = norm
+        if mode == "Raw":
+            self._data_disp = raw
+        elif mode == "EDCnorm":
+            self._data_disp = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
         elif mode == "SecDev":
+            norm = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
             self._data_disp = compute_secdev(norm, d["kpar"], d["ev_arr"])
         elif mode == "Curvature":
+            norm = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
             self._data_disp = compute_curvature(norm, d["kpar"], d["ev_arr"])
 
     def _on_view_changed(self):

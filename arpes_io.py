@@ -32,8 +32,14 @@ class ARPESData:
 SUPPORTED_SOLARIS_EXTENSIONS = {".ibw", ".pxt", ".zip"}
 _C_ARPES = 0.51233
 
-def _is_cls_dir(path: Path) -> bool:
-    return path.is_dir() and any(path.glob("*_param.txt"))
+def _is_cls_fs_dir(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    for param_file in path.glob("*_param.txt"):
+        prefix = param_file.name.removesuffix("_param.txt")
+        if any(path.glob(f"{prefix}_Cycle_*_Step_*.txt")):
+            return True
+    return False
 
 def _is_cls_bm_file(path: Path) -> bool:
     return path.is_file() and (path.parent / f"{path.name}_param.txt").exists()
@@ -41,7 +47,7 @@ def _is_cls_bm_file(path: Path) -> bool:
 def detect_format(path: str | Path) -> str:
     p = Path(path)
     if p.suffix.lower() in SUPPORTED_SOLARIS_EXTENSIONS: return "solaris_da30"
-    if _is_cls_dir(p) or _is_cls_bm_file(p): return "cls_txt"
+    if _is_cls_fs_dir(p) or _is_cls_bm_file(p): return "cls_txt"
     return "unknown"
 
 def _require_erlab():
@@ -144,6 +150,11 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
                  fs_step_mode: str = "mean") -> ARPESData:
     path = Path(path)
     hv_val = float(hv) if hv is not None and np.isfinite(hv) and float(hv) > 0 else np.nan
+    if not np.isfinite(hv_val):
+        raise ValueError(
+            "hν est obligatoire pour les données CLS/LNLS : entre l'énergie photon "
+            "du logbook avant de charger le fichier."
+        )
     temp_val = float(temperature) if temperature is not None and np.isfinite(temperature) else np.nan
     if path.is_file():
         folder = path.parent; prefix = path.name; p = _parse_cls_param(folder, prefix)
@@ -152,7 +163,17 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
     else:
         folder = path; param_files = sorted(folder.glob("*_param.txt"))
         if not param_files: raise FileNotFoundError(f"Aucun *_param.txt dans {folder}")
-        prefix = param_files[0].name.removesuffix("_param.txt"); p = _parse_cls_param(folder, prefix)
+        candidates = []
+        for pf in param_files:
+            cand = pf.name.removesuffix("_param.txt")
+            if any(folder.glob(f"{cand}_Cycle_*_Step_*.txt")):
+                candidates.append(cand)
+        if not candidates:
+            raise ValueError(
+                f"{folder} contient des paramètres CLS mais aucun fichier Cycle/Step. "
+                "Charge un fichier BM individuel, pas le dossier."
+            )
+        prefix = candidates[0]; p = _parse_cls_param(folder, prefix)
         all_files = sorted(folder.glob(f"{prefix}_Cycle_*_Step_*.txt"),
                            key=lambda f: (int(re.search(r"Cycle_(\d+)", f.name).group(1)), int(re.search(r"Step_(\d+)", f.name).group(1))))
         if not all_files: raise FileNotFoundError(f"Aucun fichier Cycle/Step dans {folder}")
@@ -164,22 +185,27 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
             volume[i] = np.stack([np.loadtxt(f).astype(np.float32) for f in steps[sid]], axis=0).mean(axis=0)
         raw = volume.mean(axis=0) if fs_step_mode == "mean" else volume[len(step_ids)//2]
         phi_vals = p.get("phi_values")
-        tilt_coords = np.array([phi_vals[s] for s in step_ids]) if phi_vals is not None and len(phi_vals) >= len(step_ids) else np.array(step_ids, dtype=float)
+        if phi_vals is not None:
+            if all(0 <= s < len(phi_vals) for s in step_ids):
+                tilt_coords = np.array([phi_vals[s] for s in step_ids], dtype=float)
+            elif all(1 <= s <= len(phi_vals) for s in step_ids):
+                tilt_coords = np.array([phi_vals[s - 1] for s in step_ids], dtype=float)
+            else:
+                tilt_coords = np.array(step_ids, dtype=float)
+        else:
+            tilt_coords = np.array(step_ids, dtype=float)
         scan_kind, n_steps, n_cycles = "FS", len(step_ids), max(len(v) for v in steps.values())
     n_e, n_theta = raw.shape
     energy_raw = p["energy_min"] + np.arange(n_e) * p["energy_delta"]
-    if np.isfinite(hv_val):
-        ef_kin_nominal = hv_val - float(work_func)
-        energy = energy_raw - ef_kin_nominal + float(ef_offset)
-    else:
-        ef_kin_nominal = float(p.get("central_energy") or np.nanmedian(energy_raw))
-        energy = energy_raw + float(ef_offset)
+    ef_kin_nominal = hv_val - float(work_func)
+    energy = energy_raw - ef_kin_nominal + float(ef_offset)
     theta = p["angle_min"] + np.arange(n_theta) * p["angle_delta"]
     angular_offset = float(p.get("polar", 0.0) or 0.0)
     kx = _cls_angle_to_k_pi_over_a(theta, ef_kin_nominal, a_lattice, angular_offset)
     data = raw.T
     meta: dict[str, Any] = {"lab": "CLS/LNLS", "scan_kind": scan_kind, "fs_source": "cls_txt",
-        "energy_axis_original": "kinetic", "energy_raw": energy_raw,
+        "energy_axis_original": "kinetic", "energy_axis": "E-EF",
+        "energy_raw": energy_raw,
         "energy_raw_min": float(energy_raw[0]), "energy_raw_max": float(energy_raw[-1]),
         "ef_kinetic_nominal_from_hv": float(ef_kin_nominal) if np.isfinite(ef_kin_nominal) else None,
         "theta_par_deg": theta, "x_axis_unit": "pi/a", "kx_unit": "pi/a",

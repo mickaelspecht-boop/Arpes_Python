@@ -199,15 +199,19 @@ class FermiSurfaceCanvas(QWidget):
             self.canvas.draw_idle(); return "Aucune donnée"
         try:
             kx, ky, fs, title = extract_fs_map(raw_data, params)
+            meta = raw_data.get("metadata", {}) or {}
+            fs_kind = meta.get("fs_kind", "")
             x = kx - params.kx_center
             y = ky - params.ky_center
             self.ax.pcolormesh(x, y, fs, cmap=params.cmap, shading="auto", vmin=0, vmax=1)
-            self.ax.set_aspect("equal" if len(ky) > 1 and np.nanmax(np.abs(ky)) < 5 else "auto")
+            has_kxky_axes = fs_kind == "kxky"
+            self.ax.set_aspect("equal" if has_kxky_axes else "auto")
             self.ax.set_xlabel("kx (π/a)", color="w")
-            ylabel = "ky (π/a)" if (raw_data.get("metadata", {}) or {}).get("fs_source") == "solaris_da30" else "tilt / ky (deg ou π/a)"
+            ylabel = "ky (π/a)" if has_kxky_axes else "tilt (deg)"
             self.ax.set_ylabel(ylabel, color="w")
             self.ax.set_title(title, color="w", fontsize=10)
-            self._overlay_bz(params)
+            if has_kxky_axes:
+                self._overlay_bz(params)
             self.ax.tick_params(colors="w")
             for sp in self.ax.spines.values(): sp.set_edgecolor("#555")
             self.canvas.draw_idle()
