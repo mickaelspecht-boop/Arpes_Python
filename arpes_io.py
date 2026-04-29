@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 from collections import defaultdict
-import json, re, warnings
+from concurrent.futures import ThreadPoolExecutor
+import json, os, re, warnings
 import numpy as np
 
 @dataclass
@@ -31,6 +32,8 @@ class ARPESData:
 
 SUPPORTED_SOLARIS_EXTENSIONS = {".ibw", ".pxt", ".zip"}
 _C_ARPES = 0.51233
+_CLS_CACHE_VERSION = 2
+_CYCLE_STEP_RE = re.compile(r"Cycle_(\d+)_Step_(\d+)")
 
 def _is_cls_fs_dir(path: Path) -> bool:
     if not path.is_dir():
@@ -63,6 +66,9 @@ def _set_da30_loader(erlab_io) -> None:
 
 def _transpose_to_axes(arr: np.ndarray, dims: list[str], order: tuple[str, ...]) -> np.ndarray:
     return np.transpose(arr, [dims.index(name) for name in order])
+
+def _loadtxt_float32(path: Path) -> np.ndarray:
+    return np.loadtxt(path, dtype=np.float32)
 
 def load_solaris_da30_bandmap(path, work_func: float, ef_offset: float = 0.0,
                               a_lattice: float = 3.96, convert_kspace: bool = True) -> ARPESData:
@@ -144,6 +150,101 @@ def _cls_angle_to_k_pi_over_a(angle_deg, ef_kinetic: float, a_lattice: float, an
     theta = np.radians(np.asarray(angle_deg, dtype=float) - float(angular_offset_deg))
     return (_C_ARPES * np.sqrt(ek) * np.sin(theta)) * float(a_lattice) / np.pi
 
+def _cls_cycle_step(path: Path) -> tuple[int, int]:
+    m = _CYCLE_STEP_RE.search(path.name)
+    if not m:
+        raise ValueError(f"Nom CLS Cycle/Step invalide : {path.name}")
+    return int(m.group(1)), int(m.group(2))
+
+def _cls_fs_cache_path(folder: Path, prefix: str) -> Path:
+    return folder / ".arpes_cache" / f"{prefix}_fs_mean_v{_CLS_CACHE_VERSION}.npz"
+
+def _cls_fs_signature(param_file: Path, files: list[Path]) -> str:
+    items = [{
+        "name": f.name,
+        "size": f.stat().st_size,
+        "mtime_ns": f.stat().st_mtime_ns,
+    } for f in files]
+    if param_file.exists():
+        items.append({
+            "name": param_file.name,
+            "size": param_file.stat().st_size,
+            "mtime_ns": param_file.stat().st_mtime_ns,
+        })
+    return json.dumps({"version": _CLS_CACHE_VERSION, "files": items}, sort_keys=True)
+
+def _load_cls_fs_cache(cache_path: Path, signature: str):
+    if not cache_path.exists():
+        return None
+    try:
+        with np.load(cache_path, allow_pickle=False) as npz:
+            if str(npz["signature"].item()) != signature:
+                return None
+            return (
+                np.asarray(npz["volume"], dtype=np.float32),
+                [int(x) for x in np.asarray(npz["step_ids"]).tolist()],
+            )
+    except Exception:
+        return None
+
+def _save_cls_fs_cache(cache_path: Path, signature: str, volume: np.ndarray, step_ids: list[int]) -> None:
+    try:
+        cache_path.parent.mkdir(exist_ok=True)
+        np.savez(
+            cache_path,
+            signature=np.array(signature),
+            volume=np.asarray(volume, dtype=np.float32),
+            step_ids=np.asarray(step_ids, dtype=np.int32),
+        )
+    except Exception:
+        pass
+
+def _load_cls_fs_volume(folder: Path, prefix: str) -> tuple[np.ndarray, list[int], int]:
+    all_files = sorted(folder.glob(f"{prefix}_Cycle_*_Step_*.txt"), key=_cls_cycle_step)
+    if not all_files:
+        raise FileNotFoundError(f"Aucun fichier Cycle/Step dans {folder}")
+
+    steps: dict[int, list[Path]] = defaultdict(list)
+    for f in all_files:
+        _, step = _cls_cycle_step(f)
+        steps[step].append(f)
+    step_ids = sorted(steps)
+    n_cycles = max(len(v) for v in steps.values())
+
+    signature = _cls_fs_signature(folder / f"{prefix}_param.txt", all_files)
+    cache_path = _cls_fs_cache_path(folder, prefix)
+    cached = _load_cls_fs_cache(cache_path, signature)
+    if cached is not None:
+        volume, cached_step_ids = cached
+        return volume, cached_step_ids, n_cycles
+
+    first = _loadtxt_float32(steps[step_ids[0]][0])
+    n_e, n_th = first.shape
+    volume = np.zeros((len(step_ids), n_e, n_th), dtype=np.float32)
+    volume[0] += first
+
+    tasks: list[tuple[int, Path]] = []
+    for i, sid in enumerate(step_ids):
+        files = steps[sid]
+        start = 1 if i == 0 else 0
+        for f in files[start:]:
+            tasks.append((i, f))
+
+    max_workers = min(8, max(1, os.cpu_count() or 1), max(1, len(tasks)))
+    if tasks:
+        sums = [volume[i] for i in range(len(step_ids))]
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for i, arr in pool.map(lambda item: (item[0], _loadtxt_float32(item[1])), tasks):
+                if arr.shape != (n_e, n_th):
+                    raise ValueError(f"Shape CLS incohérente dans {steps[step_ids[i]][0].parent}: {arr.shape} vs {(n_e, n_th)}")
+                sums[i] += arr
+
+    for i, sid in enumerate(step_ids):
+        volume[i] /= float(len(steps[sid]))
+
+    _save_cls_fs_cache(cache_path, signature, volume, step_ids)
+    return volume, step_ids, n_cycles
+
 def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
                  a_lattice: float = 3.96, hv: float | None = None,
                  temperature: float | None = None, azi: float = 0.0, pol: str = "",
@@ -158,7 +259,7 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
     temp_val = float(temperature) if temperature is not None and np.isfinite(temperature) else np.nan
     if path.is_file():
         folder = path.parent; prefix = path.name; p = _parse_cls_param(folder, prefix)
-        raw = np.loadtxt(path).astype(np.float32); volume = None; tilt_coords = None
+        raw = _loadtxt_float32(path); volume = None; tilt_coords = None
         scan_kind, n_steps, n_cycles = "BM", 1, 1
     else:
         folder = path; param_files = sorted(folder.glob("*_param.txt"))
@@ -174,15 +275,7 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
                 "Charge un fichier BM individuel, pas le dossier."
             )
         prefix = candidates[0]; p = _parse_cls_param(folder, prefix)
-        all_files = sorted(folder.glob(f"{prefix}_Cycle_*_Step_*.txt"),
-                           key=lambda f: (int(re.search(r"Cycle_(\d+)", f.name).group(1)), int(re.search(r"Step_(\d+)", f.name).group(1))))
-        if not all_files: raise FileNotFoundError(f"Aucun fichier Cycle/Step dans {folder}")
-        steps: dict[int, list[Path]] = defaultdict(list)
-        for f in all_files: steps[int(re.search(r"Step_(\d+)", f.name).group(1))].append(f)
-        step_ids = sorted(steps); sample = np.loadtxt(steps[step_ids[0]][0]); n_e, n_th = sample.shape
-        volume = np.zeros((len(step_ids), n_e, n_th), dtype=np.float32)
-        for i, sid in enumerate(step_ids):
-            volume[i] = np.stack([np.loadtxt(f).astype(np.float32) for f in steps[sid]], axis=0).mean(axis=0)
+        volume, step_ids, n_cycles = _load_cls_fs_volume(folder, prefix)
         raw = volume.mean(axis=0) if fs_step_mode == "mean" else volume[len(step_ids)//2]
         phi_vals = p.get("phi_values")
         if phi_vals is not None:
@@ -194,7 +287,7 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
                 tilt_coords = np.array(step_ids, dtype=float)
         else:
             tilt_coords = np.array(step_ids, dtype=float)
-        scan_kind, n_steps, n_cycles = "FS", len(step_ids), max(len(v) for v in steps.values())
+        scan_kind, n_steps = "FS", len(step_ids)
     n_e, n_theta = raw.shape
     energy_raw = p["energy_min"] + np.arange(n_e) * p["energy_delta"]
     ef_kin_nominal = hv_val - float(work_func)

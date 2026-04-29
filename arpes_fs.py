@@ -26,6 +26,8 @@ try:
 except Exception:  # scipy absent: fallback sans lissage
     gaussian_filter = None
 
+from arpes_norm import apply_fs_flux_factors_to_map, fs_flux_profile_factors
+
 
 @dataclass
 class FSParams:
@@ -50,6 +52,7 @@ class FSControlPanel(QScrollArea):
     params_changed = pyqtSignal()
     redraw_requested = pyqtSignal()
     gamma_requested = pyqtSignal()
+    manual_center_requested = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
@@ -90,6 +93,10 @@ class FSControlPanel(QScrollArea):
         self.cmb_cmap = QComboBox(); self.cmb_cmap.addItems(["inferno", "viridis", "magma", "gray", "hot"])
         self.cmb_cmap.currentIndexChanged.connect(self.params_changed)
         self.chk_norm = QCheckBox("Normalisation flux par slice"); self.chk_norm.setChecked(True)
+        self.chk_norm.setToolTip(
+            "Corrige le flux slice par slice (axe ky) et le profil détecteur (axe kx).\n"
+            "Utile pour les FS CLS où l'intensité varie entre les steps et aux bords du détecteur."
+        )
         self.chk_norm.stateChanged.connect(self.params_changed)
         fl2.addRow("Fenêtre EF ±eV:", self.sp_win)
         fl2.addRow("Norm ref min:", self.sp_ref_lo)
@@ -126,6 +133,15 @@ class FSControlPanel(QScrollArea):
         btn_g.setToolTip("Détecte Γ par milieux de paires MDC sur la FS et recentre la carte.")
         btn_g.clicked.connect(self.gamma_requested)
         lay.addWidget(btn_g)
+        self.btn_pick_center = QPushButton("⌖ Viser Γ manuel")
+        self.btn_pick_center.setCheckable(True)
+        self.btn_pick_center.setToolTip(
+            "Active un curseur sur la carte FS.\n"
+            "Clique sur le point qui doit devenir Γ : la carte est recentrée sur ce point "
+            "et le centre est sauvegardé pour ce fichier."
+        )
+        self.btn_pick_center.toggled.connect(self.manual_center_requested)
+        lay.addWidget(self.btn_pick_center)
         lay.addStretch(1)
 
     def params(self) -> FSParams:
@@ -145,37 +161,38 @@ class FSControlPanel(QScrollArea):
         self.sp_kx0.blockSignals(False); self.sp_ky0.blockSignals(False)
         self.params_changed.emit()
 
+    def set_manual_center_active(self, active: bool):
+        self.btn_pick_center.blockSignals(True)
+        self.btn_pick_center.setChecked(bool(active))
+        self.btn_pick_center.blockSignals(False)
+
 
 def _robust_norm(img: np.ndarray) -> np.ndarray:
+    """Normalise une image 2D vers [0,1].
+
+    L'échelle est calculée préférentiellement sur la région centrale (80 % des
+    colonnes kx) pour éviter que les bords du détecteur dominent le contraste.
+    Si le centre manque de variation (données vides ou fond plat), repli sur
+    l'image complète avec percentiles 1-99.
+    """
     arr = np.asarray(img, dtype=float)
-    if not np.isfinite(arr).any(): return arr
-    lo, hi = np.nanpercentile(arr, [1, 99])
+    if not np.isfinite(arr).any():
+        return arr
+    lo, hi = None, None
+    if arr.ndim == 2 and arr.shape[1] >= 10:
+        margin = max(1, arr.shape[1] // 10)
+        ref = arr[:, margin: arr.shape[1] - margin]
+        valid_c = ref[np.isfinite(ref)]
+        if valid_c.size >= 4:
+            lo_c, hi_c = np.percentile(valid_c, [2, 98])
+            if hi_c - lo_c > 1e-6:
+                lo, hi = lo_c, hi_c
+    if lo is None:
+        valid = arr[np.isfinite(arr)]
+        if valid.size == 0:
+            return arr
+        lo, hi = np.percentile(valid, [1, 99])
     return np.clip((arr - lo) / (hi - lo + 1e-12), 0, 1)
-
-
-def _normalize_volume_by_slice(fs_data: np.ndarray, ev: np.ndarray, params: FSParams):
-    data = np.asarray(fs_data, dtype=float)
-    ev_arr = np.asarray(ev, dtype=float)
-    if data.ndim != 3 or data.shape[-1] != len(ev_arr) or data.shape[0] <= 1:
-        return data, "sans norm"
-
-    ref_lo, ref_hi = sorted((params.norm_ref_lo, params.norm_ref_hi))
-    ev_min, ev_max = float(np.nanmin(ev_arr)), float(np.nanmax(ev_arr))
-    ref_lo = max(ref_lo, ev_min)
-    ref_hi = min(ref_hi, ev_max)
-    mask = (ev_arr >= ref_lo) & (ev_arr <= ref_hi)
-    if mask.sum() == 0:
-        return data, "norm ref vide"
-
-    # Profil flux par slice y/ky : moyenne sur kx et sur la fenêtre énergie.
-    profile = np.nanmean(data[:, :, mask], axis=(1, 2))
-    finite = np.isfinite(profile) & (np.abs(profile) > 1e-12)
-    if finite.sum() < max(2, len(profile) // 4):
-        return data, "norm profil invalide"
-    fill = float(np.nanmedian(profile[finite]))
-    safe = np.where(finite, profile, fill)
-    safe = safe / (np.nanmedian(safe[np.isfinite(safe)]) + 1e-12)
-    return data / safe[:, None, None], f"norm flux [{ref_lo:.2f},{ref_hi:.2f}] eV"
 
 
 def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
@@ -203,13 +220,20 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
     if fs_data.shape[-1] != len(ev):
         raise ValueError("Volume FS: dernier axe ≠ énergie")
 
-    norm_note = "sans norm"
-    if params.normalize_profile:
-        fs_data, norm_note = _normalize_volume_by_slice(fs_data, ev, params)
-
     mask = np.abs(ev) <= params.ef_window
     if mask.sum() == 0: mask[np.argmin(np.abs(ev))] = True
     fs = np.nanmean(fs_data[:, :, mask], axis=2)
+
+    norm_note = "sans norm"
+    if params.normalize_profile:
+        safe_y, safe_x, norm_note = fs_flux_profile_factors(
+            fs_data,
+            ev,
+            ref_range=(params.norm_ref_lo, params.norm_ref_hi),
+            normalize_y=True,
+            normalize_x=True,
+        )
+        fs = apply_fs_flux_factors_to_map(fs, safe_y, safe_x)
 
     if params.smooth_sigma > 0 and gaussian_filter is not None:
         nan = ~np.isfinite(fs)

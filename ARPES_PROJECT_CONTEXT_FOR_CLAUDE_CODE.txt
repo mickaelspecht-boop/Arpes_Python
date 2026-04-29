@@ -522,3 +522,409 @@ Le lancement principal reste :
 python arpes_explorer.py
 ```
 
+## Mise à jour récente — état de l'app après optimisations et corrections
+
+Cette section résume les changements récents à connaître avant de reprendre le
+développement. Elle est écrite pour donner à un autre agent de code le contexte
+nécessaire sans relire toute la conversation.
+
+### 1. Référence Gamma globale du dossier
+
+Objectif :
+- quand l'utilisateur clique sur `Détecter Γ FS` ou `Auto Γ BM`, le centre
+  trouvé doit être conservé et réutilisé pour les autres fichiers du même
+  dossier de données.
+
+Contexte :
+- auparavant `Détecter Γ FS` mettait bien à jour le panneau FS et écrivait
+  `session.gamma_reference`, mais cette référence n'était pas appliquée
+  automatiquement aux fichiers chargés ensuite.
+- l'utilisateur veut mesurer Γ une fois, puis traiter toutes les BM/FS du
+  dossier avec ce même centre de référence.
+
+Modifications :
+- dans `arpes_explorer.py`, ajout de helpers :
+  - `_stored_gamma_reference()`
+  - `_gamma_reference_to_bm_center(ref)`
+  - `_apply_stored_gamma_to_current_file(save_entry=False)`
+- `_detect_fs_gamma()` ajoute maintenant `source: "fs"` dans
+  `session.gamma_reference` et sauvegarde la session.
+- `_estimate_gamma_bm()` sauvegarde aussi une `gamma_reference` globale avec
+  `source: "bm"`.
+- `_load_file()` appelle `_apply_stored_gamma_to_current_file(save_entry=True)`
+  après restauration des paramètres du fichier.
+- pour une FS, la référence sauvegardée met à jour `centre kx` et `centre ky`
+  dans le panneau FS.
+- pour une BM, la référence sauvegardée met à jour `center_init`, avec la
+  correction de polar déjà prévue dans le code si nécessaire.
+
+Point important :
+- ne pas supprimer la correction de polar dans `_gamma_reference_to_bm_center`.
+  Elle évite d'appliquer directement un Γ FS à une BM prise à une polar
+  différente si `polar_already_applied_to_kx` n'est pas déjà vrai des deux côtés.
+
+### 2. Normalisation FS commune et contrôle des bords
+
+Objectif :
+- les FS Solaris et CLS doivent utiliser une logique de normalisation cohérente
+  côté affichage.
+- les bords `kx/theta` peuvent être très intenses sur CLS et écraser le signal
+  utile au centre de la FS.
+
+Contexte :
+- l'ancienne normalisation FS corrigeait surtout un profil de flux par slice
+  selon l'axe lent `ky/tilt`.
+- pour CLS, un profil détecteur selon `kx/theta` peut aussi être fort aux
+  bords. Une correction `y+x` a donc été restaurée pour les FS.
+- une tentative d'appliquer une correction de flux aux BM a changé leur
+  apparence. Cette partie a été annulée : les BM gardent leur comportement
+  historique.
+
+Modifications :
+- ajout de `arpes_norm.py`, module commun de normalisation.
+- fonctions principales dans `arpes_norm.py` :
+  - `normalize_bandmap_flux_profile(...)` existe mais n'est actuellement pas
+    utilisée par l'affichage BM.
+  - `normalize_fs_flux_profiles(...)` normalise un volume FS complet.
+  - `fs_flux_profile_factors(...)` calcule les facteurs de correction sans
+    copier tout le volume 3D.
+  - `apply_fs_flux_factors_to_map(...)` applique ces facteurs sur la carte FS
+    2D affichée.
+- dans `arpes_fs.py`, `extract_fs_map(...)` :
+  - calcule d'abord la carte FS 2D par moyenne autour de EF ;
+  - calcule ensuite les facteurs de flux sur le volume brut avec
+    `normalize_y=True` et `normalize_x=True` ;
+  - applique ces facteurs à la carte 2D affichée.
+- cette version est équivalente au fait de normaliser le volume puis de moyenner
+  autour de EF, mais évite de recopier un gros volume 3D à chaque redessin.
+- ajout dans `FSParams` :
+  - `edge_trim_x: float = 0.08`
+- ajout dans `FSControlPanel` :
+  - contrôle `Masquer bords kx %`, valeur par défaut `8.0`.
+- `extract_fs_map(...)` masque les colonnes extrêmes gauche/droite de la carte
+  FS avant la normalisation d'affichage robuste. Cela évite que les bords très
+  forts imposent l'échelle couleur.
+
+Comportement actuel :
+- FS : correction flux `y+x` active si `Normalisation flux par slice` est cochée.
+- FS : les bords `kx` sont masqués par défaut à 8 %, réglable de 0 à 20 %.
+- BM : `Raw` reste brut.
+- BM : `EDCnorm` reste l'ancien comportement `data / mean_k(data)`, sans
+  correction de flux additionnelle.
+
+Point important :
+- le label `Normalisation flux par slice` est historiquement nommé ainsi, mais
+  le tooltip précise désormais que la correction inclut aussi le profil
+  détecteur `kx`.
+- si l'utilisateur trouve que trop de signal utile est coupé aux bords, réduire
+  `Masquer bords kx %` dans l'onglet FS.
+- si les bords restent dominants, augmenter ce pourcentage à 10-15 %.
+
+### 3. Optimisation du chargement CLS FS
+
+Objectif :
+- accélérer fortement le chargement des FS CLS, qui lisent beaucoup de gros
+  fichiers texte `*_Cycle_*_Step_*.txt`.
+
+Contexte :
+- le goulot principal n'est pas un calcul NumPy, mais la lecture/parsing de
+  dizaines de fichiers texte.
+- sur un exemple réel `Ba122_C05_2/FS5`, il y a 77 fichiers texte d'environ
+  7 Mo chacun.
+- utiliser des bibliothèques C externes n'est pas prioritaire : NumPy utilise
+  déjà du C pour les opérations tableaux. Le gain majeur vient du cache et de
+  la réduction des lectures répétées.
+
+Modifications dans `arpes_io.py` :
+- ajout de `_loadtxt_float32(path)` pour lire directement les fichiers CLS en
+  `float32`.
+- ajout d'une logique cache CLS FS :
+  - `_CLS_CACHE_VERSION = 2`
+  - `_cls_fs_cache_path(folder, prefix)`
+  - `_cls_fs_signature(param_file, files)`
+  - `_load_cls_fs_cache(cache_path, signature)`
+  - `_save_cls_fs_cache(cache_path, signature, volume, step_ids)`
+  - `_load_cls_fs_volume(folder, prefix)`
+- `_load_cls_fs_volume(...)` :
+  - groupe les fichiers par `Step`;
+  - moyenne les cycles de chaque step ;
+  - sauvegarde le volume moyenné dans `.arpes_cache/<prefix>_fs_mean_v2.npz`;
+  - relit ce cache si les fichiers source et le `_param.txt` n'ont pas changé.
+- le cache est non compressé (`np.savez`, pas `np.savez_compressed`) pour
+  privilégier la vitesse de chargement.
+- lecture parallèle des fichiers texte avec `ThreadPoolExecutor`, limitée à
+  8 workers.
+
+Mesures sur un cas réel :
+- dossier testé : `/Users/alexandrespecht/Documents/Stage_M2/Code/Ba122_C05_2/FS5`
+- premier chargement avec cache à construire : environ `8.55 s`
+- chargement suivant depuis cache : environ `0.28 s`
+- la comparaison avec l'ancien algorithme donne :
+  - `loader diff = 0.0`
+  - `raw mean diff = 0.0`
+- donc l'optimisation IO ne change pas les données reconstruites.
+
+Modifications dans `.gitignore` :
+- ajout de :
+
+```text
+.arpes_cache/
+**/.arpes_cache/
+```
+
+Point important :
+- ne pas versionner les caches `.arpes_cache`, ils peuvent être gros.
+- le cache s'invalide si un fichier Cycle/Step ou le `_param.txt` change
+  (`size` et `mtime_ns` inclus dans la signature).
+- si un comportement de chargement CLS semble suspect, comparer d'abord le
+  volume optimisé avec l'ancien algorithme avant de supprimer le cache.
+
+### 4. Régressions rencontrées et corrections
+
+Régression : BM changée visuellement après normalisation flux commune.
+- Cause : la correction de flux avait été appliquée aux BM avant `EDCnorm`.
+- Correction : BM restaurée à l'ancien comportement.
+- État actuel :
+  - `apply_edcnorm(data)` dans `arpes_explorer.py` ne prend plus l'énergie et
+    fait seulement `data / mean_k(data)`.
+  - les appels à `apply_edcnorm(...)` sont revenus à un seul argument.
+  - le checkbox BM est redevenu `EDCnorm`.
+
+Régression suspectée : FS CLS fausse après optimisation.
+- Test effectué : comparaison ancien loader CLS et nouveau cache/loader sur
+  `FS5`.
+- Résultat : volume identique (`max abs diff = 0.0`), BM moyenne identique
+  (`raw mean diff = 0.0`).
+- Conclusion : le problème venait de la normalisation/contraste d'affichage, pas
+  de l'optimisation IO.
+
+Réglage final adopté (session précédente) :
+- garder optimisation IO CLS.
+- garder BM historique.
+- garder FS en correction flux `y+x`.
+- masquer par défaut 8 % des bords `kx` dans l'affichage FS.
+
+Réglage final adopté (session actuelle — patch bords + MDC Fit) :
+- masquage des bords `kx` SUPPRIMÉ (NaN visuellement indésirables).
+- `_robust_norm` corrigé : l'échelle de contraste est calculée sur les 80 %
+  centraux des colonnes kx (ignore les bords brillants du détecteur CLS sans
+  masquer les données). Si le centre manque de variation, repli sur percentiles
+  1-99 de l'image complète.
+- `edge_trim_x` retiré de `FSParams` et de `FSControlPanel`.
+- **BUG CRITIQUE corrigé dans `arpes_norm.py` `_safe_profile`** : sur les FS
+  CLS, aux extrémités d'angle theta, le détecteur ne reçoit quasiment rien dans
+  la fenêtre de référence (~0.04 vs médiane ~4.7). Sans clamp, `safe_x` valait
+  0.007 et la division produisait des facteurs ×100+ qui FABRIQUAIENT les
+  bords brillants au lieu de les corriger. C'est ce qui se voyait à l'écran :
+  une bande très brillante artificielle aux bords kx, complètement déconnectée
+  du vrai signal. Les facteurs sont maintenant bornés à [0.5, 2.0] : aucune
+  colonne / slice ne peut être amplifiée ou réduite de plus de 2× par la
+  normalisation. Les bords des FS CLS apparaissent maintenant naturellement
+  sombres (vraie absence de signal) et le centre devient lisible.
+- Onglet MDC Fit amélioré :
+  - courbe orange "lissé-fit" : montre l'effet de `smooth_fit` (σ) sur la MDC,
+    distincte du gris "lissé-det" pour `smooth_detect`.
+  - zones colorées translucides autour de chaque pic détecté : montrent `γ_max`
+    (demi-largeur maximale autorisée par l'optimiseur).
+  - lignes magenta : montrent la contrainte `kF max` si l'option "auto" est
+    décochée.
+  - labels des contrôles MDC renommés en français + tooltips explicatifs sur
+    tous les paramètres (γ_init, γ_max, xg, center Γ, smooth, kF max, ampl,
+    saut, symétrie, sens scan, hν CLS).
+  - redraw MDC tab-aware : `_on_model_changed` ne redessin plus la MDC quand
+    l'utilisateur est sur un autre onglet (BM, FS, Résultats).
+
+### 5. Fichiers modifiés récemment
+
+Fichiers ajoutés :
+- `arpes_norm.py`
+
+Fichiers modifiés :
+- `arpes_explorer.py`
+  - mémoire globale de Γ ;
+  - application automatique du Γ au chargement des fichiers ;
+  - BM revenue au comportement historique `EDCnorm`.
+- `arpes_fs.py`
+  - normalisation FS via `arpes_norm.py` ;
+  - correction flux `y+x` ;
+  - masquage réglable des bords `kx`.
+- `arpes_io.py`
+  - cache rapide CLS FS ;
+  - lecture `float32` ;
+  - reconstruction du volume CLS optimisée et équivalente à l'ancien code.
+- `.gitignore`
+  - ignore `.arpes_cache/`.
+
+### 6. Vérifications récentes
+
+Compilation utilisée :
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/arpes_pycache python3 -m py_compile \
+  arpes_io.py arpes_fs.py arpes_norm.py arpes_explorer.py bm.py fs_batch.py kz_calc.py
+```
+
+Tests numériques effectués :
+- comparaison de l'ancien et du nouveau chargement CLS FS sur `FS5` :
+  - volume identique ;
+  - BM moyenne sur tilt identique.
+- test d'équivalence mathématique de la normalisation FS optimisée :
+  - normaliser le volume puis moyenner autour EF ;
+  - ou moyenner autour EF puis appliquer les facteurs ;
+  - écart numérique de l'ordre de `2e-16` sur données synthétiques.
+
+Test GUI encore à faire manuellement :
+- lancer `python arpes_explorer.py`;
+- charger une FS CLS ;
+- vérifier que :
+  - l'onglet FS affiche un signal central exploitable SANS zones noires aux bords ;
+  - les bords du détecteur apparaissent simplement saturés (couleur max colormap)
+    plutôt que masqués en noir.
+- onglet MDC Fit :
+  - changer `Lissage fit σ` : une courbe orange apparaît/disparaît si σ ≠ σ_detect ;
+  - changer `γ max` : les zones colorées translucides s'élargissent/rétrécissent ;
+  - décocher `auto` sur `kF max` : deux lignes magenta apparaissent ;
+  - vérifier que tous les paramètres ont des tooltips lisibles.
+
+### 7. Conseils pour la suite
+
+- Ne pas modifier simultanément le loader et la normalisation d'affichage sans
+  test comparatif, sinon il devient difficile d'attribuer les régressions.
+- Pour déboguer CLS FS :
+  1. comparer d'abord le volume brut `fs_data` avec l'ancien algorithme ;
+  2. vérifier ensuite la BM moyenne `volume.mean(axis=0)`;
+  3. vérifier seulement après la normalisation FS affichée.
+- Pour améliorer encore les performances :
+  - priorité 1 : éviter les redessins FS inutiles ;
+  - priorité 2 : mémoriser la carte FS 2D normalisée pour une combinaison donnée
+    de paramètres (`ef_window`, `norm_ref_lo/hi`, lissage) ;
+  - priorité 3 : envisager un cache `.npy` ou `np.memmap` si les volumes
+    deviennent trop gros pour la RAM.
+
+## Mise à jour 2026-04-28 — utilitaires BM et centres FS par fichier
+
+- Ajout dans l'onglet BM d'un groupe `Utilitaires` :
+  - `Retirer effet grille` active la correction de trame BM ;
+  - `Recharger brut` désactive la correction sauvegardée pour le fichier courant.
+- La correction est sauvegardée par fichier dans `.arpes_session.json` via
+  `FileEntry.grid_correction`, puis réappliquée au chargement.
+- État actuel : la correction grille ne modifie plus les données brutes ni le
+  volume FS. Elle agit sur l'image 2D affichée dans BM, après le mode de vue
+  choisi (`Raw`, `EDCnorm`, `SecDev`, `Curvature`).
+- Ajout de `remove_grid_artifact(...)` dans `arpes_norm.py` pour éviter de
+  dépendre de `arpes_plots.py` côté interface.
+- Le centre FS est maintenant mémorisé par fichier :
+  - `FileEntry.fs_center_kx` et `FileEntry.fs_center_ky` ;
+  - les réglages manuels du panneau FS sont sauvegardés ;
+  - `Détecter Γ FS` sauvegarde aussi le centre du fichier courant.
+- Le Γ global n'est plus appliqué automatiquement à toutes les FS du dossier.
+  Il reste utilisé comme référence transférable vers les BM (`Γ FS → BM`) avec
+  la correction de polar déjà existante.
+
+## Mise à jour 2026-04-29 — centrage manuel FS et correction grille clarifiée
+
+- Ajout d'un bouton `Viser Γ manuel` dans le panneau FS :
+  - le bouton active un curseur sur la carte FS ;
+  - un clic sur la carte choisit le point affiché comme nouveau Γ ;
+  - les coordonnées brutes sont calculées comme `centre actuel + position du clic`,
+    donc le point visé revient à `(0, 0)` après redessin ;
+  - le centre est sauvegardé dans `FileEntry.fs_center_kx/fs_center_ky` et aussi
+    dans `session.gamma_reference` avec `source="fs_manual"`.
+- `Détecter Γ FS` utilise maintenant le même helper de sauvegarde que le
+  centrage manuel (`source="fs_auto"`), pour éviter deux logiques divergentes.
+- Les essais `Profil grille` et `Fourier périodique` ont été gardés seulement
+  comme historique interne : sur la capture fournie, ils réduisaient surtout le
+  signal sans supprimer suffisamment la trame.
+
+## Mise à jour 2026-04-29 — mode Igor pour suppression grille
+
+- Le fichier Igor pertinent a été retrouvé :
+  `/Users/alexandrespecht/Downloads/ARPES_analyzer/miscellaneous/manual_grid_remove.ipf`.
+- Son principe :
+  - `FFT_gridrem2D(w, wmask)` calcule magnitude, phase et FFT complexe 2D ;
+  - `FFT_mask_remove(wmag, wmask)` remplace les pixels de magnitude où
+    `wmask == 0` par la moyenne de la magnitude ;
+  - la FFT complexe est reconstruite avec la magnitude modifiée et la phase
+    originale ;
+  - `IFFT` reconstruit l'image corrigée ;
+  - `FFT_gridrem3D` applique cette correction 2D slice par slice.
+- Ajout dans l'app d'une méthode interne `Masque Fourier 2D` :
+  - méthode interne `fft2mask` dans `arpes_norm.py` ;
+  - pour une FS `(ny, nx, E)`, la correction est appliquée slice énergie par
+    slice sur les plans `(ny, nx)`, ce qui correspond au comportement Igor ;
+  - pour une BM 2D, la correction agit directement sur l'image 2D ;
+  - le masque est automatique : il protège le centre de la FFT puis détecte les
+    pics anormaux de magnitude via un seuil robuste sur `log(1 + |FFT|)`.
+- Correction importante après retour utilisateur : le premier `fft2mask`
+  corrigeait les plans `(ky, kx)` à énergie fixe. Pour une grille de détecteur
+  Solaris, ce n'est généralement pas le bon plan : Igor corrige les images
+  détecteur 2D puis boucle sur la troisième dimension. Dans l'app, une FS est
+  standardisée en `(beta/ky, theta/kx, E)`, donc le mode par défaut corrige
+  maintenant les plans `theta/kx - E` pour chaque slice `beta/ky`.
+- Le statut de correction affiche maintenant :
+  - le nombre de pixels FFT masqués ;
+  - le nombre de slices touchées pour les volumes FS ;
+  - `Δ≈...%`, estimation RMS du changement relatif. Si `Δ≈0%`, la correction
+    n'a pratiquement rien modifié et le seuil/plan est probablement mauvais.
+
+## Mise à jour 2026-04-29 — correction grille simplifiée après capture
+
+- L'utilisateur a fourni une capture de la grille dans le dossier `Interface`.
+  Les méthodes exposées étaient trop nombreuses et peu lisibles.
+- Décision : garder une seule correction dans l'utilitaire BM :
+  `display_fft2mask`, c'est-à-dire le masque Fourier 2D automatique appliqué à
+  l'image affichée, pas aux données brutes.
+- Paramètres internes fixes :
+  - `notch_width = 2` ;
+  - `fft2_center_radius = 18.0` ;
+  - `fft2_peak_sensitivity = 2.5` ;
+  - seule la `Force` reste visible dans l'interface, par défaut `0.85`.
+- Raison : les tests sur la capture/fichier BaNi2As2 montrent que corriger le
+  brut avant `EDCnorm` peut empirer l'affichage, alors que corriger la carte
+  déjà affichée retire nettement la trame.
+- Le bouton `Retirer effet grille` sauvegarde uniquement l'activation et la
+  force dans `FileEntry.grid_correction`. `Recharger brut` désactive cette
+  correction pour le fichier courant.
+
+## Mise à jour 2026-04-29 — panneau MDC Fit allégé
+
+- Le panneau droit est maintenant contextuel via `FitParamsPanel.set_context(...)`.
+- Onglet `BM` :
+  - affiche `Énergie sélectionnée`, `EF / Chargement` et `Utilitaires`.
+- Onglet `MDC Fit` :
+  - cache `Énergie sélectionnée`, `EF / Chargement`, `Utilitaires` ;
+  - cache aussi les boutons `Auto Γ BM` et `Γ FS → BM`, jugés hors contexte ;
+  - garde seulement les paramètres et actions de fit MDC.
+- La carte/diagramme supérieur de l'onglet `MDC Fit` est agrandi :
+  - canvas carte `figsize=(7, 5)` ;
+  - stretch vertical carte/spectres passé de `2/3` à `5/2`.
+
+## Mise à jour 2026-04-29 — sélection graphique de la fenêtre de fit
+
+- Dans `Plage d'analyse`, ajout d'un bouton `Sélectionner sur carte` :
+  - active un curseur de sélection ;
+  - l'utilisateur clique-glisse un rectangle sur la BM ou la carte `MDC Fit` ;
+  - la zone remplit automatiquement `k_min`, `k_max`, `ev_start`, `ev_end`.
+- Ajout d'un bouton `Pleine BM` pour remettre la plage d'analyse sur toute la
+  carte chargée.
+- Les champs numériques restent disponibles pour entrer directement les
+  coordonnées.
+- La carte de l'onglet `MDC Fit` est maintenant zoomée sur la plage d'analyse
+  et son contraste est recalculé sur cette zone seulement. Objectif : rendre
+  visibles les bandes faibles qui étaient écrasées par l'échelle globale.
+- La BM principale garde l'échelle globale, mais affiche un rectangle pointillé
+  montrant la fenêtre de fit active.
+
+## Mise à jour 2026-04-29 — affichage EF calibré
+
+- Ajout de `_ef_offset_text()` et `_draw_ef_label(...)` dans `arpes_explorer.py`.
+- La BM principale affiche maintenant `EF offset=... meV` :
+  - dans le titre ;
+  - comme annotation sur la ligne cyan `E=0`.
+- L'onglet `MDC Fit` affiche aussi l'offset EF :
+  - sur la carte BM zoomée ;
+  - dans les titres MDC/EDC ;
+  - sur la ligne verticale EF de l'EDC.
+- Correction importante : `_ef_calibrate()` sauvegarde maintenant
+  `entry.ef_offset = new_off` avant de recharger le fichier, sinon le reload
+  pouvait restaurer l'ancien offset.

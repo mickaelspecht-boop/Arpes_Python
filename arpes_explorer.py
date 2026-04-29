@@ -37,8 +37,10 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
 from matplotlib.figure import Figure
 from matplotlib.colors import PowerNorm
+from matplotlib.patches import Rectangle
 from scipy.ndimage import gaussian_filter1d, gaussian_filter
 from scipy.signal import find_peaks
+from arpes_norm import remove_grid_artifact as remove_detector_grid_artifact
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette, QKeySequence, QShortcut
@@ -96,6 +98,9 @@ class FileEntry:
     fit_params: FitParams   = field(default_factory=FitParams)
     fit_result: Optional[dict] = None        # sérialisé (listes, pas ndarray)
     meta: FileMeta     = field(default_factory=FileMeta)
+    fs_center_kx: Optional[float] = None
+    fs_center_ky: Optional[float] = None
+    grid_correction: dict = field(default_factory=dict)
 
     @property
     def status(self) -> str:
@@ -177,6 +182,9 @@ class Session:
                 fit_params = fp,
                 fit_result = edict.get("fit_result"),
                 meta       = mt,
+                fs_center_kx = edict.get("fs_center_kx"),
+                fs_center_ky = edict.get("fs_center_ky"),
+                grid_correction = edict.get("grid_correction", {}) or {},
             )
             self.files[name] = entry
 
@@ -787,6 +795,10 @@ class FitParamsPanel(QScrollArea):
     logbook_requested = pyqtSignal()
     gamma_bm_requested = pyqtSignal()
     gamma_ref_requested = pyqtSignal()
+    grid_requested = pyqtSignal()
+    grid_reset_requested = pyqtSignal()
+    fit_roi_requested = pyqtSignal(bool)
+    fit_roi_reset_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -803,8 +815,8 @@ class FitParamsPanel(QScrollArea):
         lay = self._lay
 
         # ── énergie ──────────────────────────────────────────────────────────
-        grp_e = QGroupBox("Énergie sélectionnée")
-        fl = QFormLayout(grp_e)
+        self._energy_widget = QGroupBox("Énergie sélectionnée")
+        fl = QFormLayout(self._energy_widget)
         self.sp_ev = _dspin(-0.30, -3.0, 0.2, 0.01)
         # sp_ev est connecté dans ArpesExplorer._build_ui (→ _on_ev_spinbox_changed)
         self.sp_int_win = _dspin(0.010, 0.001, 0.200, 0.005, dec=3)
@@ -816,14 +828,24 @@ class FitParamsPanel(QScrollArea):
         fl.addRow("E (eV):", self.sp_ev)
         fl.addRow("± intég. (eV):", self.sp_int_win)
         fl.addRow(QLabel("💡 Clic sur la carte ou ici"))
-        lay.addWidget(grp_e)
+        lay.addWidget(self._energy_widget)
 
         # ── calibration EF ────────────────────────────────────────────────────
-        grp_ef = QGroupBox("EF / Chargement")
-        fl_ef = QFormLayout(grp_ef)
+        self._ef_widget = QGroupBox("EF / Chargement")
+        fl_ef = QFormLayout(self._ef_widget)
         self.sp_phi = _dspin(4.031, 3.0, 6.0, 0.01)
+        self.sp_phi.setToolTip("Fonction de travail φ (eV). Utilisée pour calculer E_kin → E−EF.")
         self.sp_hv  = _dspin(0.0, 0.0, 500.0, 1.0)
+        self.sp_hv.setToolTip(
+            "Énergie du photon incident (eV).\n"
+            "→ CLS/LNLS : entrer manuellement AVANT de charger (obligatoire).\n"
+            "→ Solaris/DA30 : lu automatiquement depuis le fichier."
+        )
         self.sp_ef  = _dspin(0.052, -0.3, 0.3, 0.005)
+        self.sp_ef.setToolTip(
+            "Décalage EF en eV. Ajuste le zéro d'énergie.\n"
+            "Utiliser 'Calibrer EF auto' pour le calculer par fit Fermi-Dirac."
+        )
         self.chk_norm = QCheckBox("EDCnorm"); self.chk_norm.setChecked(True)
         self.chk_norm.stateChanged.connect(self.params_changed)
         btn_ef = QPushButton("🎛  Calibrer EF auto")
@@ -839,7 +861,33 @@ class FitParamsPanel(QScrollArea):
         fl_ef.addRow(btn_log)
         fl_ef.addRow(btn_ef)
         fl_ef.addRow(btn_copy)
-        lay.addWidget(grp_ef)
+        lay.addWidget(self._ef_widget)
+
+        # ── utilitaires BM ────────────────────────────────────────────────────
+        self._utils_widget = QGroupBox("Utilitaires")
+        fl_ut = QFormLayout(self._utils_widget)
+        self.sp_grid_strength = _dspin(0.85, 0.0, 1.0, 0.05, dec=2)
+        self.sp_grid_strength.setToolTip(
+            "Force de suppression de la trame affichée.\n"
+            "0 = aucun effet, 1 = correction complète. Valeur conseillée : 0.8-0.9."
+        )
+        btn_grid = QPushButton("Retirer effet grille")
+        btn_grid.setToolTip(
+            "Active un masque Fourier 2D automatique sur la carte BM affichée.\n"
+            "La donnée brute reste inchangée."
+        )
+        btn_grid.clicked.connect(self.grid_requested)
+        btn_grid_reset = QPushButton("Recharger brut")
+        btn_grid_reset.setToolTip("Désactive la correction grille sauvegardée pour ce fichier.")
+        btn_grid_reset.clicked.connect(self.grid_reset_requested)
+        self.lbl_grid = QLabel("Correction BM : masque Fourier 2D automatique sur l'affichage.")
+        self.lbl_grid.setWordWrap(True)
+        self.lbl_grid.setStyleSheet("color:#aaa; font-size:10px;")
+        fl_ut.addRow("Force:", self.sp_grid_strength)
+        fl_ut.addRow(btn_grid)
+        fl_ut.addRow(btn_grid_reset)
+        fl_ut.addRow(self.lbl_grid)
+        lay.addWidget(self._utils_widget)
 
         # ── contrôles fit (cachés sur l'onglet BM) ────────────────────────────
         self._fit_controls_widget = QWidget()
@@ -850,47 +898,118 @@ class FitParamsPanel(QScrollArea):
         # ── plage d'analyse ───────────────────────────────────────────────────
         grp_r = QGroupBox("Plage d'analyse")
         fl2 = QFormLayout(grp_r)
-        self.sp_evs  = _dspin(-0.90, -3.0,  0.0,  0.05)
-        self.sp_eve  = _dspin(-0.005, -1.0, 0.10, 0.005)
-        self.sp_kmin = _dspin(-0.80, -3.0,  0.0,  0.05)
-        self.sp_kmax = _dspin( 0.80,  0.0,  3.0,  0.05)
+        self.sp_evs  = _dspin(-0.90, -5.0, 1.0, 0.05)
+        self.sp_eve  = _dspin(-0.005, -5.0, 1.0, 0.005)
+        self.sp_kmin = _dspin(-0.80, -5.0, 5.0, 0.05)
+        self.sp_kmax = _dspin( 0.80, -5.0, 5.0, 0.05)
         for w in (self.sp_evs, self.sp_eve, self.sp_kmin, self.sp_kmax):
             w.valueChanged.connect(self.params_changed)
+        self.btn_fit_roi = QPushButton("▢  Sélectionner sur carte")
+        self.btn_fit_roi.setCheckable(True)
+        self.btn_fit_roi.setToolTip(
+            "Active une sélection rectangulaire par cliquer-glisser sur la carte BM/MDC Fit.\n"
+            "La zone choisie remplit k_min/k_max et ev_start/ev_end."
+        )
+        self.btn_fit_roi.toggled.connect(self.fit_roi_requested)
+        btn_fit_roi_reset = QPushButton("Pleine BM")
+        btn_fit_roi_reset.setToolTip("Remet la plage d'analyse sur toute la carte chargée.")
+        btn_fit_roi_reset.clicked.connect(self.fit_roi_reset_requested)
+        roi_row = QWidget()
+        roi_lay = QHBoxLayout(roi_row)
+        roi_lay.setContentsMargins(0, 0, 0, 0)
+        roi_lay.setSpacing(4)
+        roi_lay.addWidget(self.btn_fit_roi)
+        roi_lay.addWidget(btn_fit_roi_reset)
         fl2.addRow("ev_start:", self.sp_evs)
         fl2.addRow("ev_end:",   self.sp_eve)
         fl2.addRow("k_min:",    self.sp_kmin)
         fl2.addRow("k_max:",    self.sp_kmax)
+        fl2.addRow(roi_row)
         _fcl.addWidget(grp_r)
 
         # ── fit MDC ───────────────────────────────────────────────────────────
         grp_f = QGroupBox("Fit MDC (Lorentzien)")
         fl3 = QFormLayout(grp_f)
         self.sp_np   = _ispin(1,   1, 8)
+        self.sp_np.setToolTip("Nombre de paires de Lorentziennes (= nombre de bandes croisées).")
         self.sp_np.valueChanged.connect(self._on_n_pairs_changed)
         self.sp_sff  = _dspin(2.0,  0.0, 10.0, 0.5, dec=1)
+        self.sp_sff.setToolTip(
+            "Sigma du lissage gaussien appliqué à la MDC avant l'optimisation scipy.\n"
+            "Augmenter pour données bruitées. Voir la courbe orange dans le graphique MDC."
+        )
         self.sp_sfd  = _dspin(3.0,  0.0, 10.0, 0.5, dec=1)
+        self.sp_sfd.setToolTip(
+            "Sigma du lissage gaussien utilisé pour détecter les pics initiaux.\n"
+            "Voir la courbe grise dans le graphique MDC."
+        )
 
         # ── paramètres par paire (navigables) ────────────────────────────────
         self._pair_lbl = ClickablePairLabel()
         self._pair_lbl.pair_changed.connect(self._on_pair_changed)
         self.sp_kfi  = _dspin(0.30,  0.0,  3.0, 0.01)
+        self.sp_kfi.setToolTip(
+            "Position initiale kF (π/a) pour cette paire, comptée depuis centre Γ.\n"
+            "Voir les lignes tiret-point colorées dans le graphique MDC."
+        )
         self.sp_gi   = _dspin(0.08, 0.01,  0.5, 0.01)
+        self.sp_gi.setToolTip(
+            "Demi-largeur initiale de la Lorentzienne (π/a).\n"
+            "Valeur de départ pour l'optimiseur. Voir les courbes colorées dans le graphique MDC."
+        )
         self.sp_gm   = _dspin(0.30, 0.05,  1.0, 0.05)
+        self.sp_gm.setToolTip(
+            "Demi-largeur maximale autorisée (π/a) — contrainte de l'optimiseur scipy.\n"
+            "Voir les zones colorées translucides autour des pics dans le graphique MDC."
+        )
 
         # ── paramètres globaux ────────────────────────────────────────────────
         self.sp_xg   = _dspin(0.10, 0.0,  0.5,  0.01)
+        self.sp_xg.setToolTip(
+            "Demi-largeur de la zone de contrainte autour du centre Γ (π/a).\n"
+            "L'optimiseur limite xg dans [centre − xg_range, centre + xg_range].\n"
+            "Voir le rectangle cyan dans le graphique MDC."
+        )
         self.sp_cx   = _dspin(0.0, -1.0,  1.0,  0.01)
+        self.sp_cx.setToolTip(
+            "Centre de symétrie des paires (position Γ, en π/a).\n"
+            "Voir la ligne cyan pointillée dans le graphique MDC.\n"
+            "Utiliser 'Auto Γ BM' ou 'Γ FS → BM' pour le calculer automatiquement."
+        )
         self.sp_k0m  = _dspin(0.0,  0.0,  2.0,  0.05)
+        self.sp_k0m.setToolTip(
+            "Distance maximale autorisée de kF par rapport à Γ (π/a).\n"
+            "Voir les lignes magenta dans le graphique MDC si actif."
+        )
         self.chk_k0a = QCheckBox("auto"); self.chk_k0a.setChecked(True)
+        self.chk_k0a.setToolTip("Si coché, pas de limite sur kF. Décocher pour activer kF max.")
         self.sp_k0m.setEnabled(False)
         self.chk_k0a.stateChanged.connect(
             lambda: self.sp_k0m.setEnabled(not self.chk_k0a.isChecked()))
         self.cmb_wm  = QComboBox(); self.cmb_wm.addItems(["symmetric","asymmetric"])
         self.cmb_wm.setFixedWidth(110)
+        self.cmb_wm.setToolTip(
+            "symmetric : les deux pics de la paire ont le même γ.\n"
+            "asymmetric : γ gauche et droit peuvent différer (pics asymétriques)."
+        )
         self.sp_ma   = _dspin(0.01, 0.0, 1.0, 0.01)
+        self.sp_ma.setToolTip(
+            "Amplitude minimale relative d'un pic pour être accepté (0–1).\n"
+            "Rejette les pics dont l'amplitude est < ampl_min × max(MDC).\n"
+            "Augmenter pour éliminer les faux pics dus au bruit."
+        )
         self.sp_mj   = _dspin(0.20, 0.0, 1.0, 0.05)
+        self.sp_mj.setToolTip(
+            "Saut maximal autorisé entre positions kF consécutives (π/a).\n"
+            "Contrôle la continuité de la dispersion lors du fit complet.\n"
+            "Réduire si la dispersion saute d'un point à l'autre."
+        )
         self.cmb_sd  = QComboBox(); self.cmb_sd.addItems(["up","down"])
         self.cmb_sd.setFixedWidth(80)
+        self.cmb_sd.setToolTip(
+            "up : parcourt la BM de ev_start (bas) vers ev_end (proche EF).\n"
+            "down : sens inverse. Choisir le sens où les pics sont les plus nets en départ."
+        )
 
         for w in (self.sp_sff, self.sp_sfd, self.sp_kfi, self.sp_gi, self.sp_gm,
                   self.sp_xg, self.sp_cx, self.sp_k0m, self.sp_ma, self.sp_mj):
@@ -900,23 +1019,23 @@ class FitParamsPanel(QScrollArea):
         k0w = QWidget(); k0l = QHBoxLayout(k0w); k0l.setContentsMargins(0,0,0,0)
         k0l.addWidget(self.sp_k0m); k0l.addWidget(self.chk_k0a)
 
-        fl3.addRow("n_pairs:",      self.sp_np)
-        fl3.addRow("smooth_fit:",   self.sp_sff)
-        fl3.addRow("smooth_det:",   self.sp_sfd)
+        fl3.addRow("Nb paires:",        self.sp_np)
+        fl3.addRow("Lissage fit σ:",    self.sp_sff)
+        fl3.addRow("Lissage détect σ:", self.sp_sfd)
         fl3.addRow(_sep())
         fl3.addRow(self._pair_lbl)
-        fl3.addRow("kF_init:",      self.sp_kfi)
-        fl3.addRow("γ_init:",       self.sp_gi)
-        fl3.addRow("γ_max:",        self.sp_gm)
+        fl3.addRow("kF init (π/a):",    self.sp_kfi)
+        fl3.addRow("γ init (π/a):",     self.sp_gi)
+        fl3.addRow("γ max (π/a):",      self.sp_gm)
         fl3.addRow(_sep())
-        fl3.addRow("xg_range:",     self.sp_xg)
-        fl3.addRow("center_init:",  self.sp_cx)
-        fl3.addRow("k0_max:",       k0w)
-        fl3.addRow("width_mode:",   self.cmb_wm)
+        fl3.addRow("Fenêtre Γ (π/a):",  self.sp_xg)
+        fl3.addRow("Centre Γ (π/a):",   self.sp_cx)
+        fl3.addRow("kF max (π/a):",     k0w)
+        fl3.addRow("Symétrie paire:",   self.cmb_wm)
         fl3.addRow(_sep())
-        fl3.addRow("min_ampl:",     self.sp_ma)
-        fl3.addRow("max_jump:",     self.sp_mj)
-        fl3.addRow("scan_dir:",     self.cmb_sd)
+        fl3.addRow("Ampl. min:",        self.sp_ma)
+        fl3.addRow("Saut max (π/a):",   self.sp_mj)
+        fl3.addRow("Sens scan:",        self.cmb_sd)
         _fcl.addWidget(grp_f)
 
         # ── boutons ───────────────────────────────────────────────────────────
@@ -926,15 +1045,20 @@ class FitParamsPanel(QScrollArea):
         btn_g.clicked.connect(self.guess_requested)
         _fcl.addWidget(btn_g)
 
+        self._gamma_tools_widget = QWidget()
+        gamma_lay = QVBoxLayout(self._gamma_tools_widget)
+        gamma_lay.setContentsMargins(0, 0, 0, 0)
+        gamma_lay.setSpacing(4)
         btn_gamma = QPushButton("◎  Auto Γ BM")
         btn_gamma.setToolTip("Estime le centre Γ par la médiane des milieux de paires MDC.")
         btn_gamma.clicked.connect(self.gamma_bm_requested)
-        _fcl.addWidget(btn_gamma)
+        gamma_lay.addWidget(btn_gamma)
 
         btn_ref = QPushButton("↳  Γ FS → BM")
         btn_ref.setToolTip("Applique le Γ de référence mesuré sur une FS à la BM courante.")
         btn_ref.clicked.connect(self.gamma_ref_requested)
-        _fcl.addWidget(btn_ref)
+        gamma_lay.addWidget(btn_ref)
+        _fcl.addWidget(self._gamma_tools_widget)
 
         btn_f = QPushButton("▶  Fit complet  [Ctrl+F]")
         btn_f.setStyleSheet("background:#2a6099;color:white;font-weight:bold;padding:6px;")
@@ -979,6 +1103,38 @@ class FitParamsPanel(QScrollArea):
 
     def set_fit_controls_visible(self, visible: bool):
         self._fit_controls_widget.setVisible(visible)
+
+    def set_utilities_visible(self, visible: bool):
+        self._utils_widget.setVisible(visible)
+
+    def set_fit_roi_active(self, active: bool):
+        self.btn_fit_roi.blockSignals(True)
+        self.btn_fit_roi.setChecked(bool(active))
+        self.btn_fit_roi.blockSignals(False)
+
+    def set_context(self, context: str):
+        """Adapte le panneau droit à l'onglet actif."""
+        is_bm = context == "bm"
+        is_mdc = context == "mdc"
+        self._energy_widget.setVisible(is_bm)
+        self._ef_widget.setVisible(is_bm)
+        self._utils_widget.setVisible(is_bm)
+        self._fit_controls_widget.setVisible(is_mdc)
+        self._gamma_tools_widget.setVisible(False)
+
+    def grid_params(self) -> dict:
+        return {
+            "enabled": True,
+            "method": "display_fft2mask",
+            "grid_period_px": None,
+            "grid_freq": None,
+            "notch_width": 2,
+            "notch_sigma": 0.8,
+            "strength": float(self.sp_grid_strength.value()),
+            "fft2_center_radius": 18.0,
+            "fft2_peak_sensitivity": 2.5,
+            "fft2_plane": "display",
+        }
 
     def load_fit_params(self, fp: FitParams):
         for sp, val in [
@@ -1204,10 +1360,16 @@ class ArpesExplorer(QMainWindow):
         self._current_path: str | None = None
         self._raw_data:   dict | None  = None   # chargé depuis fichier
         self._data_disp:  np.ndarray | None = None  # données affichées (mode)
+        self._grid_display_info: dict = {}
         self._fit_res:    dict | None  = None
 
         self._sel_ev = -0.30
         self._sel_k  = 0.0
+        self._fs_pick_center_active = False
+        self._fit_roi_active = False
+        self._fit_roi_start: tuple[float, float] | None = None
+        self._fit_roi_ax = None
+        self._fit_roi_rect = None
 
         self._build_ui()
         self._install_shortcuts()
@@ -1273,6 +1435,12 @@ class ArpesExplorer(QMainWindow):
         self._bm_canvas = MplCanvas(figsize=(7, 6), toolbar=True)
         self._bm_canvas.canvas.mpl_connect(
             "button_press_event", self._on_map_click)
+        self._bm_canvas.canvas.mpl_connect(
+            "button_press_event", self._on_fit_roi_press)
+        self._bm_canvas.canvas.mpl_connect(
+            "motion_notify_event", self._on_fit_roi_motion)
+        self._bm_canvas.canvas.mpl_connect(
+            "button_release_event", self._on_fit_roi_release)
         carte_lay.addWidget(self._bm_canvas, stretch=1)
         self._tabs.addTab(carte_widget, "🗺  BM")
 
@@ -1280,12 +1448,18 @@ class ArpesExplorer(QMainWindow):
         mdc_widget = QWidget()
         mdc_lay = QVBoxLayout(mdc_widget)
         mdc_lay.setContentsMargins(0, 0, 0, 0)
-        self._mdc_map_canvas = MplCanvas(figsize=(6, 3), toolbar=True)
+        self._mdc_map_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
         self._mdc_map_canvas.canvas.mpl_connect(
             "button_press_event", self._on_map_click)
-        mdc_lay.addWidget(self._mdc_map_canvas, stretch=2)
-        self._mdc_edc = MplCanvas(figsize=(6, 4), nrows=2)
-        mdc_lay.addWidget(self._mdc_edc, stretch=3)
+        self._mdc_map_canvas.canvas.mpl_connect(
+            "button_press_event", self._on_fit_roi_press)
+        self._mdc_map_canvas.canvas.mpl_connect(
+            "motion_notify_event", self._on_fit_roi_motion)
+        self._mdc_map_canvas.canvas.mpl_connect(
+            "button_release_event", self._on_fit_roi_release)
+        mdc_lay.addWidget(self._mdc_map_canvas, stretch=5)
+        self._mdc_edc = MplCanvas(figsize=(7, 2.5), nrows=2)
+        mdc_lay.addWidget(self._mdc_edc, stretch=2)
         self._tabs.addTab(mdc_widget, "🎯  MDC Fit")
 
         # Tab Résultats
@@ -1294,6 +1468,9 @@ class ArpesExplorer(QMainWindow):
 
         # Tab FS : carte de Fermi dédiée, contrôles dans le panneau droit FS
         self._fs_canvas = FermiSurfaceCanvas() if FermiSurfaceCanvas is not None else QWidget()
+        if FermiSurfaceCanvas is not None and hasattr(self._fs_canvas, "canvas"):
+            self._fs_canvas.canvas.mpl_connect(
+                "button_press_event", self._on_fs_map_click)
         self._tabs.addTab(self._fs_canvas, "🧭  FS")
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -1313,16 +1490,22 @@ class ArpesExplorer(QMainWindow):
         self._params.logbook_requested.connect(self._load_logbook_dialog)
         self._params.gamma_bm_requested.connect(self._estimate_gamma_bm)
         self._params.gamma_ref_requested.connect(self._apply_gamma_reference_to_bm)
-        self._params.set_fit_controls_visible(False)  # caché sur BM (tab 0 par défaut)
+        self._params.grid_requested.connect(self._apply_grid_correction)
+        self._params.grid_reset_requested.connect(self._reset_grid_correction)
+        self._params.fit_roi_requested.connect(self._set_fit_roi_pick_mode)
+        self._params.fit_roi_reset_requested.connect(self._reset_fit_roi_range)
+        self._params.set_context("bm")
         right_split.addWidget(self._params)
         right_split.setSizes([550])
 
         self._fs_controls = FSControlPanel() if FSControlPanel is not None else QWidget()
         if FSControlPanel is not None:
-            self._fs_controls.params_changed.connect(self._draw_fs_tab)
+            self._fs_controls.params_changed.connect(self._on_fs_params_changed)
             self._fs_controls.redraw_requested.connect(self._draw_fs_tab)
             if hasattr(self._fs_controls, "gamma_requested"):
                 self._fs_controls.gamma_requested.connect(self._detect_fs_gamma)
+            if hasattr(self._fs_controls, "manual_center_requested"):
+                self._fs_controls.manual_center_requested.connect(self._set_fs_center_pick_mode)
 
         self._right_stack = QStackedWidget()
         self._right_stack.addWidget(right_split)
@@ -1336,14 +1519,61 @@ class ArpesExplorer(QMainWindow):
         # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS
         if hasattr(self, "_right_stack"):
             self._right_stack.setCurrentIndex(1 if index == 3 else 0)
-        self._params.set_fit_controls_visible(index == 1)
+        if index == 0:
+            self._params.set_context("bm")
+        elif index == 1:
+            self._params.set_context("mdc")
+        else:
+            self._params.set_context("other")
+            self._set_fit_roi_pick_mode(False)
         if index == 2:
+            self._set_fs_center_pick_mode(False)
             self._results.refresh()
         elif index == 3:
             self._draw_fs_tab()
         elif index == 1:
+            self._set_fs_center_pick_mode(False)
             self._draw_bm()
             self._draw_mdc_edc()
+        else:
+            self._set_fs_center_pick_mode(False)
+
+    def _current_entry(self) -> FileEntry | None:
+        if not self._current_path:
+            return None
+        return self._session.get_or_create(self._session.key_for_path(self._current_path))
+
+    def _current_is_fs(self) -> bool:
+        meta = (self._raw_data or {}).get("metadata", {}) or {}
+        return meta.get("fs_data") is not None
+
+    def _on_fs_params_changed(self):
+        self._save_current_fs_center()
+        self._draw_fs_tab()
+
+    def _save_current_fs_center(self):
+        if self._raw_data is None or not self._current_path or not self._current_is_fs():
+            return
+        if FSControlPanel is None or not hasattr(self, "_fs_controls"):
+            return
+        entry = self._current_entry()
+        if entry is None:
+            return
+        try:
+            p = self._fs_controls.params()
+            entry.fs_center_kx = float(p.kx_center)
+            entry.fs_center_ky = float(p.ky_center)
+            self._session.save()
+        except Exception:
+            pass
+
+    def _same_path(self, a, b) -> bool:
+        if not a or not b:
+            return False
+        try:
+            return Path(a).resolve() == Path(b).resolve()
+        except Exception:
+            return str(a) == str(b)
 
     def _draw_fs_tab(self):
         if not hasattr(self, "_fs_canvas") or FermiSurfaceCanvas is None:
@@ -1356,6 +1586,67 @@ class ArpesExplorer(QMainWindow):
         except Exception:
             pass
 
+    def _store_fs_center_reference(self, kx: float, ky: float, *, source: str):
+        if self._raw_data is None:
+            return
+        meta = (self._raw_data or {}).get("metadata", {}) or {}
+        self._session.gamma_reference = {
+            "kx": float(kx),
+            "ky": float(ky),
+            "polar": float(meta.get("polar", 0.0) or 0.0),
+            "hv": self._raw_data.get("hv"),
+            "path": self._raw_data.get("path"),
+            "polar_already_applied_to_kx": bool(meta.get("polar_already_applied_to_kx", False)),
+            "source": source,
+        }
+        if self._current_path:
+            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+            entry.fs_center_kx = float(kx)
+            entry.fs_center_ky = float(ky)
+        self._session.save()
+
+    def _set_fs_center_pick_mode(self, active: bool):
+        active = bool(active)
+        self._fs_pick_center_active = active
+        if hasattr(self, "_fs_controls") and hasattr(self._fs_controls, "set_manual_center_active"):
+            self._fs_controls.set_manual_center_active(active)
+        if hasattr(self, "_fs_canvas") and hasattr(self._fs_canvas, "canvas"):
+            if active:
+                self._fs_canvas.canvas.setCursor(Qt.CursorShape.CrossCursor)
+            else:
+                self._fs_canvas.canvas.unsetCursor()
+        if active:
+            if self._tabs.currentIndex() != 3:
+                self._tabs.setCurrentIndex(3)
+            self._status("Centrage manuel Γ : clique sur le centre à viser dans la carte FS.")
+
+    def _on_fs_map_click(self, event):
+        if not getattr(self, "_fs_pick_center_active", False):
+            return
+        if self._raw_data is None or not self._current_is_fs():
+            self._set_fs_center_pick_mode(False)
+            QMessageBox.warning(self, "Centrage manuel Γ", "Charge d'abord une FS.")
+            return
+        if FSControlPanel is None or not hasattr(self, "_fs_controls"):
+            return
+        if not hasattr(self, "_fs_canvas") or event.inaxes is not getattr(self._fs_canvas, "ax", None):
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        params = self._fs_controls.params()
+        kx = float(params.kx_center + event.xdata)
+        ky = float(params.ky_center + event.ydata)
+        self._fs_controls.set_center(kx, ky)
+        self._store_fs_center_reference(kx, ky, source="fs_manual")
+        self._set_fs_center_pick_mode(False)
+        self._draw_fs_tab()
+        msg = f"Gamma FS manuel : kx={kx:+.4f}, ky={ky:+.4f} π/a"
+        self._status(msg)
+        try:
+            self._fs_controls.lbl_info.setText(msg)
+        except Exception:
+            pass
+
     def _detect_fs_gamma(self):
         if FermiSurfaceCanvas is None or FSControlPanel is None:
             return
@@ -1363,16 +1654,7 @@ class ArpesExplorer(QMainWindow):
             params = self._fs_controls.params()
             res = self._fs_canvas.detect_gamma(self._raw_data, params)
             self._fs_controls.set_center(res["kx"], res["ky"])
-            meta = (self._raw_data or {}).get("metadata", {}) or {}
-            self._session.gamma_reference = {
-                "kx": float(res["kx"]),
-                "ky": float(res["ky"]),
-                "polar": float(meta.get("polar", 0.0) or 0.0),
-                "hv": self._raw_data.get("hv"),
-                "path": self._raw_data.get("path"),
-                "polar_already_applied_to_kx": bool(meta.get("polar_already_applied_to_kx", False)),
-            }
-            self._session.save()
+            self._store_fs_center_reference(res["kx"], res["ky"], source="fs_auto")
             self._draw_fs_tab()
             msg = (f"Gamma FS détecté : kx={res['kx']:+.4f}, ky={res['ky']:+.4f} π/a "
                    f"| {len(res.get('gamma_kx_list', []))} coupes kx, "
@@ -1384,6 +1666,154 @@ class ArpesExplorer(QMainWindow):
                 pass
         except Exception as exc:
             QMessageBox.warning(self, "Détection Gamma", str(exc))
+
+    def _stored_gamma_reference(self) -> dict:
+        ref = self._session.gamma_reference or {}
+        try:
+            kx = float(ref.get("kx", np.nan))
+            ky = float(ref.get("ky", 0.0) or 0.0)
+        except Exception:
+            return {}
+        if not np.isfinite(kx) or not np.isfinite(ky):
+            return {}
+        return ref
+
+    def _gamma_reference_to_bm_center(self, ref: dict) -> tuple[float, float]:
+        if self._raw_data is None:
+            return np.nan, 0.0
+        meta = self._raw_data.get("metadata", {}) or {}
+        gamma = float(ref.get("kx", np.nan))
+        correction = 0.0
+        ref_polar_applied = bool(ref.get("polar_already_applied_to_kx", False))
+        bm_polar_applied = bool(meta.get("polar_already_applied_to_kx", False))
+        if not (ref_polar_applied and bm_polar_applied):
+            hv = self._raw_data.get("hv") or ref.get("hv")
+            work_func = self._params.sp_phi.value()
+            if hv is not None and float(hv) > work_func:
+                c_arpes = 0.51233
+                a = 3.96
+                ek = float(hv) - float(work_func)
+                p_ref = float(ref.get("polar", 0.0) or 0.0)
+                p_bm = float(meta.get("polar", 0.0) or 0.0)
+                correction = c_arpes * np.sqrt(ek) * (
+                    np.sin(np.radians(p_bm)) - np.sin(np.radians(p_ref))
+                ) * a / np.pi
+        return gamma + correction, correction
+
+    def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
+        if self._raw_data is None:
+            return
+
+        meta = self._raw_data.get("metadata", {}) or {}
+        is_fs = meta.get("fs_data") is not None
+
+        if is_fs and FSControlPanel is not None and hasattr(self, "_fs_controls"):
+            entry = self._current_entry()
+            if entry is not None and entry.fs_center_kx is not None and entry.fs_center_ky is not None:
+                self._fs_controls.set_center(float(entry.fs_center_kx), float(entry.fs_center_ky))
+                return
+
+        ref = self._stored_gamma_reference()
+        if not ref:
+            return
+
+        if is_fs and FSControlPanel is not None and hasattr(self, "_fs_controls"):
+            entry = self._current_entry()
+            if not self._same_path(ref.get("path"), self._raw_data.get("path")):
+                return
+            self._fs_controls.set_center(float(ref["kx"]), float(ref.get("ky", 0.0) or 0.0))
+            if save_entry and entry is not None:
+                entry.fs_center_kx = float(ref["kx"])
+                entry.fs_center_ky = float(ref.get("ky", 0.0) or 0.0)
+                self._session.save()
+            return
+
+        gamma_bm, correction = self._gamma_reference_to_bm_center(ref)
+        if not np.isfinite(gamma_bm):
+            return
+
+        self._params.sp_cx.setValue(float(gamma_bm))
+        if save_entry and self._current_path:
+            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+            entry.fit_params.center_init = float(gamma_bm)
+            self._session.save()
+        self._status(f"Γ mémorisé appliqué : {gamma_bm:+.4f} π/a  correction={correction:+.4f}")
+
+    def _load_grid_controls(self, cfg: dict | None):
+        cfg = cfg or {}
+        self._params.sp_grid_strength.setValue(self._display_grid_config(cfg)["strength"])
+        if cfg.get("enabled"):
+            self._params.lbl_grid.setText("Correction BM active : masque Fourier 2D automatique.")
+        else:
+            self._params.lbl_grid.setText("Correction BM : masque Fourier 2D automatique sur l'affichage.")
+
+    def _display_grid_config(self, cfg: dict | None) -> dict:
+        cfg = cfg or {}
+        try:
+            strength = float(cfg.get("strength", 0.85))
+        except Exception:
+            strength = 0.85
+        return {
+            "method": "fft2mask",
+            "grid_freq": None,
+            "grid_period_px": None,
+            "notch_width": 2,
+            "notch_sigma": 0.8,
+            "strength": float(np.clip(strength, 0.0, 1.0)),
+            "fft2_center_radius": 18.0,
+            "fft2_peak_sensitivity": 2.5,
+            "fft2_plane": "display",
+        }
+
+    def _grid_status_text(self, info: dict, target: str) -> str:
+        info = info or {}
+        method = info.get("method", "none")
+        if info.get("error"):
+            return f"Correction grille ({target}) impossible : {info.get('error')}"
+        if method in {"fft2mask", "display_fft2mask"}:
+            removed = int(info.get("removed_peak_count", 0) or 0)
+            delta = float(info.get("rms_delta_percent", 0.0) or 0.0)
+            view = info.get("view_mode")
+            view_txt = f" {view}" if view else ""
+            return (
+                f"Correction grille ({target}{view_txt}) : masque Fourier 2D auto, "
+                f"{removed} pics FFT, Δ≈{delta:.1f}%, force={float(info.get('strength', 1.0)):.2f}"
+            )
+        return f"Correction grille ({target}) active."
+
+    def _apply_grid_correction(self):
+        if self._raw_data is None or not self._current_path:
+            QMessageBox.warning(self, "Effet grille", "Charge d'abord une BM ou une FS.")
+            return
+        cfg = self._params.grid_params()
+        try:
+            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+            entry.grid_correction = dict(cfg)
+            self._session.save()
+            self._update_display_data()
+            self._draw_bm()
+            if self._tabs.currentIndex() == 1:
+                self._draw_mdc_edc()
+            msg = self._grid_status_text(self._grid_display_info, "affichage BM")
+            self._params.lbl_grid.setText(msg)
+            self._status(msg)
+        except Exception as exc:
+            QMessageBox.warning(self, "Effet grille", str(exc))
+            self._status(f"⚠ Effet grille : {exc}")
+
+    def _reset_grid_correction(self):
+        if not self._current_path:
+            return
+        entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+        entry.grid_correction = {}
+        self._session.save()
+        self._grid_display_info = {}
+        self._update_display_data()
+        self._draw_bm()
+        if self._tabs.currentIndex() == 1:
+            self._draw_mdc_edc()
+        self._params.lbl_grid.setText("Correction grille désactivée pour ce fichier.")
+        self._status("Correction grille désactivée pour ce fichier.")
 
     def _install_shortcuts(self):
         QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(self._fit_guess)
@@ -1701,12 +2131,20 @@ class ArpesExplorer(QMainWindow):
             self._cmb_view.blockSignals(True)
             self._cmb_view.setCurrentText(entry.view_mode)
             self._cmb_view.blockSignals(False)
+            self._load_grid_controls(entry.grid_correction)
 
             # Restaurer fit_result si disponible
             if entry.fit_result:
                 self._fit_res = entry.fit_result
 
+            self._apply_stored_gamma_to_current_file(save_entry=True)
+
             self._update_display_data()
+            grid_note = ""
+            if entry.grid_correction.get("enabled"):
+                grid_msg = self._grid_status_text(self._grid_display_info, "affichage BM")
+                grid_note = "  |  " + grid_msg
+                self._params.lbl_grid.setText(grid_msg)
             self._sel_ev = float(np.clip(-0.30, d["ev_arr"].min(), d["ev_arr"].max()))
             self._sel_k  = 0.0
             self._sync_ev_spinbox()
@@ -1722,7 +2160,7 @@ class ArpesExplorer(QMainWindow):
             self._status(
                 f"Chargé : {Path(path).name}  hν={hv_txt}  |  "
                 f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
-                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV{lb_txt}"
+                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV{lb_txt}{grid_note}"
             )
         except Exception as e:
             self._status(f"⚠ {e}")
@@ -1734,17 +2172,44 @@ class ArpesExplorer(QMainWindow):
         d    = self._raw_data
         raw  = d["data"]
         mode = self._cmb_view.currentText()
+        self._grid_display_info = {}
 
         if mode == "Raw":
-            self._data_disp = raw
+            disp = raw
         elif mode == "EDCnorm":
-            self._data_disp = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
+            disp = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
         elif mode == "SecDev":
             norm = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
-            self._data_disp = compute_secdev(norm, d["kpar"], d["ev_arr"])
+            disp = compute_secdev(norm, d["kpar"], d["ev_arr"])
         elif mode == "Curvature":
             norm = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
-            self._data_disp = compute_curvature(norm, d["kpar"], d["ev_arr"])
+            disp = compute_curvature(norm, d["kpar"], d["ev_arr"])
+        else:
+            disp = raw
+
+        entry = self._current_entry()
+        cfg = entry.grid_correction if entry and entry.grid_correction.get("enabled") else None
+        if cfg:
+            grid_cfg = self._display_grid_config(cfg)
+            try:
+                disp, info = remove_detector_grid_artifact(np.asarray(disp, dtype=float), axis=0, **grid_cfg)
+                info.update({
+                    "method": "display_fft2mask",
+                    "view_mode": mode,
+                    "target": "display",
+                    "shape": tuple(np.asarray(disp).shape),
+                    "strength": grid_cfg["strength"],
+                })
+                self._grid_display_info = info
+            except Exception as exc:
+                self._grid_display_info = {
+                    "method": "display_fft2mask",
+                    "error": str(exc),
+                    "view_mode": mode,
+                    "strength": grid_cfg["strength"],
+                }
+
+        self._data_disp = disp
 
     def _on_view_changed(self):
         if self._current_path:
@@ -1765,7 +2230,80 @@ class ArpesExplorer(QMainWindow):
     def _on_model_changed(self, _=None):
         self._update_display_data()
         self._draw_bm()
-        self._draw_mdc_edc()
+        if self._tabs.currentIndex() == 1:
+            self._draw_mdc_edc()
+
+    def _fit_roi_bounds(self) -> tuple[float, float, float, float] | None:
+        if self._raw_data is None:
+            return None
+        d = self._raw_data
+        k0, k1 = sorted((float(self._params.sp_kmin.value()), float(self._params.sp_kmax.value())))
+        e0, e1 = sorted((float(self._params.sp_evs.value()), float(self._params.sp_eve.value())))
+        k0 = float(np.clip(k0, np.nanmin(d["kpar"]), np.nanmax(d["kpar"])))
+        k1 = float(np.clip(k1, np.nanmin(d["kpar"]), np.nanmax(d["kpar"])))
+        e0 = float(np.clip(e0, np.nanmin(d["ev_arr"]), np.nanmax(d["ev_arr"])))
+        e1 = float(np.clip(e1, np.nanmin(d["ev_arr"]), np.nanmax(d["ev_arr"])))
+        if k1 <= k0 or e1 <= e0:
+            return None
+        return k0, k1, e0, e1
+
+    def _fit_roi_data(self, disp: np.ndarray, kpar: np.ndarray, ev: np.ndarray) -> np.ndarray:
+        bounds = self._fit_roi_bounds()
+        if bounds is None:
+            return np.asarray(disp)
+        k0, k1, e0, e1 = bounds
+        mk = (kpar >= k0) & (kpar <= k1)
+        me = (ev >= e0) & (ev <= e1)
+        if not mk.any() or not me.any():
+            return np.asarray(disp)
+        return np.asarray(disp)[np.ix_(mk, me)]
+
+    def _map_color_kwargs(self, disp: np.ndarray, mode: str, *, roi_scale: bool = False) -> tuple[str, dict]:
+        d = self._raw_data
+        ref = self._fit_roi_data(disp, d["kpar"], d["ev_arr"]) if roi_scale and d is not None else disp
+        if mode in ("Raw", "EDCnorm"):
+            finite = ref[np.isfinite(ref)]
+            vmax = float(np.nanpercentile(finite, 99)) if finite.size else 1.0
+            return "inferno", {"vmin": 0, "vmax": max(vmax, 1e-12)}
+        pos = ref[np.isfinite(ref) & (ref > 0)]
+        vmax = float(np.nanpercentile(pos, 99)) if pos.size else 1.0
+        return "hot_r", {"vmin": 0, "vmax": max(vmax, 1e-12)}
+
+    def _draw_fit_roi_overlay(self, ax):
+        bounds = self._fit_roi_bounds()
+        if bounds is None:
+            return
+        k0, k1, e0, e1 = bounds
+        rect = Rectangle(
+            (k0, e0), k1 - k0, e1 - e0,
+            fill=False, edgecolor="#7dd3fc", linewidth=1.1,
+            linestyle="--", alpha=0.95, zorder=8,
+        )
+        ax.add_patch(rect)
+
+    def _ef_offset_text(self) -> str:
+        return f"EF offset={self._params.sp_ef.value()*1000:+.0f} meV"
+
+    def _draw_ef_label(self, ax, *, horizontal: bool = True):
+        txt = f"EF  {self._ef_offset_text()}"
+        if horizontal:
+            x0, x1 = ax.get_xlim()
+            x = x0 + 0.012 * (x1 - x0)
+            ax.text(
+                x, 0.0, txt,
+                color="cyan", fontsize=8, va="bottom", ha="left",
+                bbox=dict(facecolor="#1a1a1a", edgecolor="none", alpha=0.65, pad=1.5),
+                zorder=9,
+            )
+        else:
+            y0, y1 = ax.get_ylim()
+            y = y0 + 0.88 * (y1 - y0)
+            ax.text(
+                0.0, y, txt,
+                color="cyan", fontsize=7, va="top", ha="left", rotation=90,
+                bbox=dict(facecolor="#1a1a1a", edgecolor="none", alpha=0.65, pad=1.2),
+                zorder=9,
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Band map
@@ -1787,22 +2325,20 @@ class ArpesExplorer(QMainWindow):
         _norm = lambda vmin, vmax: (PowerNorm(gamma=gamma, vmin=vmin, vmax=vmax)
                                     if gamma != 1.0 else None)
         if mode in ("Raw", "EDCnorm"):
-            vmax = float(np.nanpercentile(disp, 99))
-            n = _norm(0, vmax)
-            kw = dict(norm=n) if n else dict(vmin=0, vmax=vmax)
-            ax.pcolormesh(kpar, ev, disp.T, cmap="inferno", shading="auto", **kw)
+            cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
+            n = _norm(ckw["vmin"], ckw["vmax"])
+            kw = dict(norm=n) if n else ckw
+            ax.pcolormesh(kpar, ev, disp.T, cmap=cmap, shading="auto", **kw)
         elif mode == "SecDev":
-            pos = disp[np.isfinite(disp) & (disp > 0)]
-            vmax = float(np.nanpercentile(pos, 99)) if pos.size else 1.0
-            n = _norm(0, vmax)
-            kw = dict(norm=n) if n else dict(vmin=0, vmax=vmax)
-            ax.pcolormesh(kpar, ev, disp.T, cmap="hot_r", shading="auto", **kw)
+            cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
+            n = _norm(ckw["vmin"], ckw["vmax"])
+            kw = dict(norm=n) if n else ckw
+            ax.pcolormesh(kpar, ev, disp.T, cmap=cmap, shading="auto", **kw)
         elif mode == "Curvature":
-            pos = disp[np.isfinite(disp) & (disp > 0)]
-            vmax = float(np.nanpercentile(pos, 99)) if pos.size else 1.0
-            n = _norm(0, vmax)
-            kw = dict(norm=n) if n else dict(vmin=0, vmax=vmax)
-            ax.pcolormesh(kpar, ev, disp.T, cmap="hot_r", shading="auto", **kw)
+            cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
+            n = _norm(ckw["vmin"], ckw["vmax"])
+            kw = dict(norm=n) if n else ckw
+            ax.pcolormesh(kpar, ev, disp.T, cmap=cmap, shading="auto", **kw)
 
         int_win = self._params.sp_int_win.value()
         ax.axhline(0,          color="cyan", lw=0.8, ls="--", alpha=0.6)
@@ -1812,12 +2348,14 @@ class ArpesExplorer(QMainWindow):
         ax.axhline(self._sel_ev, color="lime", lw=0.8, ls="--", zorder=3)
         ax.axvline(self._sel_k,  color="lime", lw=1.0, ls=":",  zorder=3)
 
+        self._draw_fit_roi_overlay(ax)
         self._draw_kf_overlay(ax)
+        self._draw_ef_label(ax, horizontal=True)
 
         fname = Path(d["path"]).name
         ax.set_xlabel("k// (π/a)", fontsize=10, color="w")
         ax.set_ylabel("E − EF (eV)", fontsize=10, color="w")
-        ax.set_title(f"{fname}  [{mode}]", fontsize=9, color="w")
+        ax.set_title(f"{fname}  [{mode}]  {self._ef_offset_text()}", fontsize=9, color="w")
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
         self._bm_canvas.redraw()
@@ -1835,23 +2373,25 @@ class ArpesExplorer(QMainWindow):
         ax = self._mdc_map_canvas.ax
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._mdc_map_canvas.fig.set_facecolor("#2b2b2b")
-        if mode in ("Raw", "EDCnorm"):
-            vmax = float(np.nanpercentile(disp, 99))
-            ax.pcolormesh(kpar, ev, disp.T, cmap="inferno", vmin=0, vmax=vmax, shading="auto")
-        else:
-            pos = disp[np.isfinite(disp) & (disp > 0)]
-            vmax = float(np.nanpercentile(pos, 99)) if pos.size else 1.0
-            ax.pcolormesh(kpar, ev, disp.T, cmap="hot_r", vmin=0, vmax=vmax, shading="auto")
+        cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=True)
+        ax.pcolormesh(kpar, ev, disp.T, cmap=cmap, shading="auto", **ckw)
         int_win = self._params.sp_int_win.value()
         ax.axhline(0, color="cyan", lw=0.7, ls="--", alpha=0.6)
         ax.axhspan(self._sel_ev - int_win, self._sel_ev + int_win,
                    alpha=0.14, color="lime", zorder=2, lw=0)
         ax.axhline(self._sel_ev, color="lime", lw=0.7, ls="--", zorder=3)
         ax.axvline(self._sel_k,  color="lime", lw=0.9, ls=":", zorder=3)
+        bounds = self._fit_roi_bounds()
+        if bounds is not None:
+            k0, k1, e0, e1 = bounds
+            ax.set_xlim(k0, k1)
+            ax.set_ylim(e0, e1)
+            self._draw_fit_roi_overlay(ax)
         self._draw_kf_overlay(ax)
+        self._draw_ef_label(ax, horizontal=True)
         ax.set_xlabel("k// (π/a)", fontsize=8, color="w")
         ax.set_ylabel("E − EF (eV)", fontsize=8, color="w")
-        ax.set_title(f"BM [{mode}] — clic pour choisir E,k", fontsize=8, color="w")
+        ax.set_title(f"BM [{mode}]  {self._ef_offset_text()}", fontsize=8, color="w")
         ax.tick_params(colors="w", labelsize=8)
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
         self._mdc_map_canvas.redraw()
@@ -1925,14 +2465,29 @@ class ArpesExplorer(QMainWindow):
 
             # ── courbe lissée détection (comme Igor "smooth before detect") ──
             ax_mdc.plot(kpar, mdc_smooth, color="#aaa", lw=0.8, ls="-",
-                        alpha=0.55, label="lissé-det", zorder=2)
+                        alpha=0.55, label=f"lissé-det (σ={self._params.sp_sfd.value():.1f})", zorder=2)
+
+            # ── courbe lissée ajustement (utilisée par l'optimiseur scipy) ────
+            sff = self._params.sp_sff.value()
+            sfd = self._params.sp_sfd.value()
+            if sff > 0.5 and abs(sff - sfd) > 0.3:
+                _mdc_fit_sm = gaussian_filter1d(np.nan_to_num(mdc_n.copy()), sigma=max(0.5, sff))
+                ax_mdc.plot(kpar, _mdc_fit_sm, color="#ffa040", lw=0.8, ls="-",
+                            alpha=0.55, zorder=2, label=f"lissé-fit (σ={sff:.1f})")
 
             # ── zone de contrainte xg (center_init ± xg_range) ───────────────
             cx  = self._params.sp_cx.value()
             xgr = self._params.sp_xg.value()
             ax_mdc.axvspan(cx - xgr, cx + xgr, alpha=0.08, color="cyan",
-                           zorder=0, label=f"xg±{xgr:.2f}")
+                           zorder=0, label=f"Fenêtre Γ ±{xgr:.2f}")
             ax_mdc.axvline(cx, color="cyan", lw=0.6, ls=":", alpha=0.45, zorder=1)
+
+            # ── contrainte kF max (si active) ─────────────────────────────────
+            if not self._params.chk_k0a.isChecked():
+                k0m = self._params.sp_k0m.value()
+                ax_mdc.axvline(cx + k0m, color="plum", lw=0.9, ls=":", alpha=0.7, zorder=1,
+                               label=f"|kF|<{k0m:.2f}")
+                ax_mdc.axvline(cx - k0m, color="plum", lw=0.9, ls=":", alpha=0.7, zorder=1)
 
             # ── marqueurs kF_init par paire ───────────────────────────────────
             n_p = self._params.sp_np.value()
@@ -1943,9 +2498,13 @@ class ArpesExplorer(QMainWindow):
                 ax_mdc.axvline(cx - kf, color=pc, lw=0.8, ls="-.", alpha=0.7, zorder=2)
 
             # ── modèle Lorentzien décomposé ───────────────────────────────────
+            gmax = self._params.sp_gm.value()
             total = np.zeros_like(mdc_n)
             for i, (curve, km, kp, cl, cr) in enumerate(pairs):
                 c = PAIR_COLORS[i % len(PAIR_COLORS)]
+                # zones γ_max autour des pics détectés (largeur maximale autorisée)
+                for k0 in (km, kp):
+                    ax_mdc.axvspan(k0 - gmax, k0 + gmax, alpha=0.05, color=c, zorder=0)
                 valid = np.isfinite(curve)
                 if valid.any():
                     # courbe totale de la paire
@@ -1968,7 +2527,7 @@ class ArpesExplorer(QMainWindow):
             ax_mdc.set_xlabel("k// (π/a)", fontsize=8, color="w")
             ax_mdc.set_ylabel("I (norm.)", fontsize=8, color="w")
             ax_mdc.set_title(
-                f"MDC  E={self._sel_ev:.3f} eV  ±{int_win*1000:.0f} meV",
+                f"MDC  E={self._sel_ev:.3f} eV  ±{int_win*1000:.0f} meV  |  {self._ef_offset_text()}",
                 fontsize=8, color="w")
             ax_mdc.tick_params(colors="w", labelsize=7)
             ax_mdc.legend(fontsize=7, facecolor="#333", labelcolor="w",
@@ -1986,9 +2545,10 @@ class ArpesExplorer(QMainWindow):
             ax_edc.fill_between(ev_arr, 0, edc_n, alpha=0.15, color="#7dd3fc")
             ax_edc.axvline(0, color="cyan", lw=0.8, ls="--", alpha=0.7)
             ax_edc.axvline(self._sel_ev, color="lime", lw=1.0, ls=":")
+            self._draw_ef_label(ax_edc, horizontal=False)
             ax_edc.set_xlabel("E − EF (eV)", fontsize=8, color="w")
             ax_edc.set_ylabel("I (norm.)", fontsize=8, color="w")
-            ax_edc.set_title(f"EDC  k={self._sel_k:.3f} π/a",
+            ax_edc.set_title(f"EDC  k={self._sel_k:.3f} π/a  |  {self._ef_offset_text()}",
                              fontsize=8, color="w")
             ax_edc.tick_params(colors="w", labelsize=7)
             for sp in ax_edc.spines.values(): sp.set_edgecolor("#555")
@@ -2000,7 +2560,122 @@ class ArpesExplorer(QMainWindow):
     # Interactions carte
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _set_fit_roi_pick_mode(self, active: bool):
+        active = bool(active)
+        if not active and self._fit_roi_rect is not None:
+            try:
+                canvas = self._fit_roi_rect.figure.canvas
+                self._fit_roi_rect.remove()
+                canvas.draw_idle()
+            except Exception:
+                pass
+        self._fit_roi_active = active
+        self._fit_roi_start = None
+        self._fit_roi_ax = None
+        self._fit_roi_rect = None
+        self._params.set_fit_roi_active(active)
+        for canv in (getattr(self, "_bm_canvas", None), getattr(self, "_mdc_map_canvas", None)):
+            if canv is None or not hasattr(canv, "canvas"):
+                continue
+            if active:
+                canv.canvas.setCursor(Qt.CursorShape.CrossCursor)
+            else:
+                canv.canvas.unsetCursor()
+        if active:
+            if self._tabs.currentIndex() not in (0, 1):
+                self._tabs.setCurrentIndex(1)
+            self._status("Sélection zone fit : cliquer-glisser un rectangle sur la carte.")
+
+    def _on_fit_roi_press(self, event):
+        if not self._fit_roi_active:
+            return
+        if event.inaxes not in (self._bm_canvas.ax, self._mdc_map_canvas.ax):
+            return
+        button = getattr(event.button, "value", event.button)
+        if button != 1 or event.xdata is None or event.ydata is None:
+            return
+        self._fit_roi_start = (float(event.xdata), float(event.ydata))
+        self._fit_roi_ax = event.inaxes
+        if self._fit_roi_rect is not None:
+            try:
+                self._fit_roi_rect.remove()
+            except Exception:
+                pass
+        self._fit_roi_rect = Rectangle(
+            self._fit_roi_start, 0.0, 0.0,
+            fill=False, edgecolor="#38bdf8", linewidth=1.4,
+            linestyle="-", alpha=0.95, zorder=20,
+        )
+        event.inaxes.add_patch(self._fit_roi_rect)
+        event.canvas.draw_idle()
+
+    def _on_fit_roi_motion(self, event):
+        if not self._fit_roi_active or self._fit_roi_start is None or self._fit_roi_rect is None:
+            return
+        if event.inaxes is not self._fit_roi_ax or event.xdata is None or event.ydata is None:
+            return
+        x0, y0 = self._fit_roi_start
+        x1, y1 = float(event.xdata), float(event.ydata)
+        self._fit_roi_rect.set_x(min(x0, x1))
+        self._fit_roi_rect.set_y(min(y0, y1))
+        self._fit_roi_rect.set_width(abs(x1 - x0))
+        self._fit_roi_rect.set_height(abs(y1 - y0))
+        event.canvas.draw_idle()
+
+    def _on_fit_roi_release(self, event):
+        if not self._fit_roi_active or self._fit_roi_start is None:
+            return
+        if event.inaxes is not self._fit_roi_ax or event.xdata is None or event.ydata is None:
+            self._set_fit_roi_pick_mode(False)
+            return
+        x0, y0 = self._fit_roi_start
+        x1, y1 = float(event.xdata), float(event.ydata)
+        if abs(x1 - x0) < 1e-4 or abs(y1 - y0) < 1e-4:
+            self._set_fit_roi_pick_mode(False)
+            return
+        self._apply_fit_roi_from_bounds(min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1))
+        self._set_fit_roi_pick_mode(False)
+
+    def _apply_fit_roi_from_bounds(self, k0: float, k1: float, e0: float, e1: float):
+        if self._raw_data is None:
+            return
+        d = self._raw_data
+        k0 = float(np.clip(k0, np.nanmin(d["kpar"]), np.nanmax(d["kpar"])))
+        k1 = float(np.clip(k1, np.nanmin(d["kpar"]), np.nanmax(d["kpar"])))
+        e0 = float(np.clip(e0, np.nanmin(d["ev_arr"]), np.nanmax(d["ev_arr"])))
+        e1 = float(np.clip(e1, np.nanmin(d["ev_arr"]), np.nanmax(d["ev_arr"])))
+        if k1 <= k0 or e1 <= e0:
+            return
+        for sp, val in (
+            (self._params.sp_kmin, k0), (self._params.sp_kmax, k1),
+            (self._params.sp_evs, e0), (self._params.sp_eve, e1),
+        ):
+            sp.blockSignals(True)
+            sp.setValue(float(val))
+            sp.blockSignals(False)
+        self._sel_k = float((k0 + k1) * 0.5)
+        self._sel_ev = float((e0 + e1) * 0.5)
+        self._sync_ev_spinbox()
+        self._params.params_changed.emit()
+        self._draw_bm()
+        self._draw_mdc_edc()
+        self._status(
+            f"Zone fit : k={k0:+.3f}→{k1:+.3f} π/a, "
+            f"E={e0:+.3f}→{e1:+.3f} eV"
+        )
+
+    def _reset_fit_roi_range(self):
+        if self._raw_data is None:
+            return
+        d = self._raw_data
+        self._apply_fit_roi_from_bounds(
+            float(np.nanmin(d["kpar"])), float(np.nanmax(d["kpar"])),
+            float(np.nanmin(d["ev_arr"])), float(np.nanmax(d["ev_arr"])),
+        )
+
     def _on_map_click(self, event):
+        if self._fit_roi_active:
+            return
         if event.inaxes not in (self._bm_canvas.ax, self._mdc_map_canvas.ax): return
         if event.xdata is None or event.ydata is None: return
         d = self._raw_data
@@ -2102,6 +2777,21 @@ class ArpesExplorer(QMainWindow):
                 )
                 return
             self._params.sp_cx.setValue(gamma)
+            self._session.gamma_reference = {
+                "kx": float(gamma),
+                "ky": 0.0,
+                "polar": float((self._raw_data.get("metadata", {}) or {}).get("polar", 0.0) or 0.0),
+                "hv": self._raw_data.get("hv"),
+                "path": self._raw_data.get("path"),
+                "polar_already_applied_to_kx": bool(
+                    (self._raw_data.get("metadata", {}) or {}).get("polar_already_applied_to_kx", False)
+                ),
+                "source": "bm",
+            }
+            if self._current_path:
+                entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+                entry.fit_params.center_init = float(gamma)
+            self._session.save()
             self._params.lbl_res.setText(
                 f"Γ BM = {gamma:+.4f} π/a\n"
                 f"n={res['n']}  MAD={res['mad']:.4f}"
@@ -2114,35 +2804,21 @@ class ArpesExplorer(QMainWindow):
             self._status(f"⚠ Auto Γ BM : {exc}")
 
     def _apply_gamma_reference_to_bm(self):
-        ref = self._session.gamma_reference or {}
+        ref = self._stored_gamma_reference()
         if not ref:
             QMessageBox.warning(self, "Γ FS → BM", "Aucun Γ de référence. Va sur l'onglet FS et clique d'abord sur Détecter Γ FS.")
             return
         if self._raw_data is None:
             return
-        meta = self._raw_data.get("metadata", {}) or {}
-        gamma = float(ref.get("kx", np.nan))
-        if not np.isfinite(gamma):
+        gamma_bm, correction = self._gamma_reference_to_bm_center(ref)
+        if not np.isfinite(gamma_bm):
             QMessageBox.warning(self, "Γ FS → BM", "La référence Γ stockée est invalide.")
             return
-
-        correction = 0.0
-        ref_polar_applied = bool(ref.get("polar_already_applied_to_kx", False))
-        bm_polar_applied = bool(meta.get("polar_already_applied_to_kx", False))
-        if not (ref_polar_applied and bm_polar_applied):
-            hv = self._raw_data.get("hv") or ref.get("hv")
-            work_func = self._params.sp_phi.value()
-            if hv is not None and float(hv) > work_func:
-                c_arpes = 0.51233
-                a = 3.96
-                ek = float(hv) - float(work_func)
-                p_ref = float(ref.get("polar", 0.0) or 0.0)
-                p_bm = float(meta.get("polar", 0.0) or 0.0)
-                correction = c_arpes * np.sqrt(ek) * (
-                    np.sin(np.radians(p_bm)) - np.sin(np.radians(p_ref))
-                ) * a / np.pi
-        gamma_bm = gamma + correction
         self._params.sp_cx.setValue(gamma_bm)
+        if self._current_path:
+            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+            entry.fit_params.center_init = float(gamma_bm)
+            self._session.save()
         self._params.lbl_res.setText(
             f"Γ FS→BM = {gamma_bm:+.4f} π/a\n"
             f"corr polar={correction:+.4f}"
@@ -2240,6 +2916,10 @@ class ArpesExplorer(QMainWindow):
             if reply == QMessageBox.StandardButton.Yes:
                 new_off = self._params.sp_ef.value() - ef_shift
                 self._params.sp_ef.setValue(new_off)
+                if self._current_path:
+                    entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+                    entry.ef_offset = float(new_off)
+                    self._session.save()
                 self._load_file(self._current_path)
                 self._status(f"EF corrigé : {ef_shift*1000:+.1f} meV → offset={new_off:.4f} eV")
         except Exception as e:
