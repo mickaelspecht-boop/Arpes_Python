@@ -88,6 +88,9 @@ class FileMeta:
     direction: str     = ""
     polarization: str  = ""
     meas_no: int       = 0
+    azi: Optional[float] = None        # azimut échantillon (deg) — None = inconnu
+    polar: Optional[float] = None      # manipulateur P / theta (deg)
+    tilt: Optional[float] = None       # manipulateur T / phi (deg)
 
 
 @dataclass
@@ -101,6 +104,10 @@ class FileEntry:
     fs_center_kx: Optional[float] = None
     fs_center_ky: Optional[float] = None
     grid_correction: dict = field(default_factory=dict)
+    ef_correction: dict = field(default_factory=dict)
+    # ef_correction = {} ou {"mode": "poly", "poly_coefs": [...], "k_min": ..,
+    # "k_max": .., "T": .., "fwhm_res": .., "rms": .., "n_valid": ..,
+    # "source": "self"|"reference", "ref_file": "..."}
 
     @property
     def status(self) -> str:
@@ -139,6 +146,8 @@ class Session:
         self.logbook_mapping: dict[str, str] = {}
         self.logbook_records: list[dict] = []
         self.gamma_reference: dict = {}
+        self.angle_offsets: dict = {}
+        self.ef_reference: dict    = {}    # correction EF(theta) de référence (Au)
 
     # ── persistance ───────────────────────────────────────────────────────────
     @property
@@ -157,6 +166,8 @@ class Session:
             "logbook_mapping": _to_serial(self.logbook_mapping),
             "logbook_records": _to_serial(self.logbook_records),
             "gamma_reference": _to_serial(self.gamma_reference),
+            "angle_offsets":   _to_serial(self.angle_offsets),
+            "ef_reference":    _to_serial(self.ef_reference),
             "files": {
                 name: _to_serial(asdict(entry))
                 for name, entry in self.files.items()
@@ -172,6 +183,8 @@ class Session:
         self.logbook_mapping = raw.get("logbook_mapping", {})
         self.logbook_records = raw.get("logbook_records", [])
         self.gamma_reference = raw.get("gamma_reference", {})
+        self.angle_offsets   = raw.get("angle_offsets", {}) or {}
+        self.ef_reference    = raw.get("ef_reference", {}) or {}
         for name, edict in raw.get("files", {}).items():
             fp = FitParams(**edict.get("fit_params", {}))
             mt = FileMeta(**edict.get("meta", {}))
@@ -185,6 +198,7 @@ class Session:
                 fs_center_kx = edict.get("fs_center_kx"),
                 fs_center_ky = edict.get("fs_center_ky"),
                 grid_correction = edict.get("grid_correction", {}) or {},
+                ef_correction   = edict.get("ef_correction", {}) or {},
             )
             self.files[name] = entry
 
@@ -267,6 +281,19 @@ def _infer_logbook_mapping(columns: list[str]) -> dict[str, str]:
         "polarization": _pick_column(columns, [
             ["polarization"], ["polarisation"], ["pol"],
         ]),
+        "azi": _pick_column(columns, [
+            ["azi"], ["azimuth"], ["azimut"], ["phi", "azimuth"],
+        ]),
+        "polar": _pick_column(columns, [
+            ["theta"], ["polar", "angle"], ["polar", "deg"],
+            ["manip", "p"], ["sample", "p"],
+        ]),
+        "tilt": _pick_column(columns, [
+            ["phi"], ["tilt"], ["manip", "t"], ["sample", "t"],
+        ]),
+        "direction": _pick_column(columns, [
+            ["direction"], ["direct"], ["cut"], ["coupe"], ["chemin"],
+        ]),
     }
 
 
@@ -331,12 +358,46 @@ AP = None
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_arpes_file(path: str, work_func: float, ef_offset: float,
-                    a_lattice: float = 3.96, hv: float | None = None) -> dict | None:
+                    a_lattice: float = 3.96, hv: float | None = None,
+                    temperature: float | None = None,
+                    azi: float | None = None,
+                    pol: str = "",
+                    angle_offsets: dict | None = None) -> dict | None:
     if not ERLAB_OK or load_arpes is None:
         return None
     ds = load_arpes(path, work_func=work_func, ef_offset=ef_offset,
-                    a_lattice=a_lattice, hv=hv)
+                    a_lattice=a_lattice, hv=hv,
+                    temperature=temperature,
+                    azi=float(azi) if azi is not None else 0.0,
+                    pol=pol,
+                    angle_offsets=angle_offsets)
     return ds.as_legacy_bandmap_dict()
+
+
+def apply_ef_correction_to_dict(d: dict, cfg: dict) -> tuple[dict, dict]:
+    """Applique une correction EF par colonne (poly) au dict legacy.
+
+    Renvoie (dict_corrigé, info) où info contient ef_smooth, ef_at_center, etc.
+    Modifie une copie : ne touche pas l'objet d'origine.
+    """
+    if not cfg or cfg.get("mode") != "poly":
+        return d, {}
+    coefs = np.asarray(cfg.get("poly_coefs", []), dtype=float)
+    if coefs.size == 0:
+        return d, {}
+    kpar = np.asarray(d["kpar"], dtype=float)
+    ev   = np.asarray(d["ev_arr"], dtype=float)
+    data = np.asarray(d["data"], dtype=float)
+    ef_smooth = np.polyval(coefs, kpar)
+    try:
+        from arpes_plots import apply_ef_correction_per_column as _apply
+    except Exception:
+        return d, {}
+    data_corr = _apply(data, kpar, ev, ef_smooth)
+    out = dict(d)
+    out["data"] = data_corr
+    info = {"ef_smooth": ef_smooth, "ef_center": float(np.interp(0.0, kpar, ef_smooth))}
+    return out, info
 
 
 def apply_edcnorm(data: np.ndarray) -> np.ndarray:
@@ -792,6 +853,7 @@ class FitParamsPanel(QScrollArea):
     clear_kf_requested = pyqtSignal()
     copy_params_requested = pyqtSignal()
     ef_calib_requested = pyqtSignal()
+    ef_apply_reference_requested = pyqtSignal()
     logbook_requested = pyqtSignal()
     gamma_bm_requested = pyqtSignal()
     gamma_ref_requested = pyqtSignal()
@@ -850,6 +912,12 @@ class FitParamsPanel(QScrollArea):
         self.chk_norm.stateChanged.connect(self.params_changed)
         btn_ef = QPushButton("🎛  Calibrer EF auto")
         btn_ef.clicked.connect(self.ef_calib_requested)
+        btn_ef_ref = QPushButton("⇩  Appliquer Au de référence")
+        btn_ef_ref.setToolTip(
+            "Applique au fichier courant la correction EF de référence sauvegardée\n"
+            "dans la session (mesurée sur un échantillon Au, par exemple)."
+        )
+        btn_ef_ref.clicked.connect(self.ef_apply_reference_requested)
         btn_log = QPushButton("📒  Charger logbook")
         btn_log.clicked.connect(self.logbook_requested)
         btn_copy = QPushButton("📋  Copier params → fichier suivant")
@@ -860,6 +928,7 @@ class FitParamsPanel(QScrollArea):
         fl_ef.addRow(self.chk_norm)
         fl_ef.addRow(btn_log)
         fl_ef.addRow(btn_ef)
+        fl_ef.addRow(btn_ef_ref)
         fl_ef.addRow(btn_copy)
         lay.addWidget(self._ef_widget)
 
@@ -1346,6 +1415,302 @@ import matplotlib.pyplot as plt   # pour plt.cm dans ResultsPanel
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Dialogue de calibration EF
+# ─────────────────────────────────────────────────────────────────────────────
+
+class EFCalibrationDialog(QDialog):
+    """Calibration EF interactive : scalaire ou par colonne (poly).
+
+    Inputs : data (n_k, n_E), kpar, ev_arr, T_init, half_width_init, source_name.
+    Outputs (via .result_payload après accept) :
+        {"mode": "scalar"|"poly", "ef_offset": float | None,
+         "poly_coefs": [...] | None, "T": float, "fwhm_res": float,
+         "rms": float, "n_valid": int, "k_min": float, "k_max": float,
+         "save_as_reference": bool}
+    """
+
+    def __init__(self, parent, data, kpar, ev_arr, T_init=28.0,
+                 half_width_init=0.15, source_name="", current_offset=0.0):
+        super().__init__(parent)
+        self.setWindowTitle("Calibration EF")
+        self.resize(900, 620)
+        self._data  = np.asarray(data, dtype=float)
+        self._kpar  = np.asarray(kpar, dtype=float)
+        self._ev    = np.asarray(ev_arr, dtype=float)
+        self._fit   = None
+        self.result_payload = None
+        self._current_offset = float(current_offset)
+
+        # ── widgets ────────────────────────────────────────────────────────────
+        from PyQt6.QtWidgets import QRadioButton, QButtonGroup
+        lay = QHBoxLayout(self)
+
+        # Panneau gauche : contrôles
+        left = QWidget(); fl = QFormLayout(left); left.setMaximumWidth(320)
+        info = QLabel(f"Source : {source_name or '—'}\nDimensions : {self._data.shape[0]} k × {self._data.shape[1]} E")
+        info.setStyleSheet("color: #aaa; font-size: 11px;")
+        fl.addRow(info)
+
+        self.rb_scalar = QRadioButton("Scalaire (un EF moyen)")
+        self.rb_poly   = QRadioButton("Par colonne (polynôme)")
+        self.rb_scalar.setChecked(True)
+        grp = QButtonGroup(self)
+        grp.addButton(self.rb_scalar); grp.addButton(self.rb_poly)
+        fl.addRow(self.rb_scalar)
+        fl.addRow(self.rb_poly)
+
+        self.sp_T = QDoubleSpinBox(); self.sp_T.setRange(1.0, 400.0); self.sp_T.setDecimals(1)
+        self.sp_T.setValue(float(T_init)); self.sp_T.setSuffix(" K")
+        self.sp_T.setToolTip("Température utilisée pour fixer kBT dans la FD.")
+        fl.addRow("Température :", self.sp_T)
+
+        self.sp_hw = QDoubleSpinBox(); self.sp_hw.setRange(0.03, 0.50); self.sp_hw.setDecimals(3)
+        self.sp_hw.setSingleStep(0.01); self.sp_hw.setValue(float(half_width_init)); self.sp_hw.setSuffix(" eV")
+        self.sp_hw.setToolTip("Demi-largeur de la fenêtre de fit autour de EF estimé.")
+        fl.addRow("Demi-fenêtre :", self.sp_hw)
+
+        self.chk_auto = QCheckBox("Auto-fenêtre (gradient max)")
+        self.chk_auto.setChecked(True)
+        self.chk_auto.setToolTip("Centre la fenêtre sur le gradient max de l'EDC moyenne.")
+        fl.addRow(self.chk_auto)
+
+        self.sp_deg = QSpinBox(); self.sp_deg.setRange(0, 4); self.sp_deg.setValue(2)
+        self.sp_deg.setToolTip("Degré du polynôme EF(k). 0=constant, 2=parabole (défaut).")
+        fl.addRow("Degré poly :", self.sp_deg)
+
+        self.sp_sigma = QDoubleSpinBox(); self.sp_sigma.setRange(0.005, 0.10); self.sp_sigma.setDecimals(3)
+        self.sp_sigma.setSingleStep(0.005); self.sp_sigma.setValue(0.025); self.sp_sigma.setSuffix(" eV")
+        self.sp_sigma.setToolTip("Sigma initiale de résolution gaussienne pour le fit (FWHM=2.355σ).")
+        fl.addRow("σ init :", self.sp_sigma)
+
+        self.btn_fit = QPushButton("▶ Fitter")
+        self.btn_fit.clicked.connect(self._do_fit)
+        fl.addRow(self.btn_fit)
+
+        self.lbl_result = QLabel("—")
+        self.lbl_result.setWordWrap(True)
+        self.lbl_result.setStyleSheet("background:#222; padding:6px; border-radius:4px;")
+        fl.addRow(self.lbl_result)
+
+        self.chk_save_ref = QCheckBox("Sauvegarder comme référence dossier (Au)")
+        self.chk_save_ref.setToolTip(
+            "La correction sera proposée comme référence appliquable aux autres\n"
+            "fichiers du dossier via 'Appliquer Au de référence'."
+        )
+        fl.addRow(self.chk_save_ref)
+
+        self.btn_apply  = QPushButton("✓ Appliquer à ce fichier")
+        self.btn_apply.setEnabled(False)
+        self.btn_apply.clicked.connect(self._on_apply)
+        self.btn_cancel = QPushButton("Annuler")
+        self.btn_cancel.clicked.connect(self.reject)
+        fl.addRow(self.btn_apply)
+        fl.addRow(self.btn_cancel)
+
+        lay.addWidget(left)
+
+        # Panneau droit : preview matplotlib
+        from matplotlib.figure import Figure as _Fig
+        self._fig = _Fig(figsize=(6, 5))
+        self._canvas = FigureCanvas(self._fig)
+        self._ax_edc  = self._fig.add_subplot(2, 1, 1)
+        self._ax_poly = self._fig.add_subplot(2, 1, 2)
+        self._fig.tight_layout()
+        right = QWidget(); rl = QVBoxLayout(right); rl.addWidget(self._canvas)
+        lay.addWidget(right, 1)
+
+        self._draw_initial_preview()
+
+    # ── helpers ────────────────────────────────────────────────────────────────
+    def _draw_initial_preview(self):
+        edc = np.nanmean(self._data, axis=0)
+        self._ax_edc.clear()
+        self._ax_edc.plot(self._ev, edc, "k-", lw=1.2, label="EDC moyenne")
+        self._ax_edc.axvline(0.0, color="gray", ls="--", lw=0.7)
+        self._ax_edc.set_xlabel("E − EF (eV)"); self._ax_edc.set_ylabel("Intensité")
+        self._ax_edc.set_title("EDC moyennée sur k")
+        self._ax_edc.legend(fontsize=8)
+        self._ax_poly.clear()
+        self._ax_poly.text(0.5, 0.5, "Cliquer 'Fitter' pour lancer la calibration",
+                           ha="center", va="center", transform=self._ax_poly.transAxes,
+                           fontsize=10, color="gray")
+        self._ax_poly.set_axis_off()
+        self._canvas.draw_idle()
+
+    def _do_fit(self):
+        try:
+            ap = _load_ap()
+        except Exception as e:
+            self.lbl_result.setText(f"⚠ arpes_plots indisponible : {e}")
+            return
+        T  = self.sp_T.value()
+        hw = self.sp_hw.value()
+        sig = self.sp_sigma.value()
+        auto = self.chk_auto.isChecked()
+        edc = np.nanmean(self._data, axis=0)
+
+        if self.rb_scalar.isChecked():
+            win = ap.auto_ef_window(self._ev, edc, half_width=hw) if auto else (-hw, hw)
+            try:
+                from matplotlib.figure import Figure as _Fig
+                _ax = _Fig().add_subplot(111)
+                r = ap.fit_fermi_edge(
+                    self._ev, edc,
+                    temperature_K=T, fit_range=win,
+                    sigma_resolution_init=sig, fix_kBT=True,
+                    units="binding", ax=_ax, verbose=False,
+                )
+            except Exception as e:
+                self.lbl_result.setText(f"⚠ fit échoué : {e}")
+                return
+            ef     = float(r["EF"])
+            efe    = float(r.get("EF_err", np.nan))
+            fwhm   = float(r["fwhm_res"])
+            resid  = float(r["residual"])
+            self._fit = {
+                "mode": "scalar",
+                "ef_shift": ef,
+                "ef_err":   efe,
+                "fwhm_res": fwhm,
+                "rms":      resid,
+                "n_valid":  int(self._data.shape[0]),
+                "k_min":    float(self._kpar.min()),
+                "k_max":    float(self._kpar.max()),
+                "T":        T,
+                "window":   win,
+            }
+            self._draw_scalar_preview(r, win)
+            new_offset = self._current_offset - ef
+            self.lbl_result.setText(
+                f"<b>Mode scalaire</b><br>"
+                f"EF fit : {ef*1000:+.1f} meV (±{efe*1000:.1f} meV)<br>"
+                f"FWHM résolution : {fwhm*1000:.0f} meV<br>"
+                f"Résidu rms : {resid:.4f}<br>"
+                f"Fenêtre : [{win[0]*1000:+.0f}, {win[1]*1000:+.0f}] meV<br>"
+                f"→ nouvel offset proposé : {new_offset:.4f} eV"
+            )
+        else:
+            try:
+                r = ap.fit_fermi_edge_per_column(
+                    self._data, self._kpar, self._ev,
+                    temperature_K=T, half_width=hw,
+                    sigma_resolution_init=sig,
+                    poly_deg=self.sp_deg.value(),
+                    auto_window=auto,
+                    verbose=False,
+                )
+            except Exception as e:
+                self.lbl_result.setText(f"⚠ fit par colonne échoué : {e}")
+                return
+            self._fit = {
+                "mode": "poly",
+                "poly_coefs": r["poly_coefs"].tolist(),
+                "ef_per_col": r["ef_per_col"],
+                "ef_smooth":  r["ef_smooth"],
+                "fwhm_res":   r["mean_fwhm"],
+                "rms":        r["rms"],
+                "n_valid":    r["n_valid"],
+                "k_min":      float(self._kpar.min()),
+                "k_max":      float(self._kpar.max()),
+                "T":          T,
+                "window":     r["window"],
+                "mean_ef":    r["mean_ef"],
+            }
+            self._draw_poly_preview(r)
+            self.lbl_result.setText(
+                f"<b>Mode par colonne (poly deg {self.sp_deg.value()})</b><br>"
+                f"Colonnes valides : {r['n_valid']}/{self._data.shape[0]}<br>"
+                f"&lt;EF&gt; : {r['mean_ef']*1000:+.1f} meV<br>"
+                f"FWHM médian : {r['mean_fwhm']*1000:.0f} meV<br>"
+                f"RMS résidu poly : {r['rms']*1000:.1f} meV<br>"
+                f"Fenêtre : [{r['window'][0]*1000:+.0f}, {r['window'][1]*1000:+.0f}] meV"
+            )
+        self.btn_apply.setEnabled(True)
+
+    def _draw_scalar_preview(self, fit_result, win):
+        self._ax_edc.clear()
+        edc = np.nanmean(self._data, axis=0)
+        self._ax_edc.plot(self._ev, edc / max(np.nanmax(edc), 1e-9), "k-", lw=1.0,
+                          label="EDC normée")
+        self._ax_edc.plot(fit_result["model_ev"], fit_result["model_I"], "r-", lw=2.0,
+                          label=f"FD fit  EF={fit_result['EF']*1000:+.0f} meV")
+        self._ax_edc.axvline(fit_result["EF"], color="red", lw=1.0)
+        self._ax_edc.axvspan(win[0], win[1], color="orange", alpha=0.10, label="fenêtre")
+        self._ax_edc.axvline(0.0, color="gray", ls="--", lw=0.7)
+        self._ax_edc.set_xlim(min(win[0]-0.05, -0.4), max(win[1]+0.05, 0.1))
+        self._ax_edc.set_xlabel("E − EF (eV)"); self._ax_edc.set_ylabel("I norm.")
+        self._ax_edc.legend(fontsize=8)
+        self._ax_poly.clear()
+        self._ax_poly.text(0.5, 0.5,
+                           "Mode scalaire : pas de courbe EF(k).\n"
+                           "Passer en 'Par colonne' pour voir la dispersion.",
+                           ha="center", va="center", transform=self._ax_poly.transAxes,
+                           fontsize=9, color="gray")
+        self._ax_poly.set_axis_off()
+        self._fig.tight_layout()
+        self._canvas.draw_idle()
+
+    def _draw_poly_preview(self, r):
+        self._ax_edc.clear()
+        edc = np.nanmean(self._data, axis=0)
+        self._ax_edc.plot(self._ev, edc / max(np.nanmax(edc), 1e-9), "k-", lw=1.0,
+                          label="EDC moyenne")
+        win = r["window"]
+        self._ax_edc.axvspan(win[0], win[1], color="orange", alpha=0.10, label="fenêtre")
+        self._ax_edc.axvline(r["mean_ef"], color="red", lw=1.0,
+                             label=f"<EF>={r['mean_ef']*1000:+.0f} meV")
+        self._ax_edc.axvline(0.0, color="gray", ls="--", lw=0.7)
+        self._ax_edc.set_xlim(min(win[0]-0.05, -0.4), max(win[1]+0.05, 0.1))
+        self._ax_edc.set_xlabel("E − EF (eV)"); self._ax_edc.set_ylabel("I norm.")
+        self._ax_edc.legend(fontsize=8)
+
+        self._ax_poly.clear()
+        kp = self._kpar
+        ef_raw = r["ef_per_col"]
+        ef_sm  = r["ef_smooth"]
+        valid = np.isfinite(ef_raw)
+        self._ax_poly.plot(kp[valid], ef_raw[valid] * 1000, ".", color="#888", ms=3,
+                           label="fits par colonne")
+        self._ax_poly.plot(kp, ef_sm * 1000, "r-", lw=2.0,
+                           label=f"poly deg {self.sp_deg.value()}")
+        self._ax_poly.axhline(0.0, color="gray", ls="--", lw=0.7)
+        self._ax_poly.set_xlabel("k (π/a)"); self._ax_poly.set_ylabel("EF (meV)")
+        self._ax_poly.set_title("EF(k) — courbure du détecteur")
+        self._ax_poly.legend(fontsize=8)
+        self._fig.tight_layout()
+        self._canvas.draw_idle()
+
+    def _on_apply(self):
+        if not self._fit:
+            return
+        save_ref = bool(self.chk_save_ref.isChecked())
+        if self._fit["mode"] == "scalar":
+            self.result_payload = {
+                "mode": "scalar",
+                "ef_shift": self._fit["ef_shift"],
+                "T": self._fit["T"],
+                "fwhm_res": self._fit["fwhm_res"],
+                "rms": self._fit["rms"],
+                "k_min": self._fit["k_min"],
+                "k_max": self._fit["k_max"],
+                "save_as_reference": save_ref,
+            }
+        else:
+            self.result_payload = {
+                "mode": "poly",
+                "poly_coefs": list(self._fit["poly_coefs"]),
+                "T": self._fit["T"],
+                "fwhm_res": self._fit["fwhm_res"],
+                "rms": self._fit["rms"],
+                "n_valid": self._fit["n_valid"],
+                "k_min": self._fit["k_min"],
+                "k_max": self._fit["k_max"],
+                "save_as_reference": save_ref,
+            }
+        self.accept()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Fenêtre principale
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1487,6 +1852,7 @@ class ArpesExplorer(QMainWindow):
         self._params.clear_kf_requested.connect(self._clear_kf)
         self._params.copy_params_requested.connect(self._copy_params)
         self._params.ef_calib_requested.connect(self._ef_calibrate)
+        self._params.ef_apply_reference_requested.connect(self._apply_ef_reference_to_current)
         self._params.logbook_requested.connect(self._load_logbook_dialog)
         self._params.gamma_bm_requested.connect(self._estimate_gamma_bm)
         self._params.gamma_ref_requested.connect(self._apply_gamma_reference_to_bm)
@@ -1590,20 +1956,419 @@ class ArpesExplorer(QMainWindow):
         if self._raw_data is None:
             return
         meta = (self._raw_data or {}).get("metadata", {}) or {}
+        entry_now = self._current_entry()
+        azi_ref = entry_now.meta.azi if (entry_now and entry_now.meta.azi is not None) else None
         self._session.gamma_reference = {
             "kx": float(kx),
             "ky": float(ky),
             "polar": float(meta.get("polar", 0.0) or 0.0),
+            "tilt": float(meta.get("tilt_ref", 0.0) or 0.0),
+            "azi": float(azi_ref) if azi_ref is not None else None,
             "hv": self._raw_data.get("hv"),
             "path": self._raw_data.get("path"),
             "polar_already_applied_to_kx": bool(meta.get("polar_already_applied_to_kx", False)),
             "source": source,
         }
+        if entry_now and entry_now.meta.direction:
+            self._session.gamma_reference["direction"] = entry_now.meta.direction
+        offsets = self._angle_offsets_from_k_center(
+            float(kx), float(ky),
+            hv=self._raw_data.get("hv"),
+            source=source,
+            ref_path=self._raw_data.get("path"),
+            azi=azi_ref,
+        )
+        if offsets:
+            self._session.angle_offsets = offsets
         if self._current_path:
             entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
             entry.fs_center_kx = float(kx)
             entry.fs_center_ky = float(ky)
         self._session.save()
+
+    def _k_to_angle_offset_deg(self, k_pi_a: float, *, hv: float | None = None) -> float | None:
+        """Convertit un decalage k (pi/a) en offset angulaire CLS."""
+        try:
+            hv_val = float(hv if hv is not None else self._params.sp_hv.value())
+            work_func = float(self._params.sp_phi.value())
+        except Exception:
+            return None
+        ek = hv_val - work_func
+        if not np.isfinite(ek) or ek <= 0:
+            return None
+        c_arpes = 0.51233
+        a_lattice = 3.96
+        scale = c_arpes * np.sqrt(ek) * a_lattice / np.pi
+        if not np.isfinite(scale) or scale <= 0:
+            return None
+        arg = float(k_pi_a) / scale
+        if abs(arg) > 1.0:
+            arg = float(np.clip(arg, -1.0, 1.0))
+        return float(np.degrees(np.arcsin(arg)))
+
+    def _angle_offsets_from_k_center(
+        self,
+        kx: float,
+        ky: float = 0.0,
+        *,
+        hv: float | None = None,
+        source: str = "",
+        ref_path: str | None = None,
+        azi: float | None = None,
+    ) -> dict:
+        theta0 = self._k_to_angle_offset_deg(kx, hv=hv)
+        tilt0 = self._k_to_angle_offset_deg(ky, hv=hv)
+        if theta0 is None or tilt0 is None:
+            return {}
+        out = {
+            "mode": "cls_angle_offsets",
+            "theta0_deg": float(theta0),
+            "tilt0_deg": float(tilt0),
+            "source": source,
+            "ref_path": ref_path or "",
+            "hv": float(hv) if hv is not None and np.isfinite(float(hv)) else None,
+            "work_func": float(self._params.sp_phi.value()),
+            "a_lattice": 3.96,
+        }
+        if azi is not None:
+            out["azi"] = float(azi)
+        return out
+
+    def _project_gamma_by_azi(
+        self,
+        ref: dict,
+        azi_target: float | None,
+        *,
+        warn_label: str = "Γ",
+    ) -> tuple[float, float]:
+        """Projette le Γ de référence dans le repère du fichier courant.
+
+        La direction ZDB n'est pas utilisée ici : seule la différence d'azimut
+        définit la rotation entre la FS de référence et la donnée cible.
+        """
+        kx_ref = float(ref.get("kx", np.nan))
+        ky_ref = float(ref.get("ky", 0.0) or 0.0)
+        if not np.isfinite(kx_ref) or not np.isfinite(ky_ref):
+            return np.nan, np.nan
+
+        azi_ref = ref.get("azi")
+        if azi_ref is None or azi_target is None:
+            if abs(ky_ref) > 1e-3:
+                self._status(f"⚠ {warn_label} : azi inconnu — projection non corrigée")
+            return kx_ref, ky_ref
+
+        d_azi = np.radians(float(azi_target) - float(azi_ref))
+        k_parallel = kx_ref * np.cos(d_azi) + ky_ref * np.sin(d_azi)
+        k_perp = -kx_ref * np.sin(d_azi) + ky_ref * np.cos(d_azi)
+        return float(k_parallel), float(k_perp)
+
+    def _cls_manipulator_from_param(self, path: str | Path) -> dict:
+        """Lit rapidement P/T depuis le *_param.txt sans charger les données."""
+        p = Path(path)
+        if p.is_file():
+            param_files = [p.parent / f"{p.name}_param.txt"]
+        elif p.is_dir():
+            param_files = sorted(p.glob("*_param.txt"))
+        else:
+            return {}
+        for param_file in param_files:
+            if not param_file.exists():
+                continue
+            try:
+                for line in param_file.read_text(errors="replace").splitlines():
+                    if not line.strip().startswith("{"):
+                        continue
+                    motors = json.loads(line).get("d", {})
+                    out = {}
+                    for motor, key in (("P", "polar"), ("T", "tilt")):
+                        value = motors.get(motor, {}).get("position")
+                        if value is not None:
+                            out[key] = float(value)
+                    if out:
+                        return out
+            except Exception:
+                continue
+        return {}
+
+    def _cls_geometry_for_path(self, path: str | Path, entry: FileEntry | None = None) -> dict:
+        """Retourne la meilleure géométrie CLS connue.
+
+        Priorité : `_param.txt` pour P/T, puis métadonnées de session/logbook.
+        Les Excel CLS changent beaucoup de forme ; le logbook n'est donc qu'un
+        secours pour les champs absents des fichiers bruts, surtout `azi`.
+        """
+        geom = self._cls_manipulator_from_param(path)
+        if entry is not None:
+            if geom.get("polar") is None and entry.meta.polar is not None:
+                geom["polar"] = float(entry.meta.polar)
+            if geom.get("tilt") is None and entry.meta.tilt is not None:
+                geom["tilt"] = float(entry.meta.tilt)
+            if entry.meta.azi is not None:
+                geom["azi"] = float(entry.meta.azi)
+            if entry.meta.hv:
+                geom["hv"] = float(entry.meta.hv)
+
+        rec = self._find_logbook_record(path)
+        mapping = self._session.logbook_mapping or {}
+        if rec is not None:
+            for key in ("polar", "tilt", "azi", "hv"):
+                col = mapping.get(key, "")
+                value = _cell_float(rec.get(col)) if col else None
+                if value is not None and np.isfinite(value) and geom.get(key) is None:
+                    geom[key] = float(value)
+
+        return geom
+
+    def _cls_polar_from_param(self, path: str | Path) -> float | None:
+        return self._cls_manipulator_from_param(path).get("polar")
+
+    def _angle_offsets_for_load(self, path: str | Path, entry: FileEntry | None, hv: float | None) -> dict:
+        """Retourne les offsets angulaires a injecter dans le loader CLS."""
+        ref = self._stored_gamma_reference()
+        if not ref:
+            return self._session.angle_offsets or {}
+
+        # Pour les BM, on projette le Γ FS dans la direction de fente du fichier
+        # courant avec azi_ref/azi_bm, puis on convertit ce k en theta0.
+        p = Path(path)
+        is_cls_bm_file = p.is_file() and (p.parent / f"{p.name}_param.txt").exists()
+        is_cls_fs_dir = p.is_dir()
+        geom = self._cls_geometry_for_path(p, entry)
+        if is_cls_bm_file:
+            azi_bm = geom.get("azi", entry.meta.azi if (entry and entry.meta.azi is not None) else None)
+            gamma_bm, _ = self._project_gamma_by_azi(
+                ref, azi_bm, warn_label="Γ référence → BM"
+            )
+            if not np.isfinite(gamma_bm):
+                return {}
+            offsets = self._angle_offsets_from_k_center(
+                float(gamma_bm), 0.0,
+                hv=hv,
+                source="gamma_reference_projected_to_bm",
+                ref_path=ref.get("path"),
+                azi=azi_bm,
+            )
+            if offsets:
+                offsets["gamma_bm_pi_over_a"] = float(gamma_bm)
+                offsets["gamma_ref_source"] = ref.get("source", "")
+                offsets["target_polar"] = geom.get("polar")
+                offsets["target_tilt"] = geom.get("tilt")
+                return offsets
+
+        # Pour une autre FS CLS, on recentre les deux axes via la même rotation
+        # azimutale. Le dessin affichera ensuite le centre à (0, 0), car le
+        # loader aura déjà appliqué theta0/tilt0.
+        if is_cls_fs_dir:
+            azi_fs = geom.get("azi", entry.meta.azi if (entry and entry.meta.azi is not None) else None)
+            gamma_kx, gamma_ky = self._project_gamma_by_azi(
+                ref, azi_fs, warn_label="Γ référence → FS"
+            )
+            if not np.isfinite(gamma_kx) or not np.isfinite(gamma_ky):
+                return {}
+            offsets = self._angle_offsets_from_k_center(
+                float(gamma_kx), float(gamma_ky),
+                hv=hv,
+                source="gamma_reference_projected_to_fs",
+                ref_path=ref.get("path"),
+                azi=azi_fs,
+            )
+            if offsets:
+                offsets["gamma_fs_kx_pi_over_a"] = float(gamma_kx)
+                offsets["gamma_fs_ky_pi_over_a"] = float(gamma_ky)
+                offsets["gamma_ref_source"] = ref.get("source", "")
+                offsets["target_polar"] = geom.get("polar")
+                offsets["target_tilt"] = geom.get("tilt")
+                return offsets
+
+        return {}
+
+    def _angle_offset_candidates_for_load(
+        self,
+        path: str | Path,
+        entry: FileEntry | None,
+        hv: float | None,
+        primary: dict,
+    ) -> list[dict]:
+        """Candidats de convention pour une BM CLS.
+
+        Les conventions exactes peuvent changer selon la definition de l'azi
+        dans le logbook. On teste donc le signe de theta0 et, si possible, les
+        deux projections `+ky sin(d_azi)` / `-ky sin(d_azi)`.
+        """
+        if not primary or not Path(path).is_file():
+            return [primary] if primary else []
+        candidates: list[dict] = []
+
+        def add(cfg: dict, label: str):
+            if not cfg:
+                return
+            c = dict(cfg)
+            c["candidate"] = label
+            key = (round(float(c.get("theta0_deg", 0.0)), 8),
+                   round(float(c.get("tilt0_deg", 0.0)), 8),
+                   c.get("candidate", ""))
+            for old in candidates:
+                old_key = (round(float(old.get("theta0_deg", 0.0)), 8),
+                           round(float(old.get("tilt0_deg", 0.0)), 8),
+                           old.get("candidate", ""))
+                if old_key == key:
+                    return
+            candidates.append(c)
+
+        add(primary, "theta0")
+        neg = dict(primary)
+        neg["theta0_deg"] = -float(neg.get("theta0_deg", 0.0) or 0.0)
+        neg["gamma_bm_pi_over_a"] = -float(neg.get("gamma_bm_pi_over_a", 0.0) or 0.0)
+        add(neg, "-theta0")
+
+        ref = self._stored_gamma_reference()
+        if ref and entry is not None:
+            geom = self._cls_geometry_for_path(path, entry)
+            p_ref = ref.get("polar")
+            p_target = geom.get("polar")
+            theta_ref = self._k_to_angle_offset_deg(float(ref.get("kx", 0.0) or 0.0), hv=hv)
+            if p_ref is not None and p_target is not None and theta_ref is not None:
+                # Convention "angle brut analyseur": le Γ repéré sur la FS
+                # correspond à theta_raw ~= P_ref + theta_ref. Pour une BM à
+                # polar différent, l'offset à appliquer devient
+                # theta_raw - P_target. Cette correction est indispensable pour
+                # des cas comme BM9/BM10 où P change fortement.
+                raw_theta0 = float(theta_ref) + float(p_ref) - float(p_target)
+                cfg = dict(primary)
+                cfg["theta0_deg"] = raw_theta0
+                cfg["tilt0_deg"] = 0.0
+                cfg["source"] = "gamma_reference_projected_to_bm_raw_polar"
+                cfg["target_polar"] = float(p_target)
+                cfg["ref_polar"] = float(p_ref)
+                add(cfg, "raw_polar")
+                cfg_neg = dict(cfg)
+                cfg_neg["theta0_deg"] = -raw_theta0
+                add(cfg_neg, "raw_polar_neg")
+
+            azi_ref = ref.get("azi")
+            azi_bm = geom.get("azi", entry.meta.azi if entry.meta.azi is not None else None)
+            if azi_ref is not None and azi_bm is not None:
+                kx_ref = float(ref.get("kx", np.nan))
+                ky_ref = float(ref.get("ky", 0.0) or 0.0)
+                if np.isfinite(kx_ref) and np.isfinite(ky_ref):
+                    d_azi = np.radians(float(azi_bm) - float(azi_ref))
+                    for label, gamma_bm in (
+                        ("azi_plus", kx_ref * np.cos(d_azi) + ky_ref * np.sin(d_azi)),
+                        ("azi_minus", kx_ref * np.cos(d_azi) - ky_ref * np.sin(d_azi)),
+                    ):
+                        cfg = self._angle_offsets_from_k_center(
+                            float(gamma_bm), 0.0,
+                            hv=hv,
+                            source=f"gamma_reference_projected_to_bm_{label}",
+                            ref_path=ref.get("path"),
+                            azi=azi_bm,
+                        )
+                        if cfg:
+                            cfg["gamma_bm_pi_over_a"] = float(gamma_bm)
+                            cfg["gamma_ref_source"] = ref.get("source", "")
+                            add(cfg, label)
+                            if p_ref is not None and p_target is not None:
+                                theta_proj = self._k_to_angle_offset_deg(float(gamma_bm), hv=hv)
+                                if theta_proj is not None:
+                                    cfg_raw = dict(cfg)
+                                    cfg_raw["theta0_deg"] = float(theta_proj) + float(p_ref) - float(p_target)
+                                    cfg_raw["source"] = f"gamma_reference_projected_to_bm_{label}_raw_polar"
+                                    cfg_raw["target_polar"] = float(p_target)
+                                    cfg_raw["ref_polar"] = float(p_ref)
+                                    add(cfg_raw, f"{label}_raw_polar")
+                            cfg_neg = dict(cfg)
+                            cfg_neg["theta0_deg"] = -float(cfg_neg.get("theta0_deg", 0.0) or 0.0)
+                            cfg_neg["gamma_bm_pi_over_a"] = -float(cfg_neg.get("gamma_bm_pi_over_a", 0.0) or 0.0)
+                            add(cfg_neg, f"{label}_neg")
+
+        return candidates
+
+    def _score_bm_gamma_residual(self, d: dict) -> float:
+        """Score petit si la BM chargee est centree autour de Γ=0."""
+        if AP is None:
+            return float("inf")
+        try:
+            res = AP.estimate_gamma_bm_mdc(
+                np.asarray(d["data"], dtype=float),
+                np.asarray(d["kpar"], dtype=float),
+                np.asarray(d["ev_arr"], dtype=float),
+                ev_range=(self._params.sp_evs.value(), self._params.sp_eve.value()),
+                k_range=(self._params.sp_kmin.value(), self._params.sp_kmax.value()),
+                center_guess=0.0,
+                center_window=max(self._params.sp_xg.value() * 2.0, 0.25),
+                smooth_sigma=self._params.sp_sfd.value(),
+                verbose=False,
+            )
+            gamma = float(res.get("gamma", np.nan))
+            mad = float(res.get("mad", 0.0) or 0.0)
+            n = int(res.get("n", 0) or 0)
+            if not np.isfinite(gamma) or n < 2:
+                return float("inf")
+            kpar = np.asarray(d["kpar"], dtype=float)
+            k_mid = 0.5 * (float(np.nanmin(kpar)) + float(np.nanmax(kpar)))
+            return abs(gamma) + 0.25 * mad + 0.10 * abs(k_mid)
+        except Exception:
+            return float("inf")
+
+    def _load_with_best_angle_offsets(
+        self,
+        path: str,
+        entry: FileEntry,
+        hv_for_load: float,
+        angle_offsets: dict,
+    ) -> tuple[dict | None, dict]:
+        """Charge une BM CLS avec la convention d'offset qui centre le mieux Γ."""
+        candidates = self._angle_offset_candidates_for_load(path, entry, hv_for_load, angle_offsets)
+        if len(candidates) <= 1:
+            d = load_arpes_file(
+                path, self._params.sp_phi.value(), self._params.sp_ef.value(),
+                hv=hv_for_load,
+                temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
+                azi=entry.meta.azi,
+                pol=entry.meta.polarization,
+                angle_offsets=angle_offsets,
+            )
+            return d, angle_offsets
+
+        best_d = None
+        best_cfg = candidates[0]
+        best_score = float("inf")
+        for cfg in candidates:
+            d_try = load_arpes_file(
+                path, self._params.sp_phi.value(), self._params.sp_ef.value(),
+                hv=hv_for_load,
+                temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
+                azi=entry.meta.azi,
+                pol=entry.meta.polarization,
+                angle_offsets=cfg,
+            )
+            if d_try is None:
+                continue
+            score = self._score_bm_gamma_residual(d_try)
+            if score < best_score:
+                best_score = score
+                best_d = d_try
+                best_cfg = cfg
+
+        if best_d is not None and np.isfinite(best_score):
+            try:
+                md = best_d.get("metadata", {}) or {}
+                md["angle_offset_candidate_score"] = float(best_score)
+                md["angle_offset_candidate"] = best_cfg.get("candidate", "")
+                best_d["metadata"] = md
+            except Exception:
+                pass
+            return best_d, best_cfg
+
+        d = load_arpes_file(
+            path, self._params.sp_phi.value(), self._params.sp_ef.value(),
+            hv=hv_for_load,
+            temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
+            azi=entry.meta.azi,
+            pol=entry.meta.polarization,
+            angle_offsets=angle_offsets,
+        )
+        return d, angle_offsets
 
     def _set_fs_center_pick_mode(self, active: bool):
         active = bool(active)
@@ -1679,10 +2444,44 @@ class ArpesExplorer(QMainWindow):
         return ref
 
     def _gamma_reference_to_bm_center(self, ref: dict) -> tuple[float, float]:
+        """Projette le Γ mesuré sur la FS vers l'axe k de la BM courante.
+
+        Le transfert n'est physiquement valide que si :
+          - le polar du fichier courant est proche de celui de la référence
+            (sinon le `kx` produit par le loader CLS est complètement
+            différent — voir point 6 dans la doc) ;
+          - l'azi est connu des deux côtés pour corriger la rotation entre
+            la référence FS et la nouvelle direction de fente.
+        Si le polar diffère trop, on retourne NaN pour signaler à l'appelant
+        de NE PAS écrire `sp_cx` automatiquement. Si l'azimut manque, on garde
+        les coordonnées de référence non tournées et on affiche un avertissement.
+        """
+        POLAR_TOLERANCE_DEG = 2.0   # au-delà, transfert non fiable
+
         if self._raw_data is None:
             return np.nan, 0.0
         meta = self._raw_data.get("metadata", {}) or {}
-        gamma = float(ref.get("kx", np.nan))
+        entry_now = self._current_entry()
+
+        # Vérification polar : refus net si écart > tolérance
+        p_ref = float(ref.get("polar", 0.0) or 0.0)
+        p_bm = float(meta.get("polar", 0.0) or 0.0)
+        if abs(p_bm - p_ref) > POLAR_TOLERANCE_DEG:
+            self._status(
+                f"⚠ Γ FS→BM ignoré : polar diffère de {p_bm - p_ref:+.1f}° "
+                f"(>±{POLAR_TOLERANCE_DEG:.0f}°). Utilise 'Auto Γ BM'."
+            )
+            return np.nan, 0.0
+
+        # Étape 1 : rotation azi. La direction ZDB saisie dans le tableau ne
+        # bloque plus la propagation : l'azimut est la source de vérité.
+        azi_bm = entry_now.meta.azi if (entry_now and entry_now.meta.azi is not None) else None
+        gamma, _ = self._project_gamma_by_azi(ref, azi_bm, warn_label="Γ FS→BM")
+        if not np.isfinite(gamma):
+            return np.nan, 0.0
+
+        # Étape 2 : correction polar (résidu, pour les loaders qui ne
+        # soustraient pas déjà polar à la conversion)
         correction = 0.0
         ref_polar_applied = bool(ref.get("polar_already_applied_to_kx", False))
         bm_polar_applied = bool(meta.get("polar_already_applied_to_kx", False))
@@ -1693,12 +2492,49 @@ class ArpesExplorer(QMainWindow):
                 c_arpes = 0.51233
                 a = 3.96
                 ek = float(hv) - float(work_func)
-                p_ref = float(ref.get("polar", 0.0) or 0.0)
-                p_bm = float(meta.get("polar", 0.0) or 0.0)
                 correction = c_arpes * np.sqrt(ek) * (
                     np.sin(np.radians(p_bm)) - np.sin(np.radians(p_ref))
                 ) * a / np.pi
         return gamma + correction, correction
+
+    def _center_current_bm_axis_on_gamma(self, gamma_bm: float, ref: dict | None = None) -> bool:
+        """Recentre l'axe k// d'une BM pour que Γ soit affiche a k//=0.
+
+        Les FS sont deja recentrees au dessin via FSParams.kx_center/ky_center.
+        Pour les BM, `center_init` seul ne suffit pas : l'axe kpar utilise par
+        les graphes/MDC reste brut. On applique donc une translation locale au
+        dict charge, sans modifier les fichiers bruts.
+        """
+        if self._raw_data is None:
+            return False
+        meta = self._raw_data.get("metadata", {}) or {}
+        if meta.get("fs_data") is not None:
+            return False
+        if meta.get("angle_offsets_applied"):
+            return False
+        if bool(meta.get("bm_gamma_axis_centered", False)):
+            return False
+        if not np.isfinite(gamma_bm):
+            return False
+
+        kpar = np.asarray(self._raw_data.get("kpar"), dtype=float)
+        if kpar.size == 0 or not np.isfinite(kpar).any():
+            return False
+
+        shift = float(gamma_bm)
+        self._raw_data["kpar"] = kpar - shift
+        meta["bm_gamma_axis_centered"] = True
+        meta["bm_gamma_axis_shift"] = shift
+        meta["bm_gamma_axis_note"] = "kpar_display = kpar_raw - gamma_bm"
+        if ref:
+            meta["bm_gamma_reference_source"] = ref.get("source", "")
+            meta["bm_gamma_reference_path"] = ref.get("path", "")
+            meta["bm_gamma_reference_azi"] = ref.get("azi")
+        self._raw_data["metadata"] = meta
+
+        if hasattr(self, "_sel_k"):
+            self._sel_k = float(self._sel_k - shift)
+        return True
 
     def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
         if self._raw_data is None:
@@ -1709,6 +2545,13 @@ class ArpesExplorer(QMainWindow):
 
         if is_fs and FSControlPanel is not None and hasattr(self, "_fs_controls"):
             entry = self._current_entry()
+            if meta.get("angle_offsets_applied"):
+                self._fs_controls.set_center(0.0, 0.0)
+                if save_entry and entry is not None:
+                    entry.fs_center_kx = 0.0
+                    entry.fs_center_ky = 0.0
+                    self._session.save()
+                return
             if entry is not None and entry.fs_center_kx is not None and entry.fs_center_ky is not None:
                 self._fs_controls.set_center(float(entry.fs_center_kx), float(entry.fs_center_ky))
                 return
@@ -1719,25 +2562,48 @@ class ArpesExplorer(QMainWindow):
 
         if is_fs and FSControlPanel is not None and hasattr(self, "_fs_controls"):
             entry = self._current_entry()
-            if not self._same_path(ref.get("path"), self._raw_data.get("path")):
-                return
-            self._fs_controls.set_center(float(ref["kx"]), float(ref.get("ky", 0.0) or 0.0))
+            if self._same_path(ref.get("path"), self._raw_data.get("path")):
+                kx_fs = float(ref["kx"])
+                ky_fs = float(ref.get("ky", 0.0) or 0.0)
+            else:
+                azi_fs = entry.meta.azi if (entry and entry.meta.azi is not None) else None
+                kx_fs, ky_fs = self._project_gamma_by_azi(
+                    ref, azi_fs, warn_label="Γ référence → FS"
+                )
+                if not np.isfinite(kx_fs) or not np.isfinite(ky_fs):
+                    return
+            self._fs_controls.set_center(float(kx_fs), float(ky_fs))
             if save_entry and entry is not None:
-                entry.fs_center_kx = float(ref["kx"])
-                entry.fs_center_ky = float(ref.get("ky", 0.0) or 0.0)
+                entry.fs_center_kx = float(kx_fs)
+                entry.fs_center_ky = float(ky_fs)
                 self._session.save()
+            if not self._same_path(ref.get("path"), self._raw_data.get("path")):
+                self._status(f"Γ FS propagé par azimut : kx={kx_fs:+.4f}, ky={ky_fs:+.4f} π/a")
+            return
+
+        if meta.get("angle_offsets_applied"):
+            self._params.sp_cx.setValue(0.0)
+            if save_entry and self._current_path:
+                entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+                entry.fit_params.center_init = 0.0
+                self._session.save()
+            self._status("Γ mémorisé appliqué par offset angulaire : centre fit=0")
             return
 
         gamma_bm, correction = self._gamma_reference_to_bm_center(ref)
         if not np.isfinite(gamma_bm):
             return
 
-        self._params.sp_cx.setValue(float(gamma_bm))
+        axis_centered = self._center_current_bm_axis_on_gamma(float(gamma_bm), ref)
+        self._params.sp_cx.setValue(0.0 if axis_centered else float(gamma_bm))
         if save_entry and self._current_path:
             entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-            entry.fit_params.center_init = float(gamma_bm)
+            entry.fit_params.center_init = 0.0 if axis_centered else float(gamma_bm)
             self._session.save()
-        self._status(f"Γ mémorisé appliqué : {gamma_bm:+.4f} π/a  correction={correction:+.4f}")
+        axis_msg = "axe k recentré" if axis_centered else "centre fit seul"
+        self._status(
+            f"Γ mémorisé appliqué : {gamma_bm:+.4f} π/a  correction={correction:+.4f}  |  {axis_msg}"
+        )
 
     def _load_grid_controls(self, cfg: dict | None):
         cfg = cfg or {}
@@ -1902,7 +2768,49 @@ class ArpesExplorer(QMainWindow):
         if not mapping.get("file") or not mapping.get("hv"):
             raise ValueError("Les colonnes fichier et hν sont obligatoires pour appliquer un logbook.")
         records = df.where(pd.notnull(df), None).to_dict(orient="records")
+        records = self._inherit_logbook_context(records, mapping)
         return records, mapping, sheet_name
+
+    def _inherit_logbook_context(self, records: list[dict], mapping: dict[str, str]) -> list[dict]:
+        """Propage les champs de contexte du logbook quand les cellules sont vides.
+
+        Dans les logbooks CLS, `azi` est souvent indique sur une ligne
+        d'alignement (FS) puis laisse vide sur les BM suivantes. Ces BM doivent
+        pourtant heriter de cet azimut pour que la projection FS->BM soit juste.
+        """
+        azi_col = mapping.get("azi", "")
+        dir_col = mapping.get("direction", "")
+        pol_col = mapping.get("polarization", "")
+        last_azi = None
+        last_dir = ""
+        last_pol = ""
+        out = []
+        for rec in records:
+            rec = dict(rec)
+
+            if dir_col:
+                direct = _cell_text(rec.get(dir_col))
+                if direct:
+                    last_dir = direct
+                elif last_dir:
+                    rec[dir_col] = last_dir
+
+            if pol_col:
+                pol = _cell_text(rec.get(pol_col))
+                if pol:
+                    last_pol = pol
+                elif last_pol:
+                    rec[pol_col] = last_pol
+
+            if azi_col:
+                azi = _cell_float(rec.get(azi_col))
+                if azi is not None and np.isfinite(azi):
+                    last_azi = float(azi)
+                elif last_azi is not None:
+                    rec[azi_col] = last_azi
+
+            out.append(rec)
+        return out
 
     def _choose_excel_sheet(self, sheet_names: list[str]) -> str:
         if not sheet_names:
@@ -1971,6 +2879,8 @@ class ArpesExplorer(QMainWindow):
             df, mapping = self._excel_table_from_header(raw, row_idx)
             score = int(bool(mapping.get("file"))) * 3 + int(bool(mapping.get("hv"))) * 3
             score += int(bool(mapping.get("temperature"))) + int(bool(mapping.get("polarization")))
+            score += int(bool(mapping.get("direction"))) + int(bool(mapping.get("azi")))
+            score += int(bool(mapping.get("polar"))) + int(bool(mapping.get("tilt")))
             score += min(len(df), 20) / 1000
             if score > best_score:
                 best = (df, mapping, row_idx)
@@ -2012,6 +2922,10 @@ class ArpesExplorer(QMainWindow):
             "hv": "hν:",
             "temperature": "Température:",
             "polarization": "Polarisation:",
+            "direction": "Direction / chemin:",
+            "azi": "Azimut:",
+            "polar": "Polar / theta manip:",
+            "tilt": "Tilt / phi manip:",
         }
         choices = [""] + columns
         for key, label in labels.items():
@@ -2070,6 +2984,34 @@ class ArpesExplorer(QMainWindow):
             entry.meta.polarization = pol
             changed = True
 
+        azi_col = mapping.get("azi", "")
+        azi_val = _cell_float(rec.get(azi_col)) if azi_col else None
+        if azi_val is not None and np.isfinite(azi_val):
+            entry = self._session.get_or_create(self._session.key_for_path(path))
+            entry.meta.azi = float(azi_val)
+            changed = True
+
+        dir_col = mapping.get("direction", "")
+        dir_val = _cell_text(rec.get(dir_col)) if dir_col else ""
+        if dir_val:
+            entry = self._session.get_or_create(self._session.key_for_path(path))
+            entry.meta.direction = dir_val
+            changed = True
+
+        polar_col = mapping.get("polar", "")
+        polar_val = _cell_float(rec.get(polar_col)) if polar_col else None
+        if polar_val is not None and np.isfinite(polar_val):
+            entry = self._session.get_or_create(self._session.key_for_path(path))
+            entry.meta.polar = float(polar_val)
+            changed = True
+
+        tilt_col = mapping.get("tilt", "")
+        tilt_val = _cell_float(rec.get(tilt_col)) if tilt_col else None
+        if tilt_val is not None and np.isfinite(tilt_val):
+            entry = self._session.get_or_create(self._session.key_for_path(path))
+            entry.meta.tilt = float(tilt_val)
+            changed = True
+
         if changed:
             self._session.save()
         return changed
@@ -2099,13 +3041,39 @@ class ArpesExplorer(QMainWindow):
                 self._params.sp_hv.setValue(float(entry.meta.hv))
                 self._params.sp_hv.blockSignals(False)
             hv_for_load = self._params.sp_hv.value()
-            d = load_arpes_file(path,
-                                self._params.sp_phi.value(),
-                                self._params.sp_ef.value(),
-                                hv=hv_for_load)
+            angle_offsets = self._angle_offsets_for_load(path, entry, hv_for_load)
+            if angle_offsets and Path(path).is_file():
+                d, angle_offsets = self._load_with_best_angle_offsets(path, entry, hv_for_load, angle_offsets)
+            else:
+                d = load_arpes_file(path,
+                                    self._params.sp_phi.value(),
+                                    self._params.sp_ef.value(),
+                                    hv=hv_for_load,
+                                    temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
+                                    azi=entry.meta.azi,
+                                    pol=entry.meta.polarization,
+                                    angle_offsets=angle_offsets)
             if d is None:
                 self._status("⚠ erlab non disponible")
                 return
+
+            # Température lue depuis les métadonnées du loader (Solaris/CLS)
+            md = d.get("metadata", {}) or {}
+            t_md = md.get("temperature")
+            try:
+                t_md = float(t_md) if t_md is not None else None
+            except (TypeError, ValueError):
+                t_md = None
+            if t_md is not None and np.isfinite(t_md) and t_md > 0:
+                entry.meta.temperature = t_md
+
+            # Correction EF par colonne si calibrée pour ce fichier
+            if entry.ef_correction.get("mode") == "poly":
+                d, ef_info = apply_ef_correction_to_dict(d, entry.ef_correction)
+                self._ef_correction_info = ef_info
+            else:
+                self._ef_correction_info = {}
+
             self._raw_data    = d
             self._current_path = path
             self._fit_res = None
@@ -2145,6 +3113,17 @@ class ArpesExplorer(QMainWindow):
                 grid_msg = self._grid_status_text(self._grid_display_info, "affichage BM")
                 grid_note = "  |  " + grid_msg
                 self._params.lbl_grid.setText(grid_msg)
+            gamma_note = ""
+            md_now = d.get("metadata", {}) or {}
+            if md_now.get("angle_offsets_applied"):
+                ao = md_now.get("angle_offsets_applied") or {}
+                cand = md_now.get("angle_offset_candidate", ao.get("candidate", ""))
+                cand_txt = f" {cand}" if cand else ""
+                gamma_note = (
+                    f"  |  Γ offset angulaire{cand_txt} θ0={float(ao.get('theta0_deg', 0.0)):+.3f}°"
+                )
+            elif md_now.get("bm_gamma_axis_centered"):
+                gamma_note = f"  |  Γ axe shift={float(md_now.get('bm_gamma_axis_shift', 0.0)):+.4f}"
             self._sel_ev = float(np.clip(-0.30, d["ev_arr"].min(), d["ev_arr"].max()))
             self._sel_k  = 0.0
             self._sync_ev_spinbox()
@@ -2160,7 +3139,7 @@ class ArpesExplorer(QMainWindow):
             self._status(
                 f"Chargé : {Path(path).name}  hν={hv_txt}  |  "
                 f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
-                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV{lb_txt}{grid_note}"
+                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV{lb_txt}{grid_note}{gamma_note}"
             )
         except Exception as e:
             self._status(f"⚠ {e}")
@@ -2777,10 +3756,14 @@ class ArpesExplorer(QMainWindow):
                 )
                 return
             self._params.sp_cx.setValue(gamma)
+            entry_now = self._current_entry()
+            azi_ref = entry_now.meta.azi if (entry_now and entry_now.meta.azi is not None) else None
             self._session.gamma_reference = {
                 "kx": float(gamma),
                 "ky": 0.0,
                 "polar": float((self._raw_data.get("metadata", {}) or {}).get("polar", 0.0) or 0.0),
+                "tilt": float((self._raw_data.get("metadata", {}) or {}).get("tilt_ref", 0.0) or 0.0),
+                "azi": float(azi_ref) if azi_ref is not None else None,
                 "hv": self._raw_data.get("hv"),
                 "path": self._raw_data.get("path"),
                 "polar_already_applied_to_kx": bool(
@@ -2788,6 +3771,19 @@ class ArpesExplorer(QMainWindow):
                 ),
                 "source": "bm",
             }
+            if entry_now and entry_now.meta.direction:
+                self._session.gamma_reference["direction"] = entry_now.meta.direction
+            meta_now = self._raw_data.get("metadata", {}) or {}
+            if not meta_now.get("angle_offsets_applied") and not meta_now.get("bm_gamma_axis_centered"):
+                offsets = self._angle_offsets_from_k_center(
+                    float(gamma), 0.0,
+                    hv=self._raw_data.get("hv"),
+                    source="bm_auto",
+                    ref_path=self._raw_data.get("path"),
+                    azi=azi_ref,
+                )
+                if offsets:
+                    self._session.angle_offsets = offsets
             if self._current_path:
                 entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
                 entry.fit_params.center_init = float(gamma)
@@ -2810,22 +3806,42 @@ class ArpesExplorer(QMainWindow):
             return
         if self._raw_data is None:
             return
+        meta = self._raw_data.get("metadata", {}) or {}
+        if meta.get("angle_offsets_applied"):
+            self._params.sp_cx.setValue(0.0)
+            if self._current_path:
+                entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+                entry.fit_params.center_init = 0.0
+                self._session.save()
+            self._params.lbl_res.setText("Γ déjà appliqué par offset angulaire loader")
+            self._draw_bm()
+            self._draw_mdc_edc()
+            self._status("Γ FS appliqué : offset angulaire loader déjà actif")
+            return
         gamma_bm, correction = self._gamma_reference_to_bm_center(ref)
         if not np.isfinite(gamma_bm):
             QMessageBox.warning(self, "Γ FS → BM", "La référence Γ stockée est invalide.")
             return
-        self._params.sp_cx.setValue(gamma_bm)
+        angular_applied = bool(meta.get("angle_offsets_applied"))
+        axis_centered = False if angular_applied else self._center_current_bm_axis_on_gamma(float(gamma_bm), ref)
+        self._params.sp_cx.setValue(0.0 if (axis_centered or angular_applied) else gamma_bm)
         if self._current_path:
             entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-            entry.fit_params.center_init = float(gamma_bm)
+            entry.fit_params.center_init = 0.0 if (axis_centered or angular_applied) else float(gamma_bm)
             self._session.save()
+        mode_msg = "offset angulaire loader" if angular_applied else ("axe k recentré" if axis_centered else "centre fit seul")
         self._params.lbl_res.setText(
             f"Γ FS→BM = {gamma_bm:+.4f} π/a\n"
-            f"corr polar={correction:+.4f}"
+            f"corr polar={correction:+.4f}\n"
+            f"{mode_msg}"
         )
+        self._update_display_data()
         self._draw_bm()
         self._draw_mdc_edc()
-        self._status(f"Γ FS appliqué à la BM : {gamma_bm:+.4f} π/a  correction={correction:+.4f}")
+        self._status(
+            f"Γ FS appliqué à la BM : {gamma_bm:+.4f} π/a  correction={correction:+.4f}"
+            f"  |  {mode_msg}"
+        )
 
     def _fit_full(self):
         if AP is None: self._status("⚠ arpes_plots non chargé"); return
@@ -2884,46 +3900,120 @@ class ArpesExplorer(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _ef_calibrate(self):
-        if self._raw_data is None or AP is None:
-            self._status("⚠ Données ou arpes_plots manquants"); return
-        d  = self._raw_data
-        T  = 28.0   # valeur par défaut — à améliorer via logbook
-        edc_avg = np.nanmean(d["data"], axis=0).astype(float)
-
-        # Fenêtre de recherche
-        search = (-0.35, 0.05)
-        mask = (d["ev_arr"] >= search[0]) & (d["ev_arr"] <= search[1])
-        if mask.sum() < 20:
-            self._status("⚠ Plage EF trop étroite"); return
+        if self._raw_data is None:
+            self._status("⚠ Aucune donnée chargée"); return
+        d = self._raw_data
+        # Température : metadata > entry > défaut
+        entry_now = self._current_entry()
+        T_md = (d.get("metadata", {}) or {}).get("temperature")
+        try:
+            T_md = float(T_md) if T_md is not None else None
+        except (TypeError, ValueError):
+            T_md = None
+        if T_md and np.isfinite(T_md) and T_md > 0:
+            T_init = T_md
+        elif entry_now and entry_now.meta.temperature and entry_now.meta.temperature > 0:
+            T_init = float(entry_now.meta.temperature)
+        else:
+            T_init = 28.0
 
         try:
-            import matplotlib.pyplot as _plt
-            fig_tmp, ax_tmp = _plt.subplots(figsize=(5, 3))
-            r = AP.fit_fermi_edge(
-                d["ev_arr"], edc_avg,
-                temperature_K=T, fit_range=(-0.15, 0.10),
-                sigma_resolution_init=0.025, fix_kBT=True,
-                units="binding", ax=ax_tmp, verbose=False,
+            dlg = EFCalibrationDialog(
+                self,
+                data=d["data"], kpar=d["kpar"], ev_arr=d["ev_arr"],
+                T_init=T_init, half_width_init=0.15,
+                source_name=Path(self._current_path).name if self._current_path else "",
+                current_offset=self._params.sp_ef.value(),
             )
-            _plt.close(fig_tmp)
-            ef_shift = float(r["EF"])
-            msg = (f"EF fit : {ef_shift*1000:+.1f} meV\n"
-                   f"FWHM_res : {r['fwhm_res']*1000:.0f} meV\n"
-                   f"Appliquer comme correction EF ?")
-            reply = QMessageBox.question(self, "Calibration EF", msg,
-                                         QMessageBox.StandardButton.Yes |
-                                         QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                new_off = self._params.sp_ef.value() - ef_shift
-                self._params.sp_ef.setValue(new_off)
-                if self._current_path:
-                    entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-                    entry.ef_offset = float(new_off)
-                    self._session.save()
-                self._load_file(self._current_path)
-                self._status(f"EF corrigé : {ef_shift*1000:+.1f} meV → offset={new_off:.4f} eV")
+            if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.result_payload:
+                return
+            payload = dlg.result_payload
+            self._apply_ef_calibration_result(payload)
         except Exception as e:
             self._status(f"⚠ Calibration EF : {e}"); traceback.print_exc()
+
+    def _apply_ef_calibration_result(self, payload: dict):
+        """Sauvegarde la correction sur le fichier courant et recharge."""
+        if not self._current_path:
+            return
+        key = self._session.key_for_path(self._current_path)
+        entry = self._session.get_or_create(key)
+
+        if payload["mode"] == "scalar":
+            new_off = float(self._params.sp_ef.value()) - float(payload["ef_shift"])
+            entry.ef_offset = new_off
+            entry.ef_correction = {}   # supprimer une éventuelle correction poly
+            self._params.sp_ef.blockSignals(True)
+            self._params.sp_ef.setValue(new_off)
+            self._params.sp_ef.blockSignals(False)
+            msg = f"EF scalaire : Δ={payload['ef_shift']*1000:+.1f} meV → offset={new_off:.4f} eV"
+            ref_payload = {
+                "mode": "scalar",
+                "ef_shift": float(payload["ef_shift"]),
+                "T": float(payload["T"]),
+                "fwhm_res": float(payload["fwhm_res"]),
+                "source_file": str(self._current_path),
+            }
+        else:
+            # En mode poly, on remet l'offset scalaire à 0 : la correction
+            # par colonne porte tout le décalage EF.
+            entry.ef_offset = 0.0
+            entry.ef_correction = {
+                "mode": "poly",
+                "poly_coefs": [float(c) for c in payload["poly_coefs"]],
+                "k_min": float(payload["k_min"]),
+                "k_max": float(payload["k_max"]),
+                "T": float(payload["T"]),
+                "fwhm_res": float(payload["fwhm_res"]),
+                "rms": float(payload["rms"]),
+                "n_valid": int(payload["n_valid"]),
+                "source": "self",
+                "source_file": str(self._current_path),
+            }
+            self._params.sp_ef.blockSignals(True)
+            self._params.sp_ef.setValue(0.0)
+            self._params.sp_ef.blockSignals(False)
+            msg = (f"EF par colonne : {payload['n_valid']} k valides, "
+                   f"FWHM≈{payload['fwhm_res']*1000:.0f} meV, "
+                   f"rms={payload['rms']*1000:.1f} meV")
+            ref_payload = dict(entry.ef_correction)
+
+        if payload.get("save_as_reference"):
+            self._session.ef_reference = ref_payload
+            msg += "  |  référence dossier sauvegardée"
+
+        self._session.save()
+        self._load_file(self._current_path)
+        self._status(msg)
+
+    def _apply_ef_reference_to_current(self):
+        """Copie session.ef_reference vers FileEntry courant."""
+        ref = self._session.ef_reference or {}
+        if not ref or not self._current_path:
+            self._status("⚠ Aucune référence EF en session")
+            return
+        key = self._session.key_for_path(self._current_path)
+        entry = self._session.get_or_create(key)
+        if ref.get("mode") == "poly":
+            entry.ef_offset = 0.0
+            entry.ef_correction = dict(ref)
+            entry.ef_correction["source"] = "reference"
+            self._params.sp_ef.blockSignals(True)
+            self._params.sp_ef.setValue(0.0)
+            self._params.sp_ef.blockSignals(False)
+        elif ref.get("mode") == "scalar":
+            cur_off = float(self._params.sp_ef.value())
+            new_off = cur_off - float(ref.get("ef_shift", 0.0))
+            entry.ef_offset = new_off
+            entry.ef_correction = {}
+            self._params.sp_ef.blockSignals(True)
+            self._params.sp_ef.setValue(new_off)
+            self._params.sp_ef.blockSignals(False)
+        else:
+            self._status("⚠ Référence EF mal formée"); return
+        self._session.save()
+        self._load_file(self._current_path)
+        self._status(f"Référence EF appliquée ({ref.get('mode')})")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Copy params

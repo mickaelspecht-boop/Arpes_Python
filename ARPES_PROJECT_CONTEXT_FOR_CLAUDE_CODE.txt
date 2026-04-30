@@ -928,3 +928,450 @@ Test GUI encore à faire manuellement :
 - Correction importante : `_ef_calibrate()` sauvegarde maintenant
   `entry.ef_offset = new_off` avant de recharger le fichier, sinon le reload
   pouvait restaurer l'ancien offset.
+
+## Mise à jour 2026-04-29 — calibration EF par colonne + dialogue
+
+Implémentation des points 1 à 5 de la revue de calibration.
+
+### Nouveautés `arpes_plots.py`
+
+- `auto_ef_window(ev_arr, edc, half_width=0.15)` — détecte la position du
+  gradient max de l'EDC (lissée) et renvoie une fenêtre `(e_lo, e_hi)`
+  centrée dessus. Permet de calibrer un fichier dont l'EF est très décalé
+  (offset > 150 meV) sans configuration manuelle.
+- `fit_fermi_edge_per_column(data, kpar, ev_arr, ...)` — fit FD ⊗ Gauss
+  colonne par colonne `kx`, lissage polynomial degré 0-4 sur les EF retenus
+  (pondération par `1/EF_err²`), rejet des colonnes sans amplitude ou avec
+  erreur > 20 meV. Renvoie `ef_per_col`, `ef_smooth`, `poly_coefs`,
+  `mean_ef`, `mean_fwhm`, `rms`, `n_valid`, `window`.
+- `apply_ef_correction_per_column(data, kpar, ev_arr, ef_smooth)` — décale
+  chaque colonne par interpolation 1D pour ramener `EF(k)` à 0. Les bords
+  hors grille sont remplis avec la valeur extrême de la colonne (évite des
+  NaN qui casseraient `gaussian_filter` côté SecDev/Curvature).
+
+### Nouveautés `arpes_io.py`
+
+- Lecture de la température depuis `da.attrs` pour Solaris : essaie
+  `temperature`, `temperature_a`, `TempA`, `tempA`, `T`, `sample_temperature`,
+  `temperature_b`. Stockée dans `metadata["temperature"]`. CLS l'avait déjà
+  via `temperature` paramètre utilisateur.
+
+### Nouveautés `arpes_explorer.py`
+
+- `FileEntry.ef_correction: dict` — `{"mode": "poly", "poly_coefs": [...],
+  "k_min", "k_max", "T", "fwhm_res", "rms", "n_valid", "source": "self"|
+  "reference", "source_file": ...}`. Persisté en JSON.
+- `Session.ef_reference: dict` — référence Au sauvegardée pour le dossier,
+  applicable à un autre fichier via le bouton dédié.
+- `apply_ef_correction_to_dict(d, cfg)` — utilitaire qui retourne un dict
+  legacy avec `data` corrigée. Appelé dans `_load_file` avant `self._raw_data
+  = d` quand `entry.ef_correction["mode"] == "poly"`.
+- En mode poly, `entry.ef_offset` est forcé à 0 : la poly porte tout le
+  décalage EF. Sinon les deux corrections s'additionneraient.
+- `EFCalibrationDialog(QDialog)` — fenêtre interactive remplaçant la
+  `QMessageBox` Yes/No :
+  - radio Scalaire / Par colonne ;
+  - réglages T, demi-fenêtre, σ init, degré poly, auto-fenêtre ;
+  - canvas matplotlib avec preview FD (mode scalaire) ou courbe `EF(k)`
+    + nuage des fits par colonne (mode poly) ;
+  - case "Sauvegarder comme référence dossier (Au)" ;
+  - boutons Fitter / Appliquer / Annuler.
+- `_apply_ef_calibration_result(payload)` — sauvegarde la correction sur le
+  fichier courant et recharge.
+- `_apply_ef_reference_to_current()` — copie `session.ef_reference` vers
+  `entry.ef_correction` (poly) ou ajuste `ef_offset` (scalaire).
+- Lecture de `T` depuis `metadata["temperature"]` du loader → écrite dans
+  `entry.meta.temperature` au chargement, utilisée comme `T_init` du
+  dialogue. Plus de 28 K hardcodé.
+- Bouton `⇩ Appliquer Au de référence` dans le panneau EF.
+
+### Points à vérifier après ces modifs
+
+- Charger une BM Solaris, cliquer Calibrer EF → dialogue s'ouvre avec T lue
+  depuis le fichier.
+- Mode "Scalaire" : équivalence comportementale avec l'ancien fit + écriture
+  d'offset.
+- Mode "Par colonne" : la courbe `EF(k)` doit être quasi-plate pour un
+  bon fichier ; la BM corrigée doit avoir le bord de Fermi parfaitement
+  horizontal.
+- Cocher "Sauvegarder comme référence dossier", puis charger un autre
+  fichier du même dossier et cliquer "Appliquer Au de référence" : la
+  correction doit être appliquée sans relancer un fit.
+- Vérifier `EDCnorm`, `SecDev`, `Curvature` après correction poly (pas de
+  NaN aux bords).
+- `.arpes_session.json` doit contenir `ef_reference` au niveau racine et
+  `ef_correction` par fichier.
+
+## TODO Point 6 — Centrage Γ par offsets angulaires (au lieu de translation k)
+
+### Constat
+
+Aujourd'hui, le centrage Γ se fait par translation des axes `k` déjà
+convertis :
+- `find_gamma_mdc` ou clic manuel donne `(kx_center, ky_center)` en `π/a` ;
+- on stocke ces valeurs dans `session.gamma_reference` et `entry.fs_center_*` ;
+- à l'affichage on translate : `kx_disp = kx − kx_center`.
+
+Ça marche tant que `hν`, `a_lattice`, et la conversion ne changent pas.
+Si l'un de ces paramètres change (autre fichier, autre run, autre
+échantillon), l'angle physique de Γ reste le même mais sa position en `k`
+bouge — donc la translation stockée devient fausse.
+
+Cas concrets :
+- Solaris : Γ est en général déjà au centre, problème peu visible.
+- CLS : Γ doit être recentré. Aujourd'hui le tilt CLS n'a *aucun* offset
+  angulaire dans `_cls_angle_to_k_pi_over_a` (ligne 328 de `arpes_io.py`) ;
+  le centrage `ky` se fait uniquement par translation visuelle. Si `hν`
+  change, ça décale.
+
+### Conventions trouvées dans l'API erlab
+
+`data.kspace.offsets` accepte 3 clés (config Type1/Type2 = Solaris DA30) :
+- `delta` : offset azimut ;
+- `xi`    : offset tilt ;
+- `beta`  : offset de l'angle dispersif (fente).
+
+À écrire *avant* `da.kspace.convert()`.
+
+### Plan proposé
+
+1. Trois angles physiques universels exposés à l'app, indépendants du lab :
+   - `theta0` : offset angle dispersif (la fente).
+   - `tilt0`  : offset axe lent (FS).
+   - `azi0`   : offset azimutal.
+
+2. Mapping interne par loader :
+   - Solaris : `theta0→beta`, `tilt0→xi`, `azi0→delta` via `kspace.offsets`.
+   - CLS : `theta0` ajouté à `angular_offset_deg` pour `kx` ; `tilt0` ajouté
+     à la conversion tilt (aujourd'hui `0.0`) pour `ky` ; `azi0` ajouté à la
+     rotation 2D si nécessaire.
+   - Loader futur : implémenter ce contrat dans la signature `load_xxx(...,
+     angle_offsets: dict | None = None)`.
+
+3. Stockage :
+   - `Session.angle_offsets: dict` (par dossier, valeur par défaut globale).
+   - `FileEntry.angle_offsets: dict` (override par fichier, optionnel).
+
+4. Conversion `(kx_center, ky_center)` → `(theta0, tilt0)` :
+   ```python
+   theta0 = degrees(arcsin(kx_center * pi / (a_lattice * 0.5123 * sqrt(Ekin))))
+   tilt0  = degrees(arcsin(ky_center * pi / (a_lattice * 0.5123 * sqrt(Ekin))))
+   ```
+   On utilise `arcsin` (formule exacte cohérente avec `sin(θ)` du forward).
+   Pour les petits angles ça se réduit à l'approximation linéaire ; à 20°
+   l'écart commence à compter (~5%).
+
+5. Workflow utilisateur (UI inchangée) :
+   - L'utilisateur clique manuellement sur la carte ou lance "Détecter Γ"
+     → `(kx_center, ky_center)` produit comme aujourd'hui.
+   - On calcule `theta0/tilt0` et on les stocke dans `angle_offsets`.
+   - Au chargement de tout fichier suivant du même dossier, on injecte ces
+     offsets dans le loader avant la conversion → Γ tombe à `k=0` quel que
+     soit `hν` ou `a_lattice`.
+
+6. Coexistence avec `gamma_reference` actuel : le garder pour l'overlay
+   ZDB / points de haute symétrie sur l'affichage, mais la *vérité* devient
+   `angle_offsets`. Au moment du clic, on remplit les deux.
+
+### Pourquoi je ne l'ai pas codé tout de suite
+
+1. Conventions de signe `beta`/`θ_par` entre erlab et CLS pas garanties
+   identiques. Risque d'écrire un bug d'inversion qui ne se voit que sur
+   certains fichiers. Validation nécessaire :
+   - un fichier CLS où Γ est notoirement décalé (typique Ba122 CLS) ;
+   - un fichier Solaris où Γ est déjà centré (vérifier que `angle_offsets`
+     vide ne touche à rien).
+2. Tilt CLS aujourd'hui : aucun offset appliqué dans la conversion. Le
+   centrage `ky` se fait par translation a posteriori. Migrer vers offsets
+   angulaires va changer la valeur stockée de `ky_center` (en angle, pas en
+   `π/a`) — il faudra interpréter les anciennes sessions comme un alias.
+3. Migration `gamma_reference` → `angle_offsets` : à la première ouverture
+   d'une session existante, si `angle_offsets` est vide mais
+   `gamma_reference` existe, calculer une fois pour toutes les
+   `theta0/tilt0` à partir de `(kx, ky)` et de `hν`, `a_lattice` du fichier
+   ayant servi à la mesure (à stocker en plus dans `gamma_reference`
+   actuel).
+
+### À faire avant d'attaquer
+
+Validation du signe de conversion `(kx, ky) → (theta0, tilt0)` —
+*un seul fichier suffit* :
+
+- Charger un fichier CLS (n'importe lequel de Ba122 où Γ est décalé suffit).
+- Détecter Γ → on a `(kx_0, ky_0)`.
+- Calculer `(theta0, tilt0)` via `arcsin`.
+- Recharger le même fichier en injectant ces offsets.
+- Re-détecter Γ.
+  - Si signe correct → `(kx, ky) ≈ (0, 0)`.
+  - Si signe inversé → `(kx, ky) ≈ (2·kx_0, 2·ky_0)`. Inverser le signe et
+    recommencer.
+
+Idem côté Solaris : sur un fichier déjà centré, vérifier qu'avec
+`angle_offsets = {}` rien ne bouge (no-op).
+
+Décision à prendre : `angle_offsets` *par dossier* (Session) ou *par fichier
+avec héritage de la Session* (FileEntry override de la Session) ?
+Recommandation : par dossier avec override par fichier optionnel, pour
+suivre la logique CLS où les BM/FS d'un même run partagent la calibration.
+
+### Coût estimé
+
+- ~30 lignes dans `arpes_io.py` (signature `angle_offsets` + injection par
+  loader Solaris/CLS).
+- ~40 lignes dans `arpes_explorer.py` (sérialisation Session/FileEntry,
+  helper de conversion `kxky_to_angles`, extension de `_detect_fs_gamma` et
+  `_estimate_gamma_bm` pour écrire aussi `angle_offsets`).
+- ~30 lignes pour la migration depuis l'ancien `gamma_reference`.
+- ~20 lignes UI : un mini panneau "Offsets angulaires" lisible et
+  réinitialisable, ou intégration dans le panneau EF/FS existant.
+
+## Mise à jour 2026-04-29 — recentrage BM quand Γ FS→BM est appliqué
+
+Problème observé :
+- workflow utilisateur : charger une FS CLS, trouver Γ, puis charger une BM
+  du même dossier/sample ;
+- la projection Γ FS→BM remplissait seulement `FitParams.center_init` ;
+- l'axe `k//` de la BM restait l'axe brut du loader, donc la ligne `k//=0`
+  pouvait rester hors du signal même si le fit avait un centre Γ non nul.
+
+Modification dans `arpes_explorer.py` :
+- ajout de `_center_current_bm_axis_on_gamma(gamma_bm, ref)` ;
+- pour une BM uniquement, cette fonction translate localement le dict chargé :
+
+```python
+kpar_display = kpar_raw - gamma_bm
+```
+
+- elle marque les métadonnées runtime avec :
+  - `bm_gamma_axis_centered = True` ;
+  - `bm_gamma_axis_shift = gamma_bm` ;
+  - `bm_gamma_axis_note = "kpar_display = kpar_raw - gamma_bm"` ;
+  - infos de référence Γ source/path/azi si disponibles.
+
+Comportement utilisateur attendu :
+- après `Détecter Γ FS` ou `Viser Γ manuel`, puis ouverture d'une BM
+  compatible, `Γ mémorisé` recentre maintenant l'axe BM ;
+- `k//=0` correspond au Γ projeté sur la BM ;
+- `center_init` est ramené à `0.0` quand l'axe a été recentré, pour que les
+  MDC, overlays et fits utilisent la même convention ;
+- le bouton manuel `Γ FS → BM` applique le même recentrage et redessine la BM.
+- le message de statut final du chargement ajoute `Γ axe shift=...` quand le
+  recentrage BM a été appliqué, pour éviter de masquer l'information par le
+  message `Chargé : ...`.
+
+Limites conservées :
+- c'est une translation en `k` au niveau interface, pas encore la solution
+  complète par offsets angulaires décrite dans le TODO Point 6 ;
+- les fichiers bruts ne sont pas modifiés ;
+- la translation est protégée contre les doubles applications sur le même dict
+  chargé via `bm_gamma_axis_centered`.
+
+## Mise à jour 2026-04-29 — offsets angulaires CLS avant conversion k
+
+Objectif :
+- remplacer, quand c'est possible, la simple translation `kpar -= gamma_bm`
+  par une correction injectée dans le loader CLS avant la conversion
+  angle → `k`.
+
+Principe physique utilisé :
+- le loader CLS convertit l'axe dispersif avec :
+
+```python
+kx = C * sqrt(Ekin) * sin(theta - polar) * a / pi
+```
+
+- si Γ est trouvé à `kx_center`, on calcule l'angle correspondant :
+
+```python
+theta0 = degrees(arcsin(kx_center / (C * sqrt(Ekin) * a / pi)))
+```
+
+- puis le loader convertit avec :
+
+```python
+kx = C * sqrt(Ekin) * sin(theta - polar - theta0) * a / pi
+```
+
+- pour une FS CLS, même logique sur l'axe lent :
+
+```python
+ky = C * sqrt(Ekin) * sin(tilt - tilt0) * a / pi
+```
+
+Modifications dans `arpes_io.py` :
+- `load_cls_txt(..., angle_offsets=None)` accepte maintenant :
+  - `theta0_deg` pour l'axe dispersif/BM ;
+  - `tilt0_deg` pour l'axe lent FS ;
+- `load_arpes(..., angle_offsets=None)` relaie ces offsets ;
+- les métadonnées indiquent :
+  - `angle_offsets_applied` ;
+  - `theta0_deg`, `tilt0_deg` ;
+  - `kx_conversion = "theta_minus_polar_minus_theta0"` ;
+  - `ky_conversion = "tilt_minus_tilt0"`.
+
+Modifications dans `arpes_explorer.py` :
+- `Session.angle_offsets` est sauvegardé dans `.arpes_session.json` ;
+- après `Détecter Γ FS` ou `Viser Γ manuel`, l'application :
+  - garde `session.gamma_reference` comme avant ;
+  - calcule aussi `theta0_deg/tilt0_deg` depuis `(kx_center, ky_center)` ;
+  - sauvegarde le résultat dans `session.angle_offsets`.
+- au chargement d'une BM CLS, avant `load_arpes(...)` :
+  - l'application lit `azi_ref` dans `gamma_reference` ;
+  - lit `azi_bm` dans le logbook du fichier courant ;
+  - projette Γ sur la direction de la BM :
+
+```python
+gamma_bm = kx_ref * cos(azi_bm - azi_ref) + ky_ref * sin(azi_bm - azi_ref)
+```
+
+  - convertit ce `gamma_bm` en `theta0_deg` spécifique à la BM ;
+  - passe cet offset au loader.
+
+Conséquence utilisateur :
+- workflow attendu :
+  1. charger logbook ;
+  2. charger une FS CLS ;
+  3. `Détecter Γ FS` ou `Viser Γ manuel` ;
+  4. charger une BM du même dossier/sample ;
+  5. la BM est chargée directement avec `theta0_deg`, donc Γ doit déjà
+     arriver vers `k//=0`.
+- dans le statut de chargement, l'application affiche maintenant :
+
+```text
+Γ offset angulaire θ0=...
+```
+
+si le loader a reçu un offset angulaire.
+
+Filet de sécurité conservé :
+- si aucun offset angulaire n'est disponible, l'ancien recentrage interface
+  `kpar_display = kpar_raw - gamma_bm` reste utilisé ;
+- si `angle_offsets_applied` est présent, ce recentrage post-loader est
+  désactivé pour éviter une double correction.
+
+Limites restantes :
+- implémenté pour CLS/LNLS ;
+- Solaris/DA30 garde pour l'instant le comportement précédent ;
+- le signe de `theta0/tilt0` est celui cohérent avec la formule CLS actuelle
+  `sin(angle - offset)`. À valider sur un vrai couple FS/BM : si après
+  détection FS puis rechargement d'une BM le centre part dans le mauvais sens,
+  le signe de l'offset devra être inversé.
+
+## Mise à jour 2026-04-29 — sélection automatique de convention Γ FS→BM
+
+Retour utilisateur :
+- l'offset angulaire direct ne centre toujours pas correctement certaines BM
+  CLS après `FS → BM`.
+
+Hypothèse :
+- le problème peut venir de la convention de signe de `theta0`, ou du sens de
+  projection de l'azimut (`+ky sin(d_azi)` versus `-ky sin(d_azi)`), selon la
+  définition du logbook CLS.
+
+Modification dans `arpes_explorer.py` :
+- ajout de `_angle_offset_candidates_for_load(...)` :
+  - candidat `theta0` ;
+  - candidat `-theta0` ;
+  - si `azi_ref` et `azi_bm` sont connus :
+    - `azi_plus = kx*cos(dazi) + ky*sin(dazi)` ;
+    - `azi_minus = kx*cos(dazi) - ky*sin(dazi)` ;
+    - et les versions à signe inversé.
+- ajout de `_score_bm_gamma_residual(d)` :
+  - lance `estimate_gamma_bm_mdc` sur la BM chargée ;
+  - score = `abs(gamma_residuel) + 0.25*MAD` ;
+  - plus le score est petit, plus Γ est proche de `k//=0`.
+- ajout de `_load_with_best_angle_offsets(...)` :
+  - pour une BM CLS avec référence Γ, charge plusieurs variantes ;
+  - garde automatiquement celle qui donne le plus petit score ;
+  - écrit dans les métadonnées runtime :
+    - `angle_offset_candidate` ;
+    - `angle_offset_candidate_score`.
+
+Comportement utilisateur attendu :
+- charger FS, détecter/viser Γ, puis charger BM ;
+- le statut de chargement indique maintenant par exemple :
+
+```text
+Γ offset angulaire azi_minus_neg θ0=...
+```
+
+- le mot après `offset angulaire` indique la convention retenue
+  automatiquement.
+
+Limite :
+- cette sélection utilise l'estimateur `Auto Γ BM`; si la BM n'a pas assez de
+  paires MDC détectables dans la plage courante, le choix automatique peut
+  échouer et l'application retombe sur le candidat primaire.
+
+## Mise à jour 2026-04-30 — géométrie CLS robuste `P/T/azi`
+
+Motivation :
+- certaines BM CLS, par exemple BM9/BM10 dans `Ba122_C05_2`, ont le même
+  azimut qu'une FS de référence mais un `polar/P` très différent ;
+- une projection par azimut seul ne suffit alors pas : il faut utiliser la
+  géométrie manipulateur disponible dans les fichiers CLS.
+
+Principe retenu :
+- lire en priorité `P` et `T` directement dans les `*_param.txt` CLS ;
+- lire `theta`, `phi`, `azi`, `hv`, etc. depuis le logbook seulement comme
+  complément, car les Excel ne sont pas standardisés ;
+- interpréter couramment :
+  - `theta` logbook -> `polar/P` manipulateur ;
+  - `phi` logbook -> `tilt/T` manipulateur ;
+  - `azi` logbook -> azimut échantillon.
+
+Modifications dans `arpes_explorer.py` :
+- `FileMeta` contient maintenant aussi :
+  - `polar` ;
+  - `tilt`.
+- `_infer_logbook_mapping(...)` tente de détecter :
+  - `polar` depuis `theta`, `polar angle`, `polar deg`, `manip p`, etc. ;
+  - `tilt` depuis `phi`, `tilt`, `manip t`, etc.
+- `_cls_manipulator_from_param(path)` lit rapidement `P/T` dans le fichier
+  CLS brut sans charger toute la donnée.
+- `_cls_geometry_for_path(path, entry)` agrège la meilleure géométrie connue :
+  1. `_param.txt` pour `P/T` ;
+  2. session/logbook pour `azi`, `hv`, et valeurs manquantes.
+- `_angle_offset_candidates_for_load(...)` ajoute des candidats de type
+  `raw_polar` :
+
+```python
+theta0_target = theta0_ref + P_ref - P_target
+```
+
+  Cette convention correspond à l'idée que le centre repéré sur la FS donne
+  un angle brut analyseur `theta_raw ~= P_ref + theta0_ref`, puis que la BM
+  cible doit appliquer `theta_raw - P_target`.
+
+Sélection automatique :
+- les candidats historiques sont conservés :
+  - `theta0`, `-theta0` ;
+  - `azi_plus`, `azi_minus` et leurs signes inversés.
+- les nouveaux candidats combinent aussi `azi` et `P/polar` :
+  - `raw_polar` ;
+  - `azi_plus_raw_polar` ;
+  - `azi_minus_raw_polar`.
+- le score de choix de candidat est maintenant :
+
+```python
+abs(gamma_residuel) + 0.25*MAD + 0.10*abs(k_mid)
+```
+
+  où `k_mid` est le centre de la plage `k` chargée. Cette pénalité évite de
+  retenir une convention qui donne quelques pics MDC à peu près centrés mais
+  laisse tout l'axe `k` très déséquilibré.
+
+Conséquence utilisateur :
+- après avoir détecté Γ sur une FS, l'utilisateur peut charger une BM avec un
+  `polar/P` différent ;
+- l'application teste automatiquement les conventions géométriques et affiche
+  dans le statut le candidat retenu, par exemple :
+
+```text
+Γ offset angulaire raw_polar θ0=+12.967°
+```
+
+Point important :
+- cette méthode ne suppose pas un Excel CLS parfaitement standard ;
+- elle fonctionne d'abord avec les métadonnées brutes CLS, puis enrichit avec
+  le logbook quand il apporte `azi/hv/pol` ou des champs absents.
