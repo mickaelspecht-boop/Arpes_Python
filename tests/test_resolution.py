@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from arpes_resolution import estimate_resolutions
+from arpes.physics.resolution import estimate_resolutions
 try:
     from arpes_plots import _resolution_correct_gamma
 except ModuleNotFoundError:

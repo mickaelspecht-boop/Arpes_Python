@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from arpes_session import FileEntry, FileMeta, FitParams, Session
+from arpes.core.session import FileEntry, FileMeta, FitParams, Session
 
 
 class TestSessionManager(unittest.TestCase):

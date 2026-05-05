@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from arpes_models import (
+from arpes.core.models import (
     FitGammaSummary,
     LoadContext,
     MetadataSource,

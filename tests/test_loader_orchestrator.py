@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from arpes_loader_orchestrator import LoaderOrchestrator
-from arpes_session import FileEntry
+from arpes.io.loader_orchestrator import LoaderOrchestrator
+from arpes.core.session import FileEntry
 
 
 def _label(source_format, metadata=None):

@@ -4,7 +4,7 @@ import importlib.util
 
 import numpy as np
 
-from arpes_io import (
+from arpes.io.loaders import (
     ARPESData,
     ARPESDataValidationError,
     assert_arpes_data_valid,

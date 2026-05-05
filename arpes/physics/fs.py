@@ -26,7 +26,7 @@ try:
 except Exception:  # scipy absent: fallback sans lissage
     gaussian_filter = None
 
-from arpes_norm import apply_fs_flux_factors_to_map, fs_flux_profile_factors
+from arpes.physics.norm import apply_fs_flux_factors_to_map, fs_flux_profile_factors
 
 
 @dataclass

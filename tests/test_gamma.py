@@ -11,7 +11,7 @@ import unittest
 
 import numpy as np
 
-from arpes_gamma import (
+from arpes.physics.gamma import (
     A_LATTICE_DEFAULT,
     POLAR_TOLERANCE_DEG,
     angle_offset_candidates_for_load,

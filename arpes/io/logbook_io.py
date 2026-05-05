@@ -13,7 +13,7 @@ from typing import Callable
 
 import numpy as np
 
-from arpes_logbook import _cell_float, _cell_text, _infer_logbook_mapping
+from arpes.io.logbook import _cell_float, _cell_text, _infer_logbook_mapping
 
 
 @dataclass

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from arpes_cls_geometry import geometry_for_path, manipulator_from_param
+from arpes.physics.cls_geometry import geometry_for_path, manipulator_from_param
 
 
 def _write_param(path: Path, *, polar: float | None, tilt: float | None) -> None:

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from arpes_export import BASE_RESULT_COLUMNS, result_columns, result_rows, write_results_csv
-from arpes_session import FileEntry, FileMeta, FitParams, Session
+from arpes.io.export import BASE_RESULT_COLUMNS, result_columns, result_rows, write_results_csv
+from arpes.core.session import FileEntry, FileMeta, FitParams, Session
 
 
 class TestResultsExport(unittest.TestCase):

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from arpes_io import load_arpes, detect_format
+from arpes.io.loaders import load_arpes, detect_format
 
 
 # Racine des données (résolue dynamiquement, jamais en dur dans une assertion)

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 import numpy as np
 
-from arpes_models import LoadContext, MetadataSource
+from arpes.core.models import LoadContext, MetadataSource
 
 
 LoadFunc = Callable[..., dict | None]

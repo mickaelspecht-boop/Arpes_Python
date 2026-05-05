@@ -35,11 +35,11 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
-from arpes_cls_geometry import (
+from arpes.physics.cls_geometry import (
     geometry_for_path as _cls_geometry_for_path_pure,
     manipulator_from_param as _cls_manipulator_from_param_pure,
 )
-from arpes_export import result_rows, write_results_csv
+from arpes.io.export import result_rows, write_results_csv
 from arpes_ef_controller import (
     ReferenceError as EFReferenceError,
     already_applied as ef_reference_already_applied,
@@ -47,7 +47,7 @@ from arpes_ef_controller import (
     compute_calibration_update as compute_ef_calibration_update,
 )
 from arpes_fit_controller import FitController
-from arpes_gamma import (
+from arpes.physics.gamma import (
     angle_offset_candidates_for_load as _gamma_angle_offset_candidates,
     angle_offsets_from_k_center as _gamma_angle_offsets_from_k_center,
     apply_bm_gamma_axis_shift as _gamma_apply_bm_axis_shift,
@@ -58,7 +58,7 @@ from arpes_gamma import (
     score_bm_gamma_residual as _gamma_score_bm_residual,
     stored_gamma_reference as _gamma_stored_reference,
 )
-from arpes_logbook import (
+from arpes.io.logbook import (
     LogbookManager,
     _cell_float,
     _cell_text,
@@ -66,7 +66,7 @@ from arpes_logbook import (
     _norm_text,
     _record_matches_path,
 )
-from arpes_logbook_io import (
+from arpes.io.logbook_io import (
     best_excel_table as _logbook_best_excel_table,
     excel_header_candidates as _logbook_excel_header_candidates,
     excel_table_from_header as _logbook_excel_table_from_header,
@@ -74,8 +74,8 @@ from arpes_logbook_io import (
     read_delimited_logbook_raw as _logbook_read_delimited_raw,
     read_logbook as read_logbook_file,
 )
-from arpes_loader_orchestrator import LoaderOrchestrator
-from arpes_norm import remove_grid_artifact as remove_detector_grid_artifact
+from arpes.io.loader_orchestrator import LoaderOrchestrator
+from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes_plot_controller import (
     apply_edcnorm,
     compute_bandmap_display,
@@ -91,8 +91,8 @@ from arpes_plot_controller import (
     mdc_curve as _plot_mdc_curve,
     scroll_zoom_limits as _plot_scroll_zoom_limits,
 )
-from arpes_resolution import estimate_resolutions
-from arpes_session import FileEntry, FitParams, Session
+from arpes.physics.resolution import estimate_resolutions
+from arpes.core.session import FileEntry, FitParams, Session
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette, QKeySequence, QShortcut
@@ -122,8 +122,8 @@ def _load_ap():
     raise FileNotFoundError("arpes_plots.py introuvable")
 
 try:
-    from arpes_io import load_arpes, detect_format, detect_scan_kind, ARPESData
-    from arpes_fs import FermiSurfaceCanvas, FSControlPanel
+    from arpes.io.loaders import load_arpes, detect_format, detect_scan_kind, ARPESData
+    from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
     ERLAB_OK = True
 except Exception:
     load_arpes = None

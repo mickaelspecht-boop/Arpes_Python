@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from arpes_logbook import (
+from arpes.io.logbook import (
     LogbookManager,
     _cell_float,
     _extract_measurement_numbers,
@@ -12,7 +12,7 @@ from arpes_logbook import (
     _infer_logbook_mapping,
     _record_matches_path,
 )
-from arpes_session import FileEntry
+from arpes.core.session import FileEntry
 
 
 class TestLogbookHelpers(unittest.TestCase):

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from arpes_logbook_io import (
+from arpes.io.logbook_io import (
     best_excel_table,
     excel_header_candidates,
     inherit_logbook_context,
