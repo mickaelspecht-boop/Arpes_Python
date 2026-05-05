@@ -59,22 +59,13 @@ from arpes.physics.gamma import (
     stored_gamma_reference as _gamma_stored_reference,
 )
 from arpes.io.logbook import (
-    LogbookManager,
     _cell_float,
     _cell_text,
     _format_direction_label,
-    _norm_text,
     _record_matches_path,
 )
-from arpes.io.logbook_io import (
-    best_excel_table as _logbook_best_excel_table,
-    excel_header_candidates as _logbook_excel_header_candidates,
-    excel_table_from_header as _logbook_excel_table_from_header,
-    inherit_logbook_context as _logbook_inherit_context,
-    read_delimited_logbook_raw as _logbook_read_delimited_raw,
-    read_logbook as read_logbook_file,
-)
 from arpes.io.loader_orchestrator import LoaderOrchestrator
+from arpes.ui.controllers.logbook_controller import LogbookIngestController
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes_plot_controller import (
     apply_edcnorm,
@@ -2100,6 +2091,7 @@ class ArpesExplorer(QMainWindow):
         # influence le résultat affiché.
         self._disp_cache_key: tuple | None = None
 
+        self._logbook_ctrl = LogbookIngestController(self)
         self._build_ui()
         self._install_shortcuts()
         self._status("Prêt — ouvrir un dossier ou un fichier")
@@ -2253,7 +2245,7 @@ class ArpesExplorer(QMainWindow):
         self._params.copy_params_requested.connect(self._copy_params)
         self._params.ef_calib_requested.connect(self._ef_calibrate)
         self._params.ef_apply_reference_requested.connect(self._apply_ef_reference_to_current)
-        self._params.logbook_requested.connect(self._load_logbook_dialog)
+        self._params.logbook_requested.connect(self._logbook_ctrl.open_dialog)
         self._params.gamma_bm_requested.connect(self._estimate_gamma_bm)
         self._params.gamma_ref_requested.connect(self._apply_gamma_reference_to_bm)
         self._params.grid_requested.connect(self._apply_grid_correction)
@@ -2468,7 +2460,7 @@ class ArpesExplorer(QMainWindow):
         return _cls_geometry_for_path_pure(
             path,
             entry_meta=(entry.meta if entry is not None else None),
-            logbook_record=self._find_logbook_record(path),
+            logbook_record=self._logbook_ctrl.find_record_for_path(path),
             logbook_mapping=self._session.logbook_mapping,
             cell_float=_cell_float,
         )
@@ -2875,184 +2867,6 @@ class ArpesExplorer(QMainWindow):
             lambda: self._browser.navigate(+1))
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Logbook souple CLS/SOLARIS
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _load_logbook_dialog(self):
-        start = str(self._session.folder or Path.home())
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Logbook ARPES", start,
-            "Logbook (*.xlsx *.xls *.csv *.tsv);;Tous les fichiers (*)")
-        if not path:
-            return
-        try:
-            records, mapping, sheet_name = self._read_logbook(Path(path))
-            self._session.logbook_path = path
-            self._session.logbook_sheet = sheet_name
-            self._session.logbook_mapping = mapping
-            self._session.logbook_records = records
-            self._session.save()
-            used = ", ".join(f"{k}={v or '—'}" for k, v in mapping.items())
-            sheet_txt = f" [{sheet_name}]" if sheet_name else ""
-            self._status(f"Logbook chargé : {Path(path).name}{sheet_txt} | {len(records)} lignes | {used}")
-            QMessageBox.information(
-                self, "Logbook chargé",
-                f"{Path(path).name}{sheet_txt}\n{len(records)} lignes lues.\n\nColonnes détectées :\n{used}"
-            )
-            if self._current_path:
-                self._apply_logbook_to_controls(self._current_path)
-            self._browser.refresh()
-        except Exception as exc:
-            QMessageBox.warning(self, "Logbook", str(exc))
-            self._status(f"⚠ Logbook : {exc}")
-
-    def _read_logbook(self, path: Path) -> tuple[list[dict], dict[str, str], str]:
-        result = read_logbook_file(
-            path,
-            sheet_selector=self._choose_excel_sheet,
-            table_selector=self._choose_excel_table,
-            mapping_selector=self._choose_logbook_mapping,
-        )
-        return result.records, result.mapping, result.sheet_name
-
-    def _read_delimited_logbook_raw(self, pd, path: Path):
-        """Lecture brute CSV/TSV pour anciens logbooks avec titre avant header."""
-        return _logbook_read_delimited_raw(pd, path)
-
-    def _inherit_logbook_context(self, records: list[dict], mapping: dict[str, str]) -> list[dict]:
-        """Propage les champs de contexte du logbook quand les cellules sont vides.
-
-        Dans les logbooks CLS, `azi` est souvent indique sur une ligne
-        d'alignement (FS) puis laisse vide sur les BM suivantes. Ces BM doivent
-        pourtant heriter de cet azimut pour que la projection FS->BM soit juste.
-        """
-        return _logbook_inherit_context(records, mapping)
-
-    def _choose_excel_sheet(self, sheet_names: list[str]) -> str:
-        if not sheet_names:
-            return ""
-        if len(sheet_names) == 1:
-            return sheet_names[0]
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Feuille du logbook")
-        lay = QVBoxLayout(dlg)
-        label = QLabel("Choisis la feuille qui correspond au compound / dataset.")
-        label.setWordWrap(True)
-        lay.addWidget(label)
-        cmb = QComboBox()
-        cmb.addItems(sheet_names)
-        preferred = ""
-        if self._session.folder is not None:
-            preferred = self._session.folder.name
-        preferred_norm = _norm_text(preferred)
-        if self._session.logbook_sheet in sheet_names:
-            cmb.setCurrentText(self._session.logbook_sheet)
-        elif preferred in sheet_names:
-            cmb.setCurrentText(preferred)
-        else:
-            for sheet in sheet_names:
-                sheet_norm = _norm_text(sheet)
-                if sheet_norm and sheet_norm in preferred_norm:
-                    cmb.setCurrentText(sheet)
-                    break
-        lay.addWidget(cmb)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return ""
-        return cmb.currentText()
-
-    def _excel_header_candidates(self, raw) -> list[int]:
-        return _logbook_excel_header_candidates(raw)
-
-    def _excel_table_from_header(self, raw, row_idx: int):
-        return _logbook_excel_table_from_header(raw, row_idx)
-
-    def _best_excel_table(self, raw, candidates: list[int]):
-        return _logbook_best_excel_table(raw, candidates)
-
-    def _choose_excel_table(self, raw, candidates: list[int]):
-        if not candidates:
-            return None
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Ligne d'en-tête du logbook")
-        lay = QVBoxLayout(dlg)
-        label = QLabel("Choisis la ligne qui contient les vrais noms de colonnes.")
-        label.setWordWrap(True)
-        lay.addWidget(label)
-        cmb = QComboBox()
-        for row_idx in candidates:
-            values = [_cell_text(v) for v in raw.iloc[row_idx].tolist()]
-            preview = " | ".join(v for v in values if v)
-            cmb.addItem(f"Ligne {row_idx + 1}: {preview[:140]}", row_idx)
-        lay.addWidget(cmb)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return None
-        return self._excel_table_from_header(raw, int(cmb.currentData()))
-
-    def _choose_logbook_mapping(self, columns: list[str], mapping: dict[str, str]) -> dict[str, str]:
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Colonnes du logbook")
-        lay = QFormLayout(dlg)
-        combos: dict[str, QComboBox] = {}
-        labels = {
-            "file": "Fichier / scan:",
-            "hv": "hν:",
-            "temperature": "Température:",
-            "polarization": "Polarisation:",
-            "direction": "Direction / chemin:",
-            "azi": "Azimut:",
-            "polar": "Polar / theta manip:",
-            "tilt": "Tilt / phi manip:",
-        }
-        choices = [""] + columns
-        for key, label in labels.items():
-            cmb = QComboBox()
-            cmb.addItems(choices)
-            current = mapping.get(key, "")
-            if current in choices:
-                cmb.setCurrentText(current)
-            lay.addRow(label, cmb)
-            combos[key] = cmb
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        lay.addRow(buttons)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return mapping
-        return {key: cmb.currentText() for key, cmb in combos.items()}
-
-    def _find_logbook_record(self, path: str | Path) -> dict | None:
-        manager = LogbookManager(
-            self._session.logbook_records,
-            self._session.logbook_mapping,
-            self._session.folder,
-        )
-        return manager.find_record_for_path(path)
-
-    def _apply_logbook_to_controls(self, path: str | Path) -> bool:
-        manager = LogbookManager(
-            self._session.logbook_records,
-            self._session.logbook_mapping,
-            self._session.folder,
-        )
-        entry = self._session.get_or_create(self._session.key_for_path(path))
-        values = manager.apply_to_entry(entry, path)
-        if values.hv is not None:
-            self._params.sp_hv.blockSignals(True)
-            self._params.sp_hv.setValue(values.hv)
-            self._params.sp_hv.blockSignals(False)
-        if values.has_any():
-            self._session.save()
-        return values.has_any()
-
-    # ─────────────────────────────────────────────────────────────────────────
     # Chargement fichier
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -3088,7 +2902,7 @@ class ArpesExplorer(QMainWindow):
             self._params.sp_ef.setValue(entry.ef_offset)
             self._params.sp_ef.blockSignals(False)
             hv_before_load = float(self._params.sp_hv.value())
-            logbook_hit = self._apply_logbook_to_controls(path)
+            logbook_hit = self._logbook_ctrl.apply_to_controls(path)
             hv_from_logbook = (
                 logbook_hit
                 and float(self._params.sp_hv.value()) != hv_before_load
