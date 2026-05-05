@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from arpes_fit_controller import FitController
+from arpes.physics.fit import FitController
 from arpes.core.session import FileEntry, FitParams
 
 

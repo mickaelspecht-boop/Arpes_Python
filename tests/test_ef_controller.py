@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import unittest
 
-from arpes_ef_controller import (
+from arpes.physics.ef_calibration import (
     ReferenceError,
     already_applied,
     apply_reference_to_target,

@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-from arpes_plot_controller import (
+from arpes.physics.display import (
     apply_edcnorm,
     compute_bandmap_display,
     display_grid_config,

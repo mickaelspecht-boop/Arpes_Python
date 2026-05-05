@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
-from arpes_plot_controller import (
+from arpes.physics.display import (
     apply_edcnorm,
     compute_bandmap_display,
     draw_bandmap_axes as _plot_draw_bandmap_axes,

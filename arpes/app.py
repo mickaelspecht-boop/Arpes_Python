@@ -40,13 +40,13 @@ from arpes.physics.cls_geometry import (
     manipulator_from_param as _cls_manipulator_from_param_pure,
 )
 from arpes.io.export import result_rows, write_results_csv
-from arpes_ef_controller import (
+from arpes.physics.ef_calibration import (
     ReferenceError as EFReferenceError,
     already_applied as ef_reference_already_applied,
     apply_reference_to_target as apply_ef_reference_to_target,
     compute_calibration_update as compute_ef_calibration_update,
 )
-from arpes_fit_controller import FitController
+from arpes.physics.fit import FitController
 from arpes.physics.gamma import (
     angle_offset_candidates_for_load as _gamma_angle_offset_candidates,
     angle_offsets_from_k_center as _gamma_angle_offsets_from_k_center,
@@ -71,7 +71,7 @@ from arpes.ui.controllers.gamma_controller import GammaController
 from arpes.ui.controllers.norm_controller import NormController
 from arpes.ui.controllers.fs_controller import FSController
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
-from arpes_plot_controller import (
+from arpes.physics.display import (
     apply_edcnorm,
     compute_bandmap_display,
     draw_bandmap_axes as _plot_draw_bandmap_axes,
