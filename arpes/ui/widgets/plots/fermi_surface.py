@@ -106,7 +106,7 @@ def find_gamma_mdc(da_k_pi, fs_window_ev=0.01, k_range=(-0.6, 0.6),
     gamma_kx = float(np.nanmedian(gamma_kx_list)) if gamma_kx_list else np.nan
     gamma_ky = float(np.nanmedian(gamma_ky_list)) if gamma_ky_list else np.nan
 
-    print(f"Gamma par milieu des kF :")
+    print("Gamma par milieu des kF :")
     print(f"  kx = {gamma_kx:+.4f} pi/a  ({len(gamma_kx_list)} fits)")
     print(f"  ky = {gamma_ky:+.4f} pi/a  ({len(gamma_ky_list)} fits)")
 

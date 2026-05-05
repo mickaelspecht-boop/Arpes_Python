@@ -8,7 +8,6 @@ couche Qt (fichier de dialog, sélection feuille/header, persistance session).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from PyQt6.QtWidgets import (
     QComboBox,

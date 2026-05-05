@@ -58,10 +58,6 @@ def debug_mdc_fit(
         'residual' : float — norme des residus normalises
         'ax'       : matplotlib Axes
     """
-    from scipy.ndimage import gaussian_filter1d
-    from scipy.signal import find_peaks
-    from scipy.optimize import curve_fit
-
     # --- preparation des donnees ---
     I_fit    = gaussian_filter1d(data_cut.astype(float), sigma=smooth_fit,    axis=0)
     I_detect = gaussian_filter1d(data_cut.astype(float), sigma=smooth_detect, axis=0)

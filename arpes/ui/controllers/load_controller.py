@@ -24,7 +24,6 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication
 
 from arpes.io.loader_orchestrator import LoaderOrchestrator
-from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes.physics.resolution import estimate_resolutions
 
 

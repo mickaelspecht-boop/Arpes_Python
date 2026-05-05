@@ -51,7 +51,6 @@ class BrowserController:
                 rel = p.relative_to(self._folder)
                 key = self._session.key_for_path(p)
                 status = self._file_status(key)
-                icon   = self.STATUS_ICONS[status]
                 color  = self.STATUS_COLORS[status]
                 item   = QListWidgetItem(self._item_label(p, status, key))
                 item.setData(Qt.ItemDataRole.UserRole, str(p))
@@ -74,7 +73,6 @@ class BrowserController:
             key = item.data(Qt.ItemDataRole.UserRole + 1) or self._session.key_for_path(path)
             if key == filename_or_key or Path(path).name == filename_or_key:
                 status = self._file_status(key)
-                icon   = self.STATUS_ICONS[status]
                 color  = self.STATUS_COLORS[status]
                 item.setText(self._item_label(path, status, key))
                 item.setForeground(QColor(color))

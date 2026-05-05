@@ -20,7 +20,6 @@ Lancement :
 from __future__ import annotations
 
 import importlib.util
-import json
 import re
 import sys
 import traceback
@@ -47,16 +46,10 @@ from arpes.physics.ef_calibration import (
     compute_calibration_update as compute_ef_calibration_update,
 )
 from arpes.physics.fit import FitController
+from arpes.physics.display import apply_edcnorm
 from arpes.physics.gamma import (
     angle_offset_candidates_for_load as _gamma_angle_offset_candidates,
-    angle_offsets_from_k_center as _gamma_angle_offsets_from_k_center,
-    apply_bm_gamma_axis_shift as _gamma_apply_bm_axis_shift,
-    build_gamma_reference as _gamma_build_reference,
-    gamma_reference_to_bm_center as _gamma_ref_to_bm_center,
-    k_to_angle_offset_deg as _gamma_k_to_angle_offset_deg,
-    project_gamma_by_azi as _gamma_project_by_azi,
     score_bm_gamma_residual as _gamma_score_bm_residual,
-    stored_gamma_reference as _gamma_stored_reference,
 )
 from arpes.io.logbook import (
     _cell_float,
@@ -70,34 +63,18 @@ from arpes.ui.controllers.plot_controller import PlotController
 from arpes.ui.controllers.gamma_controller import GammaController
 from arpes.ui.controllers.norm_controller import NormController
 from arpes.ui.controllers.fs_controller import FSController
-from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
-from arpes.physics.display import (
-    apply_edcnorm,
-    compute_bandmap_display,
-    draw_bandmap_axes as _plot_draw_bandmap_axes,
-    draw_ef_label as _plot_draw_ef_label,
-    draw_fit_roi_overlay as _plot_draw_fit_roi_overlay,
-    draw_waterfall_axes as _plot_draw_waterfall_axes,
-    display_grid_config as _plot_display_grid_config,
-    edc_curve as _plot_edc_curve,
-    fit_roi_bounds as _plot_fit_roi_bounds,
-    fit_roi_data as _plot_fit_roi_data,
-    map_color_kwargs as _plot_map_color_kwargs,
-    mdc_curve as _plot_mdc_curve,
-    scroll_zoom_limits as _plot_scroll_zoom_limits,
-)
 from arpes.core.session import FileEntry, FitParams, Session
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QSplitter, QTabWidget,
+    QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QPushButton, QDoubleSpinBox, QSpinBox, QComboBox,
-    QCheckBox, QFileDialog, QScrollArea, QGroupBox, QStatusBar,
+    QCheckBox, QFileDialog, QScrollArea, QGroupBox,
     QSizePolicy, QFrame, QListWidget, QListWidgetItem,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
-    QDialog, QDialogButtonBox, QStackedWidget,
+    QDialog,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -883,7 +860,7 @@ class ClickablePairLabel(QLabel):
 
     def _update(self):
         if self._n == 1:
-            self.setText(f"Paire 1 / 1")
+            self.setText("Paire 1 / 1")
         else:
             self.setText(f"◀  Paire {self._current + 1} / {self._n}  ▶")
 

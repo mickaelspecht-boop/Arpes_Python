@@ -1,13 +1,10 @@
 """Gamma-related UI controller for ArpesExplorer."""
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
-from arpes.core.session import FileEntry
 from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.gamma import (
     apply_bm_gamma_axis_shift as _gamma_apply_bm_axis_shift,
