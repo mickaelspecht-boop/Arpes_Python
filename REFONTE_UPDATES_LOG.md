@@ -40,3 +40,11 @@
 - Résultat : `arpes_explorer.py` passe de `3013` à `2964` lignes ; `norm_controller.py` contient les actions UI grille (`81` lignes).
 - Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/norm_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
 - Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
+
+## Update ι.3 — `FSController`
+
+- État initial vérifié : état FS restant dans `ArpesExplorer`/`PlotController` (`_current_is_fs`, `_on_fs_params_changed`, `_save_current_fs_center`, `_draw_fs_tab`).
+- Correction appliquée : création de `arpes/ui/controllers/fs_controller.py`; `ArpesExplorer` instancie `self._fs_ctrl`; `_draw_fs_tab` quitte `PlotController`.
+- Résultat : `arpes_explorer.py` passe de `2964` à `2948` lignes ; `fs_controller.py` contient les actions UI FS (`53` lignes).
+- Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/fs_controller.py arpes/ui/controllers/plot_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
+- Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.

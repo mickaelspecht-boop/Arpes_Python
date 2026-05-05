@@ -69,6 +69,7 @@ from arpes.ui.controllers.load_controller import LoadController
 from arpes.ui.controllers.plot_controller import PlotController
 from arpes.ui.controllers.gamma_controller import GammaController
 from arpes.ui.controllers.norm_controller import NormController
+from arpes.ui.controllers.fs_controller import FSController
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes_plot_controller import (
     apply_edcnorm,
@@ -2103,6 +2104,7 @@ class ArpesExplorer(QMainWindow):
         self._plot_ctrl = PlotController(self)
         self._gamma_ctrl = GammaController(self)
         self._norm_ctrl = NormController(self)
+        self._fs_ctrl = FSController(self)
         self._build_ui()
         self._install_shortcuts()
         self._status("Prêt — ouvrir un dossier ou un fichier")
@@ -2171,29 +2173,11 @@ class ArpesExplorer(QMainWindow):
         return self._session.get_or_create(self._session.key_for_path(self._current_path))
 
     def _current_is_fs(self) -> bool:
-        meta = (self._raw_data or {}).get("metadata", {}) or {}
-        return meta.get("fs_data") is not None
-
+        return self._fs_ctrl._current_is_fs()
     def _on_fs_params_changed(self):
-        self._save_current_fs_center()
-        self._draw_fs_tab()
-
+        return self._fs_ctrl._on_fs_params_changed()
     def _save_current_fs_center(self):
-        if self._raw_data is None or not self._current_path or not self._current_is_fs():
-            return
-        if FSControlPanel is None or not hasattr(self, "_fs_controls"):
-            return
-        entry = self._current_entry()
-        if entry is None:
-            return
-        try:
-            p = self._fs_controls.params()
-            entry.fs_center_kx = float(p.kx_center)
-            entry.fs_center_ky = float(p.ky_center)
-            self._session.save()
-        except Exception:
-            pass
-
+        return self._fs_ctrl._save_current_fs_center()
     def _same_path(self, a, b) -> bool:
         if not a or not b:
             return False
@@ -2205,7 +2189,7 @@ class ArpesExplorer(QMainWindow):
     def _on_scroll_zoom(self, event):
         return self._plot_ctrl._on_scroll_zoom(event)
     def _draw_fs_tab(self):
-        return self._plot_ctrl._draw_fs_tab()
+        return self._fs_ctrl._draw_fs_tab()
     def _store_fs_center_reference(self, kx: float, ky: float, *, source: str):
         return self._gamma_ctrl._store_fs_center_reference(kx, ky, source=source)
     def _k_to_angle_offset_deg(self, k_pi_a: float, *, hv: float | None = None) -> float | None:

@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 
-from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes_plot_controller import (
     apply_edcnorm,
@@ -124,17 +123,6 @@ class PlotController:
             event.canvas.draw_idle()
         except Exception:
             return
-
-    def _draw_fs_tab(self):
-        if not hasattr(self, "_fs_canvas") or FermiSurfaceCanvas is None:
-            return
-        if not hasattr(self, "_fs_controls") or FSControlPanel is None:
-            return
-        info = self._fs_canvas.draw_fs(self._raw_data, self._fs_controls.params())
-        try:
-            self._fs_controls.lbl_info.setText(info)
-        except Exception:
-            pass
 
     def _update_display_data(self):
         if self._raw_data is None:
