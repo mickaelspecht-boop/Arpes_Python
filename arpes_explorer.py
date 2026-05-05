@@ -68,6 +68,7 @@ from arpes.ui.controllers.logbook_controller import LogbookIngestController
 from arpes.ui.controllers.load_controller import LoadController
 from arpes.ui.controllers.plot_controller import PlotController
 from arpes.ui.controllers.gamma_controller import GammaController
+from arpes.ui.controllers.norm_controller import NormController
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes_plot_controller import (
     apply_edcnorm,
@@ -2101,6 +2102,7 @@ class ArpesExplorer(QMainWindow):
         self._load_ctrl = LoadController(self)
         self._plot_ctrl = PlotController(self)
         self._gamma_ctrl = GammaController(self)
+        self._norm_ctrl = NormController(self)
         self._build_ui()
         self._install_shortcuts()
         self._status("Prêt — ouvrir un dossier ou un fichier")
@@ -2431,66 +2433,15 @@ class ArpesExplorer(QMainWindow):
     def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
         return self._gamma_ctrl._apply_stored_gamma_to_current_file(save_entry=save_entry)
     def _load_grid_controls(self, cfg: dict | None):
-        cfg = cfg or {}
-        self._params.sp_grid_strength.setValue(self._display_grid_config(cfg)["strength"])
-        if cfg.get("enabled"):
-            self._params.lbl_grid.setText("Correction BM active : masque Fourier 2D automatique.")
-        else:
-            self._params.lbl_grid.setText("Correction BM : masque Fourier 2D automatique sur l'affichage.")
-
+        return self._norm_ctrl._load_grid_controls(cfg)
     def _display_grid_config(self, cfg: dict | None) -> dict:
-        return _plot_display_grid_config(cfg)
-
+        return self._norm_ctrl._display_grid_config(cfg)
     def _grid_status_text(self, info: dict, target: str) -> str:
-        info = info or {}
-        method = info.get("method", "none")
-        if info.get("error"):
-            return f"Correction grille ({target}) impossible : {info.get('error')}"
-        if method in {"fft2mask", "display_fft2mask"}:
-            removed = int(info.get("removed_peak_count", 0) or 0)
-            delta = float(info.get("rms_delta_percent", 0.0) or 0.0)
-            view = info.get("view_mode")
-            view_txt = f" {view}" if view else ""
-            return (
-                f"Correction grille ({target}{view_txt}) : masque Fourier 2D auto, "
-                f"{removed} pics FFT, Δ≈{delta:.1f}%, force={float(info.get('strength', 1.0)):.2f}"
-            )
-        return f"Correction grille ({target}) active."
-
+        return self._norm_ctrl._grid_status_text(info, target)
     def _apply_grid_correction(self):
-        if self._raw_data is None or not self._current_path:
-            QMessageBox.warning(self, "Effet grille", "Charge d'abord une BM ou une FS.")
-            return
-        cfg = self._params.grid_params()
-        try:
-            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-            entry.grid_correction = dict(cfg)
-            self._session.save()
-            self._update_display_data()
-            self._draw_bm()
-            if self._tabs.currentIndex() == 1:
-                self._draw_mdc_edc()
-            msg = self._grid_status_text(self._grid_display_info, "affichage BM")
-            self._params.lbl_grid.setText(msg)
-            self._status(msg)
-        except Exception as exc:
-            QMessageBox.warning(self, "Effet grille", str(exc))
-            self._status(f"⚠ Effet grille : {exc}")
-
+        return self._norm_ctrl._apply_grid_correction()
     def _reset_grid_correction(self):
-        if not self._current_path:
-            return
-        entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-        entry.grid_correction = {}
-        self._session.save()
-        self._grid_display_info = {}
-        self._update_display_data()
-        self._draw_bm()
-        if self._tabs.currentIndex() == 1:
-            self._draw_mdc_edc()
-        self._params.lbl_grid.setText("Correction grille désactivée pour ce fichier.")
-        self._status("Correction grille désactivée pour ce fichier.")
-
+        return self._norm_ctrl._reset_grid_correction()
     def _install_shortcuts(self):
         QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(self._fit_guess)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._fit_full)

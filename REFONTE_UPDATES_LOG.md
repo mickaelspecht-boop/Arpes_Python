@@ -32,3 +32,11 @@
 - Résultat : `arpes_explorer.py` passe de `3308` à `3013` lignes ; `gamma_controller.py` contient les actions UI Γ (`379` lignes).
 - Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/gamma_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
 - Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
+
+## Update ι.2 — `NormController`
+
+- État initial vérifié : logique correction grille/normalisation d'affichage encore dans `ArpesExplorer` (`_load_grid_controls`, `_display_grid_config`, `_grid_status_text`, `_apply_grid_correction`, `_reset_grid_correction`).
+- Correction appliquée : création de `arpes/ui/controllers/norm_controller.py`; `ArpesExplorer` instancie `self._norm_ctrl` et conserve des wrappers de compatibilité pour `LoadController`.
+- Résultat : `arpes_explorer.py` passe de `3013` à `2964` lignes ; `norm_controller.py` contient les actions UI grille (`81` lignes).
+- Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/norm_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
+- Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
