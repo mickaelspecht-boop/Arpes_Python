@@ -384,3 +384,49 @@ def load_arpes(path, *, work_func: float, ef_offset: float = 0.0, a_lattice: flo
         bessy_energy_reference=bessy_energy_reference,
     )
     return assert_arpes_data_valid(ds)
+
+
+def load_arpes_file(path: str, work_func: float, ef_offset: float,
+                    a_lattice: float = 3.96, hv: float | None = None,
+                    temperature: float | None = None,
+                    azi: float | None = None,
+                    pol: str = "",
+                    angle_offsets: dict | None = None,
+                    bessy_energy_reference: str = "auto") -> dict | None:
+    """Wrapper utilitaire renvoyant un dict legacy bandmap (None si erlab absent)."""
+    try:
+        ds = load_arpes(path, work_func=work_func, ef_offset=ef_offset,
+                        a_lattice=a_lattice, hv=hv,
+                        temperature=temperature,
+                        azi=float(azi) if azi is not None else 0.0,
+                        pol=pol,
+                        angle_offsets=angle_offsets,
+                        bessy_energy_reference=bessy_energy_reference)
+    except RuntimeError as exc:
+        if "erlab" in str(exc).lower():
+            return None
+        raise
+    return ds.as_legacy_bandmap_dict()
+
+
+def loader_label(source_format: str | None, metadata: dict | None = None) -> str:
+    """Label court et stable pour l'affichage utilisateur (Solaris/BESSY/CLS)."""
+    fmt = (source_format or "").strip()
+    md = metadata or {}
+    explicit = str(md.get("loader_label") or md.get("lab_label") or "").strip()
+    if explicit:
+        return explicit
+    lab = str(md.get("lab") or "").strip().lower()
+    if "cls" in lab or "lnls" in lab:
+        return "CLS"
+    labels = {
+        "cls_txt": "CLS",
+        "solaris_da30": "Solaris",
+        "bessy_ses_ibw": "BESSY",
+    }
+    if fmt in labels:
+        return labels[fmt]
+    if not fmt:
+        return ""
+    return fmt.replace("_", " ").replace("-", " ").title()
+

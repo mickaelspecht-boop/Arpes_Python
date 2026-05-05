@@ -60,6 +60,8 @@ from .common import (
     detect_format,
     detect_scan_kind,
     load_arpes,
+    load_arpes_file,
+    loader_label,
     register_loader,
     registered_loaders,
 )

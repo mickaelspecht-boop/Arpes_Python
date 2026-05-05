@@ -489,3 +489,29 @@ def draw_ef_label(ax, text: str, *, horizontal: bool = True):
         bbox=dict(facecolor="#1a1a1a", edgecolor="none", alpha=0.65, pad=1.2),
         zorder=9,
     )
+
+
+def apply_ef_correction_to_dict(d: dict, cfg: dict) -> tuple[dict, dict]:
+    """Applique une correction EF par colonne (poly) au dict legacy bandmap.
+
+    Renvoie (dict_corrigé, info) où info contient ef_smooth, ef_at_center, etc.
+    Modifie une copie : ne touche pas l'objet d'origine.
+    """
+    if not cfg or cfg.get("mode") != "poly":
+        return d, {}
+    coefs = np.asarray(cfg.get("poly_coefs", []), dtype=float)
+    if coefs.size == 0:
+        return d, {}
+    kpar = np.asarray(d["kpar"], dtype=float)
+    ev = np.asarray(d["ev_arr"], dtype=float)
+    data = np.asarray(d["data"], dtype=float)
+    ef_smooth = np.polyval(coefs, kpar)
+    try:
+        from arpes.ui.widgets.plots import apply_ef_correction_per_column as _apply
+    except Exception:
+        return d, {}
+    data_corr = _apply(data, kpar, ev, ef_smooth)
+    out = dict(d)
+    out["data"] = data_corr
+    info = {"ef_smooth": ef_smooth, "ef_center": float(np.interp(0.0, kpar, ef_smooth))}
+    return out, info
