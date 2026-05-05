@@ -16,3 +16,11 @@
 - Test ajouté : `tests/test_plots_split.py` vérifie imports des sous-modules et réexports du shim.
 - Validation : `python3 -m py_compile arpes_plots.py arpes/ui/widgets/plots/*.py tests/test_plots_split.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
 - Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
+
+## Update θ — `PlotController` absorbe les draws
+
+- État initial vérifié : `arpes_explorer.py` contenait encore `_draw_bm`, `_draw_mdc_energy_map`, `_draw_mdc_waterfall`, `_draw_mdc_edc`, `_draw_kf_overlay`, `_draw_fs_tab`, `_update_display_data`, `_on_scroll_zoom`.
+- Correction appliquée : création de `arpes/ui/controllers/plot_controller.py` avec `PlotController`; `ArpesExplorer` instancie `self._plot_ctrl` et conserve seulement des wrappers de compatibilité.
+- Résultat : `arpes_explorer.py` passe de `3627` à `3308` lignes ; `plot_controller.py` contient les corps UI de draw (`466` lignes).
+- Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/plot_controller.py arpes_plot_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
+- Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
