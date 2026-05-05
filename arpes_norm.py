@@ -7,6 +7,7 @@ règles côté affichage/analyse.
 """
 from __future__ import annotations
 
+import warnings
 from typing import Sequence
 
 import numpy as np
@@ -75,6 +76,67 @@ def normalize_bandmap_flux_profile(
     if safe is None:
         return arr, "norm flux profil invalide"
     return arr / safe[:, None], f"norm flux k [{ref_lo:.2f},{ref_hi:.2f}] eV"
+
+
+def normalize_bandmap_above_ef(
+    data: np.ndarray,
+    energy: np.ndarray,
+    ev_above_range: tuple[float, float] = (0.05, 0.20),
+    smooth_k_sigma: float = 3.0,
+    ef_calibrated: bool = False,
+) -> tuple[np.ndarray, str]:
+    """Normalise une BM `(nk, nE)` par un profil intégré au-dessus d'EF.
+
+    Hypothèse : l'axe `energy` est calibré tel que `E = 0` correspond à EF.
+    On intègre `data` sur la fenêtre `[EF + ev_above_min, EF + ev_above_max]`
+    pour estimer le fond instrumental + flux par colonne k, puis on divise.
+
+    Préserve `|M|²(k)` (contrairement à la normalisation par profil sous-EF).
+
+    Si `ef_calibrated=False`, émet un warning : la fenêtre au-dessus d'EF
+    n'a de sens physique que si EF a été préalablement calibré.
+    """
+    arr = np.asarray(data, dtype=float)
+    if arr.ndim != 2 or arr.shape[-1] != len(energy) or arr.shape[0] <= 1:
+        return arr, "sans norm above-EF"
+
+    ev = np.asarray(energy, dtype=float)
+    finite_ev = ev[np.isfinite(ev)]
+    if finite_ev.size == 0:
+        return arr, "norm above-EF axe énergie vide"
+
+    if not ef_calibrated:
+        warnings.warn(
+            "normalize_bandmap_above_ef: EF n'a pas été calibré (ef_calibrated=False). "
+            "La fenêtre au-dessus d'EF risque de mordre dans les états occupés "
+            "et la correction sera fausse. Calibrer EF avant d'appliquer cette norm.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    if float(np.nanmax(finite_ev)) < float(ev_above_range[0]):
+        return arr, (
+            f"norm above-EF impossible: axe énergie max={np.nanmax(finite_ev):.3f} eV "
+            f"< borne basse {ev_above_range[0]:.3f} eV"
+        )
+
+    mask, (ref_lo, ref_hi) = _finite_ref_mask(ev, ev_above_range)
+    if mask.sum() < 2:
+        return arr, "norm above-EF fenêtre trop étroite"
+
+    profile = np.nanmean(arr[:, mask], axis=1)
+
+    if smooth_k_sigma and smooth_k_sigma > 0:
+        profile = _grid_profile_smooth(profile, sigma=float(smooth_k_sigma))
+
+    safe = _safe_profile(profile, min_valid=arr.shape[0] // 4)
+    if safe is None:
+        return arr, "norm above-EF profil invalide"
+
+    label = f"norm above-EF [{ref_lo:.2f},{ref_hi:.2f}] eV (σk={smooth_k_sigma:.0f}px)"
+    if not ef_calibrated:
+        label += " [EF non calibré]"
+    return arr / safe[:, None], label
 
 
 def normalize_fs_flux_profiles(

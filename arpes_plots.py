@@ -249,6 +249,158 @@ def fit_fermi_edge(
     )
 
 
+def auto_ef_window(ev_arr, edc, half_width=0.15, search=(-0.5, 0.2)):
+    """Centre une fenêtre de fit sur le gradient max de l'EDC.
+
+    Retourne (e_lo, e_hi). Utile quand EF n'est pas déjà proche de zéro.
+    """
+    ev_arr = np.asarray(ev_arr, dtype=float)
+    edc    = np.asarray(edc,    dtype=float)
+    mask = (ev_arr >= search[0]) & (ev_arr <= search[1])
+    if mask.sum() < 10:
+        return (-half_width, half_width)
+    e = ev_arr[mask]
+    I = np.where(np.isfinite(edc[mask]), edc[mask], 0.0)
+    I_sm = gaussian_filter1d(I, sigma=2.0)
+    grad = np.gradient(I_sm, e)
+    ec = float(e[int(np.argmax(np.abs(grad)))])
+    return (ec - half_width, ec + half_width)
+
+
+def fit_fermi_edge_per_column(
+    data, kpar, ev_arr,
+    temperature_K=28.0,
+    half_width=0.15,
+    sigma_resolution_init=0.025,
+    poly_deg=2,
+    auto_window=True,
+    ef_search=(-0.5, 0.2),
+    min_amplitude_ratio=0.15,
+    max_ef_err_ev=0.020,
+    verbose=False,
+):
+    """Fit du bord de Fermi colonne par colonne (k) puis lissage polynomial.
+
+    `data` : (n_k, n_E). `kpar` : (n_k,). `ev_arr` : (n_E,).
+
+    Retourne dict :
+        ef_per_col   : EF brut fitté par colonne (np.nan si échec)
+        ef_smooth    : EF lissé via polynôme degré `poly_deg`
+        poly_coefs   : coefficients du polynôme (np.polyfit, degré décroissant)
+        kpar         : axe k associé
+        mean_ef      : moyenne pondérée des EF retenus
+        mean_fwhm    : FWHM moyen retenu
+        rms          : écart-type des résidus colonne par colonne
+        n_valid      : nombre de colonnes avec fit valide
+        window       : (e_lo, e_hi) effectivement utilisée
+    """
+    data  = np.asarray(data, dtype=float)
+    kpar  = np.asarray(kpar, dtype=float)
+    ev    = np.asarray(ev_arr, dtype=float)
+    n_k   = data.shape[0]
+
+    edc_avg = np.nanmean(data, axis=0)
+    if auto_window:
+        win = auto_ef_window(ev, edc_avg, half_width=half_width, search=ef_search)
+    else:
+        win = (-half_width, half_width)
+
+    ef_per_col   = np.full(n_k, np.nan)
+    fwhm_per_col = np.full(n_k, np.nan)
+    err_per_col  = np.full(n_k, np.nan)
+
+    amp_max = float(np.nanmax(edc_avg)) if np.any(np.isfinite(edc_avg)) else 0.0
+    # Axe matplotlib jetable (hors pyplot) pour éviter d'accumuler des figures
+    from matplotlib.figure import Figure as _Fig
+    _dummy_ax = _Fig().add_subplot(111)
+    for i in range(n_k):
+        col = data[i]
+        if amp_max > 0 and np.nanmax(col) < min_amplitude_ratio * amp_max:
+            continue
+        try:
+            _dummy_ax.clear()
+            r = fit_fermi_edge(
+                ev, col,
+                temperature_K=temperature_K,
+                fit_range=win,
+                sigma_resolution_init=sigma_resolution_init,
+                fix_kBT=True,
+                units="binding",
+                ax=_dummy_ax,
+                verbose=False,
+            )
+            if not r.get("success"):
+                continue
+            err = float(r.get("EF_err", np.nan))
+            if not np.isfinite(err) or err > max_ef_err_ev:
+                continue
+            ef_per_col[i]   = float(r["EF"])
+            fwhm_per_col[i] = float(r["fwhm_res"])
+            err_per_col[i]  = err
+        except Exception:
+            continue
+
+    valid = np.isfinite(ef_per_col)
+    n_valid = int(valid.sum())
+    if n_valid < max(3, poly_deg + 2):
+        # Pas assez de colonnes valides — repli sur EF scalaire
+        ef_smooth = np.full(n_k, np.nanmedian(ef_per_col)) if n_valid else np.zeros(n_k)
+        coefs = np.array([np.nanmedian(ef_per_col) if n_valid else 0.0])
+        rms = float(np.nanstd(ef_per_col)) if n_valid else 0.0
+    else:
+        # Pondération par 1/err²
+        w = np.zeros(n_k)
+        w[valid] = 1.0 / np.clip(err_per_col[valid], 1e-4, np.inf) ** 2
+        coefs = np.polyfit(kpar[valid], ef_per_col[valid], deg=poly_deg, w=w[valid])
+        ef_smooth = np.polyval(coefs, kpar)
+        rms = float(np.sqrt(np.mean((ef_per_col[valid] - ef_smooth[valid]) ** 2)))
+
+    mean_ef = float(np.nansum(ef_per_col[valid]) / max(n_valid, 1)) if n_valid else 0.0
+    mean_fwhm = float(np.nanmedian(fwhm_per_col[valid])) if n_valid else float("nan")
+
+    if verbose:
+        print(f"fit_fermi_edge_per_column : {n_valid}/{n_k} valides | "
+              f"<EF>={mean_ef*1000:+.1f} meV | FWHM≈{mean_fwhm*1000:.0f} meV | "
+              f"rms_poly={rms*1000:.1f} meV")
+
+    return dict(
+        ef_per_col=ef_per_col,
+        ef_smooth=ef_smooth,
+        poly_coefs=np.asarray(coefs, dtype=float),
+        kpar=kpar.copy(),
+        mean_ef=mean_ef,
+        mean_fwhm=mean_fwhm,
+        rms=rms,
+        n_valid=n_valid,
+        window=win,
+        fwhm_per_col=fwhm_per_col,
+        err_per_col=err_per_col,
+    )
+
+
+def apply_ef_correction_per_column(data, kpar, ev_arr, ef_smooth):
+    """Décale chaque colonne k pour que `ef_smooth(k)` tombe à E=0.
+
+    Implémentation par interpolation linéaire 1D colonne par colonne sur la
+    grille `ev_arr` originale. Renvoie un nouveau tableau (n_k, n_E).
+    Les bords sortant de la grille sont remplis avec NaN.
+    """
+    data  = np.asarray(data, dtype=float)
+    kpar  = np.asarray(kpar, dtype=float)
+    ev    = np.asarray(ev_arr, dtype=float)
+    ef_smooth = np.asarray(ef_smooth, dtype=float)
+    n_k, n_e = data.shape
+    out = np.empty_like(data)
+    for i in range(n_k):
+        # data_corr(E) = data_orig(E + ef_smooth[i])
+        src = ev + float(ef_smooth[i])
+        col = data[i]
+        # Bord remplit avec la valeur extrême pour éviter les NaN qui cassent
+        # gaussian_filter (utilisé par SecDev/Curvature côté affichage).
+        out[i] = np.interp(ev, src, col, left=col[0], right=col[-1])
+    return out
+
+
 # =============================================================================
 #  1. Detection de Gamma par milieu des kF (MDC midpoint)
 # =============================================================================
@@ -832,6 +984,45 @@ def _make_peak_pairs_model(n_pairs, width_mode='independent'):
     n_extra = 1 if width_mode == 'global' else 0  # w_global à la fin
     return model, n_pp, n_extra
 
+def _local_velocity_from_k(e_arr, k_arr, idx, half_window=2):
+    """Estime |dE/dk| local en eV/(pi/a) autour d'un point de dispersion."""
+    e = np.asarray(e_arr, dtype=float)
+    k = np.asarray(k_arr, dtype=float)
+    n = min(e.size, k.size)
+    if n < 2:
+        return np.nan
+    lo = max(0, int(idx) - int(half_window))
+    hi = min(n, int(idx) + int(half_window) + 1)
+    ee = e[lo:hi]
+    kk = k[lo:hi]
+    mask = np.isfinite(ee) & np.isfinite(kk)
+    if mask.sum() < 2:
+        return np.nan
+    try:
+        dk_dE = float(np.polyfit(ee[mask], kk[mask], 1)[0])
+    except Exception:
+        return np.nan
+    if not np.isfinite(dk_dE) or abs(dk_dE) < 1e-9:
+        return np.nan
+    return abs(1.0 / dk_dE)
+
+def _resolution_correct_gamma(e_arr, k0_series, gamma_series, dE_eV, dk_inv_a):
+    """Retourne gamma_min et gamma_corrige pour une serie de largeurs MDC."""
+    e = np.asarray(e_arr, dtype=float)
+    k0 = np.asarray(k0_series, dtype=float)
+    gamma = np.asarray(gamma_series, dtype=float)
+    dE = max(float(dE_eV or 0.0), 0.0)
+    dk = max(float(dk_inv_a or 0.0), 0.0)
+    gamma_min = np.full_like(gamma, dk, dtype=float)
+    for i in range(gamma.size):
+        vf = _local_velocity_from_k(e, k0, i)
+        if np.isfinite(vf) and vf > 1e-3:
+            gamma_min[i] = float(np.sqrt(dk * dk + (dE / vf) ** 2))
+    gamma_corr = np.sqrt(np.maximum(0.0, gamma * gamma - gamma_min * gamma_min))
+    gamma_corr[~np.isfinite(gamma)] = np.nan
+    gamma_min[~np.isfinite(gamma)] = np.nan
+    return gamma_min, gamma_corr
+
 
 def fit_mdc_peak_pairs(
     data_cut, kpar, ev_arr,
@@ -851,6 +1042,9 @@ def fit_mdc_peak_pairs(
     k_min=None,
     k_max=None,
     k0_max=None,
+    dE_eV=0.0,
+    dk_inv_a=0.0,
+    resolution_source="",
     verbose=False,
 ):
     """
@@ -935,19 +1129,20 @@ def fit_mdc_peak_pairs(
 
     lo = [-np.inf, -np.inf, center_init - xg_range]   # bg_a, bg_b, xg
     hi = [ np.inf,  np.inf, center_init + xg_range]
+    gamma_floor = min(max(0.001, float(dk_inv_a or 0.0)), float(gamma_max) * 0.95)
     for pi in range(n_pairs):
         k0_hi = k0_hi_list[pi]
         if width_mode == 'independent':
-            lo += [k0_lo,  0.0,       0.001, 0.0,       0.001]
+            lo += [k0_lo,  0.0, gamma_floor, 0.0, gamma_floor]
             hi += [k0_hi,  np.inf, gamma_max, np.inf, gamma_max]
         elif width_mode == 'symmetric':
-            lo += [k0_lo,  0.0,  0.0,  0.001]
+            lo += [k0_lo,  0.0,  0.0, gamma_floor]
             hi += [k0_hi,  np.inf, np.inf, gamma_max]
         else:  # global
             lo += [k0_lo,  0.0,  0.0]
             hi += [k0_hi,  np.inf, np.inf]
     if width_mode == 'global':
-        lo += [0.001]; hi += [gamma_max]
+        lo += [gamma_floor]; hi += [gamma_max]
 
     # Direction du scan
     # 'down' : de ev_end (proche EF) vers ev_start (basses E)
@@ -1012,6 +1207,7 @@ def fit_mdc_peak_pairs(
     kF_minus_list = [[] for _ in range(n_pairs)]
     kF_plus_list  = [[] for _ in range(n_pairs)]
     k0_list       = [[] for _ in range(n_pairs)]
+    gamma_list    = [[] for _ in range(n_pairs)]
     xg_list       = []
     e_fitted      = []
     prev_popt     = None
@@ -1084,6 +1280,16 @@ def fit_mdc_peak_pairs(
                 if (np.isfinite(km) or np.isfinite(kp)) and not jumped:
                     converged = True
 
+                if width_mode == 'independent':
+                    g1 = popt[3 + n_pp*i + 2]
+                    g2 = popt[3 + n_pp*i + 4]
+                    gamma_fit = float(np.nanmean([g1, g2]))
+                elif width_mode == 'symmetric':
+                    gamma_fit = float(popt[3 + n_pp*i + 3])
+                else:
+                    gamma_fit = float(popt[-1])
+                gamma_list[i].append(gamma_fit if not jumped else np.nan)
+
                 if verbose:
                     status = 'OK' if (converged and not jumped) else ('JUMP' if jumped else 'LOW_A')
                     print(f'  E={ev_arr[ie]:+.3f} eV | k0={k0_fit:.3f} '
@@ -1126,6 +1332,7 @@ def fit_mdc_peak_pairs(
                 kF_minus_list[i].append(np.nan)
                 kF_plus_list[i].append(np.nan)
                 k0_list[i].append(np.nan)
+                gamma_list[i].append(np.nan)
             xg_list.append(np.nan)
             e_fitted.append(ev_arr[ie])
             prev_popt = None
@@ -1133,10 +1340,21 @@ def fit_mdc_peak_pairs(
     # Réordonner en énergie croissante (indépendant du sens du scan)
     e_arr_out = np.array(e_fitted)
     sort_idx  = np.argsort(e_arr_out)
+    k0_out = [np.array(x)[sort_idx] for x in k0_list]
+    gamma_brut = [np.array(x)[sort_idx] for x in gamma_list]
+    gamma_min = []
+    gamma_corrige = []
+    for i in range(n_pairs):
+        gmin, gcorr = _resolution_correct_gamma(
+            e_arr_out[sort_idx], k0_out[i], gamma_brut[i],
+            dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+        )
+        gamma_min.append(gmin)
+        gamma_corrige.append(gcorr)
     return dict(
         kF_minus   =[np.array(x)[sort_idx] for x in kF_minus_list],
         kF_plus    =[np.array(x)[sort_idx] for x in kF_plus_list],
-        k0         =[np.array(x)[sort_idx] for x in k0_list],
+        k0         =k0_out,
         xg         =np.array(xg_list)[sort_idx],
         e_fitted   =e_arr_out[sort_idx],
         I_smoothed =I_fit,
@@ -1144,6 +1362,16 @@ def fit_mdc_peak_pairs(
         ev_arr     =ev_arr,
         n_pairs    =n_pairs,
         width_mode =width_mode,
+        gamma       =gamma_brut,
+        gamma_brut  =gamma_brut,
+        gamma_min   =gamma_min,
+        gamma_corrige=gamma_corrige,
+        resolution  ={
+            "dE_eV": float(dE_eV or 0.0),
+            "dE_meV": float(dE_eV or 0.0) * 1000.0,
+            "dk_inv_a": float(dk_inv_a or 0.0),
+            "source": str(resolution_source or ""),
+        },
     )
 
 

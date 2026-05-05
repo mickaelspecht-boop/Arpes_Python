@@ -1375,3 +1375,2694 @@ Point important :
 - cette méthode ne suppose pas un Excel CLS parfaitement standard ;
 - elle fonctionne d'abord avec les métadonnées brutes CLS, puis enrichit avec
   le logbook quand il apporte `azi/hv/pol` ou des champs absents.
+
+## Mise à jour 2026-04-30 — onglet `MDC Fit`, waterfall et zoom molette
+
+Objectif interface :
+- rendre l'onglet `MDC Fit` plus lisible ;
+- éviter de compresser ensemble plusieurs vues larges :
+  - BM ;
+  - MDC courante ;
+  - waterfall MDC.
+
+Décision ergonomique :
+- `MDC Fit` contient maintenant des sous-onglets :
+  - `Fit MDC` : BM de travail en haut, MDC courante en bas ;
+  - `Waterfall` : waterfall MDC en plein espace ;
+  - `EDC` : EDC seule, secondaire.
+- le waterfall n'est pas placé sous la BM, car il a le même format large
+  qu'une BM (`x = k`, `y = énergie/offset`).
+
+Waterfall MDC :
+- `_draw_mdc_waterfall()` utilise la plage de fit ou la ROI active ;
+- les données sont celles du fit (`EDCnorm` si activé) ;
+- environ 48 courbes sont affichées pour éviter une vue trop dense ;
+- les courbes sont normalisées individuellement ;
+- le lissage suit `smooth_fit` ;
+- les points `kF` sont superposés si un fit complet existe.
+
+Zoom molette :
+- un handler `_on_scroll_zoom(...)` a été ajouté puis gardé dans le code ;
+- les connexions `scroll_event` sont volontairement commentées ;
+- raison : comportement instable selon backend/trackpad, avec une fenêtre
+  affichée qui se referme trop vite pendant le zoom.
+- à reprendre plus tard si besoin, probablement avec :
+  - une barre d'outils matplotlib uniquement ;
+  - ou un mode zoom explicite activable ;
+  - ou un zoom borné par les limites complètes des données.
+
+## Mise à jour 2026-04-30 — préparation multi-loaders
+
+Objectif :
+- préparer l'ajout de loaders d'autres laboratoires/formats sans recasser les
+  loaders Solaris/DA30 et CLS/LNLS existants ;
+- rendre les erreurs de convention visibles dès la sortie du loader plutôt que
+  plus tard dans le GUI ou le fit MDC.
+
+Convention interne documentée dans `arpes_io.py` :
+- `energy` est toujours en `E - EF` en eV ;
+- une BM est toujours `data.shape == (n_k, n_E)` ;
+- une FS volumique est stockée dans `metadata["fs_data"]` avec la shape
+  `(n_ky, n_kx, n_E)` ;
+- `kx`/`ky` sont en `pi/a` ;
+- pour CLS, `kx` suit `theta_raw - polar - theta0_deg` et `ky` suit
+  `tilt_raw - tilt0_deg`.
+
+Ajouts dans `arpes_io.py` :
+- `LoaderSpec` décrit un loader ;
+- `register_loader(name, detector_fn, loader_fn, description)` permet
+  d'ajouter un loader sans modifier `load_arpes` ;
+- `registered_loaders()` expose le registre pour tests/diagnostic ;
+- `assert_arpes_data_valid(ds)` vérifie :
+  - `data` 2D ;
+  - `energy`, `kx`, `ky` 1D et monotones ;
+  - cohérence `data.shape[1] == len(energy)` ;
+  - cohérence `data.shape[0] == len(kx)` ;
+  - cohérence FS `(n_ky, n_kx, n_E)` si `fs_data` existe ;
+  - présence d'une intensité finie ;
+  - hν manquant/non positif en warning, pas en crash.
+
+Comportement :
+- Solaris/DA30 et CLS/LNLS sont maintenant enregistrés dans le registre de
+  loaders ;
+- `detect_format(...)` parcourt le registre ;
+- `load_arpes(...)` appelle le loader détecté/en hint, puis valide la sortie ;
+- les fonctions publiques historiques `load_solaris_da30_bandmap(...)` et
+  `load_cls_txt(...)` restent disponibles.
+
+Tests ajoutés :
+- `tests/test_arpes_io.py` vérifie :
+  - une BM conforme ;
+  - le rejet d'une BM transposée `(n_E, n_k)` ;
+  - une FS conforme `(n_ky, n_kx, n_E)` ;
+  - la détection Solaris par extension ;
+  - l'ajout d'un loader factice via `register_loader`.
+
+Travail restant avant une vraie phase multi-labos :
+- ajouter un inspector GUI "inspecter sans charger" ;
+- ajouter un mini fichier de référence réel par loader quand les données de test
+  seront disponibles ;
+- envisager ensuite le logging structuré + panneau Console/Log.
+
+## Mise à jour 2026-04-30 — affichage du loader dans la liste fichiers
+
+Objectif :
+- quand un fichier ou dossier est listé/chargé dans le browser, afficher le
+  laboratoire/loader utilisé à côté du nom ;
+- garder ce mécanisme compatible avec les futurs loaders.
+
+Implémentation :
+- `FileMeta` contient maintenant :
+  - `source_format` : nom brut du loader (`cls_txt`, `solaris_da30`, etc.) ;
+  - `loader_label` : label court affiché (`CLS`, `Solaris`, etc.).
+- au chargement, `entry.meta.source_format` est rempli depuis le dict legacy
+  retourné par `ARPESData.as_legacy_bandmap_dict()` ;
+- `entry.meta.loader_label` est calculé par `_loader_label(...)` :
+  - `cls_txt` ou lab contenant CLS/LNLS → `CLS` ;
+  - `solaris_da30` → `Solaris` ;
+  - futur loader inconnu → nom formaté depuis `source_format`.
+- la liste de fichiers affiche maintenant :
+
+```text
+nom_du_scan (CLS)
+nom_du_scan (Solaris)
+```
+
+- pour les fichiers non encore chargés, le browser tente aussi une estimation
+  via `detect_format(...)` ;
+- après chargement, le label fiable est sauvegardé dans `.arpes_session.json`
+  et l'item de liste est rafraîchi.
+
+## Mise à jour 2026-04-30 — loader BESSY / Scienta SES `.ibw`
+
+Contexte :
+- nouveau dossier de test :
+  `/Users/alexandrespecht/Documents/Stage_M2/code/Ba122` ;
+- les fichiers viennent de BESSY et sont des Igor Binary Wave `.ibw` ;
+- les notes contiennent `@[SES]`, `Instrument=R8000-8ES202`,
+  `Energy Scale=Kinetic`, `Y-Scale [deg]`.
+
+Décision :
+- ne pas les envoyer vers le loader Solaris/DA30 malgré l'extension `.ibw` ;
+- ajouter un loader direct `bessy_ses_ibw` dans `arpes_io.py`, sans dépendance
+  `erlab`.
+
+Implémentation :
+- détecteur `_is_bessy_ses_ibw(path)` :
+  - extension `.ibw` ;
+  - IBW v5 ;
+  - note de fin contenant `@[SES]` et `Instrument=R8000` ou
+    `Energy Scale=Kinetic`.
+- parseur IBW v5 minimal :
+  - header binaire 64 octets ;
+  - WaveHeader5 320 octets ;
+  - données numériques à l'offset 384 ;
+  - dimensions lues depuis `nDim` ;
+  - échelles Igor `sfA/sfB` pour les axes ;
+  - données reshape en `order="F"` car la dimension Igor 0 est la plus rapide.
+- parseur de note SES :
+  - lit les paires `key=value` ;
+  - récupère les séries `P-Axis/R-Axis` quand présentes dans les scans 3D.
+
+Convention de sortie :
+- axe brut IBW : `(E_kin, theta[, P])` ;
+- BM 2D :
+  - sortie `data.shape == (n_theta, n_E)` ;
+  - `kx` depuis `theta_raw - P-Axis - theta0_deg` ;
+  - `energy = E_kin - Center Energy + ef_offset`.
+- volume 3D :
+  - `metadata["fs_data"].shape == (n_P, n_theta, n_E)` ;
+  - `metadata["fs_kx"] = kx` ;
+  - `metadata["fs_ky"]` depuis la série `P-Axis` ;
+  - `data` est la moyenne du volume sur l'axe `P`.
+
+Point important :
+- dans les fichiers Ba122 testés, la note indique `Excitation Energy=0` et
+  `Monochromator Energy=0` ;
+- le loader BESSY n'utilise donc pas `hν - work_func` pour placer `E-EF` ;
+- `hν` reste utile comme métadonnée pour comparer les scans ou préparer `kz`,
+  mais la référence énergie locale est `Center Energy`.
+
+Registre :
+- `bessy_ses_ibw` est enregistré avant `solaris_da30`, pour que les `.ibw`
+  BESSY ne soient pas capturés par le fallback Solaris ;
+- le browser affiche le label `(BESSY)`.
+
+Test ajouté :
+- `tests/test_arpes_io.py` charge si disponible :
+  `Ba1220009w_Band Map B122_009.ibw` ;
+- vérifie `detect_format == "bessy_ses_ibw"` ;
+- vérifie la shape BM `(319, 518)` et le label `BESSY`.
+- un test FS réel charge aussi `Ba1220003w_Ba122_003.ibw` :
+  - doit être détecté comme `bessy_ses_ibw` ;
+  - vérifie `energy_reference == "ses_center_energy"` ;
+  - vérifie la cohérence `fs_data.shape == (len(fs_ky), len(fs_kx), len(fs_energy))`.
+
+Correctif FS BESSY :
+- les BM étaient correctes, mais les FS étaient mal centrées ;
+- cause : l'axe vertical BESSY 3D est une série absolue `P-Axis` (ex.
+  `-10 → 20°`) ;
+- il ne faut pas convertir directement `P-Axis` absolu en `ky`, sinon l'image
+  FS dépend du zéro manipulateur et devient fortement décalée ;
+- le loader convertit maintenant :
+
+```text
+ky = f(P-Axis - centre_du_scan - tilt0_deg)
+```
+
+- le centre du scan est `(min(P-Axis) + max(P-Axis)) / 2` ;
+- les métadonnées gardent :
+  - `fs_ky_angle_deg` : valeurs brutes ;
+  - `fs_ky_angle_center_deg` : centre soustrait ;
+  - `ky_conversion = p_axis_scan_minus_scan_center_minus_tilt0`.
+
+Correctif énergie BESSY :
+- la capture montrait `Ba1220015` affiché vers `E-EF = -7 eV` avec `hν=48 eV` ;
+- cause : les notes BESSY/SES testées indiquent `Excitation Energy=0` et le
+  logbook n'est pas une référence fiable pour placer EF sur ces fichiers ;
+- utiliser `hν - work_func` décale certaines BM/FS de plusieurs eV ;
+- le loader BESSY utilise maintenant `Center Energy` de la note SES comme
+  référence locale :
+
+```text
+E - EF = E_kin - Center Energy + ef_offset
+```
+
+- `hν` reste stocké comme métadonnée si l'utilisateur/logbook le fournit, mais
+  il n'est plus utilisé pour placer l'axe énergie BESSY ;
+- la conversion k utilise aussi `Center Energy` comme énergie cinétique de
+  référence.
+
+## Mise à jour 2026-04-30 — ancien logbook BESSY `Measurement Plan`
+
+Contexte :
+- dans `/Users/alexandrespecht/Documents/Stage_M2/code/Ba122`, le fichier
+  `Measurements Plan(Sheet1).csv` est un ancien format de logbook ;
+- la première ligne est un titre :
+  `Measurement Plan (Green=Important, ...)` ;
+- la vraie ligne d'en-tête est la ligne suivante :
+  `DONE;Num;Sample;Temp;Direction;Measurement Type;Pol;Energy;Polar;...` ;
+- il n'y a pas de colonne fichier explicite : `Num` correspond aux numéros
+  dans les noms `Ba1220009w...` / `..._009.ibw`.
+
+Problème :
+- le détecteur standard pouvait prendre la première ligne comme header ;
+- ou confondre `Measurement Type` avec la colonne fichier parce qu'elle contient
+  le mot `measurement`.
+
+Solution sans casser l'existant :
+- le chemin standard n'est pas modifié quand il détecte déjà `file` + `hν` ;
+- uniquement si le mapping standard échoue, le lecteur CSV relit le fichier en
+  mode brut (`header=None`) et réutilise la logique de recherche de ligne
+  d'en-tête déjà présente pour Excel ;
+- fallback ciblé `_infer_legacy_measurement_plan_mapping(...)` :
+  - détecte la signature `Num` + `Energy`/`Measurement Type` ;
+  - mappe `file -> Num` ;
+  - mappe `hv -> Energy` ;
+  - mappe `temperature -> Temp` ;
+  - mappe `polarization -> Pol` ;
+  - mappe `polar -> Polar` ;
+  - mappe `direction -> Direction`.
+- `_record_matches_path(...)` sait maintenant comparer un numéro de logbook
+  avec les noms BESSY :
+  - `Num=9` matche `Ba1220009w...` ;
+  - `Num=9` matche aussi `..._009.ibw`.
+
+Important :
+- cette amélioration est un fallback pour anciens `Measurement Plan` ;
+- elle ne change pas la détection principale des logbooks modernes.
+
+Correctif après suppression manuelle de l'entête :
+- si le CSV commence par une ligne vide puis `DONE;Num;...`, le sniff
+  automatique `sep=None` peut échouer (`bad delimiter value`) ;
+- pour les `.csv`, le lecteur essaie maintenant explicitement `sep=";"` avant
+  le fallback général ;
+- si la lecture ne donne qu'une seule colonne, l'app relit le fichier en mode
+  brut et réapplique la recherche de ligne d'en-tête.
+
+## Mise à jour 2026-04-30 — diagnostics loaders et EF BESSY
+
+Contexte :
+- les loaders doivent fonctionner pour des familles de données de leur labo,
+  pas seulement pour les fichiers présents localement ;
+- il faut rendre visibles les hypothèses automatiques de chaque loader ;
+- BESSY/SES posait un problème particulier : les fichiers testés ont
+  `Excitation Energy=0`, `Monochromator Energy=0`, mais un axe cinétique autour
+  de `Center Energy`.
+
+Diagnostics ajoutés dans `metadata` :
+- `loader_capability` : périmètre réel du loader ;
+- `loader_assumptions` : hypothèses utilisées pour énergie/k/FS ;
+- `loader_warnings` : avertissements non fatals ;
+- `geometry_confidence` : niveau indicatif (`high`, `medium`, etc.) ;
+- `axis_sources` : origine des axes énergie, kx, ky, hν.
+
+Politique par loader :
+- Solaris/DA30 :
+  - `energy_reference = hv_minus_work_function` ;
+  - hν vient des métadonnées DA30 ;
+  - conversion k via `erlab.kspace.convert` ;
+  - confiance géométrique haute si le fichier est bien un export DA30.
+- CLS/LNLS :
+  - `energy_reference = hv_minus_work_function` ;
+  - hν vient du logbook ou de la saisie utilisateur et reste obligatoire ;
+  - `kx = theta - polar - theta0` ;
+  - `ky = tilt/phi - tilt0` pour les FS, avec warning si les valeurs tilt/phi
+    sont absentes et remplacées par les indices de step.
+- BESSY/SES :
+  - `energy_reference = ses_center_energy` ;
+  - `hν` est conservé pour `kz`/comparaison de scans, mais n'est pas utilisé
+    pour placer `E-EF` sur ces exports ;
+  - `ef_kinetic_from_hv = hν - work_function` est quand même stocké ;
+  - si `hν - φ` diffère fortement de `Center Energy`, un warning explicite est
+    ajouté ;
+  - `kx = theta - P-Axis - theta0` ;
+  - pour FS, `ky = P-Axis - centre_du_scan - tilt0`.
+
+Exemple réel BESSY :
+```text
+Ba1220009w_Band Map B122_009.ibw
+Energy Scale = Kinetic
+Excitation Energy = 0
+Monochromator Energy = 0
+Center Energy = 43.4 eV
+axe brut = 43.0 → 43.7996 eV
+
+E-EF avec Center Energy = -0.400 → +0.400 eV
+E-EF avec hν=40 eV et φ=4.031 eV = +7.031 → +7.831 eV
+```
+
+Décision :
+- pour BESSY/SES, ne pas forcer `hν - φ` comme Solaris/CLS tant que l'export
+  indique une référence SES locale cohérente (`Center Energy`) ;
+- ne pas ignorer hν : le garder en métadonnée et avertir quand il contredit la
+  référence énergie utilisée ;
+- les nouveaux fichiers BESSY démarrent avec `EF offset = 0.0 eV` au lieu du
+  défaut historique `+0.052 eV` ;
+- les anciennes entrées BESSY non calibrées, encore au défaut exact `+0.052 eV`,
+  sont ramenées à `0.0 eV` au chargement ; les fichiers déjà calibrés ou fittés
+  ne sont pas écrasés.
+
+Interface :
+- le statut de chargement affiche le premier `loader_warning` quand il existe ;
+- sinon il affiche la référence énergie (`refE=...`).
+
+## Mise à jour 2026-04-30 — mode énergie BESSY explicite
+
+Objectif :
+- permettre de tester la méthode `hν - φ` sur BESSY comme Solaris/CLS ;
+- garder un défaut sûr pour les exports SES observés ;
+- rendre le choix compréhensible pour l'utilisateur.
+
+Interface historique :
+- un sélecteur avait été ajouté dans `EF / Chargement` :
+
+```text
+BESSY ref:
+  - BESSY Auto SES
+  - BESSY Center Energy
+  - BESSY hν - φ
+```
+
+- ce sélecteur a ensuite été retiré de l'UI principale le 2026-05-01 pour
+  alléger la fenêtre ; voir la section dédiée plus bas.
+
+Comportement :
+- `BESSY Auto SES` :
+  - défaut ;
+  - utilise `Center Energy` si disponible ;
+  - stocke quand même `hν - φ` en diagnostic.
+- `BESSY Center Energy` :
+  - force explicitement la référence SES locale.
+- `BESSY hν - φ` :
+  - force la méthode Solaris/CLS ;
+  - exige un `hν` valide ;
+  - ajoute un warning indiquant que c'est un mode expérimental BESSY ;
+  - utile pour diagnostic ou pour un export SES où l'axe énergie serait
+    réellement compatible avec l'énergie photon.
+
+Métadonnées BESSY ajoutées/clarifiées :
+- `bessy_energy_reference_mode` ;
+- `energy_reference` vaut `ses_center_energy` ou `hv_minus_work_function` ;
+- `ef_kinetic_from_hv = hν - φ` ;
+- `center_minus_hv_phi = Center Energy - (hν - φ)` ;
+- `hv_policy` vaut `stored_for_kz_not_used_for_EF` ou `used_for_EF`.
+
+Exemple test :
+- `Ba1220009w_Band Map B122_009.ibw` :
+  - mode Auto/Center : `E = -0.400 → +0.400 eV` ;
+  - mode `hν - φ` avec `hν=47.031 eV` et `φ=4.031 eV` :
+    `E[0] = 0.000 eV`, car `hν - φ = 43.000 eV`.
+
+Important :
+- si le logbook donne par exemple `hν=40 eV`, le mode `hν - φ` place ce même
+  fichier vers `+7 eV` ;
+- ce n'est donc pas le défaut recommandé pour les exports BESSY/SES actuels ;
+- le mode existe pour tester et comprendre, pas pour remplacer silencieusement
+  `Center Energy`.
+
+## Mise à jour 2026-04-30 — calibration EF BESSY : fenêtre auto limitée
+
+Problème :
+- les fichiers BESSY/SES chargés avec `Center Energy` couvrent souvent une
+  fenêtre du type `E-EF = -0.4 → +0.4 eV` ;
+- l'ancien bouton `Calibrer EF auto` cherchait le gradient maximal sur une
+  plage large `-0.5 → +0.2 eV` ;
+- sur certaines EDC moyennes BESSY, ce gradient peut accrocher une structure ou
+  un bord parasite dans la partie positive de la fenêtre, puis fitter la
+  mauvaise zone.
+
+Correction :
+- `EFCalibrationDialog` reçoit maintenant les métadonnées du fichier chargé ;
+- si la donnée vient de BESSY/SES ou si `energy_reference == ses_center_energy`,
+  la recherche automatique du bord EF est limitée à :
+
+```text
+-0.25 → +0.05 eV
+```
+
+- cette plage est affichée dans le tooltip et dessinée en orange sur la preview
+  EDC ;
+- pour les autres loaders, l'ancienne recherche `-0.5 → +0.2 eV` reste inchangée.
+
+Correction côté fit par colonne :
+- `arpes_plots.fit_fermi_edge_per_column(...)` accepte maintenant `ef_search` ;
+- le mode poly utilise donc la même plage de recherche EF que le mode scalaire.
+
+But :
+- éviter que le fit EF BESSY soit attiré par les données positives jusqu'à
+  `+0.4 eV` ;
+- garder l'idée physique : le loader donne une référence initiale, puis la
+  calibration EF ajuste le vrai bord de Fermi autour de zéro.
+
+## Mise à jour 2026-05-01 — durcissement loader BESSY + propagation EF per-file
+
+Contexte des fichiers Ba122 testés (`/Stage_M2/code/ba122/*.ibw`) :
+- ce sont des exports SES R8000 sans `hν` valide dans la note (`Excitation
+  Energy=0`, `Monochromator Energy=0`) ;
+- chaque fichier a son propre `Center Energy` (ex : 36.4, 43.4, 61.4, 65.2) ;
+- le logbook ancien format `Measurements Plan(Sheet1).csv` (colonnes `Num`,
+  `Energy`, `Temp`, `Pol`, ...) est partiellement faux : pour les fichiers
+  où Center=43.4 le logbook donne hν=41 alors que les données sont cohérentes
+  avec hν≈48 ; le hν du logbook ne peut donc pas être propagé aveuglément ;
+- conséquence : `Center Energy` reste la référence la plus fiable par défaut.
+
+### 1. Détecteur BESSY strict (`arpes_io.py`)
+
+Ancien :
+```python
+return b"[SES]" in note and (b"Instrument=R8000" in note or b"Energy Scale=Kinetic" in note)
+```
+
+Problème : `Energy Scale=Kinetic` est aussi dans les exports DA30 → un `.ibw`
+Solaris pouvait être attrapé par BESSY.
+
+Nouveau :
+```python
+return b"[SES]" in note and b"Instrument=R8000" in note
+```
+
+`Instrument=R8000-8ES202` (testé Ba122) matche `Instrument=R8000` en substring.
+
+### 2. Mode `auto` clarifié + UI honnête (`arpes_io.py` + `arpes_explorer.py`)
+
+`auto` reste sémantiquement = `ses_center_energy` (le plus fiable sur ces
+fichiers). On ne tente PAS de basculer automatiquement sur `hν−φ` quand hν
+est dispo, parce que le logbook hν est souvent erroné.
+
+Combobox UI mis à jour :
+- `BESSY Auto (Center Energy)` (au lieu de `Auto SES`) ;
+- `BESSY Center Energy` ;
+- `BESSY hν − φ (forcé)` (au lieu de `BESSY hν - φ`).
+
+Tooltip explicite : indique que sur Ba122 le logbook hν est souvent
+erroné, donc utiliser `hν−φ forcé` seulement après vérification.
+
+`_bessy_energy_reference_mode()` mis à jour pour parser les nouveaux libellés
+(`Auto` → `auto`, `forcé` → `hv_minus_work_function`, `Center` → `ses_center_energy`).
+
+### 3. Support `Energy Scale=Binding` (`arpes_io.py`)
+
+Détection :
+```python
+energy_scale_raw = str(ses.get("Energy Scale") or ses.get("Energy Unit") or "Kinetic")
+is_binding_axis = energy_scale_raw.lower().startswith("bind") or ...
+```
+
+Si Binding :
+- on ne soustrait pas `ef_kin_nominal` ;
+- on flippe le signe pour respecter la convention E−EF (positif au-dessus EF) :
+  `energy = -energy_raw + ef_offset` ;
+- pour `kx`, on utilise `hν−φ` si dispo, sinon `Center Energy` comme proxy de Ek ;
+- warnings ajoutés (`énergie SES en Binding`, `kx via proxy si hν inconnu`).
+
+Métadonnées :
+- `energy_axis_original` vaut maintenant `"binding"` ou `"kinetic"` ;
+- `energy_scale_raw` ajouté pour tracer la valeur SES brute.
+
+### 4. Fenêtre EF auto-détectée (`arpes_explorer.py::_default_ef_search_range`)
+
+Problème observé sur Ba122 : Center Energy ≈ 43.4 mais l'expérimentateur n'a
+pas centré pile sur EF → bord de Fermi à `E−EF ≈ +0.26 eV`. L'ancienne
+fenêtre fixe `[-0.25, +0.05]` ratait totalement le bord.
+
+Nouveau comportement (uniquement BESSY/ses_center_energy) :
+- calcule l'EDC moyenne, prend `np.argmin(np.gradient(edc, e))` comme hint
+  pour la position de la chute d'intensité (= EF) ;
+- centre la fenêtre autour de ce hint : `[hint − 0.30, hint + 0.20]`,
+  bornée par les limites de l'axe ;
+- fallback `[-0.5, +0.5]` si la détection échoue.
+
+Test sur 4 fichiers Ba122 : EF hint trouvé à +0.26 eV (cohérent), fenêtre
+résultante `[-0.04, +0.40]` qui couvre bien le bord.
+
+Pour les autres loaders (Solaris, CLS), comportement inchangé : `[-0.5, +0.2]`.
+
+### 5. Propagation EF per-file (`arpes_explorer.py::_apply_ef_reference_to_current`)
+
+Problème : un shift scalaire `Δ` mesuré sur un Au avec `Center=Cs` n'est
+**pas valide** sur un fichier cible avec `Center=Ct`, car les deux axes
+E−EF n'ont pas la même origine cinétique. L'utilisateur devait recalibrer
+manuellement chaque fichier.
+
+Solution :
+- au moment de sauvegarder la référence (`_apply_ef_calibration_result`,
+  mode scalar), on ajoute dans `ref_payload` :
+  - `source_ef_kin_nominal` = `ef_kinetic_nominal` ou `ef_kinetic_from_hv`
+    du fichier source (helper `_axis_zero_in_kinetic`) ;
+  - `source_energy_reference` = mode énergie source.
+- au moment d'appliquer (`_apply_ef_reference_to_current`, mode scalar),
+  on lit `target_ef_kin_nominal` du fichier courant et on calcule :
+
+```text
+kinetic_correction = source_ef_kin_nominal - target_ef_kin_nominal
+effective_shift    = base_shift + kinetic_correction
+new_offset         = current_offset - effective_shift
+```
+
+Garde-fous :
+- correction per-file appliquée **seulement si** source et cible ont le même
+  `energy_reference` (ses_center_energy ↔ ses_center_energy, ou
+  hv_minus_work_function ↔ hv_minus_work_function) ;
+- sinon (mode différent ou métadonnée absente), on retombe sur le shift
+  scalaire naïf et on ajoute un ⚠ explicite dans le statut ;
+- `entry.ef_correction` enregistre `ref_kinetic_correction`,
+  `ref_effective_shift`, `ref_source_ef_kin_nominal`, `ref_target_ef_kin_nominal`
+  pour traçabilité.
+
+Helper top-level ajouté :
+```python
+def _axis_zero_in_kinetic(meta) -> float | None:
+    # essaie ef_kinetic_nominal puis ef_kinetic_from_hv ; renvoie None sinon
+```
+
+### Limite physique connue
+
+La propagation per-file fonctionne **uniquement si tous les fichiers du
+dossier sont au même hν réel**. Si hν varie effectivement (cas Ba122 où
+certains fichiers sont à 41 eV et d'autres à 48 eV), le décalage propagé
+sera faux par la différence `(hν1−hν2)`. À traiter plus tard via :
+- soit calibrer un Au par hν,
+- soit calculer une fonction de travail effective et propager via hν cible.
+
+### Fichiers modifiés dans cette mise à jour
+
+- `arpes_io.py` :
+  - détecteur `_is_bessy_ses_ibw` strict (R8000 obligatoire) ;
+  - `load_bessy_ses_ibw` : détection `Energy Scale=Binding` + flip de signe ;
+  - mode `auto` confirmé = `ses_center_energy` ;
+  - métadonnées `energy_axis_original`, `energy_scale_raw`,
+    `bessy_energy_reference_requested` ajoutées.
+- `arpes_explorer.py` :
+  - libellés et tooltip combobox BESSY clarifiés ;
+  - `_bessy_energy_reference_mode()` adapté aux nouveaux libellés ;
+  - `_default_ef_search_range` : auto-détection du bord pour BESSY/SES Center ;
+  - helper top-level `_axis_zero_in_kinetic(meta)` ;
+  - `_apply_ef_calibration_result` (scalar) stocke
+    `source_ef_kin_nominal` + `source_energy_reference` ;
+  - `_apply_ef_reference_to_current` (scalar) calcule la correction per-file
+    et trace le détail dans `ef_correction`.
+
+### Reste à faire (non bloquant)
+
+- Tester la propagation EF per-file sur vraies données : calibrer un fichier
+  avec EF clair (ex : Ba1220015), propager à un autre fichier du même dossier
+  acquis au même hν, vérifier que le bord apparaît bien à 0 sans recalibration.
+- Si plusieurs hν dans le dossier : implémenter une calibration EF
+  multi-points indexée par hν, ou une fonction de travail effective stockée
+  comme référence dossier.
+
+## Mise à jour 2026-05-01 — synthèse complète des changements Codex récents
+
+Cette section sert de résumé d'entrée pour reprendre le projet sans relire tous
+les diffs. Elle regroupe les changements effectués pendant la séquence de
+travail récente autour de CLS, BESSY, calibration EF, loaders et interface.
+
+### Géométrie CLS : propagation Γ depuis une FS vers BM/FS
+
+But initial :
+- pouvoir charger une FS CLS, trouver son centre Γ, puis propager ce centre vers
+  les autres fichiers du même dossier en utilisant l'azimut, sans bloquer sur la
+  colonne `direction`/ZDB du logbook.
+
+Changements :
+- suppression du blocage strict quand `direction` ZDB diffère entre la FS de
+  référence et la BM cible ;
+- projection du Γ de référence par différence d'azimut :
+
+```text
+d_azi = radians(azi_target - azi_ref)
+k_parallel = kx_ref*cos(d_azi) + ky_ref*sin(d_azi)
+k_perp     = -kx_ref*sin(d_azi) + ky_ref*cos(d_azi)
+```
+
+- pour les BM CLS, `k_parallel` sert à construire l'offset angulaire appliqué
+  avant conversion en `k` ;
+- pour les FS CLS, les deux composantes projetées servent à convertir le centre
+  Γ cible en `theta0_deg` / `tilt0_deg` ;
+- les offsets CLS sont maintenant passés au loader (`angle_offsets`) avant le
+  calcul de `kx`/`ky`, au lieu de corriger seulement l'affichage après coup ;
+- les données non-CLS ne reçoivent plus ces offsets par erreur.
+
+Garde-fous :
+- la propagation automatique est refusée si le `polar/P` manipulateur de la BM
+  diffère trop de celui de la FS de référence ;
+- seuil utilisé : environ `±2°` ;
+- cas observé : FS5 `P=+1.36°`, BM9 `P=-12.30°`, écart `-13.66°` → pas une
+  simple rotation azimutale, donc propagation Γ refusée.
+
+Conclusion pratique :
+- les BM avec même famille de `polar/P` peuvent utiliser la FS de référence ;
+- les BM trop décalées en `polar/P` doivent être regroupées avec une FS dédiée,
+  ou calibrées manuellement.
+
+### Logbook et familles de géométrie
+
+Changements :
+- amélioration du matching logbook ↔ fichier ;
+- prise en charge des anciens `Measurement Plan` BESSY où `Num` remplace la
+  colonne fichier ;
+- `Num=9` peut matcher `Ba1220009w...` et `..._009.ibw` ;
+- fallback CSV plus robuste quand le séparateur `;` ou la ligne d'en-tête sont
+  mal détectés.
+
+Usage :
+- le logbook sert à enrichir `hv`, température, polarisation, azimut, polar,
+  direction ;
+- les métadonnées brutes du fichier gardent la priorité quand elles existent.
+
+### Multi-loaders ARPES (`arpes_io.py`)
+
+Changements d'architecture :
+- ajout d'une convention interne documentée :
+  - `energy` = `E - EF` en eV ;
+  - BM = `data.shape == (n_k, n_E)` ;
+  - FS volume = `metadata["fs_data"].shape == (n_ky, n_kx, n_E)` ;
+  - `kx`/`ky` en `pi/a`.
+- ajout d'un registre de loaders :
+  - `LoaderSpec` ;
+  - `register_loader(...)` ;
+  - `registered_loaders()` ;
+  - `detect_format(...)` parcourt le registre.
+- ajout de `assert_arpes_data_valid(ds)` :
+  - vérifie shapes/axes/monotonie/intensité finie ;
+  - vérifie la cohérence FS si un volume existe ;
+  - signale `hν` absent ou non positif en warning.
+
+Loaders enregistrés :
+- `bessy_ses_ibw` ;
+- `solaris_da30` ;
+- `cls_txt`.
+
+Diagnostics ajoutés dans les métadonnées :
+- `loader_capability` ;
+- `loader_assumptions` ;
+- `loader_warnings` ;
+- `geometry_confidence` ;
+- `axis_sources` ;
+- `loader_label`.
+
+### Loader CLS/LNLS
+
+Changements :
+- `load_cls_txt(...)` accepte maintenant `angle_offsets` ;
+- `kx_conversion = theta_minus_polar_minus_theta0` ;
+- `ky_conversion = tilt_minus_tilt0` pour les FS ;
+- `energy_reference = hv_minus_work_function` ;
+- `ef_kinetic_from_hv` est stocké pour permettre la propagation EF ;
+- diagnostics loader ajoutés.
+
+### Loader Solaris/DA30
+
+Changements :
+- le loader Solaris conserve le comportement erlab existant ;
+- ajout de métadonnées explicites :
+  - `lab = Solaris` ;
+  - `loader_label = Solaris` ;
+  - `energy_reference = hv_minus_work_function` ;
+  - `ef_kinetic_from_hv` ;
+  - diagnostics loader.
+- tentative de récupération de température depuis plusieurs attributs DA30
+  (`temperature_a`, `TempA`, `sample_temperature`, etc.).
+
+### Loader BESSY / Scienta SES `.ibw`
+
+Changements :
+- ajout d'un parseur IBW v5 minimal sans dépendance erlab ;
+- détection stricte BESSY :
+
+```text
+extension .ibw + note [SES] + Instrument=R8000
+```
+
+- ce durcissement évite de capturer des `.ibw` Solaris/DA30 qui contiennent
+  aussi `Energy Scale=Kinetic`.
+
+Axes et conventions :
+- BM 2D : raw `(E_kin, theta)` → sortie `(n_theta, n_E)` ;
+- FS 3D : raw `(E_kin, theta, P)` → `fs_data = (n_P, n_theta, n_E)` ;
+- `kx = theta - P-Axis - theta0` ;
+- FS BESSY : `ky = P-Axis - centre_du_scan - tilt0` ;
+- `fs_ky_angle_center_deg` garde le centre soustrait.
+
+Énergie :
+- défaut BESSY = `Center Energy` SES ;
+- `hν` est conservé pour diagnostic/kz mais ne place pas `E-EF` par défaut ;
+- mode expérimental `hν - φ` disponible via l'interface ;
+- support `Energy Scale=Binding` :
+  - pas de soustraction `Center Energy` ;
+  - signe inversé pour obtenir `E - EF` positif au-dessus d'EF ;
+  - `kx` utilise `hν - φ` si disponible, sinon `Center Energy` comme proxy.
+
+Métadonnées BESSY importantes :
+- `energy_reference` ;
+- `bessy_energy_reference_mode` ;
+- `bessy_energy_reference_requested` ;
+- `energy_axis_original` ;
+- `energy_scale_raw` ;
+- `center_energy` ;
+- `ef_kinetic_nominal` ;
+- `ef_kinetic_from_hv` ;
+- `center_minus_hv_phi` ;
+- `hv_policy`.
+
+### Interface : labels loaders, BESSY ref et boutons d'aide
+
+Changements :
+- la liste de fichiers affiche maintenant le loader :
+
+```text
+scan (CLS)
+scan (Solaris)
+scan (BESSY)
+```
+
+- `FileMeta` contient `source_format` et `loader_label` ;
+- BESSY utilise maintenant le mode interface `"auto"` sans sélecteur visible ;
+- côté loader, `"auto"` se résout en `ses_center_energy` ;
+- le mode `hν − φ` reste disponible seulement via appel explicite du loader ou
+  tests de diagnostic.
+
+Boutons :
+- bouton EF référence désactivé tant qu'aucune référence n'existe ;
+- label du bouton EF référence indique la source et le type (`scalar` ou
+  `poly`) ;
+- bouton `Propager fit params` indique le nombre de cibles non fittées ;
+- les fichiers déjà fittés ne sont pas écrasés.
+
+### Calibration EF
+
+Changements côté dialogue :
+- `EFCalibrationDialog` reçoit les métadonnées du fichier ;
+- la recherche automatique du bord EF dépend du loader/référence énergie ;
+- pour BESSY/`ses_center_energy`, la fenêtre de recherche est maintenant
+  estimée depuis l'EDC moyenne :
+  - cherche la chute d'intensité dominante (`argmin(gradient)`) ;
+  - construit une fenêtre autour du hint ;
+  - fallback large si la détection échoue.
+- la zone de recherche est dessinée en orange sur la preview EDC.
+
+Changements côté calcul :
+- `arpes_plots.auto_ef_window(...)` accepte une plage `search` ;
+- `fit_fermi_edge_per_column(...)` accepte aussi `ef_search` ;
+- le mode scalaire et le mode par colonne utilisent la même logique de fenêtre.
+
+Propagation EF référence :
+- en mode scalaire, la référence enregistre :
+  - `source_ef_kin_nominal` ;
+  - `source_energy_reference`.
+- quand on applique une référence à un autre fichier, le code compense la
+  différence d'origine cinétique entre source et cible :
+
+```text
+kinetic_correction = source_ef_kin_nominal - target_ef_kin_nominal
+effective_shift    = base_shift + kinetic_correction
+new_offset         = current_offset - effective_shift
+```
+
+Garde-fous :
+- la correction per-file n'est appliquée que si source et cible ont le même
+  `energy_reference` ;
+- protection contre double application de la référence EF ;
+- `entry.ef_correction` trace `ref_kinetic_correction`,
+  `ref_effective_shift`, source et cible.
+
+Limite connue :
+- si les fichiers du dossier ont des `hν` réels différents, une seule référence
+  EF scalaire ne suffit pas ; il faudra une référence par `hν` ou une fonction
+  de travail effective.
+
+### Normalisation BM above-EF (`arpes_norm.py`)
+
+Ajout :
+- `normalize_bandmap_above_ef(...)`.
+
+Principe :
+- normalise une BM `(n_k, n_E)` par un profil intégré au-dessus d'EF,
+  typiquement `[+0.05, +0.20] eV` ;
+- lisse le profil selon `k` ;
+- divise la BM par ce profil ;
+- émet un warning si `ef_calibrated=False`, car cette normalisation n'a de sens
+  que si EF est déjà bien calibré.
+
+Usage prévu :
+- corriger un profil instrumental/flux sans supprimer autant la dépendance
+  physique `|M|²(k)` qu'une normalisation sous EF.
+
+### Onglet MDC Fit, waterfall et redraw
+
+Changements :
+- l'onglet `MDC Fit` contient des sous-onglets :
+  - `Fit MDC` ;
+  - `Waterfall` ;
+  - `EDC`.
+- ajout de `_draw_mdc_waterfall()` :
+  - utilise la ROI de fit ;
+  - affiche des MDC normalisées et empilées ;
+  - superpose les points `kF` si un fit complet existe ;
+  - contrôles dédiés : nombre de courbes et relief.
+- séparation des signaux :
+  - `params_changed` pour les changements qui modifient les données affichées ;
+  - `fit_only_changed` pour les changements qui ne redessinent que les overlays,
+    EDC/MDC et waterfall.
+- timers `QTimer` pour éviter de redessiner trop souvent pendant les réglages.
+
+### Tests ajoutés
+
+Fichier :
+- `tests/test_arpes_io.py`.
+
+Tests couverts :
+- validation d'une BM conforme ;
+- rejet d'une BM transposée ;
+- validation d'une FS conforme ;
+- détection via registre ;
+- ajout d'un loader factice ;
+- si les données locales existent :
+  - test BM BESSY `Ba1220009...` ;
+  - test FS BESSY `Ba1220003...` ;
+  - comparaison mode Center Energy vs `hν - φ`.
+
+Dernières vérifications rapportées :
+- `python3 -m unittest discover -s tests` → OK, 7 tests ;
+- `python3 -m py_compile arpes_plots.py arpes_explorer.py arpes_io.py` → OK.
+
+### Fichier de conseil IA
+
+Ajout :
+- `AI_COUNCIL_PROMPT.md`.
+
+Rôle :
+- template de revue avant modification importante ;
+- utile pour les sujets à risque :
+  - géométrie instrumentale ;
+  - propagation Γ ;
+  - loaders multi-labos ;
+  - calibration EF ;
+  - parsing logbook ;
+  - UX scientifique.
+
+Principe :
+- faire juger l'idée par plusieurs rôles : physicien ARPES, géométrie
+  instrumentale, Python/PyQt, architecte loader, red team données réelles,
+  numéricien si nécessaire, UX, arbitre final.
+
+### Fichiers modifiés/créés dans la séquence
+
+Modifiés :
+- `arpes_explorer.py` ;
+- `arpes_io.py` ;
+- `arpes_norm.py` ;
+- `arpes_plots.py` ;
+- `ARPES_PROJECT_CONTEXT_FOR_CLAUDE_CODE.txt`.
+
+Créés :
+- `tests/test_arpes_io.py` ;
+- `AI_COUNCIL_PROMPT.md`.
+
+## Mise à jour 2026-05-01 — retrait du sélecteur BESSY ref de l'UI principale
+
+Décision UX :
+- le choix visible `BESSY ref:` alourdissait inutilement le panneau
+  `EF / Chargement` ;
+- pour l'usage quotidien, BESSY/SES doit rester automatique et utiliser
+  `Center Energy` ;
+- le mode `hν - φ` BESSY est utile pour diagnostic avancé, mais trop risqué à
+  exposer comme option normale car il peut placer EF plusieurs eV hors fenêtre
+  si le logbook hν est faux.
+
+Changement dans `arpes_explorer.py` :
+- suppression du `QComboBox` visible :
+  - `BESSY Auto (Center Energy)` ;
+  - `BESSY Center Energy` ;
+  - `BESSY hν − φ (forcé)`.
+- suppression de la ligne `BESSY ref:` du formulaire `EF / Chargement` ;
+- tooltip `hν` simplifié :
+  - CLS/LNLS : hν manuel obligatoire ;
+  - Solaris/DA30 : hν lu automatiquement ;
+  - BESSY/SES : hν conservé pour diagnostic/kz, mais E−EF utilise
+    automatiquement `Center Energy`.
+- `_bessy_energy_reference_mode()` renvoie maintenant toujours `"auto"` côté
+  interface principale.
+
+Ce qui reste disponible :
+- dans `arpes_io.load_bessy_ses_ibw(...)`, le paramètre
+  `bessy_energy_reference="hv_minus_work_function"` existe toujours ;
+- les tests peuvent encore forcer ce mode pour diagnostic ;
+- l'utilisateur de l'app principale n'a plus cette option visible par défaut.
+
+## Mise à jour 2026-05-01 — ergonomie du panneau de chargement fichiers
+
+Objectif :
+- rendre le panneau de gauche plus utile au moment de choisir quoi charger ;
+- éviter que l'utilisateur doive ouvrir les fichiers un par un pour savoir leur
+  type, leur état ou leurs métadonnées déjà connues ;
+- ne pas toucher au comportement physique/loader.
+
+Changements dans `FileBrowserPanel` :
+- ajout d'un champ de filtre au-dessus de la liste ;
+- le filtre cherche dans :
+  - nom de fichier ;
+  - chemin relatif ;
+  - loader (`CLS`, `Solaris`, `BESSY`) ;
+  - état (`unloaded`, `loaded`, `fitted`) ;
+  - type `BM` / `FS`.
+- ajout d'un résumé du dossier :
+
+```text
+N éléments | affichés x/N | chargés | fittés | CLS:n, BESSY:m, ...
+```
+
+- ajout d'un panneau de détail pour l'élément sélectionné :
+  - nom ;
+  - type BM/FS ;
+  - loader ;
+  - état ;
+  - `hν` et température si connus ;
+  - mention si un fit est enregistré.
+- le bouton de chargement change selon la sélection :
+  - aucun élément : désactivé ;
+  - fichier : `Charger ce fichier` ;
+  - en-tête de groupe : `Ouvrir/réduire le groupe`.
+
+Comportement inchangé :
+- double-clic sur un fichier charge toujours le fichier ;
+- double-clic sur un groupe ouvre/réduit le groupe ;
+- flèches clavier gauche/droite naviguent toujours entre fichiers ;
+- les statuts visuels restent :
+  - `○` non chargé ;
+  - `◑` chargé ;
+  - `●` fitté.
+
+## Mise à jour 2026-05-01 — revue conseil + durcissement du filtre fichiers
+
+Avis du conseil :
+- l'ajout du filtre/résumé/détail sélection améliore bien l'ergonomie ;
+- il rend le chargement plus lisible dans les dossiers multi-labos ;
+- mais trois risques devaient être corrigés avant de construire dessus :
+  - filtre trop coûteux à chaque frappe ;
+  - résultats cachés si un groupe était replié ;
+  - liste/résumé désynchronisés quand un fichier change d'état pendant qu'un
+    filtre est actif.
+
+Corrections appliquées dans `FileBrowserPanel` :
+- cache de découverte des fichiers (`_items_cache`) :
+  - `_discover_items()` ne refait plus le `rglob` complet à chaque frappe ;
+  - bouton `↻` ajouté pour rafraîchir explicitement la liste.
+- cache des labels loader (`_loader_label_cache`) :
+  - évite de relancer `detect_format()` en boucle pour l'affichage ;
+  - le cache est indexé par chemin + signature `(mtime_ns, size)`.
+- debounce du filtre :
+  - `textChanged` ne repopule plus immédiatement ;
+  - un `QTimer` attend environ 140 ms avant de recalculer la liste.
+- filtre plus naturel :
+  - synonymes français/anglais ajoutés :
+    `chargé`, `non chargé`, `à charger`, `fitté`, `fit`, `loaded`,
+    `unloaded`, `fitted`, `BM`, `FS`.
+- groupes repliés :
+  - quand un filtre est actif, les groupes contenant des résultats sont affichés
+    ouverts même s'ils étaient repliés ;
+  - sans filtre, l'état replié habituel reste respecté.
+- état vide :
+  - si aucun fichier ne correspond au filtre, la liste affiche explicitement
+    `Aucun fichier ne correspond au filtre`.
+- synchronisation après changement d'état :
+  - `refresh_item()` repopule la liste si un filtre est actif ;
+  - si le fichier courant devient masqué par le filtre après chargement, le
+    filtre est effacé automatiquement pour garder le fichier chargé visible.
+
+Résultat attendu :
+- le panneau reste utile pour naviguer ;
+- le filtre devient utilisable sur gros dossiers sans recalculer tout à chaque
+  caractère ;
+- le comportement reste prévisible quand un fichier passe de `unloaded` à
+  `loaded` ou de `loaded` à `fitted`.
+
+## Mise à jour 2026-05-01 — retrait du filtre texte libre
+
+Retour utilisateur :
+- le champ `Filtrer fichiers, loader, état…` n'était pas intuitif ;
+- les informations qu'il exploitait sont déjà visibles dans la liste :
+  - couleur / icône d'état ;
+  - loader entre parenthèses ;
+  - tag `[FS]`.
+
+Avis conseil :
+- le filtre texte libre est trop général pour l'usage scientifique quotidien ;
+- il demande de connaître les bons mots à taper ;
+- il peut masquer des fichiers d'une manière moins explicite qu'un bouton actif ;
+- si un filtrage revient, il devrait plutôt prendre la forme de boutons rapides
+  visibles (`Tous`, `À charger`, `Chargés`, `Fittés`, `BM`, `FS`, loaders).
+
+Changement appliqué :
+- suppression du `QLineEdit` de filtre ;
+- suppression de toute la logique associée :
+  - `_filter_text` ;
+  - `_filter_timer` ;
+  - `_matches_filter(...)` ;
+  - `_filter_terms(...)` ;
+  - `_on_filter_changed(...)` ;
+  - message `Aucun fichier ne correspond au filtre` ;
+  - logique d'effacement automatique du filtre dans `select_file(...)`.
+- simplification de `_populate()` :
+  - tous les fichiers découverts sont groupés ;
+  - les groupes repliés respectent seulement `_collapsed_groups`.
+- simplification de `_update_summary(...)` :
+  - ne reçoit plus `visible_paths` ;
+  - affiche uniquement le résumé global du dossier.
+
+Ce qui reste :
+- bouton `↻` pour rafraîchir la découverte fichiers ;
+- cache de découverte `_items_cache` ;
+- cache de labels loader `_loader_label_cache` ;
+- résumé global ;
+- détail de sélection ;
+- labels loader et statuts dans la liste.
+
+Décision actuelle :
+- garder le panneau simple ;
+- ne pas ajouter de boutons de filtre tant que le besoin n'est pas observé en
+  usage réel ;
+- si la liste devient trop longue, préférer des boutons explicites plutôt qu'un
+  champ texte libre.
+
+## Mise à jour 2026-05-01 — organisation scientifique du panneau fichiers
+
+Objectif :
+- organiser la liste de chargement avec des regroupements scientifiques simples ;
+- aider à retrouver les familles de scans sans imposer une interprétation
+  physique automatique ;
+- utiliser uniquement les métadonnées déjà disponibles en session/logbook ou
+  les détections légères, sans charger les données ARPES.
+
+Avis conseil :
+- l'idée est pertinente comme aide de navigation ;
+- `Dossier` doit rester le mode par défaut ;
+- le regroupement ne doit jamais signifier que deux fichiers sont
+  automatiquement comparables, ni déclencher EF/Γ/ZDB ;
+- `hν`, `P/T/azi`, polarisation et direction sont utiles, mais avec prudence :
+  - Solaris : `hν` est fiable côté fichier ;
+  - CLS : `hν/azi/direction` viennent souvent du logbook, `P/T` sont plus
+    fiables quand issus du `_param.txt` ou d'une session déjà chargée ;
+  - BESSY : `hν` est surtout un repère de navigation/kz supposé, pas la
+    référence EF.
+
+Interface ajoutée :
+- sélecteur `Organiser par:` dans `FileBrowserPanel` ;
+- modes disponibles :
+  - `Dossier` ;
+  - `Type` ;
+  - `hν` ;
+  - `Géométrie` ;
+  - `Labo`.
+
+Comportement des modes :
+- `Dossier` :
+  - ancien comportement ;
+  - groupe par sous-dossier relatif.
+- `Type` :
+  - groupes `BM` / `FS` ;
+  - FS détectées de façon légère : dossier CLS FS ou `.zip`.
+- `hν` :
+  - utilise `FileEntry.meta.hv` si connu ;
+  - sinon lit le logbook en lecture seule si mappé ;
+  - arrondit à `0.1 eV` ;
+  - groupe `Métadonnées inconnues` si absent.
+- `Géométrie` :
+  - construit un label à partir de `direction`, `azi`, `P/polar`, `T/tilt` ;
+  - source affichée entre parenthèses : `session`, `logbook`, ou mixte ;
+  - si rien n'est connu : `Géométrie inconnue`.
+- `Labo` :
+  - groupe par loader/labo (`CLS`, `Solaris`, `BESSY`, etc.).
+
+Sources utilisées par `_meta_value_for_path(...)` :
+1. session déjà connue (`Session.files[key].meta`) ;
+2. logbook chargé (`logbook_records` + `logbook_mapping`) sans créer/sauver de
+   nouvelles entrées ;
+3. fallback léger pour loader/type.
+
+Performance :
+- `_logbook_record_for_path(...)` cache le matching `path -> record` pour éviter
+  de parcourir tout le logbook pour chaque fichier à chaque repopulation ;
+- `_loader_label_cache` et `_items_cache` restent actifs ;
+- `ArpesExplorer._load_logbook_dialog()` appelle maintenant
+  `self._browser.refresh()` après chargement du logbook pour mettre à jour les
+  regroupements.
+
+Garde-fous :
+- le tooltip du sélecteur précise que l'organisation visuelle n'applique aucune
+  correction EF/Γ ;
+- aucun fichier n'est chargé pour calculer un groupe ;
+- aucun `FileEntry` n'est créé seulement pour classer ;
+- les valeurs manquantes restent explicitement inconnues.
+
+À améliorer plus tard si nécessaire :
+- ajouter une source de confiance plus visible (`fichier`, `_param`, `logbook`,
+  `session`) ;
+- récupérer `P/T` CLS directement depuis `_param.txt` pour des fichiers non
+  chargés si le besoin devient clair ;
+- ajouter un mode `Polarisation` si les utilisateurs s'en servent souvent ;
+- détecter mieux `BM/FS` pour BESSY/Solaris sans charger les données complètes.
+
+## Mise à jour 2026-05-01 — reconnaissance élargie des directions logbook
+
+Contexte :
+- les colonnes de chemin/direction dans les logbooks ne s'appellent pas toujours
+  `Direction` ;
+- elles peuvent être en anglais ou utiliser des raccourcis comme `G`, `Gamma`,
+  `High symmetry path`, `ZDB`, etc.
+
+Changements :
+- ajout de `_pick_direction_column(columns)` ;
+- la détection de la colonne `direction` reconnaît maintenant aussi :
+  - `ZDB` ;
+  - `zone boundary` ;
+  - `Brillouin zone` ;
+  - `high symmetry` / `high symmetry path` ;
+  - `symmetry path` ;
+  - `k path` / `scan path` / `BZ path` ;
+  - `orientation` ;
+  - `geometry` / `geometrie` / `geom` ;
+  - `trajectory` / `traj` ;
+  - `line` / `ligne` ;
+  - `gamma` / `gamme` ;
+  - alias exacts comme `G`, `Gamma`, `ZDB`.
+
+Affichage :
+- ajout de `_format_direction_label(value)` ;
+- normalise les labels humains pour l'affichage :
+  - `G` → `Γ` ;
+  - `gamma` → `Γ` ;
+  - `Gamma-X` → `Γ-X` ;
+  - `G M` → `Γ M` ;
+  - `GM` → `ΓM`.
+
+Utilisation :
+- la normalisation est appliquée quand la direction vient du logbook ;
+- elle est aussi appliquée quand la direction vient de la session ;
+- le mode `Organiser par: Géométrie` groupe donc mieux les chemins
+  `G/Gamma/Γ`.
+
+Garde-fou :
+- cela reste un label de navigation ;
+- la correction Γ continue de privilégier `azi` numérique plutôt que le texte
+  `direction/ZDB`.
+
+## Mise à jour 2026-05-01 — détection BM/FS légère pour BESSY
+
+Problème :
+- le mode `Organiser par: Type` distinguait correctement les FS CLS et les
+  `.zip`, mais les fichiers BESSY `.ibw` étaient classés comme BM par défaut ;
+- les fichiers BESSY peuvent pourtant être des BM 2D ou des FS 3D.
+
+Correction :
+- ajout de `arpes_io.detect_scan_kind(path, format_hint=None)` ;
+- cette fonction renvoie :
+  - `BM` ;
+  - `FS` ;
+  - `unknown`.
+
+Comportement BESSY :
+- si le format est `bessy_ses_ibw`, la fonction lit seulement l'en-tête IBW v5
+  via `_read_ibw5_info(...)` ;
+- `len(info.dims) == 2` → `BM` ;
+- `len(info.dims) == 3` → `FS` ;
+- les données numériques complètes ne sont pas chargées.
+
+Comportement navigateur :
+- `FileBrowserPanel` importe `detect_scan_kind` ;
+- ajoute un cache `_scan_kind_cache` par chemin + signature `(mtime_ns, size)` ;
+- `_fs_suffix_for_path(...)` utilise maintenant `_file_kind_for_path(...)` ;
+- le mode `Organiser par: Type` classe donc correctement les BESSY FS quand
+  l'en-tête indique un volume 3D.
+
+Tests :
+- `tests/test_arpes_io.py` vérifie, si les fixtures locales existent :
+  - `Ba1220009...ibw` → `BM` ;
+  - `Ba1220003...ibw` → `FS`.
+
+## Mise à jour 2026-05-01 — test complet loaders + filtres navigateur
+
+Objectif :
+- vérifier que les loaders Solaris/DA30, BESSY SES IBW et CLS/LNLS retournent
+  des sorties homogènes ;
+- vérifier que les regroupements du navigateur (`Dossier`, `Type`, `hν`,
+  `Géométrie`, `Labo`) fonctionnent avec les métadonnées session/logbook.
+
+Tests ajoutés :
+- `tests/test_arpes_io.py` :
+  - helper `assert_common_output_convention(...)` ;
+  - rejet d'une FS transposée `(n_kx,n_ky,n_E)` ;
+  - chargement réel via `load_arpes(...)` pour BESSY BM, BESSY FS, CLS BM,
+    CLS FS, et Solaris si `erlab` est disponible ;
+  - vérification des shapes `data=(n_k,n_E)` et
+    `fs_data=(n_ky,n_kx,n_E)`.
+- `tests/test_arpes_explorer_helpers.py` :
+  - test Qt offscreen de `FileBrowserPanel` ;
+  - vérifie que les fichiers internes `Cycle/Step` CLS ne sont pas listés
+    séparément ;
+  - vérifie les groupes `Type`, `hν`, `Géométrie`, `Labo` ;
+  - vérifie que les métadonnées de session ont priorité sur le logbook.
+
+Défaut trouvé pendant le test complet :
+- le loader Solaris pouvait retourner `ky` comme scalaire pour une BM `.pxt`,
+  ce qui violait la convention `ky=None` ou axe 1D ;
+- correction dans `load_solaris_da30_bandmap(...)` : les coordonnées `kx/ky`
+  scalaires ne sont plus exposées comme axes 1D.
+
+Vérification complète :
+- environnement complet utilisé : `micromamba run -n peaks` ;
+- `QT_QPA_PLATFORM=offscreen ... python -m unittest discover -s tests -v` :
+  13 tests OK ;
+- `python -m py_compile` OK sur les modules principaux ;
+- smoke test `FileBrowserPanel` sur `Ba122_C05_2` : 17 éléments découverts.
+
+## Mise à jour 2026-05-01 — regroupements cumulables du loader
+
+Objectif :
+- permettre de combiner plusieurs critères d'organisation dans la fenêtre de
+  chargement, par exemple `hν + T` ou `hν + T + polarisation` ;
+- éviter que `Géométrie` mélange le chemin scientifique avec les angles
+  manipulateur (`P`, `T`, `azi`) quand l'utilisateur veut surtout reconnaître
+  le chemin de coupe.
+
+Changements UI :
+- le menu unique `Organiser par` est remplacé par des cases cumulables :
+  - `Dossier` ;
+  - `Type` ;
+  - `hν` ;
+  - `T` ;
+  - `Chemin` ;
+  - `Pol` ;
+  - `Labo`.
+- si aucune case n'est cochée, `Dossier` est réactivé automatiquement ;
+- les groupes composés sont affichés sous forme :
+  `hν 48.0 eV (session) / T 150.0 K (logbook) / Pol LH (logbook)`.
+
+Géométrie / chemin :
+- le critère `Chemin` utilise uniquement `direction`/`path` du logbook ou de la
+  session ;
+- il n'affiche plus `P=...`, `T=...`, `azi=...` dans le nom du groupe ;
+- les angles restent disponibles dans le détail de sélection si les métadonnées
+  existent, mais ils ne polluent plus le regroupement principal.
+
+Logbook Solaris :
+- les logbooks Solaris peuvent être des fichiers Excel/TXT fournis par le
+  laboratoire, avec des noms de colonnes non choisis par l'équipe ;
+- la détection de colonnes accepte maintenant des alias plus larges pour la
+  polarisation : `Polarization`, `Light Polarization`, `Photon Polarization`,
+  `E vector`, `LV`, `LH`, etc. ;
+- correction d'un faux positif : `Sample Temperature` ne doit pas être mappé
+  comme angle `P/T`.
+
+Tests :
+- test Qt offscreen du cumul `hν + Température + Polarisation` ;
+- test que `Chemin` retourne seulement `Γ-M`, `Γ`, `ZDB`, etc. ;
+- test que les colonnes Solaris `Sample Temperature` / `Light Polarization` /
+  `High symmetry path` sont reconnues sans confondre température et angles.
+
+## Mise à jour 2026-05-04 — matching logbook `.ibw`, hardening Solaris hv, indicateur source hν, tests d'intégration
+
+Contexte :
+- les filtres ergonomiques (regroupement par hν / T / Pol) reposent sur le
+  matching fichier ↔ ligne logbook via `_record_matches_path` ;
+- sur les CSV Solaris où la colonne `File` vaut `BaNi2As2_0015.pxt,.ibw,`,
+  le matching échouait pour les fichiers `.ibw fixed cut` (suffixe " fixed cut"
+  qui casse la regex de token) ;
+- la fonction `_cell_float` ne gardait que le premier nombre de la cellule
+  (typiquement `2` extrait de "Ba**Ni2**…"), pas le numéro de mesure ;
+- résultat : BMs `.ibw` 15, 18, 22, 23, 24, 26, 29, 30, 36 affichés sans hν.
+
+Conseil IA invoqué après le fix : 6 trous identifiés (P0 à P2). Phase 1
+implémentée dans cette mise à jour ; Phase 2/3 différées.
+
+### Item 1 — Matching logbook robuste (`arpes_explorer.py`)
+
+Nouvelle fonction `_extract_measurement_numbers(text)` : extrait tous les
+patterns `_NNNN` (1-4 chiffres après underscore) et `NNNNw` (3-4 chiffres + 'w').
+Appliquée des deux côtés (chemin fichier ET cellule CSV) puis intersection.
+
+Conséquences :
+- `BaNi2As2_0015.pxt,.ibw,` ↔ `BaNi2As2_0015fixed cut.ibw` → match ;
+- ancien chemin numérique (`Num=15` ↔ `..._0015...`) conservé ;
+- générique : marche pour n'importe quel sample / futur logbook ;
+- ne marche PAS pour noms sans underscore ni 'w' (ex : `BM15.ibw`) — le
+  point d'extension à modifier est `_extract_measurement_numbers`.
+
+### Item 2 — Hardening loader Solaris (`arpes_io.py`)
+
+`load_solaris_da30_bandmap` refuse maintenant `hv ≤ 0` en plus de `hv` non
+finie. Le message d'erreur indique la valeur lue et invite à passer par le
+logbook ou la saisie manuelle. Évite la propagation silencieuse d'un placeholder
+`hv=0` vers l'axe k.
+
+### Item 3 — Indicateur de provenance hν (`FitParamsPanel`)
+
+Ajout d'un `QLabel lbl_hv_src` à droite de la spinbox `sp_hv` qui affiche :
+- 📁 = lue depuis le fichier (loader) ;
+- 📋 = lue depuis le logbook ;
+- ✏️ = saisie manuelle (l'utilisateur a édité la spinbox) ;
+- — = inconnu.
+
+API publique sur `FitParamsPanel` :
+- `set_hv_value_with_source(value, source)` : pose la valeur sans déclencher
+  le marquage 'manuel' (utilisé par `_load_file`) ;
+- `update_hv_source(source)` : change uniquement l'icône.
+
+Source décidée dans `_load_file` selon priorité : fichier > logbook > manuel.
+Le tracking utilise `hv_before_load` + `logbook_hit` pour distinguer logbook
+de saisie manuelle préalable.
+
+### Item 4 — Tests d'intégration loaders
+
+Nouveau fichier `tests/test_loaders_integration.py`. Charge 5 fichiers
+représentatifs depuis `~/Documents/Stage_M2/Code/...` :
+- Solaris BM `.pxt` (BaNi2As2_0015) ;
+- Solaris BM `.ibw fixed cut` (BaNi2As2_0015) ;
+- Solaris FS `.zip` (BaNi2As2_0001) ;
+- BESSY/SES `.ibw` (Ba1220009w) ;
+- CLS texte (BM1, juste detect_format).
+
+Invariants vérifiés (minimums et stables) :
+- `data.ndim`, `energy.ndim==1`, axes finis ;
+- `hv > 0` strict (anti-régression du fix Solaris ci-dessus) ;
+- cohérence `data.shape[0] == len(kx)` ;
+- `fs_data` 3D quand attendu ;
+- présence de `loader_label`, `lab`, `energy_axis` dans metadata.
+
+Mécanique :
+- chaque test `skipTest` proprement si fixture absente ou erlab indisponible
+  (pas de faux échec sur autre machine / autre env Python) ;
+- `python3 -m unittest discover tests` exécute toute la suite ;
+- pour étendre : ajouter une entrée dans `FIXTURES`.
+
+### Phases différées (à attaquer plus tard)
+
+- **P1 physique** : champs `ΔE_meV` / `Δk_inv_A` exposés dans le fit MDC,
+  utilisés comme largeur Lorentzienne minimale (sinon Γ surestimés).
+- **P2 géométrie** : validation croisée FS↔BM sur position de Γ (warning si
+  écart > 0.05 π/a entre Γ FS et k=0 BM du même sample).
+- **P3 architecture** : découpage de `arpes_explorer.py` (5170 LOC, classe
+  unique) en modules `SessionManager`, `LogbookManager`, `LoaderOrchestrator`.
+  Décision conseil : **jamais en un coup**, à étaler sur 3-4 PRs séparées avec
+  validation manuelle (clics dans l'app) après chaque extraction. Le critère
+  de refus du conseil "préférer un petit patch testable à une grosse refonte"
+  s'applique strictement ici.
+
+## Mise à jour 2026-05-04 — résolution instrumentale dans le fit MDC
+
+Contexte :
+- les fits MDC retournaient un Γ "brut" sans tenir compte de la résolution
+  instrumentale (ΔE Gaussien + Δk angulaire) ;
+- conséquence : Γ systématiquement SUR-estimé, surtout près d'EF et pour
+  bandes peu dispersives ;
+- inventaire des fichiers (déjà fait) : aucun format ne stocke ΔE/Δk
+  explicites, mais tous exposent `pass_energy` + `lens_mode` → estimation
+  analytique possible (formule Scienta).
+
+### Données extraites des fichiers (vérifié 2026-05-04)
+- Solaris (SES note .ibw/.pxt) : `Pass Energy=50`, `Lens Mode=DA30L_01`,
+  `Energy Step=0.01`. Pas de slit width.
+- BESSY (SES note .ibw) : `Pass Energy=20`, `Lens Mode=Angular30`,
+  `Energy Step=0.00154`. Pas de slit width.
+- CLS (texte `_param.txt`) : `Pass energy: 10`, `Lens mode: Angular30`,
+  `Energy delta: 0.000807`, `Angle delta: 0.047619` (angle direct → meilleur
+  Δk possible).
+
+### Item 1 — Loader : propager pass_energy / lens_mode / steps (`arpes_io.py`)
+- ajout d'un helper `_add_instrument_resolution_metadata` qui normalise les
+  champs instrumentaux depuis les clés natives des trois formats ;
+- Solaris (`load_solaris_da30_bandmap`) : lecture depuis `da.attrs` ;
+- BESSY (`load_bessy_ses_ibw`) : lecture depuis la note SES déjà parsée ;
+- CLS (`load_cls_txt`) : lecture depuis `_param.txt` déjà parsé ;
+- champs ajoutés dans `metadata` :
+  - `pass_energy_eV` ;
+  - `lens_mode` ;
+  - `energy_step_eV` ;
+  - `angle_step_deg` (`None` si absent).
+
+Test ajouté dans `tests/test_loaders_integration.py` :
+- vérifier que `ds.metadata["pass_energy_eV"]` est présent et > 0 pour les
+  fixtures chargées.
+
+Validation locale :
+- `python3 -m py_compile arpes_io.py tests/test_loaders_integration.py` OK ;
+- `python3 -m unittest tests.test_loaders_integration` OK (`4` skips) ;
+- `python3 -m unittest discover tests` OK (`19` tests, `9` skips).
+
+### Item 2 — Helper d'estimation (`arpes_resolution.py`)
+Nouveau module `arpes_resolution.py` :
+- `estimate_resolutions(meta)` retourne `dE_meV`, `dk_inv_a`, `source` ;
+- formule Scienta : `ΔE_FWHM ≈ PE × slit / (2R)` ;
+- `Δk` vient de `angle_step_deg` si possible, sinon défaut `0.005 π/a`.
+
+Lookup table documentée dans le module :
+- `DA30L_*` → R=200, slit=0.2 → ΔE_meV ≈ PE * 0.5
+- `Angular30` (R8000) → R=250, slit=0.3 → ΔE_meV ≈ PE * 0.6
+- inconnu → défaut 15 meV + warning dans `source`
+
+Tests : `tests/test_resolution.py` :
+- PE=50 DA30 → dE_meV ≈ 25 ;
+- PE=20 R8000 → dE_meV ≈ 12 ;
+- meta vide → défaut + source contient 'défaut'.
+
+### Item 3 — UI résolution (`arpes_explorer.py`)
+Classe `FitParamsPanel` :
+- nouvelles spinboxes `sp_dE_meV` (1-200 meV, défaut 15) et `sp_dk_inv_a`
+  (0.001-0.1 π/a, défaut 0.005) ;
+- indicateurs source `lbl_dE_src` / `lbl_dk_src` : 🔬 estimé, ✏️ manuel,
+  — défaut ;
+- méthodes publiques `set_resolution_with_source(...)` et
+  `update_resolution_source(...)` ;
+- valeurs ajoutées à `FitParams` pour sauvegarde session ;
+- `_load_file` préremplit depuis `estimate_resolutions(metadata)` ou restaure
+  la résolution déjà stockée dans `fit_result["resolution"]` si le fichier a
+  déjà été fitté.
+
+### Item 4 — Fit : Γ brut / Γ corrigé (`arpes_plots.py`)
+`fit_mdc_peak_pairs` accepte maintenant :
+- `dE_eV` ;
+- `dk_inv_a` ;
+- `resolution_source`.
+
+Implémentation :
+- floor minimal de largeur dans les bornes du fit via `dk_inv_a` ;
+- récupération des largeurs fittées par paire dans `gamma_brut` ;
+- estimation de `v_F_local = |dE/dk|` par régression locale sur ±2 points de
+  dispersion ;
+- `gamma_min = sqrt(dk² + (dE / v_F_local)²)` ;
+- `gamma_corrige = sqrt(max(0, gamma_brut² - gamma_min²))` ;
+- `gamma` reste un alias de `gamma_brut` pour rétro-compatibilité.
+
+Traçabilité :
+- `fit_result["resolution"]` contient `dE_eV`, `dE_meV`, `dk_inv_a`, `source`.
+
+### Item 5 — Affichage / export
+Interface :
+- après fit complet, `lbl_res` affiche la médiane `Γ brut / Γ corrigé` ;
+- warning `⚠` + tooltip si `gamma_corrige < 0.3 * gamma_brut` ;
+- onglet Résultats : deux colonnes ajoutées `Γ brut` et `Γ corr.` ;
+- export CSV enrichi avec `gamma_brut_*`, `gamma_min_*`, `gamma_corrige_*`,
+  `dE_meV`, `dk_inv_a`, `resolution_source`.
+
+### Tests ajoutés / validation
+- `tests/test_resolution.py` :
+  - PE=50 DA30 → dE_meV ≈ 25 ;
+  - PE=20 R8000 → dE_meV ≈ 12 ;
+  - meta vide → défaut ;
+  - résolution nulle → `gamma_corrige == gamma_brut` ;
+  - `dk > gamma_brut` → `gamma_corrige == 0`.
+- `python3 -m py_compile arpes_resolution.py arpes_plots.py arpes_explorer.py arpes_io.py tests/test_resolution.py tests/test_loaders_integration.py` OK.
+- `python3 -m unittest discover tests` OK : 24 tests, 11 skips.
+
+### Limites assumées (à dire à l'utilisateur)
+- pas de vraie déconvolution Gaussienne (instable sans modèle de fond) ;
+- v_F_local estimée localement → instable près de courbures fortes ;
+- formule analytique suppose slit standard — fausse si l'utilisateur a
+  changé la slit ; doit être surchargeable manuellement ;
+- l'utilisateur reste responsable de la cohérence physique des valeurs
+  pour son instrument réel.
+
+## ROADMAP EN COURS — refonte architecture progressive
+
+> Cette section applique `AI_COUNCIL_PROMPT.md` à l'architecture générale de
+> l'application. C'est un plan de refonte incrémentale avec avancement partiel.
+> Ne pas lancer une grosse refonte globale. Chaque update doit être petite,
+> testable, et validée manuellement dans l'interface avant de passer à la
+> suivante. Updates A, B, C v1, C v2, D, E, F, G, H.1, H.2, H.3 et I sont
+> faites. Update L (`PlotController`) est faite au niveau extraction sûre :
+> les calculs et dessins Matplotlib communs sont sortis, tandis que le rendu
+> détaillé MDC Fit couplé aux contrôles interactifs reste volontairement dans
+> l'UI. La suite active est Update M, sauf
+> décision contraire du conseil.
+
+### Proposition soumise au conseil
+
+Réduire les risques de bugs en sortant progressivement de `arpes_explorer.py`
+les décisions applicatives et scientifiques qui ne devraient pas vivre dans la
+classe UI principale :
+- session / persistance ;
+- logbook / matching ;
+- orchestration loaders et priorité des métadonnées ;
+- préparation et post-traitement des fits ;
+- export résultats.
+
+Objectif : garder l'interface PyQt comme couche d'affichage et d'interaction,
+mais rendre les décisions métier testables sans lancer l'UI.
+
+### Avis du conseil
+
+#### Physicien ARPES
+- Accord : les règles physiques critiques doivent rester explicites et
+  traçables.
+- Risque : une refonte qui change EF, Γ, hν, polar/tilt/azi ou la résolution
+  sans trace visible est inacceptable.
+- Exigence : chaque extraction doit préserver les métadonnées runtime et les
+  warnings déjà visibles.
+
+#### Expert géométrie instrumentale ARPES
+- Accord : les conventions d'angles et de repères doivent rester centralisées
+  ou clairement documentées.
+- Risque : déplacer du code Γ/angle offsets peut inverser un signe ou changer
+  l'ordre des corrections.
+- Exigence : aucune modification de convention géométrique pendant les updates
+  architecture. Si une convention est touchée, créer une update séparée dédiée.
+
+#### Développeur Python/PyQt
+- Accord : `arpes_explorer.py` concentre trop de responsabilités.
+- Risque : bug UI indirect si on extrait sans stabiliser les signaux et l'état
+  courant.
+- Exigence : l'UI doit continuer à appeler des méthodes simples et ne pas
+  connaître les détails des loaders/logbook/session.
+
+#### Architecte loader / IO
+- Accord : `arpes_io.py` est le socle à préserver.
+- Règles non négociables :
+  - l'interface ne doit jamais appeler `erlab.io.load` directement ;
+  - le chargement passe par `load_arpes(...)` ;
+  - `detect_format(...)` reste la porte d'entrée de détection ;
+  - les métadonnées fichier valides gardent priorité sur logbook/manuel.
+- Exigence : tout nouveau manager doit respecter `ARPESData` et ne pas dupliquer
+  les décisions de `arpes_io.py`.
+
+#### Red team données réelles
+Cas pathologiques à garder en tête pour chaque update :
+- logbook dit `hv=100` mais le header fichier dit `hv=48` ;
+- fichier BESSY avec `Excitation Energy=0` mais hν logbook utile pour kz ;
+- fichier CLS sans température ou sans direction ;
+- `.ibw fixed cut` dont le nom ne matche pas naïvement la ligne logbook ;
+- session existante avec anciens `fit_result` sans `resolution` ;
+- groupe UI replié ou fichier courant masqué après refresh.
+
+Exigence : aucun de ces cas ne doit échouer silencieusement.
+
+#### Numéricien
+- La refonte architecture ne doit pas modifier les algorithmes numériques.
+- Les fonctions de fit, normalisation, résolution, EF, Γ doivent rester
+  comparables avant/après extraction.
+- Tout changement de résultat numérique doit être documenté comme changement
+  scientifique, pas comme simple refactor.
+
+#### UX utilisateur scientifique
+- Les labels, warnings et icônes de source doivent rester visibles.
+- Une extraction ne doit pas rendre le comportement plus opaque.
+- Si une valeur vient du fichier, du logbook ou du manuel, l'utilisateur doit
+  encore pouvoir le savoir.
+
+### Décision finale du conseil
+
+Décision : **implémenter une refonte progressive**, mais **refuser une refonte
+globale de `arpes_explorer.py` en une seule update**.
+
+Critère d'arrêt :
+- si une étape exige de changer simultanément session + logbook + loader + fit,
+  elle est trop grosse et doit être redécoupée.
+
+Critère de validation :
+- après chaque update, l'application doit se lancer ;
+- chargement Solaris/BESSY/CLS doit rester possible ;
+- les tests existants doivent passer ;
+- une validation manuelle minimale dans l'UI doit être faite.
+
+## Série d'updates proposée
+
+### Update A — FAIT 2026-05-04 — Typage des contrats runtime sans changer le comportement
+
+But :
+- documenter et stabiliser les objets qui circulent aujourd'hui comme `dict`.
+
+Fichiers ajoutés :
+- `arpes_models.py` ;
+- `tests/test_models.py`.
+
+Contenu :
+- dataclasses légères pour :
+  - `MetadataSource` ;
+  - `ResolutionInfo` ;
+  - `FitGammaSummary` ;
+  - `LoadContext`.
+- helpers de conversion dict ↔ dataclass pour compatibilité session JSON.
+
+Décision d'implémentation :
+- aucun changement de comportement dans l'UI ;
+- aucun changement du format `.arpes_session.json` ;
+- aucun changement des valeurs calculées ;
+- `arpes_models.py` est un module pur, sans PyQt ni dépendance lourde ;
+- les conversions acceptent les anciens dicts et les anciens `fit_result` sans
+  champ `resolution`.
+
+Tests ajoutés :
+- sérialisation/désérialisation des nouveaux objets ;
+- anciens dicts de session acceptés ;
+- `ResolutionInfo` accepte la forme actuelle `{"dE_eV", "dE_meV",
+  "dk_inv_a", "source"}` ;
+- `FitGammaSummary` accepte les anciens résultats avec seulement `gamma` ;
+- détection `resolution_limited` quand `gamma_corrige < 0.3 * gamma_brut` ;
+- `LoadContext` round-trip.
+
+Validation locale :
+- `python3 -m py_compile arpes_models.py tests/test_models.py` OK ;
+- `python3 -m unittest tests.test_models` OK ;
+- `python3 -m unittest discover tests` OK : 31 tests, 11 skips.
+
+Validation manuelle restante :
+- ouvrir un dossier ;
+- charger un fichier déjà présent dans une session ;
+- vérifier que hν/résolution/fit_result ne disparaissent pas.
+
+### Update B — FAIT 2026-05-04 — Extraire `SessionManager`
+
+But :
+- sortir la persistance et la logique `.arpes_session.json` de l'UI.
+
+Fichiers ajoutés/modifiés :
+- nouveau `arpes_session.py` ;
+- nouveau `tests/test_session.py` ;
+- `arpes_explorer.py` importe maintenant `Session`, `FileEntry`, `FileMeta`,
+  `FitParams` depuis `arpes_session.py`.
+
+Contenu :
+- déplacé hors UI :
+  - `FitParams` ;
+  - `FileMeta` ;
+  - `FileEntry` ;
+  - `Session` ;
+  - `_to_serial(...)` ;
+  - sauvegarde/chargement JSON ;
+  - `get_or_create(...)` ;
+  - `set_fit_result(...)` ;
+  - `key_for_path(...)`.
+
+Décision d'implémentation :
+- aucun changement volontaire du format `.arpes_session.json` ;
+- aucune modification logbook ;
+- aucune modification loader ;
+- `arpes_explorer.py` réexporte implicitement les mêmes noms importés, donc les
+  tests et appels existants `from arpes_explorer import Session` continuent de
+  fonctionner ;
+- `Session.load(...)` ignore les champs inconnus dans les anciennes/futures
+  sections `fit_params` et `meta` au lieu de crasher.
+
+Tests ajoutés :
+- round-trip session JSON complet ;
+- conservation de `fit_result["resolution"]` ;
+- sérialisation des `np.ndarray` / scalaires NumPy ;
+- chargement d'une ancienne session avec champs inconnus ;
+- `key_for_path(...)` conserve le chemin relatif.
+
+Validation locale :
+- `python3 -m py_compile arpes_session.py arpes_explorer.py tests/test_session.py` OK ;
+- `python3 -m unittest tests.test_session` OK ;
+- `python3 -m unittest discover tests` OK : 34 tests, 11 skips.
+
+Validation manuelle restante :
+- ouvrir l'app ;
+- charger un fichier ;
+- faire un fit ;
+- fermer/réouvrir ;
+- vérifier que paramètres et résultats sont restaurés.
+
+### Update C v1 — FAIT 2026-05-04 — Extraire les helpers logbook purs
+
+But :
+- isoler les fonctions pures de parsing/mapping/matching logbook sans changer
+  le comportement UI.
+
+Fichiers ajoutés/modifiés :
+- nouveau `arpes_logbook.py` ;
+- nouveau `tests/test_logbook.py` ;
+- `arpes_explorer.py` importe les helpers depuis `arpes_logbook.py`.
+
+Contenu :
+- déplacé hors UI :
+  - `_norm_text(...)` ;
+  - `_cell_text(...)` ;
+  - `_cell_float(...)` ;
+  - `_infer_logbook_mapping(...)` ;
+  - `_infer_legacy_measurement_plan_mapping(...)` ;
+  - `_format_direction_label(...)` ;
+  - `_extract_measurement_numbers(...)` ;
+  - `_record_matches_path(...)`.
+
+Décision d'implémentation :
+- pas encore de classe `LogbookManager` avec état ;
+- pas de changement de priorité metadata ;
+- pas de déplacement de `_apply_logbook_to_controls(...)` ;
+- les noms privés restent importés dans `arpes_explorer.py`, donc les tests et
+  appels existants restent compatibles.
+
+Tests ajoutés :
+- alias Solaris : `Sample Temperature` ne devient pas angle `T` ;
+- `Light Polarization` est reconnue comme polarisation ;
+- mapping legacy BESSY `Measurement Plan` avec `Num` ;
+- labels direction `G`, `gamma`, `Gamma-X`, `GM` ;
+- `.ibw fixed cut` matche `BaNi2As2_0015.pxt,.ibw,` ;
+- `Num=9` matche `Ba1220009w...` ;
+- `_cell_float(...)` accepte virgule décimale.
+
+Validation locale :
+- `python3 -m py_compile arpes_logbook.py arpes_explorer.py tests/test_logbook.py` OK ;
+- `python3 -m unittest tests.test_logbook` OK ;
+- `python3 -m unittest discover tests` OK : 40 tests, 11 skips.
+
+Validation manuelle restante :
+- charger un logbook Solaris ;
+- vérifier hν/T/Pol/Chemin dans le panneau fichiers ;
+- charger un fichier et vérifier les icônes/source hν.
+
+### Update C v2 — FAIT 2026-05-04 — Extraire `LogbookManager`
+
+But :
+- isoler l'état logbook et l'application des records aux fichiers/contrôles.
+
+Contenu réalisé :
+- ajout de `LogbookAppliedValues` dans `arpes_logbook.py` ;
+- ajout de `LogbookManager` dans `arpes_logbook.py` ;
+- `LogbookManager.find_record_for_path(path)` remplace la boucle de matching
+  côté UI ;
+- `LogbookManager.values_for_path(path)` retourne hν/T/pol/direction/azi/P/T
+  avec `sources` ;
+- `LogbookManager.apply_to_entry(entry, path)` applique les valeurs à
+  `FileEntry` sans dépendance PyQt ;
+- `_apply_logbook_to_controls(...)` dans `arpes_explorer.py` devient un wrapper :
+  il appelle le manager, met à jour seulement la spinbox hν, puis sauvegarde la
+  session si une valeur a été appliquée.
+
+Décision d'implémentation :
+- `_read_logbook(...)` et `_inherit_logbook_context(...)` restent dans
+  `arpes_explorer.py` pour éviter une extraction trop large ;
+- aucune modification volontaire de priorité metadata ;
+- l'UI garde le même comportement visible.
+
+Tests ajoutés :
+- `LogbookManager.values_for_path(...)` extrait hν/T/pol/direction/azi/P/T sans
+  UI ;
+- `LogbookManager.apply_to_entry(...)` remplit une `FileEntry` ;
+- les tests v1 restent actifs pour aliases, matching et labels.
+
+Validation locale :
+- `python3 -m py_compile arpes_logbook.py arpes_explorer.py tests/test_logbook.py` OK ;
+- `python3 -m unittest tests.test_logbook` OK ;
+- `python3 -m unittest discover tests` OK : 42 tests, 11 skips.
+
+Validation manuelle restante :
+- charger un logbook Solaris ;
+- vérifier hν/T/Pol/Chemin dans le panneau fichiers ;
+- charger un fichier et vérifier que la spinbox hν et l'icône source restent
+  correctes.
+
+### Update D — FAIT 2026-05-04 — Extraire `LoaderOrchestrator`
+
+But :
+- centraliser la décision "comment charger ce fichier avec quel contexte".
+
+Fichiers ajoutés/modifiés :
+- nouveau `arpes_loader_orchestrator.py` ;
+- nouveau `tests/test_loader_orchestrator.py` ;
+- `arpes_explorer.py` appelle `LoaderOrchestrator` dans `_load_file`.
+
+Contenu réalisé :
+- `LoaderOrchestrator.build_context(...)` construit un `LoadContext` depuis
+  `FileEntry`, hν, angle offsets et mode BESSY ;
+- `LoaderOrchestrator.load(...)` appelle soit `load_arpes_file(...)`, soit le
+  callback `_load_with_best_angle_offsets(...)` quand des offsets angulaires
+  sont disponibles ;
+- `LoaderOrchestrator.apply_loaded_metadata(...)` met à jour `source_format`,
+  `loader_label` et température loader dans `FileEntry` ;
+- `LoaderOrchestrator.resolve_hv_after_load(...)` centralise la priorité :
+  hν fichier > hν utilisée au chargement (`logbook` ou `manual`) > inconnu ;
+- le résultat expose `data`, `angle_offsets`, `context`.
+
+Décision d'implémentation :
+- les loaders restent dans `arpes_io.py` ;
+- aucun appel direct à `erlab` n'a été ajouté ;
+- pas de changement volontaire des conventions EF/Γ ;
+- l'UI garde les actions visuelles : spinbox hν, status bar, dessins.
+
+Tests ajoutés :
+- `build_context(...)` transmet hν/T/azi/pol/angle_offsets/mode BESSY ;
+- `load(...)` appelle le loader avec le contexte attendu ;
+- `apply_loaded_metadata(...)` met à jour `FileEntry` ;
+- priorité hν fichier après chargement ;
+- fallback hν logbook/manual si le fichier ne donne pas hν ;
+- callback best-angle utilisé pour fichier avec offsets.
+
+Validation locale :
+- `python3 -m py_compile arpes_loader_orchestrator.py arpes_explorer.py tests/test_loader_orchestrator.py` OK ;
+- `python3 -m unittest tests.test_loader_orchestrator` OK ;
+- `python3 -m unittest discover tests` OK : 48 tests, 11 skips.
+
+Validation manuelle restante :
+- charger un fichier Solaris ;
+- charger un fichier BESSY ;
+- charger un fichier CLS avec hν manuel/logbook ;
+- vérifier status bar et icônes.
+
+### Update E — FAIT 2026-05-04 — Extraire `FitController`
+
+But :
+- isoler préparation du fit, appel à `arpes_plots`, enrichissement du résultat,
+  sauvegarde dans la session.
+
+Fichiers ajoutés/modifiés :
+- nouveau `arpes_fit_controller.py` ;
+- nouveau `tests/test_fit_controller.py` ;
+- `arpes_explorer.py` utilise `FitController` dans `_fit_full`.
+
+Contenu réalisé :
+- `FitController.fit_kwargs(...)` transforme `FitParams` en kwargs pour
+  `fit_mdc_peak_pairs(...)` ;
+- `FitController.run_full_fit(...)` appelle `arpes_plots.fit_mdc_peak_pairs`
+  avec résolution `dE_eV`, `dk_inv_a`, `resolution_source` ;
+- `FitController.summarize(...)` produit le texte `lbl_res`, le statut et le
+  flag `resolution_dominates` ;
+- `FitController.update_entry_after_fit(...)` centralise la mise à jour de
+  `FileEntry` après fit.
+
+Décision d'implémentation :
+- aucun changement de l'algorithme `fit_mdc_peak_pairs` ;
+- aucun changement des paramètres par défaut ;
+- aucun changement des graphes/overlays ;
+- `_fit_full` garde uniquement la logique UI : statut, sauvegarde session,
+  refresh navigateur, dessin.
+
+Tests ajoutés :
+- génération des kwargs depuis `FitParams` ;
+- appel à un faux module `arpes_plots` avec `resolution_source` ;
+- résumé avec `gamma_brut/gamma_corrige` et warning résolution ;
+- mise à jour de `FileEntry` après fit.
+
+Validation locale :
+- `python3 -m py_compile arpes_fit_controller.py arpes_explorer.py tests/test_fit_controller.py` OK ;
+- `python3 -m unittest tests.test_fit_controller` OK ;
+- `python3 -m unittest discover tests` OK : 52 tests, 11 skips.
+
+Validation manuelle restante :
+- Guess MDC ;
+- Fit complet ;
+- vérifier overlay kF ;
+- onglet Résultats ;
+- export CSV.
+
+### Update F — Extraire `ResultsExporter` — FAIT 2026-05-04
+
+But atteint :
+- séparer l'export CSV de la logique UI et stabiliser les colonnes utiles aux
+  résultats scientifiques.
+
+Fichiers modifiés :
+- nouveau `arpes_export.py` ;
+- `arpes_explorer.py` : `ResultsPanel._export_csv()` délègue à
+  `result_rows()` / `write_results_csv()` ;
+- nouveau `tests/test_export.py`.
+
+Contenu livré :
+- `result_rows(session)` produit les lignes exportables depuis la session ;
+- `result_columns(rows)` garde un ordre stable des colonnes ;
+- `write_results_csv(path, rows)` écrit le CSV sans dépendance PyQt ;
+- les fichiers sans `fit_result` sont ignorés proprement ;
+- les anciens `fit_result` sans bloc `resolution` restent exportables avec
+  champs vides ;
+- colonnes de base :
+  - fichier ;
+  - hν/T/direction ;
+  - E ;
+  - résolution utilisée (`dE_meV`, `dk_inv_a`, `resolution_source`) ;
+- colonnes dynamiques par paire :
+  - `kF_minus_i`, `kF_plus_i` ;
+  - `gamma_brut_i`, `gamma_min_i`, `gamma_corrige_i`.
+
+Limites assumées :
+- export CSV uniquement pour cette update ; JSON/PDF restent hors scope ;
+- l'onglet Résultats garde son affichage existant, seul l'export est extrait ;
+- les sources complètes de metadata autres que résolution/hν/T/direction seront
+  à enrichir plus tard si besoin publication.
+
+Tests validés :
+- `python3 -m py_compile arpes_export.py arpes_explorer.py tests/test_export.py`
+  OK ;
+- `python3 -m unittest tests.test_export` OK ;
+- `python3 -m unittest discover tests` OK : 56 tests, 11 skips.
+
+Validation manuelle restante :
+- exporter un CSV depuis l'onglet Résultats ;
+- ouvrir dans un tableur ;
+- vérifier que les colonnes utiles au rapport sont présentes.
+
+### Update G — FAIT 2026-05-04 — Nettoyage final de `arpes_explorer.py`
+
+But atteint :
+- audit AST de `arpes_explorer.py` ; suppression des éléments morts laissés
+  par les extractions B–F sans changer le comportement UI.
+
+Décisions du conseil avant exécution :
+- maintenir Update G **minimaliste** (helpers morts + imports inutilisés) ;
+- ne pas refondre l'UI restante (dessins, signaux) — hors scope ;
+- ne pas modifier les conventions de calcul (EF, Γ, hν, angles).
+
+Vérifications préalables :
+- aucun manager (`arpes_session`, `arpes_logbook`, `arpes_loader_orchestrator`,
+  `arpes_fit_controller`, `arpes_export`, `arpes_models`, `arpes_resolution`)
+  n'importe PyQt — contrat respecté.
+
+Suppressions appliquées dans `arpes_explorer.py` :
+- imports inutilisés : `Optional` (typing), `FileMeta` (depuis `arpes_session`),
+  `_extract_measurement_numbers` (depuis `arpes_logbook`, encapsulé désormais
+  dans `LogbookManager`/`_record_matches_path`) ;
+- méthode morte `FileBrowserPanel._on_group_mode_changed` (remplacée par
+  `_on_group_checks_changed` lors du passage aux regroupements cumulables) ;
+- méthode morte `ArpesExplorer._cls_polar_from_param` (remplacée par lecture
+  via `_cls_manipulator_from_param(...)["polar"]`).
+
+Effet :
+- `arpes_explorer.py` : 4831 → 4819 LOC ;
+- aucune signature publique modifiée ;
+- aucune entrée de session affectée.
+
+Validation locale :
+- `python3 -m py_compile arpes_explorer.py` OK ;
+- `python3 -m unittest discover tests` OK : 56 tests, 11 skips (identique à
+  l'état pré-update G).
+
+Validation manuelle restante (non bloquante) :
+- ouvrir dossier ;
+- charger logbook ;
+- charger Solaris/BESSY/CLS ;
+- calibrer EF si possible ;
+- fit MDC ;
+- détecter/appliquer Γ ;
+- exporter résultats ;
+- fermer/réouvrir session.
+
+Limites assumées :
+- la refonte structurelle de `arpes_explorer.py` (~4800 LOC) reste hors scope :
+  l'UI conserve la logique de dessin/formatage. Une éventuelle Update H
+  pourrait extraire un `PlotController` mais nécessitera son propre tour de
+  conseil et une validation manuelle UI complète.
+
+## Ordre recommandé
+
+1. Update A — contrats runtime.
+2. Update B — `SessionManager`.
+3. Update C — `LogbookManager`.
+4. Update D — `LoaderOrchestrator`.
+5. Update E — `FitController`.
+6. Update F — `ResultsExporter` — fait.
+7. Update G — nettoyage final — fait.
+
+## Critères de refus à appliquer pendant la roadmap
+
+- Refuser toute update qui change un résultat scientifique sans l'annoncer.
+- Refuser toute update qui casse un format supporté sans migration.
+- Refuser toute correction automatique sans trace visible.
+- Refuser toute extraction impossible à tester sur données réelles ou fixtures.
+- Refuser toute étape qui mélange architecture et nouvelle fonctionnalité
+  scientifique.
+
+## État attendu à la fin
+
+- `arpes_explorer.py` reste la couche UI principale, mais ne porte plus les
+  décisions métier lourdes.
+- Les règles de priorité metadata sont centralisées.
+- La session est testable sans PyQt.
+- Le logbook est testable sans UI.
+- Le chargement est orchestré dans un module dédié.
+- Le fit et l'export sont plus faciles à tester et moins sensibles aux bugs UI.
+
+## ROADMAP PHASE 2 — extraction des managers restants
+
+> Constat post-Phase 1 : `arpes_explorer.py` est passé de 5170 à 4819 LOC.
+> La classe `ArpesExplorer` reste un god-object (2711 LOC, 88 méthodes).
+> 5 méthodes dépassent 100 LOC. Quatre familles de responsabilités restent
+> mélangées à l'UI : dessin Matplotlib, logique Γ/angles, EF calibration,
+> ingestion logbook (Excel/parsing).
+
+> Mêmes règles que A→G : une update = un manager, PyQt-free quand possible,
+> tests d'abord, aucun changement scientifique. Validation manuelle après
+> chaque sous-update avant de passer à la suivante.
+
+### Update H.1 — FAIT 2026-05-04 — Fonctions pures Γ/angles
+
+But atteint :
+- extraire la math pure (formule k↔angle, projection azimutale, filtrage de
+  la référence Γ stockée) pour la rendre testable sans UI.
+
+Fichiers ajoutés :
+- nouveau `arpes_gamma.py` (PyQt-free, ~125 LOC) ;
+- nouveau `tests/test_gamma.py` (16 tests).
+
+Fonctions extraites :
+- `k_to_angle_offset_deg(k_pi_a, hv, work_func, a_lattice=3.96)` ;
+- `angle_offsets_from_k_center(kx, ky, hv, work_func, source, ref_path, azi)` ;
+- `project_gamma_by_azi(ref, azi_target, on_warn=None, warn_label="Γ")` ;
+- `stored_gamma_reference(session_gamma_ref)`.
+
+Wrappers UI conservés dans `ArpesExplorer` :
+- `_k_to_angle_offset_deg`, `_angle_offsets_from_k_center`, `_project_gamma_by_azi`,
+  `_stored_gamma_reference` lisent les spinboxes hν/φ et délèguent au module.
+
+Décision d'implémentation :
+- aucune modification de signe ou de convention angulaire ;
+- constantes `C_ARPES = 0.51233` et `A_LATTICE_DEFAULT = 3.96` figées dans le
+  module ;
+- `on_warn` callback optionnel pour conserver l'avertissement
+  "azi inconnu — projection non corrigée" via la status bar.
+
+Tests verrouillent :
+- k=0 → angle=0 ;
+- ek invalide → None ;
+- clip à ±90° pour k absurdement grand ;
+- round-trip k → angle → k ;
+- rotation 0°/30°/90°/180° de la projection azimutale ;
+- warn appelé si `azi=None` ET `|ky_ref| > 1e-3` ;
+- ref invalide (NaN) → NaN.
+
+Validation locale :
+- `python3 -m py_compile arpes_explorer.py arpes_gamma.py tests/test_gamma.py` OK ;
+- `python3 -m unittest discover tests` OK : 72 tests, 11 skips ;
+- `arpes_explorer.py` : 4819 → 4785 LOC (-34).
+
+Validation manuelle restante avant H.2 :
+- charger une FS CLS, cliquer Γ, vérifier que `sp_cx` reçoit la bonne valeur ;
+- charger une BM CLS de polar différent, vérifier que la projection FS→BM
+  marche encore ;
+- vérifier que le warning "azi inconnu" apparaît toujours en status bar
+  quand attendu.
+
+### Update H.2 — FAIT 2026-05-04 — Méthodes de transfert Γ FS→BM
+
+But atteint :
+- sortir les décisions pures de transfert Γ FS→BM de `ArpesExplorer` tout en
+  gardant les effets UI/session dans les wrappers existants.
+
+Fichiers concernés :
+- `arpes_gamma.py` ;
+- `tests/test_gamma.py` ;
+- `arpes_explorer.py` conserve des wrappers UI courts.
+
+Fonctions extraites ou centralisées :
+- `build_gamma_reference(...)` : construit la forme stable de
+  `session.gamma_reference` pour FS manuelle/auto et Auto Γ BM ;
+- `gamma_reference_to_bm_center(...)` : projection vers BM, tolérance polar
+  ±2°, correction polar résiduelle si les axes k ne l'ont pas déjà appliquée ;
+- `apply_bm_gamma_axis_shift(...)` : recentrage local de l'axe k// d'une BM,
+  avec métadonnées runtime traçables et protection contre double application.
+
+Wrappers UI conservés :
+- `_store_fs_center_reference` ;
+- `_gamma_reference_to_bm_center` ;
+- `_center_current_bm_axis_on_gamma` ;
+- `_apply_stored_gamma_to_current_file` ;
+- `_apply_gamma_reference_to_bm` ;
+- `_estimate_gamma_bm`.
+
+Tests ajoutés / verrouillés :
+- construction de référence Γ avec source/path/azi/polar/tilt ;
+- refus si polar BM diffère de plus de `POLAR_TOLERANCE_DEG` ;
+- correction polar résiduelle quand `polar_already_applied_to_kx=False` ;
+- no-op si FS, offset angulaire déjà appliqué, BM déjà centrée, Γ NaN ou kpar vide ;
+- métadonnées `bm_gamma_axis_*` écrites après recentrage.
+
+Validation locale :
+- `python3 -m py_compile arpes_gamma.py arpes_explorer.py tests/test_gamma.py` OK ;
+- `python3 -m unittest tests.test_gamma` OK.
+
+### Update H.3 — FAIT 2026-05-04 — Candidats d'angles CLS et scoring BM
+
+But atteint :
+- rendre testable la génération des conventions candidates CLS et le scoring
+  qui choisit la BM la mieux recentrée.
+
+Fichiers concernés :
+- `arpes_gamma.py` ;
+- `tests/test_gamma.py` ;
+- `arpes_explorer.py` garde le wrapper `_load_with_best_angle_offsets(...)`
+  parce qu'il touche encore au loader et à l'état UI.
+
+Fonctions extraites :
+- `angle_offset_candidates_for_load(...)` :
+  - conserve le candidat primaire ;
+  - génère `±theta0` ;
+  - génère les variantes `raw_polar` quand P_ref/P_target sont connus ;
+  - génère `azi_plus` / `azi_minus` et variantes signées ;
+  - déduplique les candidats.
+- `score_bm_gamma_residual(...)` :
+  - appelle un estimateur injecté compatible `estimate_gamma_bm_mdc` ;
+  - score = `abs(gamma) + 0.25*MAD + 0.10*abs(k_mid)` ;
+  - retourne `inf` si estimation impossible.
+
+À garder dans l'UI :
+- `_load_with_best_angle_offsets` : itère les candidats et choisit le meilleur
+  (touche le loader et l'état UI).
+
+Tests ajoutés / verrouillés :
+- 6+ candidats générés pour BM CLS avec ref FS connue ;
+- absence de doublons (clé theta0/tilt0 arrondie) ;
+- conventions ±theta0 et ±azi présentes.
+- score infini si pas d'estimateur, trop peu de points, exception ;
+- score numérique attendu sur estimateur factice.
+
+Validation locale :
+- `python3 -m unittest tests.test_gamma` OK.
+
+### Updates I à M — à faire — voir tableau ci-dessous
+
+| Étape       | Effort | Risque | Gain LOC ArpesExplorer |
+|-------------|--------|--------|------------------------|
+| H.1 — Γ pure (FAIT) | petit | faible | -34 effectif |
+| H.2 — Γ FS→BM (FAIT) | moyen | moyen  | inclus dans `arpes_gamma.py` |
+| H.3 — Candidats (FAIT) | moyen | moyen  | inclus dans `arpes_gamma.py` |
+| I — CLS geom (FAIT) | petit | faible | module `arpes_cls_geometry.py` |
+| J — EF ctrl (FAIT) | moyen | moyen  | module `arpes_ef_controller.py` |
+| K — Logbook IO (FAIT) | moyen | faible | module `arpes_logbook_io.py` |
+| L — Plot ctrl (FAIT, extraction sûre) | gros | élevé | module `arpes_plot_controller.py` |
+| M — Découpage interne `_load_file`/`_build_ui` (prochain) | petit | faible | 0 |
+
+### Update I — FAIT 2026-05-04 — `CLSGeometryService`
+
+But atteint :
+- isoler la lecture rapide de géométrie CLS (`P/T/azi/hv`) dans un module
+  PyQt-free, sans charger les données ARPES.
+
+Fichiers ajoutés/modifiés :
+- nouveau `arpes_cls_geometry.py` ;
+- nouveau `tests/test_cls_geometry.py` ;
+- `arpes_explorer.py` importe :
+  - `manipulator_from_param(...)` ;
+  - `geometry_for_path(...)`.
+
+Contenu :
+- `manipulator_from_param(path)` :
+  - fichier BM CLS → lit `<nom>_param.txt` adjacent ;
+  - dossier FS CLS → lit le premier `*_param.txt` exploitable ;
+  - parse les positions moteur JSON `d.P.position` et `d.T.position` ;
+  - retourne `{}` si absent ou illisible.
+- `geometry_for_path(...)` :
+  - priorité 1 : `_param.txt` pour `polar` / `tilt` ;
+  - priorité 2 : `entry.meta` pour compléter `polar`, `tilt`, `azi`, `hv` ;
+  - priorité 3 : logbook pour compléter les valeurs encore manquantes.
+
+Décision d'architecture :
+- `arpes_explorer.py` garde seulement les wrappers UI et l'accès au logbook ;
+- la logique de priorité P/T/azi est testable sans PyQt ;
+- aucune convention de signe ou projection Γ n'a été changée.
+
+Tests ajoutés :
+- chemin absent → `{}` ;
+- BM avec `_param.txt` adjacent ;
+- FS dossier avec `_param.txt` interne ;
+- `_param.txt` prioritaire sur `entry.meta` pour P/T ;
+- `entry.meta` complète les valeurs absentes ;
+- logbook complète seulement les valeurs encore absentes.
+
+Validation locale :
+- `python3 -m unittest tests.test_cls_geometry` OK.
+
+### Update J — FAIT 2026-05-04 — `EFCalibrationController`
+
+But atteint :
+- isoler les décisions scientifiques de calibration EF hors de
+  `arpes_explorer.py`, sans déplacer les éléments PyQt.
+
+Fichiers ajoutés/modifiés :
+- nouveau `arpes_ef_controller.py` ;
+- nouveau `tests/test_ef_controller.py` ;
+- `arpes_explorer.py` délègue :
+  - `_apply_ef_calibration_result(...)` ;
+  - `_apply_ef_reference_to_current(...)`.
+
+Contenu extrait :
+- `axis_zero_in_kinetic(meta)` :
+  - lit `ef_kinetic_nominal`, puis `ef_kinetic_from_hv` ;
+  - remplace l'ancien helper top-level de `arpes_explorer.py`.
+- `compute_calibration_update(...)` :
+  - mode scalaire : calcule le nouvel `ef_offset`, supprime une correction poly
+    éventuelle, prépare le payload `session.ef_reference` avec origine
+    cinétique source ;
+  - mode poly : force `ef_offset=0.0`, construit `ef_correction` et payload de
+    référence.
+- `already_applied(...)` :
+  - détecte `source == "reference"` ou `"reference_scalar"` pour éviter une
+    double application silencieuse.
+- `apply_reference_to_target(...)` :
+  - applique référence poly ;
+  - applique référence scalaire naïve si les métadonnées cinétiques manquent ;
+  - applique correction per-file si source/cible partagent le même
+    `energy_reference` et des origines cinétiques valides ;
+  - ajoute un message/warning si les modes énergie diffèrent.
+
+À garder dans l'UI :
+- `EFCalibrationDialog` ;
+- boutons et `QMessageBox` ;
+- mise à jour des spinboxes ;
+- redessin BM/MDC après reload.
+
+Tests ajoutés :
+- `axis_zero_in_kinetic` priorise `ef_kinetic_nominal` puis fallback hν ;
+- référence scalaire appliquée sans correction per-file quand métadonnées
+  cinétiques absentes ;
+- correction per-file quand source/cible ont le même `energy_reference` et des
+  `ef_kinetic_nominal` valides ;
+- warning structuré si modes énergie différents ;
+- protection contre double application de référence scalaire ;
+- poly référence force `ef_offset=0.0` et copie `ef_correction`.
+
+Validation locale :
+- `python3 -m py_compile arpes_ef_controller.py arpes_explorer.py tests/test_ef_controller.py` OK ;
+- `python3 -m unittest tests.test_ef_controller` OK.
+
+### Update K — FAIT 2026-05-04 — `LogbookIngestController`
+
+But atteint :
+- sortir la lecture/parsing des logbooks de `arpes_explorer.py` sans déplacer
+  les dialogues PyQt.
+
+Fichiers ajoutés/modifiés :
+- nouveau `arpes_logbook_io.py` ;
+- nouveau `tests/test_logbook_io.py` ;
+- `arpes_explorer.py::_read_logbook(...)` délègue à
+  `arpes_logbook_io.read_logbook(...)`.
+
+Contenu extrait :
+- `read_logbook(path, sheet_selector, table_selector, mapping_selector)` :
+  - lit Excel/CSV/TSV ;
+  - applique le fallback CSV brut pour les anciens logbooks avec titre avant
+    vraie ligne d'en-tête ;
+  - retourne records, mapping et nom de feuille.
+- `read_delimited_logbook_raw(...)` :
+  - gère les CSV irréguliers où la première ligne titre n'a pas le même nombre
+    de colonnes que la table ;
+  - essaie `;`, `,`, tabulation et sniff Python.
+- `excel_header_candidates(...)`, `excel_table_from_header(...)`,
+  `best_excel_table(...)` :
+  - détectent automatiquement la vraie ligne d'en-tête.
+- `inherit_logbook_context(...)` :
+  - propage direction/polarisation/azi aux lignes suivantes quand les cellules
+    sont vides.
+
+Reste UI :
+- `_choose_excel_sheet` ;
+- `_choose_excel_table` ;
+- `_choose_logbook_mapping`.
+
+Tests ajoutés :
+- héritage direction/polarisation/azi ;
+- détection d'une table après ligne titre ;
+- CSV simple séparé par `;` ;
+- ancien `Measurement Plan` avec ligne titre puis header `DONE;Num;...` ;
+- callback de mapping manuel ;
+- erreur si colonnes fichier/hν restent absentes.
+
+Validation locale :
+- `python3 -m py_compile arpes_logbook_io.py arpes_explorer.py tests/test_logbook_io.py` OK ;
+- `python3 -m unittest tests.test_logbook_io` OK.
+
+### Update L — FAIT 2026-05-04 — `PlotController` (extraction sûre)
+
+Extraire vers `arpes_plot_controller.py` (Matplotlib oui, PyQt non) :
+- `_draw_bm`, `_draw_mdc_edc`, `_draw_mdc_waterfall`, `_draw_mdc_energy_map`,
+  `_update_display_data`, `_on_scroll_zoom`.
+Reste UI : ROI interactif, callbacks souris (état UI partagé).
+À ne faire qu'après H–K.
+
+Décision conseil / architecte applicatif :
+- ne pas extraire tous les dessins Matplotlib en une seule update ;
+- commencer par les calculs purs qui alimentent les figures ;
+- garder les canvases, axes, callbacks souris et redraws dans `ArpesExplorer`
+  tant que les états interactifs ne sont pas isolés.
+
+#### Update L.1 — FAIT — données d'affichage BM
+
+Fichiers ajoutés/modifiés :
+- nouveau `arpes_plot_controller.py` ;
+- nouveau `tests/test_plot_controller.py` ;
+- `arpes_explorer.py::_update_display_data()` délègue à
+  `compute_bandmap_display(...)`.
+
+Contenu extrait :
+- `apply_edcnorm(...)` ;
+- `compute_secdev(...)` ;
+- `compute_curvature(...)` ;
+- `display_grid_config(...)` ;
+- `compute_bandmap_display(...)`.
+
+Garde-fous :
+- `Raw` reste brut même si `EDCnorm` est coché ;
+- `EDCnorm` respecte le checkbox ;
+- correction grille affichage garde les métadonnées runtime
+  `display_fft2mask`, `view_mode`, `target`, `shape`, `strength` ;
+- import SciPy paresseux pour que le module reste importable dans un
+  environnement de tests léger.
+
+#### Update L.2 — FAIT — ROI et échelle couleur
+
+Contenu extrait :
+- `fit_roi_bounds(...)` ;
+- `fit_roi_data(...)` ;
+- `map_color_kwargs(...)`.
+
+Wrappers UI conservés :
+- `_fit_roi_bounds` ;
+- `_fit_roi_data` ;
+- `_map_color_kwargs`.
+
+Validation locale :
+- `python3 -m py_compile arpes_plot_controller.py arpes_explorer.py tests/test_plot_controller.py` OK ;
+- `python3 -m unittest tests.test_plot_controller` OK ;
+- `python3 -m unittest discover tests` OK : 126 tests, 11 skips.
+
+#### Update L.3 — FAIT — Waterfall MDC
+
+Contenu extrait :
+- `prepare_waterfall_data(...)` ;
+- `draw_waterfall_axes(...)`.
+
+Effet :
+- `_draw_mdc_waterfall()` dans `arpes_explorer.py` ne fait plus que :
+  - récupérer les données de travail ;
+  - lire les paramètres UI ;
+  - appeler `draw_waterfall_axes(...)` ;
+  - `tight_layout` + `redraw`.
+
+#### Update L.4 — FAIT — cartes BM communes
+
+Contenu extrait :
+- `draw_bandmap_axes(...)`.
+
+Effet :
+- `_draw_bm()` et `_draw_mdc_energy_map()` partagent le même dessin de fond :
+  `pcolormesh`, lignes EF/k, bande d'intégration, sélection courante, axes,
+  couleurs et titres.
+- Les overlays dépendants de l'état UI (`ROI`, `kF`, label EF) sont ajoutés
+  ensuite par les wrappers UI.
+
+#### Update L.5 — FAIT — courbes MDC/EDC et zoom
+
+Contenu extrait :
+- `mdc_curve(...)` ;
+- `edc_curve(...)` ;
+- `scroll_zoom_limits(...)` ;
+- `draw_fit_roi_overlay(...)` ;
+- `draw_ef_label(...)`.
+
+Décision de clôture L :
+- ne pas déplacer le bloc complet `_draw_mdc_edc()` dans cette update : il est
+  fortement couplé aux contrôles de fit vivants (`FitParamsPanel`,
+  `_pair_params`, légende, modèle temps réel, labels et overlays de contraintes).
+- L'objectif architecture de L est néanmoins atteint pour les parties sûres :
+  les calculs de données, le waterfall et les dessins communs Matplotlib sont
+  testables sans PyQt.
+- Une extraction plus agressive de `_draw_mdc_edc()` demanderait une update
+  séparée, dédiée au modèle d'affichage MDC, avec validation visuelle.
+
+Validation locale :
+- `python3 -m py_compile arpes_plot_controller.py arpes_explorer.py tests/test_plot_controller.py` OK ;
+- `python3 -m unittest tests.test_plot_controller` OK ;
+- `python3 -m unittest discover tests` OK : 129 tests, 11 skips.
+
+### Update M — à faire (optionnelle) — Refactor interne
+
+Découper sans nouveau module :
+- `_load_file` (169 LOC) → `_apply_loaded_data_to_ui`, `_finalize_load_logbook`,
+  `_resolve_load_hv_source`, `_apply_resolution_after_load` ;
+- `_build_ui` (174 LOC) → `_build_left_panel`, `_build_center_tabs`,
+  `_build_right_panel`, `_wire_signals`.
+
+Cible finale Phase 2 : `ArpesExplorer` < 1500 LOC, < 50 méthodes.
+
+### Critère de refus Phase 2
+
+Si une update touche à la fois Γ + EF + dessin, elle est trop grosse et doit
+être redécoupée. Aucune de H–M ne doit franchir cette ligne.
+
+## ROADMAP PHASE 3 — transmission de l'outil
+
+> Phase 3 = "l'app doit survivre à la fin du stage M2".
+> N'attaquer que si l'outil doit être repris par un autre membre de l'équipe
+> ou rendu installable sur une autre machine. Pas nécessaire pour l'usage
+> personnel pendant le stage.
+
+### Update N — à faire — Packaging (`pyproject.toml`)
+
+But :
+- rendre l'app installable (`pip install .`) au lieu d'un dossier de scripts.
+
+Fichiers prévus :
+- nouveau `pyproject.toml` ;
+- transformation en package (`arpes_explorer/__init__.py`,
+  `arpes_explorer/__main__.py`) — option : laisser plat si trop intrusif ;
+- entrypoint console `arpes-explorer = arpes_explorer.__main__:main`.
+
+Contenu :
+- métadonnées (nom, version, auteur stage M2, licence si applicable) ;
+- dépendances : `numpy`, `scipy`, `matplotlib`, `PyQt6`, `pandas`,
+  `openpyxl`, `erlab` (en extras `[solaris]`) ;
+- `python_requires>=3.10`.
+
+Tests :
+- `pip install -e .` dans un venv frais ;
+- `arpes-explorer` lance l'app.
+
+Risque : faible si arborescence reste plate, élevé si on transforme tout en
+sous-package — préférer la version minimale.
+
+### Update O — à faire — CI
+
+But :
+- forcer `python3 -m unittest discover tests` à passer avant tout commit/PR.
+
+Si GitHub :
+- `.github/workflows/tests.yml`, Python 3.10 + 3.11, install + run tests.
+
+Si pas de GitHub :
+- `pre-commit` hook local qui lance la suite ;
+- documenter dans le README.
+
+### Update P — à faire — README de prise en main
+
+But :
+- qu'un nouveau dev puisse lancer l'app et comprendre l'arborescence en
+  < 30 minutes.
+
+Contenu minimum :
+- installation (env conda `peaks` ou `pip install`) ;
+- lancement (`arpes-explorer` ou `python3 arpes_explorer.py`) ;
+- structure du dépôt : qui fait quoi parmi `arpes_io`, `arpes_session`,
+  `arpes_logbook`, `arpes_loader_orchestrator`, `arpes_fit_controller`,
+  `arpes_export`, `arpes_resolution`, `arpes_models`, `arpes_gamma`
+  (+ futurs `arpes_cls_geometry`, `arpes_ef_controller`, `arpes_logbook_io`,
+  `arpes_plot_controller`) ;
+- formats supportés (Solaris .pxt/.ibw/.zip, BESSY .ibw, CLS texte) ;
+- conventions scientifiques figées (priorité metadata, signes d'angles,
+  formule résolution Scienta) ;
+- pointeur vers `AI_COUNCIL_PROMPT.md` et ce `.txt` ;
+- limites assumées (déconvolution résolution non faite, kz FS non intégré,
+  comparaison BM côte-à-côte non faite).
+
+### Tableau Phase 3
+
+| Étape | Effort | Risque | Quand |
+|-------|--------|--------|-------|
+| N — Packaging | petit | faible | si transmission décidée |
+| O — CI        | petit | faible | après N |
+| P — README    | petit | nul    | en parallèle |
+
+### État attendu à la fin de Phase 3
+
+- L'outil s'installe en une commande sur une machine vierge.
+- Les tests sont vérifiés automatiquement à chaque modification.
+- Un nouveau dev comprend la structure et les conventions sans demander.
+- L'app peut survivre à la fin du stage M2.
+
+### Limites assumées Phase 3
+
+- Phase 3 ne corrige aucun manque scientifique (déconvolution résolution
+  réelle, validation FS↔BM, intégration kz FS, comparaison BM côte-à-côte).
+- Phase 3 ne refond pas `arpes_plots.py` (2722 LOC) ni `arpes_io.py`
+  (1062 LOC) — hors scope sauf nouveau besoin.
+- Phase 3 ne met pas en place `mypy`/`pyright` strict — possible Update Q
+  si le typage devient critique.
+
+## Mise à jour 2026-05-05 — état après J/K/L et conseil pour la suite
+
+Cette section résume l'état réel après la reprise du cycle d'updates
+architecture. Elle sert de point de départ pour le prochain agent ou la
+prochaine session.
+
+### Ce qui vient d'être fait
+
+#### Conseil IA
+
+- `AI_COUNCIL_PROMPT.md` contient maintenant un rôle supplémentaire :
+  `Architecte applicatif`.
+- Rôle de cet agent :
+  - décider où implémenter chaque fonctionnalité pour rester harmonieux avec
+    l'application ;
+  - choisir entre module pur, manager existant, wrapper UI, extension loader ou
+    nouvelle abstraction ;
+  - empêcher de recréer un god-object dans `arpes_explorer.py` ;
+  - refuser les abstractions décoratives qui n'apportent pas de testabilité ou
+    de réduction de couplage.
+
+#### Update J — EFCalibrationController
+
+- `arpes_ef_controller.py` est branché dans `arpes_explorer.py`.
+- La logique EF extraite couvre :
+  - `axis_zero_in_kinetic(...)` ;
+  - `compute_calibration_update(...)` ;
+  - `already_applied(...)` ;
+  - `apply_reference_to_target(...)`.
+- `arpes_explorer.py` garde :
+  - `EFCalibrationDialog` ;
+  - les `QMessageBox` ;
+  - la mise à jour des spinboxes ;
+  - le reload/redraw après application.
+- Tests ajoutés : `tests/test_ef_controller.py`.
+
+#### Update K — LogbookIngestController
+
+- `arpes_logbook_io.py` est branché dans `_read_logbook(...)`.
+- La logique logbook extraite couvre :
+  - lecture Excel/CSV/TSV ;
+  - fallback CSV brut pour anciens logbooks avec ligne titre avant le header ;
+  - détection de vraie ligne d'en-tête ;
+  - héritage direction/polarisation/azi entre lignes ;
+  - callback de mapping manuel quand les colonnes ne sont pas détectées.
+- L'UI garde uniquement :
+  - choix de feuille Excel ;
+  - choix manuel de ligne d'en-tête ;
+  - choix manuel des colonnes.
+- Tests ajoutés : `tests/test_logbook_io.py`.
+
+#### Update L — PlotController, extraction sûre
+
+- `arpes_plot_controller.py` est ajouté.
+- Ce qui est maintenant hors UI :
+  - `apply_edcnorm(...)` ;
+  - `compute_secdev(...)` ;
+  - `compute_curvature(...)` ;
+  - `compute_bandmap_display(...)` ;
+  - `display_grid_config(...)` ;
+  - ROI : `fit_roi_bounds(...)`, `fit_roi_data(...)` ;
+  - échelles couleur : `map_color_kwargs(...)` ;
+  - waterfall : `prepare_waterfall_data(...)`, `draw_waterfall_axes(...)` ;
+  - fond commun des cartes BM : `draw_bandmap_axes(...)` ;
+  - courbes : `mdc_curve(...)`, `edc_curve(...)` ;
+  - zoom molette : `scroll_zoom_limits(...)` ;
+  - overlays simples : `draw_fit_roi_overlay(...)`, `draw_ef_label(...)`.
+- `arpes_explorer.py` garde volontairement :
+  - les canvases Matplotlib ;
+  - les callbacks souris ;
+  - les `redraw()` ;
+  - le bloc détaillé `_draw_mdc_edc()` car il dépend directement des contrôles
+    interactifs de fit (`FitParamsPanel`, `_pair_params`, contraintes, légendes,
+    modèle live).
+- Tests ajoutés/enrichis : `tests/test_plot_controller.py`.
+
+### Validation après ces updates
+
+Commande utilisée :
+
+```bash
+python3 -m unittest discover tests
+```
+
+Résultat :
+
+```text
+Ran 129 tests in 0.445s
+OK (skipped=11)
+```
+
+Compilations ciblées OK :
+
+```bash
+python3 -m py_compile arpes_ef_controller.py arpes_logbook_io.py arpes_plot_controller.py arpes_explorer.py
+```
+
+### État architectural actuel
+
+- `arpes_explorer.py` est beaucoup moins chargé en logique métier, mais reste
+  la couche UI principale.
+- Les décisions lourdes sont maintenant séparées :
+  - session : `arpes_session.py` ;
+  - modèles runtime : `arpes_models.py` ;
+  - logbook matching : `arpes_logbook.py` ;
+  - logbook IO : `arpes_logbook_io.py` ;
+  - orchestration loaders : `arpes_loader_orchestrator.py` ;
+  - géométrie CLS : `arpes_cls_geometry.py` ;
+  - Γ/angles : `arpes_gamma.py` ;
+  - EF : `arpes_ef_controller.py` ;
+  - fit : `arpes_fit_controller.py` ;
+  - export : `arpes_export.py` ;
+  - résolution : `arpes_resolution.py` ;
+  - préparation plot : `arpes_plot_controller.py`.
+- Les conventions scientifiques n'ont pas été changées pendant J/K/L.
+- Les corrections automatiques restent traçables via messages, metadata ou
+  session.
+
+### Conseil recommandé pour la suite
+
+#### Priorité 1 — Validation manuelle UI
+
+Avant toute nouvelle extraction, faire une passe manuelle dans l'app :
+
+1. Lancer :
+
+```bash
+python3 arpes_explorer.py
+```
+
+2. Charger un dossier avec logbook.
+3. Tester au minimum :
+   - chargement Solaris/BESSY/CLS ;
+   - regroupements navigateur ;
+   - affichage BM Raw/EDCnorm/SecDev/Curvature ;
+   - correction grille BM ;
+   - onglet MDC Fit ;
+   - waterfall ;
+   - calibration EF scalaire et poly si possible ;
+   - application référence EF ;
+   - FS + centrage Γ ;
+   - export CSV.
+
+Raison : les tests unitaires couvrent les décisions pures, mais pas encore les
+interactions Matplotlib/PyQt ni les callbacks souris.
+
+#### Priorité 2 — Update M, mais seulement si la validation UI est OK
+
+Update M recommandée :
+- découper `_load_file(...)` en sous-méthodes privées sans changer de module :
+  - `_resolve_load_inputs(...)` ;
+  - `_apply_loaded_data_to_session(...)` ;
+  - `_apply_loaded_data_to_ui(...)` ;
+  - `_finalize_load_status(...)`.
+- découper `_build_ui(...)` seulement si nécessaire :
+  - `_build_left_panel(...)` ;
+  - `_build_center_tabs(...)` ;
+  - `_build_right_panel(...)` ;
+  - `_wire_signals(...)`.
+
+Pourquoi M avant une nouvelle extraction scientifique :
+- faible risque ;
+- améliore la lisibilité ;
+- prépare la maintenance sans toucher aux conventions EF/Γ/k.
+
+#### Priorité 3 — Transmission / Phase 3
+
+Si l'app doit être reprise par quelqu'un d'autre :
+- faire `Update P` README avant packaging ;
+- ensuite seulement `Update N` packaging minimal ;
+- puis `Update O` CI ou hook local de tests.
+
+Ordre conseillé :
+
+```text
+README court → pyproject minimal → test command documentée/CI
+```
+
+#### Ce que je déconseille maintenant
+
+- Ne pas extraire `_draw_mdc_edc()` immédiatement dans un gros `PlotController`.
+  Ce bloc est trop couplé aux contrôles vivants du fit MDC. Si on le sort, le
+  faire comme une update dédiée avec validation visuelle avant/après.
+- Ne pas mélanger Update M avec une nouvelle fonctionnalité scientifique.
+- Ne pas modifier simultanément loader + normalisation + affichage : en cas de
+  régression, on ne saurait plus attribuer la cause.
+- Ne pas attaquer packaging complet `.app`/PyInstaller maintenant : trop tôt,
+  et probablement fragile avec PyQt/scipy/matplotlib/erlab.
+
+### Prochaine action recommandée
+
+Prochaine session :
+
+1. Validation manuelle UI rapide.
+2. Si OK : Update M sur `_load_file(...)`.
+3. Relancer :
+
+```bash
+python3 -m py_compile arpes_explorer.py
+python3 -m unittest discover tests
+```
+
+4. Mettre à jour cette section avec les résultats.

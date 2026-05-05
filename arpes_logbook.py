@@ -1,0 +1,333 @@
+"""Helpers purs pour parsing et matching de logbooks ARPES."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from dataclasses import dataclass, field
+import re
+import unicodedata
+
+import numpy as np
+
+
+@dataclass
+class LogbookAppliedValues:
+    """Valeurs extraites d'une ligne logbook, sans effet UI."""
+
+    hv: float | None = None
+    temperature: float | None = None
+    polarization: str = ""
+    direction: str = ""
+    azi: float | None = None
+    polar: float | None = None
+    tilt: float | None = None
+    sources: dict[str, str] = field(default_factory=dict)
+
+    def has_any(self) -> bool:
+        return any([
+            self.hv is not None,
+            self.temperature is not None,
+            bool(self.polarization),
+            bool(self.direction),
+            self.azi is not None,
+            self.polar is not None,
+            self.tilt is not None,
+        ])
+
+
+class LogbookManager:
+    """Decision pure autour du logbook : matching et extraction de valeurs."""
+
+    def __init__(
+        self,
+        records: list[dict] | None = None,
+        mapping: dict[str, str] | None = None,
+        session_folder: str | Path | None = None,
+    ):
+        self.records = list(records or [])
+        self.mapping = dict(mapping or {})
+        self.session_folder = Path(session_folder) if session_folder is not None else None
+
+    def find_record_for_path(self, path: str | Path) -> dict | None:
+        file_col = self.mapping.get("file", "")
+        if not file_col:
+            return None
+        for rec in self.records:
+            if _record_matches_path(rec.get(file_col), path, self.session_folder):
+                return rec
+        return None
+
+    def values_from_record(self, record: dict | None) -> LogbookAppliedValues:
+        if not record:
+            return LogbookAppliedValues()
+        m = self.mapping
+        out = LogbookAppliedValues()
+
+        hv = _cell_float(record.get(m.get("hv", "")))
+        if hv is not None and hv > 0:
+            out.hv = float(hv)
+            out.sources["hv"] = "logbook"
+
+        temp_col = m.get("temperature", "")
+        temp = _cell_float(record.get(temp_col)) if temp_col else None
+        if temp is not None:
+            out.temperature = float(temp)
+            out.sources["temperature"] = "logbook"
+
+        pol_col = m.get("polarization", "")
+        pol = _cell_text(record.get(pol_col)) if pol_col else ""
+        if pol:
+            out.polarization = pol
+            out.sources["polarization"] = "logbook"
+
+        azi_col = m.get("azi", "")
+        azi = _cell_float(record.get(azi_col)) if azi_col else None
+        if azi is not None and np.isfinite(azi):
+            out.azi = float(azi)
+            out.sources["azi"] = "logbook"
+
+        dir_col = m.get("direction", "")
+        direction = _cell_text(record.get(dir_col)) if dir_col else ""
+        if direction:
+            out.direction = _format_direction_label(direction)
+            out.sources["direction"] = "logbook"
+
+        polar_col = m.get("polar", "")
+        polar = _cell_float(record.get(polar_col)) if polar_col else None
+        if polar is not None and np.isfinite(polar):
+            out.polar = float(polar)
+            out.sources["polar"] = "logbook"
+
+        tilt_col = m.get("tilt", "")
+        tilt = _cell_float(record.get(tilt_col)) if tilt_col else None
+        if tilt is not None and np.isfinite(tilt):
+            out.tilt = float(tilt)
+            out.sources["tilt"] = "logbook"
+
+        return out
+
+    def values_for_path(self, path: str | Path) -> LogbookAppliedValues:
+        return self.values_from_record(self.find_record_for_path(path))
+
+    def apply_to_entry(self, entry: Any, path: str | Path) -> LogbookAppliedValues:
+        values = self.values_for_path(path)
+        if values.hv is not None:
+            entry.meta.hv = values.hv
+        if values.temperature is not None:
+            entry.meta.temperature = values.temperature
+        if values.polarization:
+            entry.meta.polarization = values.polarization
+        if values.direction:
+            entry.meta.direction = values.direction
+        if values.azi is not None:
+            entry.meta.azi = values.azi
+        if values.polar is not None:
+            entry.meta.polar = values.polar
+        if values.tilt is not None:
+            entry.meta.tilt = values.tilt
+        return values
+
+
+def _norm_text(value: Any) -> str:
+    s = "" if value is None else str(value)
+    s = s.replace("ν", "nu").replace("Ν", "nu")
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "", s.lower())
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and np.isnan(value):
+        return ""
+    return str(value).strip()
+
+
+def _cell_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.replace(",", ".")
+        m = re.search(r"[-+]?\d+(?:\.\d+)?", value)
+        if not m:
+            return None
+        value = m.group(0)
+    try:
+        out = float(value)
+    except Exception:
+        return None
+    return out if np.isfinite(out) else None
+
+
+def _pick_column(columns: list[str], groups: list[list[str]]) -> str:
+    normalized = {c: _norm_text(c) for c in columns}
+    for group in groups:
+        keys = [_norm_text(k) for k in group]
+        for col, name in normalized.items():
+            if all(k in name for k in keys):
+                return col
+    return ""
+
+
+def _pick_exact_column(columns: list[str], aliases: set[str]) -> str:
+    normalized_aliases = {_norm_text(a) for a in aliases}
+    for col in columns:
+        if _norm_text(col) in normalized_aliases:
+            return col
+    return ""
+
+
+def _pick_direction_column(columns: list[str]) -> str:
+    col = _pick_column(columns, [
+        ["direction"], ["direct"], ["cut"], ["coupe"], ["chemin"],
+        ["zdb"], ["zone", "boundary"], ["brillouin", "zone"],
+        ["high", "symmetry"], ["symmetry", "path"], ["symmetry"],
+        ["k", "path"], ["scan", "path"], ["path", "bz"],
+        ["orientation"], ["geometry"], ["geometrie"], ["geom"],
+        ["trajectory"], ["traj"], ["ligne"], ["line"],
+        ["gamma"], ["gamme"],
+    ])
+    if col:
+        return col
+    aliases = {
+        "g", "gamma", "gammapath", "gammaline", "gammacut",
+        "highsymmetry", "highsymmetrypath", "zdb", "bzpath",
+    }
+    for candidate in columns:
+        if _norm_text(candidate) in aliases:
+            return candidate
+    return ""
+
+
+def _format_direction_label(value: Any) -> str:
+    s = _cell_text(value)
+    if not s:
+        return ""
+    s = re.sub(r"(?i)\bgamma\b", "Γ", s)
+    s = re.sub(r"(?i)\bgamma(?=[A-Z0-9])", "Γ", s)
+    s = re.sub(r"(?i)\bg(?=\s*(?:$|[-_/→> ]))", "Γ", s)
+    if re.fullmatch(r"(?i)g[mkxy][a-z0-9_-]*", s.strip()):
+        s = "Γ" + s.strip()[1:]
+    return s.strip()
+
+
+def _infer_legacy_measurement_plan_mapping(columns: list[str]) -> dict[str, str]:
+    normalized = {c: _norm_text(c) for c in columns}
+    by_norm = {v: k for k, v in normalized.items()}
+    has_legacy_shape = "num" in by_norm and (
+        "energy" in by_norm or "measurementtype" in by_norm or "measurement type" in by_norm
+    )
+    if not has_legacy_shape:
+        return {}
+    return {
+        "file": by_norm.get("num", ""),
+        "hv": by_norm.get("energy", ""),
+        "temperature": by_norm.get("temp", ""),
+        "polarization": by_norm.get("pol", ""),
+        "azi": "",
+        "polar": by_norm.get("polar", ""),
+        "tilt": "",
+        "direction": by_norm.get("direction", ""),
+    }
+
+
+def _infer_logbook_mapping(columns: list[str]) -> dict[str, str]:
+    mapping = {
+        "file": _pick_column(columns, [
+            ["file"], ["filename"], ["fichier"], ["scan"], ["measurement"],
+            ["measure"], ["name"], ["nom"], ["run"], ["sample"],
+        ]),
+        "hv": _pick_column(columns, [
+            ["hv"], ["hnu"], ["photon", "energy"], ["photon", "energie"],
+            ["energy", "ev"], ["energie", "ev"], ["hn"],
+        ]),
+        "temperature": _pick_column(columns, [
+            ["sample", "temperature"], ["temperature"], ["temp"], ["t", "sample"], ["t", "k"],
+        ]),
+        "polarization": _pick_exact_column(columns, {
+            "pol", "polarization", "polarisation", "light polarization",
+            "light polarisation", "photon polarization", "photon polarisation",
+            "e vector", "e-vector", "lv", "lh",
+        }) or _pick_column(columns, [
+            ["polarization"], ["polarisation"],
+            ["pol"], ["light", "polarization"], ["light", "polarisation"],
+            ["photon", "polarization"], ["photon", "polarisation"],
+            ["e", "vector"], ["e-vector"], ["lv"], ["lh"],
+        ]),
+        "azi": _pick_column(columns, [
+            ["azi"], ["azimuth"], ["azimut"], ["phi", "azimuth"],
+        ]),
+        "polar": _pick_exact_column(columns, {
+            "polar", "p", "p axis", "p-axis", "p axis deg", "p-axis deg",
+        }) or _pick_column(columns, [
+            ["theta"], ["polar", "angle"], ["polar", "deg"],
+            ["manip", "p"],
+        ]),
+        "tilt": _pick_column(columns, [
+            ["phi"], ["tilt"], ["manip", "t"],
+        ]),
+        "direction": _pick_direction_column(columns),
+    }
+    legacy = _infer_legacy_measurement_plan_mapping(columns)
+    for key, val in legacy.items():
+        current_norm = _norm_text(mapping.get(key, ""))
+        legacy_should_override = key == "file" and current_norm in {"measurementtype", "sample"}
+        if val and (not mapping.get(key) or legacy_should_override):
+            mapping[key] = val
+    return mapping
+
+
+def _path_match_tokens(path: str | Path, session_folder: Path | None) -> list[str]:
+    p = Path(path)
+    tokens = [p.name, p.stem]
+    if session_folder is not None:
+        try:
+            rel = p.resolve().relative_to(session_folder.resolve())
+            tokens.extend([str(rel), rel.name, rel.stem])
+        except Exception:
+            pass
+    return sorted({t for t in tokens if t}, key=len, reverse=True)
+
+
+def _extract_measurement_numbers(text: str) -> set[int]:
+    out: set[int] = set()
+    if not text:
+        return out
+    for pat in (r"(\d{3,4})w", r"_(\d{1,4})(?:\D|$)"):
+        for m in re.finditer(pat, text):
+            try:
+                out.add(int(m.group(1)))
+            except ValueError:
+                pass
+    return out
+
+
+def _path_measurement_numbers(path: str | Path) -> set[int]:
+    p = Path(path)
+    out: set[int] = set()
+    for text in (p.name, p.stem):
+        out |= _extract_measurement_numbers(text)
+    return out
+
+
+def _record_matches_path(record_value: Any, path: str | Path, session_folder: Path | None) -> bool:
+    value = _cell_text(record_value)
+    if not value:
+        return False
+    path_nums = _path_measurement_numbers(path)
+    num = _cell_float(record_value)
+    if num is not None and abs(num - round(num)) < 1e-9:
+        if int(round(num)) in path_nums:
+            return True
+    cell_nums = _extract_measurement_numbers(value)
+    if cell_nums and path_nums and (cell_nums & path_nums):
+        return True
+    value_norm = value.lower()
+    for token in _path_match_tokens(path, session_folder):
+        token_norm = token.lower()
+        if value_norm == token_norm:
+            return True
+        pat = r"(?<![A-Za-z0-9])" + re.escape(token_norm) + r"(?![A-Za-z0-9])"
+        if re.search(pat, value_norm):
+            return True
+    return False

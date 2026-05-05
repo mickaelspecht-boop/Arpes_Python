@@ -24,25 +24,77 @@ import json
 import re
 import sys
 import traceback
-import unicodedata
 import warnings
-from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Optional
-
 import matplotlib
 matplotlib.use("QtAgg")
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
 from matplotlib.figure import Figure
-from matplotlib.colors import PowerNorm
 from matplotlib.patches import Rectangle
-from scipy.ndimage import gaussian_filter1d, gaussian_filter
+from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
+from arpes_cls_geometry import (
+    geometry_for_path as _cls_geometry_for_path_pure,
+    manipulator_from_param as _cls_manipulator_from_param_pure,
+)
+from arpes_export import result_rows, write_results_csv
+from arpes_ef_controller import (
+    ReferenceError as EFReferenceError,
+    already_applied as ef_reference_already_applied,
+    apply_reference_to_target as apply_ef_reference_to_target,
+    compute_calibration_update as compute_ef_calibration_update,
+)
+from arpes_fit_controller import FitController
+from arpes_gamma import (
+    angle_offset_candidates_for_load as _gamma_angle_offset_candidates,
+    angle_offsets_from_k_center as _gamma_angle_offsets_from_k_center,
+    apply_bm_gamma_axis_shift as _gamma_apply_bm_axis_shift,
+    build_gamma_reference as _gamma_build_reference,
+    gamma_reference_to_bm_center as _gamma_ref_to_bm_center,
+    k_to_angle_offset_deg as _gamma_k_to_angle_offset_deg,
+    project_gamma_by_azi as _gamma_project_by_azi,
+    score_bm_gamma_residual as _gamma_score_bm_residual,
+    stored_gamma_reference as _gamma_stored_reference,
+)
+from arpes_logbook import (
+    LogbookManager,
+    _cell_float,
+    _cell_text,
+    _format_direction_label,
+    _norm_text,
+    _record_matches_path,
+)
+from arpes_logbook_io import (
+    best_excel_table as _logbook_best_excel_table,
+    excel_header_candidates as _logbook_excel_header_candidates,
+    excel_table_from_header as _logbook_excel_table_from_header,
+    inherit_logbook_context as _logbook_inherit_context,
+    read_delimited_logbook_raw as _logbook_read_delimited_raw,
+    read_logbook as read_logbook_file,
+)
+from arpes_loader_orchestrator import LoaderOrchestrator
 from arpes_norm import remove_grid_artifact as remove_detector_grid_artifact
+from arpes_plot_controller import (
+    apply_edcnorm,
+    compute_bandmap_display,
+    draw_bandmap_axes as _plot_draw_bandmap_axes,
+    draw_ef_label as _plot_draw_ef_label,
+    draw_fit_roi_overlay as _plot_draw_fit_roi_overlay,
+    draw_waterfall_axes as _plot_draw_waterfall_axes,
+    display_grid_config as _plot_display_grid_config,
+    edc_curve as _plot_edc_curve,
+    fit_roi_bounds as _plot_fit_roi_bounds,
+    fit_roi_data as _plot_fit_roi_data,
+    map_color_kwargs as _plot_map_color_kwargs,
+    mdc_curve as _plot_mdc_curve,
+    scroll_zoom_limits as _plot_scroll_zoom_limits,
+)
+from arpes_resolution import estimate_resolutions
+from arpes_session import FileEntry, FitParams, Session
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter, QTabWidget,
@@ -53,276 +105,6 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
     QDialog, QDialogButtonBox, QStackedWidget,
 )
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Session — dataclasses + JSON
-# ─────────────────────────────────────────────────────────────────────────────
-
-@dataclass
-class FitParams:
-    n_pairs: int       = 1
-    ev_start: float    = -0.90
-    ev_end: float      = -0.005
-    k_min: float       = -0.80
-    k_max: float       =  0.80
-    smooth_fit: float  = 2.0
-    smooth_detect: float = 3.0
-    gamma_init: float  = 0.08
-    gamma_max: float   = 0.30
-    xg_range: float    = 0.10
-    center_init: float = 0.0
-    k0_max: Optional[float] = None
-    width_mode: str    = "symmetric"
-    min_amplitude: float = 0.01
-    max_jump: float    = 0.20
-    scan_direction: str = "up"
-    pairs: list = field(default_factory=lambda: [
-        {"kF_init": 0.30, "gamma_init": 0.08, "gamma_max": 0.30}
-    ])
-
-
-@dataclass
-class FileMeta:
-    hv: float          = 0.0
-    temperature: float = 0.0
-    direction: str     = ""
-    polarization: str  = ""
-    meas_no: int       = 0
-    azi: Optional[float] = None        # azimut échantillon (deg) — None = inconnu
-    polar: Optional[float] = None      # manipulateur P / theta (deg)
-    tilt: Optional[float] = None       # manipulateur T / phi (deg)
-
-
-@dataclass
-class FileEntry:
-    ef_offset: float   = 0.052
-    edcnorm: bool      = True
-    view_mode: str     = "EDCnorm"          # Raw / EDCnorm / SecDev / Curvature
-    fit_params: FitParams   = field(default_factory=FitParams)
-    fit_result: Optional[dict] = None        # sérialisé (listes, pas ndarray)
-    meta: FileMeta     = field(default_factory=FileMeta)
-    fs_center_kx: Optional[float] = None
-    fs_center_ky: Optional[float] = None
-    grid_correction: dict = field(default_factory=dict)
-    ef_correction: dict = field(default_factory=dict)
-    # ef_correction = {} ou {"mode": "poly", "poly_coefs": [...], "k_min": ..,
-    # "k_max": .., "T": .., "fwhm_res": .., "rms": .., "n_valid": ..,
-    # "source": "self"|"reference", "ref_file": "..."}
-
-    @property
-    def status(self) -> str:
-        if self.fit_result:
-            return "fitted"
-        return "loaded"
-
-
-def _to_serial(obj):
-    """Convertit récursivement np.ndarray / np.floating en types JSON."""
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    if isinstance(obj, (np.floating, np.integer)):
-        return obj.item()
-    if hasattr(obj, "isoformat"):
-        try:
-            return obj.isoformat()
-        except Exception:
-            pass
-    if isinstance(obj, dict):
-        return {k: _to_serial(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_to_serial(v) for v in obj]
-    return obj
-
-
-class Session:
-    VERSION = 1
-
-    def __init__(self, folder: Path | None = None, work_func: float = 4.031):
-        self.folder:    Path | None = folder
-        self.work_func: float       = work_func
-        self.files:     dict[str, FileEntry] = {}
-        self.logbook_path: str = ""
-        self.logbook_sheet: str = ""
-        self.logbook_mapping: dict[str, str] = {}
-        self.logbook_records: list[dict] = []
-        self.gamma_reference: dict = {}
-        self.angle_offsets: dict = {}
-        self.ef_reference: dict    = {}    # correction EF(theta) de référence (Au)
-
-    # ── persistance ───────────────────────────────────────────────────────────
-    @property
-    def json_path(self) -> Path | None:
-        return self.folder / ".arpes_session.json" if self.folder else None
-
-    def save(self):
-        if not self.json_path:
-            return
-        data = {
-            "version":   self.VERSION,
-            "folder":    str(self.folder),
-            "work_func": self.work_func,
-            "logbook_path": self.logbook_path,
-            "logbook_sheet": self.logbook_sheet,
-            "logbook_mapping": _to_serial(self.logbook_mapping),
-            "logbook_records": _to_serial(self.logbook_records),
-            "gamma_reference": _to_serial(self.gamma_reference),
-            "angle_offsets":   _to_serial(self.angle_offsets),
-            "ef_reference":    _to_serial(self.ef_reference),
-            "files": {
-                name: _to_serial(asdict(entry))
-                for name, entry in self.files.items()
-            },
-        }
-        self.json_path.write_text(json.dumps(data, indent=2))
-
-    def load(self, path: Path):
-        raw = json.loads(path.read_text())
-        self.work_func = raw.get("work_func", 4.031)
-        self.logbook_path = raw.get("logbook_path", "")
-        self.logbook_sheet = raw.get("logbook_sheet", "")
-        self.logbook_mapping = raw.get("logbook_mapping", {})
-        self.logbook_records = raw.get("logbook_records", [])
-        self.gamma_reference = raw.get("gamma_reference", {})
-        self.angle_offsets   = raw.get("angle_offsets", {}) or {}
-        self.ef_reference    = raw.get("ef_reference", {}) or {}
-        for name, edict in raw.get("files", {}).items():
-            fp = FitParams(**edict.get("fit_params", {}))
-            mt = FileMeta(**edict.get("meta", {}))
-            entry = FileEntry(
-                ef_offset  = edict.get("ef_offset", 0.052),
-                edcnorm    = edict.get("edcnorm", True),
-                view_mode  = edict.get("view_mode", "EDCnorm"),
-                fit_params = fp,
-                fit_result = edict.get("fit_result"),
-                meta       = mt,
-                fs_center_kx = edict.get("fs_center_kx"),
-                fs_center_ky = edict.get("fs_center_ky"),
-                grid_correction = edict.get("grid_correction", {}) or {},
-                ef_correction   = edict.get("ef_correction", {}) or {},
-            )
-            self.files[name] = entry
-
-    # ── helpers ───────────────────────────────────────────────────────────────
-    def get_or_create(self, filename: str) -> FileEntry:
-        if filename not in self.files:
-            self.files[filename] = FileEntry()
-        return self.files[filename]
-
-    def set_fit_result(self, filename: str, fr: dict):
-        entry = self.get_or_create(filename)
-        entry.fit_result = _to_serial(fr)
-        self.save()
-
-    def key_for_path(self, path: str | Path) -> str:
-        """Clé stable de session : chemin relatif au dossier racine si possible."""
-        p = Path(path)
-        if self.folder is not None:
-            try:
-                return str(p.resolve().relative_to(self.folder.resolve()))
-            except Exception:
-                pass
-        return p.name
-
-
-def _norm_text(value) -> str:
-    s = "" if value is None else str(value)
-    s = s.replace("ν", "nu").replace("Ν", "nu")
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", "", s.lower())
-
-
-def _cell_text(value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, float) and np.isnan(value):
-        return ""
-    return str(value).strip()
-
-
-def _cell_float(value) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        value = value.replace(",", ".")
-        m = re.search(r"[-+]?\d+(?:\.\d+)?", value)
-        if not m:
-            return None
-        value = m.group(0)
-    try:
-        out = float(value)
-    except Exception:
-        return None
-    return out if np.isfinite(out) else None
-
-
-def _pick_column(columns: list[str], groups: list[list[str]]) -> str:
-    normalized = {c: _norm_text(c) for c in columns}
-    for group in groups:
-        keys = [_norm_text(k) for k in group]
-        for col, name in normalized.items():
-            if all(k in name for k in keys):
-                return col
-    return ""
-
-
-def _infer_logbook_mapping(columns: list[str]) -> dict[str, str]:
-    return {
-        "file": _pick_column(columns, [
-            ["file"], ["filename"], ["fichier"], ["scan"], ["measurement"],
-            ["measure"], ["name"], ["nom"], ["run"], ["sample"],
-        ]),
-        "hv": _pick_column(columns, [
-            ["hv"], ["hnu"], ["photon", "energy"], ["photon", "energie"],
-            ["energy", "ev"], ["energie", "ev"], ["hn"],
-        ]),
-        "temperature": _pick_column(columns, [
-            ["temperature"], ["temp"], ["t", "k"],
-        ]),
-        "polarization": _pick_column(columns, [
-            ["polarization"], ["polarisation"], ["pol"],
-        ]),
-        "azi": _pick_column(columns, [
-            ["azi"], ["azimuth"], ["azimut"], ["phi", "azimuth"],
-        ]),
-        "polar": _pick_column(columns, [
-            ["theta"], ["polar", "angle"], ["polar", "deg"],
-            ["manip", "p"], ["sample", "p"],
-        ]),
-        "tilt": _pick_column(columns, [
-            ["phi"], ["tilt"], ["manip", "t"], ["sample", "t"],
-        ]),
-        "direction": _pick_column(columns, [
-            ["direction"], ["direct"], ["cut"], ["coupe"], ["chemin"],
-        ]),
-    }
-
-
-def _path_match_tokens(path: str | Path, session_folder: Path | None) -> list[str]:
-    p = Path(path)
-    tokens = [p.name, p.stem]
-    if session_folder is not None:
-        try:
-            rel = p.resolve().relative_to(session_folder.resolve())
-            tokens.extend([str(rel), rel.name, rel.stem])
-        except Exception:
-            pass
-    return sorted({t for t in tokens if t}, key=len, reverse=True)
-
-
-def _record_matches_path(record_value, path: str | Path, session_folder: Path | None) -> bool:
-    value = _cell_text(record_value)
-    if not value:
-        return False
-    value_norm = value.lower()
-    for token in _path_match_tokens(path, session_folder):
-        token_norm = token.lower()
-        if value_norm == token_norm:
-            return True
-        pat = r"(?<![A-Za-z0-9])" + re.escape(token_norm) + r"(?![A-Za-z0-9])"
-        if re.search(pat, value_norm):
-            return True
-    return False
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Chargement arpes_plots
@@ -340,11 +122,13 @@ def _load_ap():
     raise FileNotFoundError("arpes_plots.py introuvable")
 
 try:
-    from arpes_io import load_arpes, ARPESData
+    from arpes_io import load_arpes, detect_format, detect_scan_kind, ARPESData
     from arpes_fs import FermiSurfaceCanvas, FSControlPanel
     ERLAB_OK = True
 except Exception:
     load_arpes = None
+    detect_format = None
+    detect_scan_kind = None
     ARPESData = None
     FermiSurfaceCanvas = None
     FSControlPanel = None
@@ -362,7 +146,8 @@ def load_arpes_file(path: str, work_func: float, ef_offset: float,
                     temperature: float | None = None,
                     azi: float | None = None,
                     pol: str = "",
-                    angle_offsets: dict | None = None) -> dict | None:
+                    angle_offsets: dict | None = None,
+                    bessy_energy_reference: str = "auto") -> dict | None:
     if not ERLAB_OK or load_arpes is None:
         return None
     ds = load_arpes(path, work_func=work_func, ef_offset=ef_offset,
@@ -370,8 +155,31 @@ def load_arpes_file(path: str, work_func: float, ef_offset: float,
                     temperature=temperature,
                     azi=float(azi) if azi is not None else 0.0,
                     pol=pol,
-                    angle_offsets=angle_offsets)
+                    angle_offsets=angle_offsets,
+                    bessy_energy_reference=bessy_energy_reference)
     return ds.as_legacy_bandmap_dict()
+
+
+def _loader_label(source_format: str | None, metadata: dict | None = None) -> str:
+    """Label court et stable pour l'affichage utilisateur."""
+    fmt = (source_format or "").strip()
+    md = metadata or {}
+    explicit = str(md.get("loader_label") or md.get("lab_label") or "").strip()
+    if explicit:
+        return explicit
+    lab = str(md.get("lab") or "").strip().lower()
+    if "cls" in lab or "lnls" in lab:
+        return "CLS"
+    labels = {
+        "cls_txt": "CLS",
+        "solaris_da30": "Solaris",
+        "bessy_ses_ibw": "BESSY",
+    }
+    if fmt in labels:
+        return labels[fmt]
+    if not fmt:
+        return ""
+    return fmt.replace("_", " ").replace("-", " ").title()
 
 
 def apply_ef_correction_to_dict(d: dict, cfg: dict) -> tuple[dict, dict]:
@@ -398,32 +206,6 @@ def apply_ef_correction_to_dict(d: dict, cfg: dict) -> tuple[dict, dict]:
     out["data"] = data_corr
     info = {"ef_smooth": ef_smooth, "ef_center": float(np.interp(0.0, kpar, ef_smooth))}
     return out, info
-
-
-def apply_edcnorm(data: np.ndarray) -> np.ndarray:
-    edc  = np.nanmean(data, axis=0, keepdims=True)
-    safe = np.where((np.abs(edc) > 1e-12) & np.isfinite(edc), edc, 1.0)
-    return data / safe
-
-
-def compute_secdev(data: np.ndarray, kpar, ev_arr,
-                   sigma_k=2.0, sigma_e=2.0) -> np.ndarray:
-    """−d²I/dE² lissée."""
-    d = gaussian_filter(data.astype(float), sigma=[sigma_k, sigma_e])
-    de = np.gradient(np.gradient(d, ev_arr, axis=1), ev_arr, axis=1)
-    return -de
-
-
-def compute_curvature(data: np.ndarray, kpar, ev_arr,
-                      sigma_k=2.0, sigma_e=2.0) -> np.ndarray:
-    """Courbure 2D −∇²I / (1+|∇I|²)^(3/2)."""
-    d = gaussian_filter(data.astype(float), sigma=[sigma_k, sigma_e])
-    gk = np.gradient(d, kpar, axis=0)
-    ge = np.gradient(d, ev_arr, axis=1)
-    denom = (1.0 + gk**2 + ge**2) ** 1.5
-    lap = (np.gradient(np.gradient(d, kpar, axis=0), kpar, axis=0) +
-           np.gradient(np.gradient(d, ev_arr, axis=1), ev_arr, axis=1))
-    return -lap / (denom + 1e-30)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -574,6 +356,12 @@ class FileBrowserPanel(QWidget):
         self._session = session
         self._folder: Path | None = None
         self._collapsed_groups: set[str] = set()
+        self._group_mode = "Dossier"
+        self._group_fields: list[str] = ["Dossier"]
+        self._items_cache: list[Path] | None = None
+        self._loader_label_cache: dict[str, tuple[tuple[int, int] | None, str]] = {}
+        self._scan_kind_cache: dict[str, tuple[tuple[int, int] | None, str]] = {}
+        self._logbook_record_cache: dict[str, dict | None] = {}
         self._build()
 
     def _build(self):
@@ -584,11 +372,54 @@ class FileBrowserPanel(QWidget):
         btn = QPushButton("📂 Dossier")
         btn.clicked.connect(self._open_folder)
         top.addWidget(btn)
+        btn_refresh = QPushButton("↻")
+        btn_refresh.setFixedWidth(32)
+        btn_refresh.setToolTip("Rafraîchir la liste des fichiers")
+        btn_refresh.clicked.connect(self.refresh)
+        top.addWidget(btn_refresh)
         self._lbl_folder = QLabel("—")
         self._lbl_folder.setWordWrap(True)
         self._lbl_folder.setStyleSheet("font-size:10px; color:#aaa;")
         lay.addLayout(top)
         lay.addWidget(self._lbl_folder)
+
+        self._lbl_summary = QLabel("Aucun dossier chargé")
+        self._lbl_summary.setWordWrap(True)
+        self._lbl_summary.setStyleSheet("font-size:10px; color:#aaa;")
+        lay.addWidget(self._lbl_summary)
+
+        mode_row = QVBoxLayout()
+        mode_title = QLabel("Organiser par:")
+        mode_title.setStyleSheet("font-size:10px; color:#aaa;")
+        mode_row.addWidget(mode_title)
+        checks_row_1 = QHBoxLayout()
+        checks_row_2 = QHBoxLayout()
+        self._group_checks: dict[str, QCheckBox] = {}
+        group_defs = [
+            ("Dossier", "Dossier"),
+            ("Type", "Type"),
+            ("hν", "hν"),
+            ("Température", "T"),
+            ("Chemin", "Chemin"),
+            ("Polarisation", "Pol"),
+            ("Labo", "Labo"),
+        ]
+        for i, (field, label) in enumerate(group_defs):
+            chk = QCheckBox(label)
+            chk.setChecked(field == "Dossier")
+            chk.setToolTip(
+                "Critère cumulable d'organisation visuelle.\n"
+                "N'applique aucune correction EF/Γ et ne prouve pas que les "
+                "fichiers sont directement comparables."
+            )
+            chk.stateChanged.connect(self._on_group_checks_changed)
+            self._group_checks[field] = chk
+            (checks_row_1 if i < 4 else checks_row_2).addWidget(chk)
+        checks_row_1.addStretch(1)
+        checks_row_2.addStretch(1)
+        mode_row.addLayout(checks_row_1)
+        mode_row.addLayout(checks_row_2)
+        lay.addLayout(mode_row)
 
         self._list = QListWidget()
         self._list.setStyleSheet("""
@@ -599,12 +430,21 @@ class FileBrowserPanel(QWidget):
         self._list.currentItemChanged.connect(self._on_selection_change)
         lay.addWidget(self._list, stretch=1)
 
-        self._btn_load = QPushButton("↵ Charger")
+        self._lbl_selection = QLabel("Sélectionne un fichier à charger")
+        self._lbl_selection.setWordWrap(True)
+        self._lbl_selection.setStyleSheet(
+            "font-size:10px; color:#c8c8c8; background:#1c1c1c; "
+            "border:1px solid #333; padding:5px; border-radius:3px;"
+        )
+        lay.addWidget(self._lbl_selection)
+
+        self._btn_load = QPushButton("↵ Charger la sélection")
         self._btn_load.clicked.connect(self._load_selected)
+        self._btn_load.setEnabled(False)
         lay.addWidget(self._btn_load)
 
-        self.setMinimumWidth(210)
-        self.setMaximumWidth(280)
+        self.setMinimumWidth(250)
+        self.setMaximumWidth(340)
 
     def _open_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Dossier données ARPES",
@@ -616,11 +456,22 @@ class FileBrowserPanel(QWidget):
         self._folder = folder
         self._session.folder = folder
         self._lbl_folder.setText(folder.name)
+        self._items_cache = None
+        self._loader_label_cache.clear()
+        self._scan_kind_cache.clear()
+        self._logbook_record_cache.clear()
         if self._session.json_path and self._session.json_path.exists():
             try:
                 self._session.load(self._session.json_path)
             except Exception:
                 pass
+        self._populate()
+
+    def refresh(self):
+        self._items_cache = None
+        self._loader_label_cache.clear()
+        self._scan_kind_cache.clear()
+        self._logbook_record_cache.clear()
         self._populate()
 
     def _is_cls_dataset_dir(self, p: Path) -> bool:
@@ -643,6 +494,8 @@ class FileBrowserPanel(QWidget):
         return p.suffix == "" and (p.parent / f"{p.name}_param.txt").exists()
 
     def _discover_items(self) -> list[Path]:
+        if self._items_cache is not None:
+            return list(self._items_cache)
         if not self._folder:
             return []
         out: list[Path] = []
@@ -659,12 +512,312 @@ class FileBrowserPanel(QWidget):
                        for parent in p.parents if self._folder in parent.parents or parent == self._folder):
                     continue
                 out.append(p)
-        return sorted(set(out), key=lambda x: str(x.relative_to(self._folder)).lower())
+        self._items_cache = sorted(set(out), key=lambda x: str(x.relative_to(self._folder)).lower())
+        return list(self._items_cache)
 
     def _group_label(self, group: str) -> str:
         if group == ".":
             return self._folder.name if self._folder else "."
         return group
+
+    def _on_group_checks_changed(self):
+        fields = [name for name, chk in self._group_checks.items() if chk.isChecked()]
+        if not fields:
+            fields = ["Dossier"]
+            self._group_checks["Dossier"].blockSignals(True)
+            self._group_checks["Dossier"].setChecked(True)
+            self._group_checks["Dossier"].blockSignals(False)
+        self._group_fields = fields
+        self._group_mode = fields[0] if len(fields) == 1 else " + ".join(fields)
+        self._collapsed_groups.clear()
+        self._populate()
+
+    def _loader_suffix_for_path(self, path: str | Path, key: str | None = None) -> str:
+        label = self._loader_label_for_path(path, key)
+        return f" ({label})" if label else ""
+
+    def _path_signature(self, path: Path) -> tuple[int, int] | None:
+        try:
+            st = path.stat()
+            return (int(st.st_mtime_ns), int(st.st_size if path.is_file() else -1))
+        except OSError:
+            return None
+
+    def _loader_label_for_path(self, path: str | Path, key: str | None = None) -> str:
+        p = Path(path)
+        key = key or self._session.key_for_path(p)
+        entry = self._session.files.get(key)
+        label = ""
+        if entry is not None:
+            label = entry.meta.loader_label or _loader_label(entry.meta.source_format)
+        if label:
+            return label
+        cache_key = str(p)
+        sig = self._path_signature(p)
+        cached = self._loader_label_cache.get(cache_key)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        if not label and detect_format is not None:
+            try:
+                label = _loader_label(detect_format(p))
+            except Exception:
+                label = ""
+        self._loader_label_cache[cache_key] = (sig, label)
+        return label
+
+    def _fs_suffix_for_path(self, path: str | Path) -> str:
+        return "  [FS]" if self._file_kind_for_path(path) == "FS" else ""
+
+    def _item_label(self, path: str | Path, status: str, key: str | None = None) -> str:
+        p = Path(path)
+        icon = self.STATUS_ICONS[status]
+        extra = self._item_context_suffix(p, key)
+        return f"  {icon}  {p.name}{self._loader_suffix_for_path(p, key)}{self._fs_suffix_for_path(p)}{extra}"
+
+    def _logbook_record_for_path(self, path: str | Path) -> dict | None:
+        mapping = self._session.logbook_mapping or {}
+        records = self._session.logbook_records or []
+        file_col = mapping.get("file", "")
+        if not file_col or not records:
+            return None
+        p = Path(path)
+        cache_key = str(p)
+        if cache_key in self._logbook_record_cache:
+            return self._logbook_record_cache[cache_key]
+        rec_out = None
+        for rec in records:
+            if _record_matches_path(rec.get(file_col), p, self._session.folder):
+                rec_out = rec
+                break
+        self._logbook_record_cache[cache_key] = rec_out
+        return rec_out
+
+    def _meta_value_for_path(self, path: str | Path, field: str):
+        p = Path(path)
+        key = self._session.key_for_path(p)
+        entry = self._session.files.get(key)
+        if entry is not None:
+            meta = entry.meta
+            if field == "hv" and meta.hv and meta.hv > 0:
+                return float(meta.hv), "session"
+            if field == "temperature" and meta.temperature and meta.temperature > 0:
+                return float(meta.temperature), "session"
+            if field == "polarization" and meta.polarization:
+                return meta.polarization, "session"
+            if field == "direction" and meta.direction:
+                return _format_direction_label(meta.direction), "session"
+            if field == "azi" and meta.azi is not None:
+                return float(meta.azi), "session"
+            if field == "polar" and meta.polar is not None:
+                return float(meta.polar), "session"
+            if field == "tilt" and meta.tilt is not None:
+                return float(meta.tilt), "session"
+
+        rec = self._logbook_record_for_path(p)
+        mapping = self._session.logbook_mapping or {}
+        if rec is None:
+            return None, ""
+        col = mapping.get(field, "")
+        if not col:
+            return None, ""
+        if field in {"hv", "temperature", "azi", "polar", "tilt"}:
+            val = _cell_float(rec.get(col))
+            if val is not None and np.isfinite(val):
+                return float(val), "logbook"
+            return None, ""
+        val = _format_direction_label(rec.get(col)) if field == "direction" else _cell_text(rec.get(col))
+        return (val, "logbook") if val else (None, "")
+
+    def _fmt_float_group(self, label: str, value, unit: str = "", step: float = 0.1) -> str:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return "Métadonnées inconnues"
+        if not np.isfinite(v):
+            return "Métadonnées inconnues"
+        if step > 0:
+            v = round(v / step) * step
+        suffix = f" {unit}" if unit else ""
+        return f"{label} {v:.1f}{suffix}"
+
+    def _group_part_for_field(self, path: Path, field: str) -> str:
+        if field == "Dossier":
+            if not self._folder:
+                return "."
+            rel = path.relative_to(self._folder)
+            group = str(rel.parent) if str(rel.parent) != "." else "."
+            return self._group_label(group)
+        if field == "Labo":
+            return self._loader_label_for_path(path) or "Labo inconnu"
+        if field == "Type":
+            return self._file_kind_for_path(path)
+        if field == "hν":
+            hv, source = self._meta_value_for_path(path, "hv")
+            group = self._fmt_float_group("hν", hv, "eV", step=0.1)
+            return f"{group} ({source})" if source and group != "Métadonnées inconnues" else group
+        if field == "Température":
+            temp, source = self._meta_value_for_path(path, "temperature")
+            group = self._fmt_float_group("T", temp, "K", step=0.1)
+            return f"{group} ({source})" if source and group != "Métadonnées inconnues" else group
+        if field in {"Chemin", "Géométrie"}:
+            direction, source = self._meta_value_for_path(path, "direction")
+            if not direction:
+                return "Chemin inconnu"
+            return f"{direction} ({source})" if source else str(direction)
+        if field == "Polarisation":
+            pol, source = self._meta_value_for_path(path, "polarization")
+            if not pol:
+                return "Polarisation inconnue"
+            return f"Pol {pol} ({source})" if source else f"Pol {pol}"
+        return "."
+
+    def _file_kind_for_path(self, path: str | Path) -> str:
+        p = Path(path)
+        cache_key = str(p)
+        sig = self._path_signature(p)
+        cached = self._scan_kind_cache.get(cache_key)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        kind = "unknown"
+        entry = self._session.files.get(self._session.key_for_path(p))
+        if entry is not None and entry.meta.source_format == "cls_txt":
+            kind = "FS" if self._is_cls_dataset_dir(p) else "BM"
+        if kind == "unknown" and detect_scan_kind is not None:
+            try:
+                kind = detect_scan_kind(p, format_hint=None)
+            except Exception:
+                kind = "unknown"
+        if kind == "unknown":
+            if self._is_cls_dataset_dir(p) or p.suffix.lower() == ".zip":
+                kind = "FS"
+            else:
+                kind = "BM"
+        self._scan_kind_cache[cache_key] = (sig, kind)
+        return kind
+
+    def _group_key_for_path(self, path: Path) -> str:
+        fields = list(getattr(self, "_group_fields", None) or [self._group_mode or "Dossier"])
+        parts = [self._group_part_for_field(path, field) for field in fields]
+        return " / ".join(parts) if parts else "."
+
+    def _group_sort_key(self, group: str):
+        if group in {self._folder.name if self._folder else ".", ".", "BM", "FS"}:
+            priority = {"BM": 0, "FS": 1, ".": 0, self._folder.name if self._folder else ".": 0}.get(group, 5)
+            return (priority, -1.0, group.lower())
+        m = re.search(r"([-+]?\d+(?:\.\d+)?)", group)
+        if m:
+            try:
+                return (2, float(m.group(1)), group.lower())
+            except ValueError:
+                pass
+        unknown = "inconn" in group.lower() or "métadonnées" in group.lower()
+        return (9 if unknown else 3, -1.0, group.lower())
+
+    def _item_context_suffix(self, path: Path, key: str | None = None) -> str:
+        fields = set(getattr(self, "_group_fields", None) or [self._group_mode or "Dossier"])
+        if fields == {"Dossier"}:
+            return ""
+        bits: list[str] = []
+        if "hν" not in fields:
+            hv, _ = self._meta_value_for_path(path, "hv")
+            if hv is not None:
+                bits.append(f"hν={float(hv):.1f}")
+        if "Température" not in fields:
+            temp, _ = self._meta_value_for_path(path, "temperature")
+            if temp is not None:
+                bits.append(f"T={float(temp):.1f}")
+        if "Chemin" not in fields and "Géométrie" not in fields:
+            direction, _ = self._meta_value_for_path(path, "direction")
+            if direction:
+                bits.append(str(direction))
+        if "Polarisation" not in fields:
+            pol, _ = self._meta_value_for_path(path, "polarization")
+            if pol:
+                bits.append(f"Pol={pol}")
+        if not bits:
+            return ""
+        return "  " + "  ".join(bits[:2])
+
+    def _update_summary(self, paths: list[Path]):
+        total = len(paths)
+        counts = {"unloaded": 0, "loaded": 0, "fitted": 0}
+        loaders: dict[str, int] = {}
+        for p in paths:
+            key = self._session.key_for_path(p)
+            counts[self._file_status(key)] += 1
+            label = self._loader_label_for_path(p, key) or "?"
+            loaders[label] = loaders.get(label, 0) + 1
+        loader_txt = ", ".join(f"{k}:{v}" for k, v in sorted(loaders.items())) if loaders else "—"
+        self._lbl_summary.setText(
+            f"{total} éléments  •  "
+            f"{counts['loaded']} chargés  •  {counts['fitted']} fittés  •  {loader_txt}"
+        )
+
+    def _describe_item(self, item: QListWidgetItem | None) -> str:
+        if item is None:
+            return "Sélectionne un fichier à charger"
+        group = item.data(Qt.ItemDataRole.UserRole + 2)
+        if group is not None:
+            return "Dossier de groupe : double-clic ou Charger pour ouvrir/réduire"
+        path_txt = item.data(Qt.ItemDataRole.UserRole)
+        if not path_txt:
+            return "Sélectionne un fichier à charger"
+        p = Path(path_txt)
+        key = item.data(Qt.ItemDataRole.UserRole + 1) or self._session.key_for_path(p)
+        status = self._file_status(key)
+        entry = self._session.files.get(key)
+        loader = self._loader_label_for_path(p, key) or "inconnu"
+        kind = "FS" if self._fs_suffix_for_path(p) else "BM"
+        try:
+            rel = str(p.relative_to(self._folder)) if self._folder else str(p)
+        except Exception:
+            rel = str(p)
+        bits = [f"{p.name}", rel, f"{kind} {loader}", f"état: {status}"]
+        hv, hv_src = self._meta_value_for_path(p, "hv")
+        temp, temp_src = self._meta_value_for_path(p, "temperature")
+        pol, pol_src = self._meta_value_for_path(p, "polarization")
+        direction, dir_src = self._meta_value_for_path(p, "direction")
+        azi, azi_src = self._meta_value_for_path(p, "azi")
+        polar, p_src = self._meta_value_for_path(p, "polar")
+        tilt, t_src = self._meta_value_for_path(p, "tilt")
+        if hv is not None:
+            bits.append(f"hν={float(hv):.1f} eV ({hv_src})")
+        if temp is not None:
+            bits.append(f"T={float(temp):.1f} K ({temp_src})")
+        if pol:
+            bits.append(f"pol={pol} ({pol_src})")
+        if direction:
+            bits.append(f"direction={direction} ({dir_src})")
+        geom = []
+        if azi is not None:
+            geom.append(f"azi={float(azi):.1f}°")
+        if polar is not None:
+            geom.append(f"P={float(polar):.1f}°")
+        if tilt is not None:
+            geom.append(f"T={float(tilt):.1f}°")
+        if geom:
+            sources = sorted({s for s in (azi_src, p_src, t_src) if s})
+            src_txt = f" ({'+'.join(sources)})" if sources else ""
+            bits.append("géom: " + ", ".join(geom) + src_txt)
+        if entry is not None:
+            if entry.fit_result:
+                bits.append("fit enregistré")
+        return "\n".join(bits)
+
+    def _refresh_selection_state(self):
+        item = self._list.currentItem()
+        has_path = bool(item and item.data(Qt.ItemDataRole.UserRole))
+        has_group = bool(item and item.data(Qt.ItemDataRole.UserRole + 2) is not None)
+        if has_path:
+            self._btn_load.setText("↵ Charger ce fichier")
+            self._btn_load.setEnabled(True)
+        elif has_group:
+            self._btn_load.setText("↵ Ouvrir/réduire le groupe")
+            self._btn_load.setEnabled(True)
+        else:
+            self._btn_load.setText("↵ Charger la sélection")
+            self._btn_load.setEnabled(False)
+        self._lbl_selection.setText(self._describe_item(item))
 
     def _add_header(self, group: str, n_items: int):
         label = self._group_label(group)
@@ -686,15 +839,19 @@ class FileBrowserPanel(QWidget):
 
         self._list.clear()
         if not self._folder:
+            self._update_summary([])
+            self._refresh_selection_state()
             return
 
+        all_paths = self._discover_items()
         groups: dict[str, list[Path]] = {}
-        for p in self._discover_items():
-            rel = p.relative_to(self._folder)
-            group = str(rel.parent) if str(rel.parent) != "." else "."
+        for p in all_paths:
+            group = self._group_key_for_path(p)
             groups.setdefault(group, []).append(p)
 
-        for group in sorted(groups, key=lambda g: (g != ".", g.lower())):
+        self._update_summary(all_paths)
+
+        for group in sorted(groups, key=self._group_sort_key):
             paths = groups[group]
             self._add_header(group, len(paths))
             if group in self._collapsed_groups:
@@ -706,8 +863,7 @@ class FileBrowserPanel(QWidget):
                 status = self._file_status(key)
                 icon   = self.STATUS_ICONS[status]
                 color  = self.STATUS_COLORS[status]
-                suffix = "  [FS]" if self._is_cls_dataset_dir(p) or p.suffix.lower() == ".zip" else ""
-                item   = QListWidgetItem(f"  {icon}  {p.name}{suffix}")
+                item   = QListWidgetItem(self._item_label(p, status, key))
                 item.setData(Qt.ItemDataRole.UserRole, str(p))
                 item.setData(Qt.ItemDataRole.UserRole + 1, key)
                 item.setToolTip(str(rel))
@@ -716,6 +872,7 @@ class FileBrowserPanel(QWidget):
 
         if selected_path:
             self.select_file(selected_path)
+        self._refresh_selection_state()
 
     def _file_status(self, key: str) -> str:
         if key not in self._session.files:
@@ -734,9 +891,11 @@ class FileBrowserPanel(QWidget):
                 status = self._file_status(key)
                 icon   = self.STATUS_ICONS[status]
                 color  = self.STATUS_COLORS[status]
-                suffix = "  [FS]" if Path(path).is_dir() or Path(path).suffix.lower() == ".zip" else ""
-                item.setText(f"  {icon}  {Path(path).name}{suffix}")
+                item.setText(self._item_label(path, status, key))
                 item.setForeground(QColor(color))
+                all_paths = self._discover_items()
+                self._update_summary(all_paths)
+                self._refresh_selection_state()
                 break
 
     def _toggle_group(self, group: str):
@@ -756,7 +915,7 @@ class FileBrowserPanel(QWidget):
             self.file_selected.emit(path)
 
     def _on_selection_change(self, current, _):
-        pass
+        self._refresh_selection_state()
 
     def _load_selected(self):
         item = self._list.currentItem()
@@ -784,7 +943,7 @@ class FileBrowserPanel(QWidget):
                 self.file_selected.emit(path)
                 return
 
-    def select_file(self, path: str):
+    def select_file(self, path: str) -> bool:
         """Sélectionne visuellement le fichier dans la liste, en ouvrant son dossier si besoin."""
         if self._folder:
             try:
@@ -799,7 +958,8 @@ class FileBrowserPanel(QWidget):
             item = self._list.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == path:
                 self._list.setCurrentRow(i)
-                break
+                return True
+        return False
 class ClickablePairLabel(QLabel):
     """Label cliquable pour naviguer entre les paires de Lorentziennes.
     Clic gauche → paire suivante.  Clic droit → paire précédente."""
@@ -848,6 +1008,7 @@ class ClickablePairLabel(QLabel):
 
 class FitParamsPanel(QScrollArea):
     params_changed = pyqtSignal()
+    fit_only_changed = pyqtSignal()
     guess_requested = pyqtSignal()
     full_fit_requested = pyqtSignal()
     clear_kf_requested = pyqtSignal()
@@ -871,6 +1032,9 @@ class FitParamsPanel(QScrollArea):
         self.setWidget(w)
         self._pair_params: list[dict] = [{"kF_init": 0.30, "gamma_init": 0.08, "gamma_max": 0.30}]
         self._current_pair: int = 0
+        self._resolution_source_lock = False
+        self._resolution_source = "default"
+        self._resolution_source_detail = "defaut"
         self._build()
 
     def _build(self):
@@ -886,7 +1050,7 @@ class FitParamsPanel(QScrollArea):
             "Fenêtre d'intégration ±eV pour la MDC\n"
             "Élargir = moins de bruit, moins de résolution en énergie\n"
             "Correspond au 'range' d'extraction d'une coupe dans Igor")
-        self.sp_int_win.valueChanged.connect(self.params_changed)
+        self.sp_int_win.valueChanged.connect(self.fit_only_changed)
         fl.addRow("E (eV):", self.sp_ev)
         fl.addRow("± intég. (eV):", self.sp_int_win)
         fl.addRow(QLabel("💡 Clic sur la carte ou ici"))
@@ -901,7 +1065,8 @@ class FitParamsPanel(QScrollArea):
         self.sp_hv.setToolTip(
             "Énergie du photon incident (eV).\n"
             "→ CLS/LNLS : entrer manuellement AVANT de charger (obligatoire).\n"
-            "→ Solaris/DA30 : lu automatiquement depuis le fichier."
+            "→ Solaris/DA30 : lu automatiquement depuis le fichier.\n"
+            "→ BESSY/SES : gardé pour diagnostic/kz; E−EF utilise automatiquement Center Energy."
         )
         self.sp_ef  = _dspin(0.052, -0.3, 0.3, 0.005)
         self.sp_ef.setToolTip(
@@ -912,24 +1077,40 @@ class FitParamsPanel(QScrollArea):
         self.chk_norm.stateChanged.connect(self.params_changed)
         btn_ef = QPushButton("🎛  Calibrer EF auto")
         btn_ef.clicked.connect(self.ef_calib_requested)
-        btn_ef_ref = QPushButton("⇩  Appliquer Au de référence")
-        btn_ef_ref.setToolTip(
-            "Applique au fichier courant la correction EF de référence sauvegardée\n"
-            "dans la session (mesurée sur un échantillon Au, par exemple)."
-        )
-        btn_ef_ref.clicked.connect(self.ef_apply_reference_requested)
+        self.btn_ef_ref = QPushButton("⇩  Aucune réf EF (calibrer un Au d'abord)")
+        self.btn_ef_ref.clicked.connect(self.ef_apply_reference_requested)
+        self.btn_ef_ref.setEnabled(False)
         btn_log = QPushButton("📒  Charger logbook")
         btn_log.clicked.connect(self.logbook_requested)
-        btn_copy = QPushButton("📋  Copier params → fichier suivant")
-        btn_copy.clicked.connect(self.copy_params_requested)
+        self.btn_copy = QPushButton("📋  Propager fit params (0 cible)")
+        self.btn_copy.clicked.connect(self.copy_params_requested)
+        self.btn_copy.setEnabled(False)
+        self.update_ef_reference_button(None)
+        self.update_copy_params_button(0)
+        # Indicateur de provenance pour hν (📁 fichier / 📋 logbook / ✏️ manuel / — inconnu)
+        self.lbl_hv_src = QLabel("—")
+        self.lbl_hv_src.setToolTip(
+            "Provenance de hν :\n"
+            "📁 = lue depuis le fichier\n"
+            "📋 = lue depuis le logbook\n"
+            "✏️ = saisie manuelle\n"
+            "— = inconnu"
+        )
+        hv_row = QWidget()
+        hv_lay = QHBoxLayout(hv_row); hv_lay.setContentsMargins(0, 0, 0, 0)
+        hv_lay.addWidget(self.sp_hv, 1)
+        hv_lay.addWidget(self.lbl_hv_src)
+        # éditer la spinbox manuellement marque la source comme manuelle
+        self.sp_hv.valueChanged.connect(lambda _v: self._mark_hv_manual_if_user_edit())
+        self._hv_source_lock = False  # True quand on set par code (file/logbook), pour ne pas marquer "manual"
         fl_ef.addRow("φ (eV):",       self.sp_phi)
-        fl_ef.addRow("hν (eV):", self.sp_hv)
+        fl_ef.addRow("hν (eV):", hv_row)
         fl_ef.addRow("EF offset:",    self.sp_ef)
         fl_ef.addRow(self.chk_norm)
         fl_ef.addRow(btn_log)
         fl_ef.addRow(btn_ef)
-        fl_ef.addRow(btn_ef_ref)
-        fl_ef.addRow(btn_copy)
+        fl_ef.addRow(self.btn_ef_ref)
+        fl_ef.addRow(self.btn_copy)
         lay.addWidget(self._ef_widget)
 
         # ── utilitaires BM ────────────────────────────────────────────────────
@@ -1082,8 +1263,27 @@ class FitParamsPanel(QScrollArea):
 
         for w in (self.sp_sff, self.sp_sfd, self.sp_kfi, self.sp_gi, self.sp_gm,
                   self.sp_xg, self.sp_cx, self.sp_k0m, self.sp_ma, self.sp_mj):
-            w.valueChanged.connect(self.params_changed)
-        self.cmb_wm.currentIndexChanged.connect(self.params_changed)
+            w.valueChanged.connect(self.fit_only_changed)
+        self.cmb_wm.currentIndexChanged.connect(self.fit_only_changed)
+
+        self.sp_dE_meV = _dspin(15.0, 1.0, 200.0, 1.0, dec=1)
+        self.sp_dE_meV.setToolTip(
+            "FWHM énergie instrumentale estimée ou saisie manuellement (meV).\n"
+            "Utilisée pour calculer Γ corrigé après fit MDC."
+        )
+        self.sp_dk_inv_a = _dspin(0.005, 0.001, 0.1, 0.001, dec=4)
+        self.sp_dk_inv_a.setToolTip(
+            "FWHM k instrumentale en π/a, estimée depuis angle_step si disponible.\n"
+            "Utilisée pour calculer Γ corrigé après fit MDC."
+        )
+        self.lbl_dE_src = QLabel("—")
+        self.lbl_dk_src = QLabel("—")
+        for lbl in (self.lbl_dE_src, self.lbl_dk_src):
+            lbl.setToolTip("Provenance résolution : 🔬 = estimée, ✏️ = manuelle, — = défaut")
+        self.sp_dE_meV.valueChanged.connect(self._mark_resolution_manual_if_user_edit)
+        self.sp_dk_inv_a.valueChanged.connect(self._mark_resolution_manual_if_user_edit)
+        self.sp_dE_meV.valueChanged.connect(self.fit_only_changed)
+        self.sp_dk_inv_a.valueChanged.connect(self.fit_only_changed)
 
         k0w = QWidget(); k0l = QHBoxLayout(k0w); k0l.setContentsMargins(0,0,0,0)
         k0l.addWidget(self.sp_k0m); k0l.addWidget(self.chk_k0a)
@@ -1105,7 +1305,34 @@ class FitParamsPanel(QScrollArea):
         fl3.addRow("Ampl. min:",        self.sp_ma)
         fl3.addRow("Saut max (π/a):",   self.sp_mj)
         fl3.addRow("Sens scan:",        self.cmb_sd)
+        fl3.addRow(_sep())
+        de_row = QWidget(); de_lay = QHBoxLayout(de_row); de_lay.setContentsMargins(0,0,0,0)
+        de_lay.addWidget(self.sp_dE_meV, 1); de_lay.addWidget(self.lbl_dE_src)
+        dk_row = QWidget(); dk_lay = QHBoxLayout(dk_row); dk_lay.setContentsMargins(0,0,0,0)
+        dk_lay.addWidget(self.sp_dk_inv_a, 1); dk_lay.addWidget(self.lbl_dk_src)
+        fl3.addRow("ΔE FWHM (meV):", de_row)
+        fl3.addRow("Δk FWHM (π/a):", dk_row)
         _fcl.addWidget(grp_f)
+
+        # ── waterfall MDC (visible seulement dans le sous-onglet Waterfall) ────
+        self._waterfall_controls_widget = QGroupBox("Waterfall MDC")
+        fl_wf = QFormLayout(self._waterfall_controls_widget)
+        self.sp_wf_n = _ispin(32, 10, 80)
+        self.sp_wf_n.setToolTip(
+            "Nombre cible de MDCs affichées dans le waterfall.\n"
+            "Moins de courbes = plus de relief et moins de surcharge."
+        )
+        self.sp_wf_relief = _dspin(1.8, 0.5, 4.0, 0.1, dec=1)
+        self.sp_wf_relief.setToolTip(
+            "Amplitude visuelle des MDCs dans le waterfall.\n"
+            "Augmenter pour mieux voir les pics ; trop haut crée du chevauchement."
+        )
+        self.sp_wf_n.valueChanged.connect(self.fit_only_changed)
+        self.sp_wf_relief.valueChanged.connect(self.fit_only_changed)
+        fl_wf.addRow("Courbes:", self.sp_wf_n)
+        fl_wf.addRow("Relief:", self.sp_wf_relief)
+        self._waterfall_controls_widget.setVisible(False)
+        _fcl.addWidget(self._waterfall_controls_widget)
 
         # ── boutons ───────────────────────────────────────────────────────────
         _fcl.addWidget(_sep())
@@ -1147,6 +1374,102 @@ class FitParamsPanel(QScrollArea):
         lay.addStretch()
 
     # ── accès params ──────────────────────────────────────────────────────────
+    def update_ef_reference_button(self, ref: dict | None):
+        """Met à jour le label/état du bouton EF réf selon la session."""
+        if not ref:
+            self.btn_ef_ref.setText("⇩  Aucune réf EF (calibrer un Au d'abord)")
+            self.btn_ef_ref.setEnabled(False)
+            self.btn_ef_ref.setToolTip(
+                "Aucune référence EF enregistrée dans cette session.\n"
+                "Pour en créer une : 'Calibrer EF auto' sur un scan Au, "
+                "puis cocher 'Enregistrer comme référence' dans le dialog."
+            )
+            return
+        mode = ref.get("mode", "?")
+        src_path = ref.get("source_file", "")
+        src_name = Path(src_path).name if src_path else "(source inconnue)"
+        if mode == "scalar":
+            shift_meV = float(ref.get("ef_shift", 0.0)) * 1000.0
+            label = f"⇩  Appliquer EF réf : {src_name} (Δ={shift_meV:+.1f} meV)"
+        elif mode == "poly":
+            n_valid = int(ref.get("n_valid", 0))
+            fwhm = float(ref.get("fwhm_res", 0.0)) * 1000.0
+            label = f"⇩  Appliquer EF réf poly : {src_name} (n={n_valid}, FWHM≈{fwhm:.0f} meV)"
+        else:
+            label = f"⇩  Appliquer EF réf : {src_name}"
+        self.btn_ef_ref.setText(label)
+        self.btn_ef_ref.setEnabled(True)
+        self.btn_ef_ref.setToolTip(
+            f"Référence EF enregistrée :\n"
+            f"  mode = {mode}\n"
+            f"  source = {src_path or '?'}\n"
+            f"Applique cette correction au fichier courant."
+        )
+
+    def update_hv_source(self, source: str | None):
+        """Affiche la provenance de hν : 'file', 'logbook', 'manual', None."""
+        icons = {"file": "📁", "logbook": "📋", "manual": "✏️"}
+        self.lbl_hv_src.setText(icons.get(source or "", "—"))
+
+    def _mark_hv_manual_if_user_edit(self):
+        if not getattr(self, "_hv_source_lock", False):
+            self.update_hv_source("manual")
+
+    def set_hv_value_with_source(self, value: float, source: str):
+        """Set la spinbox hν sans déclencher le marquage 'manuel'."""
+        self._hv_source_lock = True
+        try:
+            self.sp_hv.blockSignals(True)
+            self.sp_hv.setValue(float(value))
+            self.sp_hv.blockSignals(False)
+            self.update_hv_source(source)
+        finally:
+            self._hv_source_lock = False
+
+    def update_resolution_source(self, source: str | None):
+        """Affiche la provenance de la resolution : 'estimated', 'manual', 'default'."""
+        self._resolution_source = source or "default"
+        self._resolution_source_detail = self._resolution_source
+        icon = {"estimated": "🔬", "manual": "✏️", "default": "—"}.get(self._resolution_source, "—")
+        self.lbl_dE_src.setText(icon)
+        self.lbl_dk_src.setText(icon)
+
+    def _mark_resolution_manual_if_user_edit(self):
+        if not getattr(self, "_resolution_source_lock", False):
+            self.update_resolution_source("manual")
+            self._resolution_source_detail = "manual"
+
+    def set_resolution_with_source(self, dE_meV: float, dk_inv_a: float, source: str, detail: str | None = None):
+        """Set les spinboxes resolution sans déclencher le marquage manuel."""
+        self._resolution_source_lock = True
+        try:
+            for sp, value in ((self.sp_dE_meV, dE_meV), (self.sp_dk_inv_a, dk_inv_a)):
+                sp.blockSignals(True)
+                sp.setValue(float(value))
+                sp.blockSignals(False)
+            self.update_resolution_source(source)
+            self._resolution_source_detail = detail or source
+        finally:
+            self._resolution_source_lock = False
+
+    def update_copy_params_button(self, n_targets: int):
+        """Met à jour le label/état du bouton 'Propager fit params'."""
+        if n_targets <= 0:
+            self.btn_copy.setText("📋  Propager fit params (0 cible)")
+            self.btn_copy.setEnabled(False)
+            self.btn_copy.setToolTip(
+                "Aucun fichier non-fitté dans le dossier (hors fichier courant).\n"
+                "Tous les autres ont déjà un fit_result enregistré : ils ne seront pas écrasés."
+            )
+        else:
+            self.btn_copy.setText(f"📋  Propager fit params ({n_targets} cible{'s' if n_targets > 1 else ''})")
+            self.btn_copy.setEnabled(True)
+            self.btn_copy.setToolTip(
+                f"Copie les paramètres de fit MDC actuels vers les {n_targets} "
+                f"fichier(s) du dossier qui n'ont pas encore été fittés.\n"
+                f"Les fichiers déjà fittés ne sont jamais écrasés."
+            )
+
     def get_fit_params(self) -> FitParams:
         self._save_pair()
         p0 = self._pair_params[0] if self._pair_params else {}
@@ -1167,6 +1490,8 @@ class FitParamsPanel(QScrollArea):
             min_amplitude = self.sp_ma.value(),
             max_jump      = self.sp_mj.value(),
             scan_direction= self.cmb_sd.currentText(),
+            dE_meV        = self.sp_dE_meV.value(),
+            dk_inv_a      = self.sp_dk_inv_a.value(),
             pairs         = [dict(p) for p in self._pair_params],
         )
 
@@ -1190,6 +1515,11 @@ class FitParamsPanel(QScrollArea):
         self._utils_widget.setVisible(is_bm)
         self._fit_controls_widget.setVisible(is_mdc)
         self._gamma_tools_widget.setVisible(False)
+        if not is_mdc:
+            self.set_waterfall_controls_visible(False)
+
+    def set_waterfall_controls_visible(self, visible: bool):
+        self._waterfall_controls_widget.setVisible(bool(visible))
 
     def grid_params(self) -> dict:
         return {
@@ -1212,6 +1542,8 @@ class FitParamsPanel(QScrollArea):
             (self.sp_sff,  fp.smooth_fit),(self.sp_sfd,  fp.smooth_detect),
             (self.sp_xg,   fp.xg_range),  (self.sp_cx,   fp.center_init),
             (self.sp_ma,   fp.min_amplitude),(self.sp_mj, fp.max_jump),
+            (self.sp_dE_meV, getattr(fp, "dE_meV", 15.0)),
+            (self.sp_dk_inv_a, getattr(fp, "dk_inv_a", 0.005)),
         ]:
             sp.blockSignals(True); sp.setValue(val); sp.blockSignals(False)
         if fp.k0_max is not None:
@@ -1293,9 +1625,9 @@ class ResultsPanel(QWidget):
         right = QVBoxLayout()
         right.addWidget(QLabel("Résultats fittés"))
 
-        self._table = QTableWidget(0, 6)
+        self._table = QTableWidget(0, 8)
         self._table.setHorizontalHeaderLabels(
-            ["Fichier", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)"])
+            ["Fichier", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)", "Γ brut", "Γ corr."])
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self._table.setStyleSheet(
@@ -1350,11 +1682,18 @@ class ResultsPanel(QWidget):
                 if len(kf_arr) > idx_ef:
                     kf_ef = kf_arr[idx_ef]
             xg_m = float(np.nanmean(fr.get("xg", [np.nan])))
+            gamma_b = np.nan
+            gamma_c = np.nan
+            if fr.get("gamma_brut"):
+                gamma_b = float(np.nanmedian(np.asarray(fr["gamma_brut"][0], dtype=float)))
+            if fr.get("gamma_corrige"):
+                gamma_c = float(np.nanmedian(np.asarray(fr["gamma_corrige"][0], dtype=float)))
 
             self._table.insertRow(row)
             for col, val in enumerate([
                 name, f"{meta.hv:.0f}", f"{meta.temperature:.0f}",
                 meta.direction, f"{kf_ef:.4f}", f"{xg_m:.4f}",
+                f"{gamma_b:.4f}", f"{gamma_c:.4f}",
             ]):
                 self._table.setItem(row, col, QTableWidgetItem(val))
             row += 1
@@ -1377,30 +1716,10 @@ class ResultsPanel(QWidget):
             "CSV (*.csv)")
         if not path:
             return
-        rows = []
-        for name, entry in self._session.files.items():
-            if entry.fit_result is None:
-                continue
-            fr   = entry.fit_result
-            meta = entry.meta
-            ev_f = np.asarray(fr["e_fitted"])
-            n    = entry.fit_params.n_pairs
-            for ie, ev in enumerate(ev_f):
-                d = {"file": name, "hv": meta.hv, "T_K": meta.temperature,
-                     "direction": meta.direction, "E_eV": ev}
-                for i in range(n):
-                    km_arr = fr["kF_minus"][i] if i < len(fr["kF_minus"]) else []
-                    kp_arr = fr["kF_plus"][i]  if i < len(fr["kF_plus"])  else []
-                    d[f"kF_minus_{i+1}"] = km_arr[ie] if ie < len(km_arr) else ""
-                    d[f"kF_plus_{i+1}"]  = kp_arr[ie] if ie < len(kp_arr) else ""
-                rows.append(d)
+        rows = result_rows(self._session)
         if not rows:
             return
-        import csv
-        keys = list(rows[0].keys())
-        with open(path, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=keys)
-            w.writeheader(); w.writerows(rows)
+        write_results_csv(path, rows)
 
     def _export_fig(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -1430,7 +1749,8 @@ class EFCalibrationDialog(QDialog):
     """
 
     def __init__(self, parent, data, kpar, ev_arr, T_init=28.0,
-                 half_width_init=0.15, source_name="", current_offset=0.0):
+                 half_width_init=0.15, source_name="", current_offset=0.0,
+                 metadata: dict | None = None):
         super().__init__(parent)
         self.setWindowTitle("Calibration EF")
         self.resize(900, 620)
@@ -1440,6 +1760,8 @@ class EFCalibrationDialog(QDialog):
         self._fit   = None
         self.result_payload = None
         self._current_offset = float(current_offset)
+        self._metadata = metadata or {}
+        self._ef_search = self._default_ef_search_range()
 
         # ── widgets ────────────────────────────────────────────────────────────
         from PyQt6.QtWidgets import QRadioButton, QButtonGroup
@@ -1471,7 +1793,10 @@ class EFCalibrationDialog(QDialog):
 
         self.chk_auto = QCheckBox("Auto-fenêtre (gradient max)")
         self.chk_auto.setChecked(True)
-        self.chk_auto.setToolTip("Centre la fenêtre sur le gradient max de l'EDC moyenne.")
+        self.chk_auto.setToolTip(
+            "Centre la fenêtre sur le gradient max de l'EDC moyenne.\n"
+            f"Recherche actuelle : {self._ef_search[0]:+.2f} à {self._ef_search[1]:+.2f} eV."
+        )
         fl.addRow(self.chk_auto)
 
         self.sp_deg = QSpinBox(); self.sp_deg.setRange(0, 4); self.sp_deg.setValue(2)
@@ -1522,11 +1847,38 @@ class EFCalibrationDialog(QDialog):
         self._draw_initial_preview()
 
     # ── helpers ────────────────────────────────────────────────────────────────
+    def _default_ef_search_range(self) -> tuple[float, float]:
+        fmt = str(self._metadata.get("fs_source") or self._metadata.get("source_format") or "").lower()
+        lab = str(self._metadata.get("lab") or "").lower()
+        ref = str(self._metadata.get("energy_reference") or "").lower()
+        # BESSY Center Energy mode: l'expérimentateur peut avoir centré l'analyseur
+        # à n'importe quel offset d'EF. On vise donc d'abord le bord détecté dans
+        # l'EDC (max drop d'intensité), puis on élargit autour. Si la détection
+        # échoue, fallback large couvrant tout l'axe.
+        if "bessy" in fmt or "bessy" in lab or ref == "ses_center_energy":
+            try:
+                edc = np.nanmean(self._data, axis=0)
+                e = np.asarray(self._ev, dtype=float)
+                grad = np.gradient(edc, e)
+                drop_idx = int(np.nanargmin(grad))
+                ef_hint = float(e[drop_idx])
+                e_min, e_max = float(e.min()), float(e.max())
+                lo = max(e_min, ef_hint - 0.30)
+                hi = min(e_max, ef_hint + 0.20)
+                if hi - lo < 0.15:
+                    return (e_min, e_max)
+                return (lo, hi)
+            except Exception:
+                return (-0.5, 0.5)
+        return (-0.5, 0.2)
+
     def _draw_initial_preview(self):
         edc = np.nanmean(self._data, axis=0)
         self._ax_edc.clear()
         self._ax_edc.plot(self._ev, edc, "k-", lw=1.2, label="EDC moyenne")
         self._ax_edc.axvline(0.0, color="gray", ls="--", lw=0.7)
+        self._ax_edc.axvspan(self._ef_search[0], self._ef_search[1], color="orange", alpha=0.08,
+                             label="recherche EF")
         self._ax_edc.set_xlabel("E − EF (eV)"); self._ax_edc.set_ylabel("Intensité")
         self._ax_edc.set_title("EDC moyennée sur k")
         self._ax_edc.legend(fontsize=8)
@@ -1550,7 +1902,7 @@ class EFCalibrationDialog(QDialog):
         edc = np.nanmean(self._data, axis=0)
 
         if self.rb_scalar.isChecked():
-            win = ap.auto_ef_window(self._ev, edc, half_width=hw) if auto else (-hw, hw)
+            win = ap.auto_ef_window(self._ev, edc, half_width=hw, search=self._ef_search) if auto else (-hw, hw)
             try:
                 from matplotlib.figure import Figure as _Fig
                 _ax = _Fig().add_subplot(111)
@@ -1597,6 +1949,7 @@ class EFCalibrationDialog(QDialog):
                     sigma_resolution_init=sig,
                     poly_deg=self.sp_deg.value(),
                     auto_window=auto,
+                    ef_search=self._ef_search,
                     verbose=False,
                 )
             except Exception as e:
@@ -1736,6 +2089,17 @@ class ArpesExplorer(QMainWindow):
         self._fit_roi_ax = None
         self._fit_roi_rect = None
 
+        # Debouncers : évitent N redraws quand l'utilisateur clique-clique
+        # rapidement sur un spinbox ou tape une valeur.
+        self._redraw_timer = QTimer(self); self._redraw_timer.setSingleShot(True)
+        self._redraw_timer.timeout.connect(self._on_model_changed)
+        self._fit_redraw_timer = QTimer(self); self._fit_redraw_timer.setSingleShot(True)
+        self._fit_redraw_timer.timeout.connect(self._on_fit_only_changed)
+
+        # Cache de _update_display_data : recompute uniquement si une des clés
+        # influence le résultat affiché.
+        self._disp_cache_key: tuple | None = None
+
         self._build_ui()
         self._install_shortcuts()
         self._status("Prêt — ouvrir un dossier ou un fichier")
@@ -1800,6 +2164,10 @@ class ArpesExplorer(QMainWindow):
         self._bm_canvas = MplCanvas(figsize=(7, 6), toolbar=True)
         self._bm_canvas.canvas.mpl_connect(
             "button_press_event", self._on_map_click)
+        # Zoom molette désactivé : comportement instable selon backend/trackpad.
+        # Garder `_on_scroll_zoom` plus bas comme base si on veut le reprendre.
+        # self._bm_canvas.canvas.mpl_connect(
+        #     "scroll_event", self._on_scroll_zoom)
         self._bm_canvas.canvas.mpl_connect(
             "button_press_event", self._on_fit_roi_press)
         self._bm_canvas.canvas.mpl_connect(
@@ -1809,22 +2177,51 @@ class ArpesExplorer(QMainWindow):
         carte_lay.addWidget(self._bm_canvas, stretch=1)
         self._tabs.addTab(carte_widget, "🗺  BM")
 
-        # Tab MDC Fit : mini-BM + diagrammes MDC/EDC, pour garder le fit séparé
+        # Tab MDC Fit : sous-vues séparées pour éviter de compresser deux vues
+        # larges (BM et waterfall) dans le même écran.
         mdc_widget = QWidget()
         mdc_lay = QVBoxLayout(mdc_widget)
         mdc_lay.setContentsMargins(0, 0, 0, 0)
+        self._mdc_fit_tabs = QTabWidget()
+        self._mdc_fit_tabs.setStyleSheet(
+            "QTabBar::tab{background:#303030;color:#bbb;padding:4px 10px;}"
+            "QTabBar::tab:selected{background:#444;color:white;}")
+
+        fit_view = QWidget()
+        fit_lay = QVBoxLayout(fit_view)
+        fit_lay.setContentsMargins(0, 0, 0, 0)
+        mdc_split = QSplitter(Qt.Orientation.Vertical)
         self._mdc_map_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
         self._mdc_map_canvas.canvas.mpl_connect(
             "button_press_event", self._on_map_click)
+        # self._mdc_map_canvas.canvas.mpl_connect(
+        #     "scroll_event", self._on_scroll_zoom)
         self._mdc_map_canvas.canvas.mpl_connect(
             "button_press_event", self._on_fit_roi_press)
         self._mdc_map_canvas.canvas.mpl_connect(
             "motion_notify_event", self._on_fit_roi_motion)
         self._mdc_map_canvas.canvas.mpl_connect(
             "button_release_event", self._on_fit_roi_release)
-        mdc_lay.addWidget(self._mdc_map_canvas, stretch=5)
-        self._mdc_edc = MplCanvas(figsize=(7, 2.5), nrows=2)
-        mdc_lay.addWidget(self._mdc_edc, stretch=2)
+        mdc_split.addWidget(self._mdc_map_canvas)
+
+        self._mdc_edc = MplCanvas(figsize=(7, 2.8), nrows=1)
+        mdc_split.addWidget(self._mdc_edc)
+        mdc_split.setSizes([620, 280])
+        fit_lay.addWidget(mdc_split, stretch=1)
+        self._mdc_fit_tabs.addTab(fit_view, "Fit MDC")
+
+        self._waterfall_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
+        # self._waterfall_canvas.canvas.mpl_connect(
+        #     "scroll_event", self._on_scroll_zoom)
+        self._mdc_fit_tabs.addTab(self._waterfall_canvas, "Waterfall")
+
+        self._edc_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
+        # self._edc_canvas.canvas.mpl_connect(
+        #     "scroll_event", self._on_scroll_zoom)
+        self._mdc_fit_tabs.addTab(self._edc_canvas, "EDC")
+
+        self._mdc_fit_tabs.currentChanged.connect(self._on_mdc_fit_subtab_changed)
+        mdc_lay.addWidget(self._mdc_fit_tabs, stretch=1)
         self._tabs.addTab(mdc_widget, "🎯  MDC Fit")
 
         # Tab Résultats
@@ -1836,6 +2233,8 @@ class ArpesExplorer(QMainWindow):
         if FermiSurfaceCanvas is not None and hasattr(self._fs_canvas, "canvas"):
             self._fs_canvas.canvas.mpl_connect(
                 "button_press_event", self._on_fs_map_click)
+            # self._fs_canvas.canvas.mpl_connect(
+            #     "scroll_event", self._on_scroll_zoom)
         self._tabs.addTab(self._fs_canvas, "🧭  FS")
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -1845,7 +2244,8 @@ class ArpesExplorer(QMainWindow):
         right_split = QSplitter(Qt.Orientation.Vertical)
 
         self._params = FitParamsPanel()
-        self._params.params_changed.connect(self._on_model_changed)
+        self._params.params_changed.connect(self._schedule_model_redraw)
+        self._params.fit_only_changed.connect(self._schedule_fit_only_redraw)
         self._params.sp_ev.valueChanged.connect(self._on_ev_spinbox_changed)
         self._params.guess_requested.connect(self._fit_guess)
         self._params.full_fit_requested.connect(self._fit_full)
@@ -1889,6 +2289,8 @@ class ArpesExplorer(QMainWindow):
             self._params.set_context("bm")
         elif index == 1:
             self._params.set_context("mdc")
+            if hasattr(self, "_mdc_fit_tabs"):
+                self._params.set_waterfall_controls_visible(self._mdc_fit_tabs.currentIndex() == 1)
         else:
             self._params.set_context("other")
             self._set_fit_roi_pick_mode(False)
@@ -1903,6 +2305,17 @@ class ArpesExplorer(QMainWindow):
             self._draw_mdc_edc()
         else:
             self._set_fs_center_pick_mode(False)
+
+    def _on_mdc_fit_subtab_changed(self, index: int):
+        if hasattr(self, "_params"):
+            self._params.set_waterfall_controls_visible(index == 1 and self._tabs.currentIndex() == 1)
+        if index == 0:
+            self._draw_bm()
+            self._draw_mdc_edc()
+        elif index == 1:
+            self._draw_mdc_waterfall()
+        elif index == 2:
+            self._draw_mdc_edc()
 
     def _current_entry(self) -> FileEntry | None:
         if not self._current_path:
@@ -1941,6 +2354,26 @@ class ArpesExplorer(QMainWindow):
         except Exception:
             return str(a) == str(b)
 
+    def _on_scroll_zoom(self, event):
+        """Zoom molette centré sur la position du curseur dans un axe matplotlib."""
+        ax = event.inaxes
+        if ax is None or event.xdata is None or event.ydata is None:
+            return
+        try:
+            xlim, ylim = _plot_scroll_zoom_limits(
+                ax.get_xlim(),
+                ax.get_ylim(),
+                xdata=float(event.xdata),
+                ydata=float(event.ydata),
+                step=float(getattr(event, "step", 0.0) or 0.0),
+                button=getattr(event, "button", ""),
+            )
+            ax.set_xlim(*xlim)
+            ax.set_ylim(*ylim)
+            event.canvas.draw_idle()
+        except Exception:
+            return
+
     def _draw_fs_tab(self):
         if not hasattr(self, "_fs_canvas") or FermiSurfaceCanvas is None:
             return
@@ -1958,19 +2391,15 @@ class ArpesExplorer(QMainWindow):
         meta = (self._raw_data or {}).get("metadata", {}) or {}
         entry_now = self._current_entry()
         azi_ref = entry_now.meta.azi if (entry_now and entry_now.meta.azi is not None) else None
-        self._session.gamma_reference = {
-            "kx": float(kx),
-            "ky": float(ky),
-            "polar": float(meta.get("polar", 0.0) or 0.0),
-            "tilt": float(meta.get("tilt_ref", 0.0) or 0.0),
-            "azi": float(azi_ref) if azi_ref is not None else None,
-            "hv": self._raw_data.get("hv"),
-            "path": self._raw_data.get("path"),
-            "polar_already_applied_to_kx": bool(meta.get("polar_already_applied_to_kx", False)),
-            "source": source,
-        }
-        if entry_now and entry_now.meta.direction:
-            self._session.gamma_reference["direction"] = entry_now.meta.direction
+        self._session.gamma_reference = _gamma_build_reference(
+            kx=kx, ky=ky,
+            metadata=meta,
+            hv=self._raw_data.get("hv"),
+            path=self._raw_data.get("path"),
+            azi=azi_ref,
+            source=source,
+            direction=(entry_now.meta.direction if entry_now else None),
+        )
         offsets = self._angle_offsets_from_k_center(
             float(kx), float(ky),
             hv=self._raw_data.get("hv"),
@@ -1987,24 +2416,13 @@ class ArpesExplorer(QMainWindow):
         self._session.save()
 
     def _k_to_angle_offset_deg(self, k_pi_a: float, *, hv: float | None = None) -> float | None:
-        """Convertit un decalage k (pi/a) en offset angulaire CLS."""
+        """Convertit un decalage k (pi/a) en offset angulaire CLS (wrapper UI)."""
         try:
             hv_val = float(hv if hv is not None else self._params.sp_hv.value())
             work_func = float(self._params.sp_phi.value())
         except Exception:
             return None
-        ek = hv_val - work_func
-        if not np.isfinite(ek) or ek <= 0:
-            return None
-        c_arpes = 0.51233
-        a_lattice = 3.96
-        scale = c_arpes * np.sqrt(ek) * a_lattice / np.pi
-        if not np.isfinite(scale) or scale <= 0:
-            return None
-        arg = float(k_pi_a) / scale
-        if abs(arg) > 1.0:
-            arg = float(np.clip(arg, -1.0, 1.0))
-        return float(np.degrees(np.arcsin(arg)))
+        return _gamma_k_to_angle_offset_deg(k_pi_a, hv=hv_val, work_func=work_func)
 
     def _angle_offsets_from_k_center(
         self,
@@ -2016,23 +2434,16 @@ class ArpesExplorer(QMainWindow):
         ref_path: str | None = None,
         azi: float | None = None,
     ) -> dict:
-        theta0 = self._k_to_angle_offset_deg(kx, hv=hv)
-        tilt0 = self._k_to_angle_offset_deg(ky, hv=hv)
-        if theta0 is None or tilt0 is None:
+        try:
+            hv_val = float(hv if hv is not None else self._params.sp_hv.value())
+            work_func = float(self._params.sp_phi.value())
+        except Exception:
             return {}
-        out = {
-            "mode": "cls_angle_offsets",
-            "theta0_deg": float(theta0),
-            "tilt0_deg": float(tilt0),
-            "source": source,
-            "ref_path": ref_path or "",
-            "hv": float(hv) if hv is not None and np.isfinite(float(hv)) else None,
-            "work_func": float(self._params.sp_phi.value()),
-            "a_lattice": 3.96,
-        }
-        if azi is not None:
-            out["azi"] = float(azi)
-        return out
+        return _gamma_angle_offsets_from_k_center(
+            kx, ky,
+            hv=hv_val, work_func=work_func,
+            source=source, ref_path=ref_path, azi=azi,
+        )
 
     def _project_gamma_by_azi(
         self,
@@ -2041,86 +2452,26 @@ class ArpesExplorer(QMainWindow):
         *,
         warn_label: str = "Γ",
     ) -> tuple[float, float]:
-        """Projette le Γ de référence dans le repère du fichier courant.
-
-        La direction ZDB n'est pas utilisée ici : seule la différence d'azimut
-        définit la rotation entre la FS de référence et la donnée cible.
-        """
-        kx_ref = float(ref.get("kx", np.nan))
-        ky_ref = float(ref.get("ky", 0.0) or 0.0)
-        if not np.isfinite(kx_ref) or not np.isfinite(ky_ref):
-            return np.nan, np.nan
-
-        azi_ref = ref.get("azi")
-        if azi_ref is None or azi_target is None:
-            if abs(ky_ref) > 1e-3:
-                self._status(f"⚠ {warn_label} : azi inconnu — projection non corrigée")
-            return kx_ref, ky_ref
-
-        d_azi = np.radians(float(azi_target) - float(azi_ref))
-        k_parallel = kx_ref * np.cos(d_azi) + ky_ref * np.sin(d_azi)
-        k_perp = -kx_ref * np.sin(d_azi) + ky_ref * np.cos(d_azi)
-        return float(k_parallel), float(k_perp)
+        """Projette le Γ de référence dans le repère du fichier courant (wrapper UI)."""
+        return _gamma_project_by_azi(
+            ref, azi_target,
+            on_warn=self._status,
+            warn_label=warn_label,
+        )
 
     def _cls_manipulator_from_param(self, path: str | Path) -> dict:
-        """Lit rapidement P/T depuis le *_param.txt sans charger les données."""
-        p = Path(path)
-        if p.is_file():
-            param_files = [p.parent / f"{p.name}_param.txt"]
-        elif p.is_dir():
-            param_files = sorted(p.glob("*_param.txt"))
-        else:
-            return {}
-        for param_file in param_files:
-            if not param_file.exists():
-                continue
-            try:
-                for line in param_file.read_text(errors="replace").splitlines():
-                    if not line.strip().startswith("{"):
-                        continue
-                    motors = json.loads(line).get("d", {})
-                    out = {}
-                    for motor, key in (("P", "polar"), ("T", "tilt")):
-                        value = motors.get(motor, {}).get("position")
-                        if value is not None:
-                            out[key] = float(value)
-                    if out:
-                        return out
-            except Exception:
-                continue
-        return {}
+        """Wrapper UI : délègue à `arpes_cls_geometry.manipulator_from_param`."""
+        return _cls_manipulator_from_param_pure(path)
 
     def _cls_geometry_for_path(self, path: str | Path, entry: FileEntry | None = None) -> dict:
-        """Retourne la meilleure géométrie CLS connue.
-
-        Priorité : `_param.txt` pour P/T, puis métadonnées de session/logbook.
-        Les Excel CLS changent beaucoup de forme ; le logbook n'est donc qu'un
-        secours pour les champs absents des fichiers bruts, surtout `azi`.
-        """
-        geom = self._cls_manipulator_from_param(path)
-        if entry is not None:
-            if geom.get("polar") is None and entry.meta.polar is not None:
-                geom["polar"] = float(entry.meta.polar)
-            if geom.get("tilt") is None and entry.meta.tilt is not None:
-                geom["tilt"] = float(entry.meta.tilt)
-            if entry.meta.azi is not None:
-                geom["azi"] = float(entry.meta.azi)
-            if entry.meta.hv:
-                geom["hv"] = float(entry.meta.hv)
-
-        rec = self._find_logbook_record(path)
-        mapping = self._session.logbook_mapping or {}
-        if rec is not None:
-            for key in ("polar", "tilt", "azi", "hv"):
-                col = mapping.get(key, "")
-                value = _cell_float(rec.get(col)) if col else None
-                if value is not None and np.isfinite(value) and geom.get(key) is None:
-                    geom[key] = float(value)
-
-        return geom
-
-    def _cls_polar_from_param(self, path: str | Path) -> float | None:
-        return self._cls_manipulator_from_param(path).get("polar")
+        """Wrapper UI : délègue à `arpes_cls_geometry.geometry_for_path`."""
+        return _cls_geometry_for_path_pure(
+            path,
+            entry_meta=(entry.meta if entry is not None else None),
+            logbook_record=self._find_logbook_record(path),
+            logbook_mapping=self._session.logbook_mapping,
+            cell_float=_cell_float,
+        )
 
     def _angle_offsets_for_load(self, path: str | Path, entry: FileEntry | None, hv: float | None) -> dict:
         """Retourne les offsets angulaires a injecter dans le loader CLS."""
@@ -2189,126 +2540,36 @@ class ArpesExplorer(QMainWindow):
         hv: float | None,
         primary: dict,
     ) -> list[dict]:
-        """Candidats de convention pour une BM CLS.
-
-        Les conventions exactes peuvent changer selon la definition de l'azi
-        dans le logbook. On teste donc le signe de theta0 et, si possible, les
-        deux projections `+ky sin(d_azi)` / `-ky sin(d_azi)`.
-        """
-        if not primary or not Path(path).is_file():
-            return [primary] if primary else []
-        candidates: list[dict] = []
-
-        def add(cfg: dict, label: str):
-            if not cfg:
-                return
-            c = dict(cfg)
-            c["candidate"] = label
-            key = (round(float(c.get("theta0_deg", 0.0)), 8),
-                   round(float(c.get("tilt0_deg", 0.0)), 8),
-                   c.get("candidate", ""))
-            for old in candidates:
-                old_key = (round(float(old.get("theta0_deg", 0.0)), 8),
-                           round(float(old.get("tilt0_deg", 0.0)), 8),
-                           old.get("candidate", ""))
-                if old_key == key:
-                    return
-            candidates.append(c)
-
-        add(primary, "theta0")
-        neg = dict(primary)
-        neg["theta0_deg"] = -float(neg.get("theta0_deg", 0.0) or 0.0)
-        neg["gamma_bm_pi_over_a"] = -float(neg.get("gamma_bm_pi_over_a", 0.0) or 0.0)
-        add(neg, "-theta0")
-
-        ref = self._stored_gamma_reference()
-        if ref and entry is not None:
-            geom = self._cls_geometry_for_path(path, entry)
-            p_ref = ref.get("polar")
-            p_target = geom.get("polar")
-            theta_ref = self._k_to_angle_offset_deg(float(ref.get("kx", 0.0) or 0.0), hv=hv)
-            if p_ref is not None and p_target is not None and theta_ref is not None:
-                # Convention "angle brut analyseur": le Γ repéré sur la FS
-                # correspond à theta_raw ~= P_ref + theta_ref. Pour une BM à
-                # polar différent, l'offset à appliquer devient
-                # theta_raw - P_target. Cette correction est indispensable pour
-                # des cas comme BM9/BM10 où P change fortement.
-                raw_theta0 = float(theta_ref) + float(p_ref) - float(p_target)
-                cfg = dict(primary)
-                cfg["theta0_deg"] = raw_theta0
-                cfg["tilt0_deg"] = 0.0
-                cfg["source"] = "gamma_reference_projected_to_bm_raw_polar"
-                cfg["target_polar"] = float(p_target)
-                cfg["ref_polar"] = float(p_ref)
-                add(cfg, "raw_polar")
-                cfg_neg = dict(cfg)
-                cfg_neg["theta0_deg"] = -raw_theta0
-                add(cfg_neg, "raw_polar_neg")
-
-            azi_ref = ref.get("azi")
-            azi_bm = geom.get("azi", entry.meta.azi if entry.meta.azi is not None else None)
-            if azi_ref is not None and azi_bm is not None:
-                kx_ref = float(ref.get("kx", np.nan))
-                ky_ref = float(ref.get("ky", 0.0) or 0.0)
-                if np.isfinite(kx_ref) and np.isfinite(ky_ref):
-                    d_azi = np.radians(float(azi_bm) - float(azi_ref))
-                    for label, gamma_bm in (
-                        ("azi_plus", kx_ref * np.cos(d_azi) + ky_ref * np.sin(d_azi)),
-                        ("azi_minus", kx_ref * np.cos(d_azi) - ky_ref * np.sin(d_azi)),
-                    ):
-                        cfg = self._angle_offsets_from_k_center(
-                            float(gamma_bm), 0.0,
-                            hv=hv,
-                            source=f"gamma_reference_projected_to_bm_{label}",
-                            ref_path=ref.get("path"),
-                            azi=azi_bm,
-                        )
-                        if cfg:
-                            cfg["gamma_bm_pi_over_a"] = float(gamma_bm)
-                            cfg["gamma_ref_source"] = ref.get("source", "")
-                            add(cfg, label)
-                            if p_ref is not None and p_target is not None:
-                                theta_proj = self._k_to_angle_offset_deg(float(gamma_bm), hv=hv)
-                                if theta_proj is not None:
-                                    cfg_raw = dict(cfg)
-                                    cfg_raw["theta0_deg"] = float(theta_proj) + float(p_ref) - float(p_target)
-                                    cfg_raw["source"] = f"gamma_reference_projected_to_bm_{label}_raw_polar"
-                                    cfg_raw["target_polar"] = float(p_target)
-                                    cfg_raw["ref_polar"] = float(p_ref)
-                                    add(cfg_raw, f"{label}_raw_polar")
-                            cfg_neg = dict(cfg)
-                            cfg_neg["theta0_deg"] = -float(cfg_neg.get("theta0_deg", 0.0) or 0.0)
-                            cfg_neg["gamma_bm_pi_over_a"] = -float(cfg_neg.get("gamma_bm_pi_over_a", 0.0) or 0.0)
-                            add(cfg_neg, f"{label}_neg")
-
-        return candidates
+        """Wrapper UI : délègue à `arpes_gamma.angle_offset_candidates_for_load`."""
+        target_geom = (
+            self._cls_geometry_for_path(path, entry)
+            if (entry is not None and Path(path).is_file()) else None
+        )
+        target_azi_fallback = (
+            entry.meta.azi if (entry is not None and entry.meta.azi is not None) else None
+        )
+        return _gamma_angle_offset_candidates(
+            primary=primary,
+            is_file=Path(path).is_file(),
+            ref=self._stored_gamma_reference() or None,
+            target_geom=target_geom,
+            target_azi_fallback=target_azi_fallback,
+            hv=hv,
+            work_func=float(self._params.sp_phi.value()),
+        )
 
     def _score_bm_gamma_residual(self, d: dict) -> float:
-        """Score petit si la BM chargee est centree autour de Γ=0."""
+        """Wrapper UI : délègue à `arpes_gamma.score_bm_gamma_residual`."""
         if AP is None:
             return float("inf")
-        try:
-            res = AP.estimate_gamma_bm_mdc(
-                np.asarray(d["data"], dtype=float),
-                np.asarray(d["kpar"], dtype=float),
-                np.asarray(d["ev_arr"], dtype=float),
-                ev_range=(self._params.sp_evs.value(), self._params.sp_eve.value()),
-                k_range=(self._params.sp_kmin.value(), self._params.sp_kmax.value()),
-                center_guess=0.0,
-                center_window=max(self._params.sp_xg.value() * 2.0, 0.25),
-                smooth_sigma=self._params.sp_sfd.value(),
-                verbose=False,
-            )
-            gamma = float(res.get("gamma", np.nan))
-            mad = float(res.get("mad", 0.0) or 0.0)
-            n = int(res.get("n", 0) or 0)
-            if not np.isfinite(gamma) or n < 2:
-                return float("inf")
-            kpar = np.asarray(d["kpar"], dtype=float)
-            k_mid = 0.5 * (float(np.nanmin(kpar)) + float(np.nanmax(kpar)))
-            return abs(gamma) + 0.25 * mad + 0.10 * abs(k_mid)
-        except Exception:
-            return float("inf")
+        return _gamma_score_bm_residual(
+            d,
+            ev_range=(self._params.sp_evs.value(), self._params.sp_eve.value()),
+            k_range=(self._params.sp_kmin.value(), self._params.sp_kmax.value()),
+            center_window=self._params.sp_xg.value() * 2.0,
+            smooth_sigma=self._params.sp_sfd.value(),
+            estimate_fn=AP.estimate_gamma_bm_mdc,
+        )
 
     def _load_with_best_angle_offsets(
         self,
@@ -2327,6 +2588,7 @@ class ArpesExplorer(QMainWindow):
                 azi=entry.meta.azi,
                 pol=entry.meta.polarization,
                 angle_offsets=angle_offsets,
+                bessy_energy_reference=self._bessy_energy_reference_mode(),
             )
             return d, angle_offsets
 
@@ -2341,6 +2603,7 @@ class ArpesExplorer(QMainWindow):
                 azi=entry.meta.azi,
                 pol=entry.meta.polarization,
                 angle_offsets=cfg,
+                bessy_energy_reference=self._bessy_energy_reference_mode(),
             )
             if d_try is None:
                 continue
@@ -2367,8 +2630,18 @@ class ArpesExplorer(QMainWindow):
             azi=entry.meta.azi,
             pol=entry.meta.polarization,
             angle_offsets=angle_offsets,
+            bessy_energy_reference=self._bessy_energy_reference_mode(),
         )
         return d, angle_offsets
+
+    def _bessy_energy_reference_mode(self) -> str:
+        """Mode BESSY exposé à l'app principale.
+
+        L'UI quotidienne reste simple : BESSY utilise le mode auto, qui se
+        résout côté loader en `ses_center_energy`. Le mode hν−φ reste disponible
+        dans `arpes_io.load_bessy_ses_ibw(...)` pour tests/diagnostic explicites.
+        """
+        return "auto"
 
     def _set_fs_center_pick_mode(self, active: bool):
         active = bool(active)
@@ -2433,108 +2706,33 @@ class ArpesExplorer(QMainWindow):
             QMessageBox.warning(self, "Détection Gamma", str(exc))
 
     def _stored_gamma_reference(self) -> dict:
-        ref = self._session.gamma_reference or {}
-        try:
-            kx = float(ref.get("kx", np.nan))
-            ky = float(ref.get("ky", 0.0) or 0.0)
-        except Exception:
-            return {}
-        if not np.isfinite(kx) or not np.isfinite(ky):
-            return {}
-        return ref
+        return _gamma_stored_reference(self._session.gamma_reference)
 
     def _gamma_reference_to_bm_center(self, ref: dict) -> tuple[float, float]:
-        """Projette le Γ mesuré sur la FS vers l'axe k de la BM courante.
-
-        Le transfert n'est physiquement valide que si :
-          - le polar du fichier courant est proche de celui de la référence
-            (sinon le `kx` produit par le loader CLS est complètement
-            différent — voir point 6 dans la doc) ;
-          - l'azi est connu des deux côtés pour corriger la rotation entre
-            la référence FS et la nouvelle direction de fente.
-        Si le polar diffère trop, on retourne NaN pour signaler à l'appelant
-        de NE PAS écrire `sp_cx` automatiquement. Si l'azimut manque, on garde
-        les coordonnées de référence non tournées et on affiche un avertissement.
-        """
-        POLAR_TOLERANCE_DEG = 2.0   # au-delà, transfert non fiable
-
+        """Wrapper UI : délègue à `arpes_gamma.gamma_reference_to_bm_center`."""
         if self._raw_data is None:
             return np.nan, 0.0
         meta = self._raw_data.get("metadata", {}) or {}
         entry_now = self._current_entry()
-
-        # Vérification polar : refus net si écart > tolérance
-        p_ref = float(ref.get("polar", 0.0) or 0.0)
-        p_bm = float(meta.get("polar", 0.0) or 0.0)
-        if abs(p_bm - p_ref) > POLAR_TOLERANCE_DEG:
-            self._status(
-                f"⚠ Γ FS→BM ignoré : polar diffère de {p_bm - p_ref:+.1f}° "
-                f"(>±{POLAR_TOLERANCE_DEG:.0f}°). Utilise 'Auto Γ BM'."
-            )
-            return np.nan, 0.0
-
-        # Étape 1 : rotation azi. La direction ZDB saisie dans le tableau ne
-        # bloque plus la propagation : l'azimut est la source de vérité.
         azi_bm = entry_now.meta.azi if (entry_now and entry_now.meta.azi is not None) else None
-        gamma, _ = self._project_gamma_by_azi(ref, azi_bm, warn_label="Γ FS→BM")
-        if not np.isfinite(gamma):
-            return np.nan, 0.0
-
-        # Étape 2 : correction polar (résidu, pour les loaders qui ne
-        # soustraient pas déjà polar à la conversion)
-        correction = 0.0
-        ref_polar_applied = bool(ref.get("polar_already_applied_to_kx", False))
-        bm_polar_applied = bool(meta.get("polar_already_applied_to_kx", False))
-        if not (ref_polar_applied and bm_polar_applied):
-            hv = self._raw_data.get("hv") or ref.get("hv")
-            work_func = self._params.sp_phi.value()
-            if hv is not None and float(hv) > work_func:
-                c_arpes = 0.51233
-                a = 3.96
-                ek = float(hv) - float(work_func)
-                correction = c_arpes * np.sqrt(ek) * (
-                    np.sin(np.radians(p_bm)) - np.sin(np.radians(p_ref))
-                ) * a / np.pi
-        return gamma + correction, correction
+        return _gamma_ref_to_bm_center(
+            ref,
+            bm_metadata=meta,
+            bm_hv=self._raw_data.get("hv"),
+            work_func=float(self._params.sp_phi.value()),
+            bm_azi=azi_bm,
+            on_warn=self._status,
+        )
 
     def _center_current_bm_axis_on_gamma(self, gamma_bm: float, ref: dict | None = None) -> bool:
-        """Recentre l'axe k// d'une BM pour que Γ soit affiche a k//=0.
-
-        Les FS sont deja recentrees au dessin via FSParams.kx_center/ky_center.
-        Pour les BM, `center_init` seul ne suffit pas : l'axe kpar utilise par
-        les graphes/MDC reste brut. On applique donc une translation locale au
-        dict charge, sans modifier les fichiers bruts.
-        """
+        """Wrapper UI : délègue à `arpes_gamma.apply_bm_gamma_axis_shift` puis
+        synchronise la sélection MDC `_sel_k`."""
         if self._raw_data is None:
             return False
-        meta = self._raw_data.get("metadata", {}) or {}
-        if meta.get("fs_data") is not None:
-            return False
-        if meta.get("angle_offsets_applied"):
-            return False
-        if bool(meta.get("bm_gamma_axis_centered", False)):
-            return False
-        if not np.isfinite(gamma_bm):
-            return False
-
-        kpar = np.asarray(self._raw_data.get("kpar"), dtype=float)
-        if kpar.size == 0 or not np.isfinite(kpar).any():
-            return False
-
-        shift = float(gamma_bm)
-        self._raw_data["kpar"] = kpar - shift
-        meta["bm_gamma_axis_centered"] = True
-        meta["bm_gamma_axis_shift"] = shift
-        meta["bm_gamma_axis_note"] = "kpar_display = kpar_raw - gamma_bm"
-        if ref:
-            meta["bm_gamma_reference_source"] = ref.get("source", "")
-            meta["bm_gamma_reference_path"] = ref.get("path", "")
-            meta["bm_gamma_reference_azi"] = ref.get("azi")
-        self._raw_data["metadata"] = meta
-
-        if hasattr(self, "_sel_k"):
-            self._sel_k = float(self._sel_k - shift)
-        return True
+        applied = _gamma_apply_bm_axis_shift(self._raw_data, gamma_bm, ref=ref)
+        if applied and hasattr(self, "_sel_k"):
+            self._sel_k = float(self._sel_k - float(gamma_bm))
+        return applied
 
     def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
         if self._raw_data is None:
@@ -2614,22 +2812,7 @@ class ArpesExplorer(QMainWindow):
             self._params.lbl_grid.setText("Correction BM : masque Fourier 2D automatique sur l'affichage.")
 
     def _display_grid_config(self, cfg: dict | None) -> dict:
-        cfg = cfg or {}
-        try:
-            strength = float(cfg.get("strength", 0.85))
-        except Exception:
-            strength = 0.85
-        return {
-            "method": "fft2mask",
-            "grid_freq": None,
-            "grid_period_px": None,
-            "notch_width": 2,
-            "notch_sigma": 0.8,
-            "strength": float(np.clip(strength, 0.0, 1.0)),
-            "fft2_center_radius": 18.0,
-            "fft2_peak_sensitivity": 2.5,
-            "fft2_plane": "display",
-        }
+        return _plot_display_grid_config(cfg)
 
     def _grid_status_text(self, info: dict, target: str) -> str:
         info = info or {}
@@ -2718,58 +2901,23 @@ class ArpesExplorer(QMainWindow):
             )
             if self._current_path:
                 self._apply_logbook_to_controls(self._current_path)
+            self._browser.refresh()
         except Exception as exc:
             QMessageBox.warning(self, "Logbook", str(exc))
             self._status(f"⚠ Logbook : {exc}")
 
     def _read_logbook(self, path: Path) -> tuple[list[dict], dict[str, str], str]:
-        try:
-            import pandas as pd
-        except Exception as exc:
-            raise ImportError("pandas est nécessaire pour lire les logbooks Excel/CSV.") from exc
+        result = read_logbook_file(
+            path,
+            sheet_selector=self._choose_excel_sheet,
+            table_selector=self._choose_excel_table,
+            mapping_selector=self._choose_logbook_mapping,
+        )
+        return result.records, result.mapping, result.sheet_name
 
-        suffix = path.suffix.lower()
-        sheet_name = ""
-        if suffix in {".xlsx", ".xls"}:
-            book = pd.ExcelFile(path)
-            sheet_name = self._choose_excel_sheet(book.sheet_names)
-            if not sheet_name:
-                raise ValueError("Aucune feuille Excel sélectionnée.")
-            raw = pd.read_excel(path, sheet_name=sheet_name, header=None)
-            if raw.dropna(how="all").empty:
-                raise ValueError("Le logbook ne contient aucune ligne exploitable.")
-            candidates = self._excel_header_candidates(raw)
-            guessed = self._best_excel_table(raw, candidates)
-            if guessed is None:
-                guessed = self._choose_excel_table(raw, candidates)
-            if guessed is None:
-                raise ValueError("Aucune ligne d'en-tête sélectionnée pour le logbook.")
-            df, mapping = guessed
-        elif suffix == ".tsv":
-            df = pd.read_csv(path, sep="\t")
-            df = df.dropna(how="all")
-            if df.empty:
-                raise ValueError("Le logbook ne contient aucune ligne exploitable.")
-            df.columns = [str(c).strip() for c in df.columns]
-            mapping = _infer_logbook_mapping(list(df.columns))
-        else:
-            try:
-                df = pd.read_csv(path, sep=None, engine="python")
-            except Exception:
-                df = pd.read_csv(path)
-            df = df.dropna(how="all")
-            if df.empty:
-                raise ValueError("Le logbook ne contient aucune ligne exploitable.")
-            df.columns = [str(c).strip() for c in df.columns]
-            mapping = _infer_logbook_mapping(list(df.columns))
-
-        if not mapping.get("file") or not mapping.get("hv"):
-            mapping = self._choose_logbook_mapping(list(df.columns), mapping)
-        if not mapping.get("file") or not mapping.get("hv"):
-            raise ValueError("Les colonnes fichier et hν sont obligatoires pour appliquer un logbook.")
-        records = df.where(pd.notnull(df), None).to_dict(orient="records")
-        records = self._inherit_logbook_context(records, mapping)
-        return records, mapping, sheet_name
+    def _read_delimited_logbook_raw(self, pd, path: Path):
+        """Lecture brute CSV/TSV pour anciens logbooks avec titre avant header."""
+        return _logbook_read_delimited_raw(pd, path)
 
     def _inherit_logbook_context(self, records: list[dict], mapping: dict[str, str]) -> list[dict]:
         """Propage les champs de contexte du logbook quand les cellules sont vides.
@@ -2778,39 +2926,7 @@ class ArpesExplorer(QMainWindow):
         d'alignement (FS) puis laisse vide sur les BM suivantes. Ces BM doivent
         pourtant heriter de cet azimut pour que la projection FS->BM soit juste.
         """
-        azi_col = mapping.get("azi", "")
-        dir_col = mapping.get("direction", "")
-        pol_col = mapping.get("polarization", "")
-        last_azi = None
-        last_dir = ""
-        last_pol = ""
-        out = []
-        for rec in records:
-            rec = dict(rec)
-
-            if dir_col:
-                direct = _cell_text(rec.get(dir_col))
-                if direct:
-                    last_dir = direct
-                elif last_dir:
-                    rec[dir_col] = last_dir
-
-            if pol_col:
-                pol = _cell_text(rec.get(pol_col))
-                if pol:
-                    last_pol = pol
-                elif last_pol:
-                    rec[pol_col] = last_pol
-
-            if azi_col:
-                azi = _cell_float(rec.get(azi_col))
-                if azi is not None and np.isfinite(azi):
-                    last_azi = float(azi)
-                elif last_azi is not None:
-                    rec[azi_col] = last_azi
-
-            out.append(rec)
-        return out
+        return _logbook_inherit_context(records, mapping)
 
     def _choose_excel_sheet(self, sheet_names: list[str]) -> str:
         if not sheet_names:
@@ -2849,45 +2965,13 @@ class ArpesExplorer(QMainWindow):
         return cmb.currentText()
 
     def _excel_header_candidates(self, raw) -> list[int]:
-        candidates: list[int] = []
-        for row_idx in range(min(len(raw), 120)):
-            values = [_cell_text(v) for v in raw.iloc[row_idx].tolist()]
-            nonempty = [v for v in values if v]
-            if len(nonempty) >= 2:
-                candidates.append(row_idx)
-        return candidates
+        return _logbook_excel_header_candidates(raw)
 
     def _excel_table_from_header(self, raw, row_idx: int):
-        headers = [_cell_text(v) for v in raw.iloc[row_idx].tolist()]
-        cols = [h if h else f"column_{i}" for i, h in enumerate(headers)]
-        seen: dict[str, int] = {}
-        unique_cols = []
-        for col in cols:
-            n = seen.get(col, 0)
-            seen[col] = n + 1
-            unique_cols.append(col if n == 0 else f"{col}_{n+1}")
-        df = raw.iloc[row_idx + 1:].copy()
-        df.columns = unique_cols
-        df = df.dropna(how="all")
-        mapping = _infer_logbook_mapping(list(df.columns))
-        return df, mapping
+        return _logbook_excel_table_from_header(raw, row_idx)
 
     def _best_excel_table(self, raw, candidates: list[int]):
-        best = None
-        best_score = -1
-        for row_idx in candidates:
-            df, mapping = self._excel_table_from_header(raw, row_idx)
-            score = int(bool(mapping.get("file"))) * 3 + int(bool(mapping.get("hv"))) * 3
-            score += int(bool(mapping.get("temperature"))) + int(bool(mapping.get("polarization")))
-            score += int(bool(mapping.get("direction"))) + int(bool(mapping.get("azi")))
-            score += int(bool(mapping.get("polar"))) + int(bool(mapping.get("tilt")))
-            score += min(len(df), 20) / 1000
-            if score > best_score:
-                best = (df, mapping, row_idx)
-                best_score = score
-        if best is None or best_score < 6:
-            return None
-        return best[0], best[1]
+        return _logbook_best_excel_table(raw, candidates)
 
     def _choose_excel_table(self, raw, candidates: list[int]):
         if not candidates:
@@ -2945,76 +3029,28 @@ class ArpesExplorer(QMainWindow):
         return {key: cmb.currentText() for key, cmb in combos.items()}
 
     def _find_logbook_record(self, path: str | Path) -> dict | None:
-        mapping = self._session.logbook_mapping or {}
-        file_col = mapping.get("file", "")
-        if not file_col:
-            return None
-        for rec in self._session.logbook_records:
-            if _record_matches_path(rec.get(file_col), path, self._session.folder):
-                return rec
-        return None
+        manager = LogbookManager(
+            self._session.logbook_records,
+            self._session.logbook_mapping,
+            self._session.folder,
+        )
+        return manager.find_record_for_path(path)
 
     def _apply_logbook_to_controls(self, path: str | Path) -> bool:
-        rec = self._find_logbook_record(path)
-        if rec is None:
-            return False
-        mapping = self._session.logbook_mapping or {}
-        changed = False
-
-        hv = _cell_float(rec.get(mapping.get("hv", "")))
-        if hv is not None and hv > 0:
+        manager = LogbookManager(
+            self._session.logbook_records,
+            self._session.logbook_mapping,
+            self._session.folder,
+        )
+        entry = self._session.get_or_create(self._session.key_for_path(path))
+        values = manager.apply_to_entry(entry, path)
+        if values.hv is not None:
             self._params.sp_hv.blockSignals(True)
-            self._params.sp_hv.setValue(hv)
+            self._params.sp_hv.setValue(values.hv)
             self._params.sp_hv.blockSignals(False)
-            entry = self._session.get_or_create(self._session.key_for_path(path))
-            entry.meta.hv = hv
-            changed = True
-
-        temp_col = mapping.get("temperature", "")
-        temp = _cell_float(rec.get(temp_col)) if temp_col else None
-        if temp is not None:
-            entry = self._session.get_or_create(self._session.key_for_path(path))
-            entry.meta.temperature = temp
-            changed = True
-
-        pol_col = mapping.get("polarization", "")
-        pol = _cell_text(rec.get(pol_col)) if pol_col else ""
-        if pol:
-            entry = self._session.get_or_create(self._session.key_for_path(path))
-            entry.meta.polarization = pol
-            changed = True
-
-        azi_col = mapping.get("azi", "")
-        azi_val = _cell_float(rec.get(azi_col)) if azi_col else None
-        if azi_val is not None and np.isfinite(azi_val):
-            entry = self._session.get_or_create(self._session.key_for_path(path))
-            entry.meta.azi = float(azi_val)
-            changed = True
-
-        dir_col = mapping.get("direction", "")
-        dir_val = _cell_text(rec.get(dir_col)) if dir_col else ""
-        if dir_val:
-            entry = self._session.get_or_create(self._session.key_for_path(path))
-            entry.meta.direction = dir_val
-            changed = True
-
-        polar_col = mapping.get("polar", "")
-        polar_val = _cell_float(rec.get(polar_col)) if polar_col else None
-        if polar_val is not None and np.isfinite(polar_val):
-            entry = self._session.get_or_create(self._session.key_for_path(path))
-            entry.meta.polar = float(polar_val)
-            changed = True
-
-        tilt_col = mapping.get("tilt", "")
-        tilt_val = _cell_float(rec.get(tilt_col)) if tilt_col else None
-        if tilt_val is not None and np.isfinite(tilt_val):
-            entry = self._session.get_or_create(self._session.key_for_path(path))
-            entry.meta.tilt = float(tilt_val)
-            changed = True
-
-        if changed:
+        if values.has_any():
             self._session.save()
-        return changed
+        return values.has_any()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Chargement fichier
@@ -3031,41 +3067,55 @@ class ArpesExplorer(QMainWindow):
         self._status(f"Chargement {Path(path).name} …")
         QApplication.processEvents()
         try:
-            entry = self._session.get_or_create(self._session.key_for_path(path))
+            key = self._session.key_for_path(path)
+            is_new_entry = key not in self._session.files
+            entry = self._session.get_or_create(key)
+            fmt_guess = ""
+            try:
+                fmt_guess = detect_format(path) if detect_format is not None else ""
+            except Exception:
+                fmt_guess = ""
+            if fmt_guess == "bessy_ses_ibw" and (
+                is_new_entry
+                or (
+                    abs(float(entry.ef_offset) - 0.052) < 1e-9
+                    and not entry.ef_correction
+                    and not entry.fit_result
+                )
+            ):
+                entry.ef_offset = 0.0
             self._params.sp_ef.blockSignals(True)
             self._params.sp_ef.setValue(entry.ef_offset)
             self._params.sp_ef.blockSignals(False)
+            hv_before_load = float(self._params.sp_hv.value())
             logbook_hit = self._apply_logbook_to_controls(path)
+            hv_from_logbook = (
+                logbook_hit
+                and float(self._params.sp_hv.value()) != hv_before_load
+                and float(self._params.sp_hv.value()) > 0
+            )
             if entry.meta.hv and entry.meta.hv > 0 and self._params.sp_hv.value() <= 0:
-                self._params.sp_hv.blockSignals(True)
-                self._params.sp_hv.setValue(float(entry.meta.hv))
-                self._params.sp_hv.blockSignals(False)
+                self._params.set_hv_value_with_source(entry.meta.hv, "file")
             hv_for_load = self._params.sp_hv.value()
             angle_offsets = self._angle_offsets_for_load(path, entry, hv_for_load)
-            if angle_offsets and Path(path).is_file():
-                d, angle_offsets = self._load_with_best_angle_offsets(path, entry, hv_for_load, angle_offsets)
-            else:
-                d = load_arpes_file(path,
-                                    self._params.sp_phi.value(),
-                                    self._params.sp_ef.value(),
-                                    hv=hv_for_load,
-                                    temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
-                                    azi=entry.meta.azi,
-                                    pol=entry.meta.polarization,
-                                    angle_offsets=angle_offsets)
+            orchestrator = LoaderOrchestrator(load_arpes_file, _loader_label)
+            load_result = orchestrator.load(
+                path,
+                entry,
+                work_func=self._params.sp_phi.value(),
+                ef_offset=self._params.sp_ef.value(),
+                hv=hv_for_load,
+                angle_offsets=angle_offsets,
+                bessy_energy_reference=self._bessy_energy_reference_mode(),
+                best_angle_load_func=self._load_with_best_angle_offsets,
+            )
+            d = load_result.data
+            angle_offsets = load_result.angle_offsets
             if d is None:
                 self._status("⚠ erlab non disponible")
                 return
 
-            # Température lue depuis les métadonnées du loader (Solaris/CLS)
-            md = d.get("metadata", {}) or {}
-            t_md = md.get("temperature")
-            try:
-                t_md = float(t_md) if t_md is not None else None
-            except (TypeError, ValueError):
-                t_md = None
-            if t_md is not None and np.isfinite(t_md) and t_md > 0:
-                entry.meta.temperature = t_md
+            md = orchestrator.apply_loaded_metadata(d, entry)
 
             # Correction EF par colonne si calibrée pour ce fichier
             if entry.ef_correction.get("mode") == "poly":
@@ -3078,15 +3128,18 @@ class ArpesExplorer(QMainWindow):
             self._current_path = path
             self._fit_res = None
 
-            # Remplir hν depuis les données si disponible
-            hv_in_data = d.get("hv")
-            if hv_in_data is not None and np.isfinite(float(hv_in_data)) and float(hv_in_data) > 0:
-                self._params.sp_hv.blockSignals(True)
-                self._params.sp_hv.setValue(float(hv_in_data))
-                self._params.sp_hv.blockSignals(False)
-                entry.meta.hv = float(hv_in_data)
-            elif hv_for_load and hv_for_load > 0:
-                entry.meta.hv = float(hv_for_load)
+            hv_src = orchestrator.resolve_hv_after_load(
+                d,
+                entry,
+                hv_for_load=hv_for_load,
+                hv_from_logbook=hv_from_logbook,
+            )
+            if hv_src.source == "file" and hv_src.value is not None:
+                self._params.set_hv_value_with_source(float(hv_src.value), "file")
+            elif hv_src.value is not None:
+                self._params.update_hv_source(hv_src.source)
+            else:
+                self._params.update_hv_source(None)
 
             # Restaurer params depuis session
             self._params.sp_ef.blockSignals(True)
@@ -3096,6 +3149,25 @@ class ArpesExplorer(QMainWindow):
             self._params.chk_norm.setChecked(entry.edcnorm)
             self._params.chk_norm.blockSignals(False)
             self._params.load_fit_params(entry.fit_params)
+            saved_res = (entry.fit_result or {}).get("resolution", {}) if entry.fit_result else {}
+            if saved_res:
+                saved_source = str(saved_res.get("source", "") or "")
+                if saved_source == "manual":
+                    res_kind = "manual"
+                elif "defaut" in saved_source or saved_source == "default":
+                    res_kind = "default"
+                else:
+                    res_kind = "estimated"
+                self._params.set_resolution_with_source(
+                    float(saved_res.get("dE_meV", 15.0) or 15.0),
+                    float(saved_res.get("dk_inv_a", 0.005) or 0.005),
+                    res_kind,
+                    saved_source,
+                )
+            else:
+                res = estimate_resolutions(md)
+                res_kind = "default" if "defaut" in res.get("source", "") else "estimated"
+                self._params.set_resolution_with_source(res["dE_meV"], res["dk_inv_a"], res_kind, res.get("source", ""))
             self._cmb_view.blockSignals(True)
             self._cmb_view.setCurrentText(entry.view_mode)
             self._cmb_view.blockSignals(False)
@@ -3124,6 +3196,12 @@ class ArpesExplorer(QMainWindow):
                 )
             elif md_now.get("bm_gamma_axis_centered"):
                 gamma_note = f"  |  Γ axe shift={float(md_now.get('bm_gamma_axis_shift', 0.0)):+.4f}"
+            loader_note = ""
+            loader_warnings = md_now.get("loader_warnings") or []
+            if loader_warnings:
+                loader_note = f"  |  ⚠ loader: {str(loader_warnings[0])[:120]}"
+            elif md_now.get("energy_reference"):
+                loader_note = f"  |  refE={md_now.get('energy_reference')}"
             self._sel_ev = float(np.clip(-0.30, d["ev_arr"].min(), d["ev_arr"].max()))
             self._sel_k  = 0.0
             self._sync_ev_spinbox()
@@ -3133,14 +3211,18 @@ class ArpesExplorer(QMainWindow):
             if self._tabs.currentIndex() == 3:
                 self._draw_fs_tab()
 
+            self._session.save()
             self._browser.select_file(path)
+            self._browser.refresh_item(self._session.key_for_path(path))
             hv_txt = f"{d['hv']:.0f} eV" if d.get("hv") is not None else "—"
             lb_txt = "  |  logbook" if logbook_hit else ""
             self._status(
                 f"Chargé : {Path(path).name}  hν={hv_txt}  |  "
                 f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
-                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV{lb_txt}{grid_note}{gamma_note}"
+                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV"
+                f"{lb_txt}{grid_note}{gamma_note}{loader_note}"
             )
+            self._refresh_helper_buttons()
         except Exception as e:
             self._status(f"⚠ {e}")
             traceback.print_exc()
@@ -3151,44 +3233,29 @@ class ArpesExplorer(QMainWindow):
         d    = self._raw_data
         raw  = d["data"]
         mode = self._cmb_view.currentText()
-        self._grid_display_info = {}
-
-        if mode == "Raw":
-            disp = raw
-        elif mode == "EDCnorm":
-            disp = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
-        elif mode == "SecDev":
-            norm = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
-            disp = compute_secdev(norm, d["kpar"], d["ev_arr"])
-        elif mode == "Curvature":
-            norm = apply_edcnorm(raw) if self._params.chk_norm.isChecked() else raw
-            disp = compute_curvature(norm, d["kpar"], d["ev_arr"])
-        else:
-            disp = raw
 
         entry = self._current_entry()
-        cfg = entry.grid_correction if entry and entry.grid_correction.get("enabled") else None
-        if cfg:
-            grid_cfg = self._display_grid_config(cfg)
-            try:
-                disp, info = remove_detector_grid_artifact(np.asarray(disp, dtype=float), axis=0, **grid_cfg)
-                info.update({
-                    "method": "display_fft2mask",
-                    "view_mode": mode,
-                    "target": "display",
-                    "shape": tuple(np.asarray(disp).shape),
-                    "strength": grid_cfg["strength"],
-                })
-                self._grid_display_info = info
-            except Exception as exc:
-                self._grid_display_info = {
-                    "method": "display_fft2mask",
-                    "error": str(exc),
-                    "view_mode": mode,
-                    "strength": grid_cfg["strength"],
-                }
+        grid_cfg_active = entry.grid_correction if entry and entry.grid_correction.get("enabled") else None
+        grid_key = (
+            grid_cfg_active.get("strength"),
+            grid_cfg_active.get("center_radius"),
+            grid_cfg_active.get("peak_sensitivity"),
+            grid_cfg_active.get("notch_width"),
+        ) if grid_cfg_active else None
+        cache_key = (id(raw), mode, bool(self._params.chk_norm.isChecked()), grid_key)
+        if cache_key == self._disp_cache_key and self._data_disp is not None:
+            return  # rien n'a changé qui affecte l'affichage BM
 
-        self._data_disp = disp
+        result = compute_bandmap_display(
+            d,
+            mode=mode,
+            edc_norm_enabled=bool(self._params.chk_norm.isChecked()),
+            grid_correction=grid_cfg_active,
+            grid_artifact_fn=remove_detector_grid_artifact,
+        )
+        self._data_disp = result.data
+        self._grid_display_info = result.grid_info
+        self._disp_cache_key = cache_key
 
     def _on_view_changed(self):
         if self._current_path:
@@ -3205,84 +3272,61 @@ class ArpesExplorer(QMainWindow):
         self._sel_ev = float(np.clip(val, ev_arr.min(), ev_arr.max()))
         self._draw_bm()
         self._draw_mdc_edc()
+        if hasattr(self, "_mdc_fit_tabs") and self._tabs.currentIndex() == 1 and self._mdc_fit_tabs.currentIndex() == 1:
+            self._draw_mdc_waterfall()
+
+    def _schedule_model_redraw(self, _=None):
+        self._redraw_timer.start(120)
+
+    def _schedule_fit_only_redraw(self, _=None):
+        self._fit_redraw_timer.start(120)
 
     def _on_model_changed(self, _=None):
         self._update_display_data()
         self._draw_bm()
         if self._tabs.currentIndex() == 1:
             self._draw_mdc_edc()
+            if hasattr(self, "_mdc_fit_tabs") and self._mdc_fit_tabs.currentIndex() == 1:
+                self._draw_mdc_waterfall()
+
+    def _on_fit_only_changed(self, _=None):
+        # Paramètres qui n'affectent ni la BM affichée ni la donnée raw :
+        # uniquement les overlays MDC/EDC et le waterfall.
+        if self._tabs.currentIndex() != 1:
+            return
+        self._draw_mdc_edc()
+        if hasattr(self, "_mdc_fit_tabs") and self._mdc_fit_tabs.currentIndex() == 1:
+            self._draw_mdc_waterfall()
 
     def _fit_roi_bounds(self) -> tuple[float, float, float, float] | None:
         if self._raw_data is None:
             return None
         d = self._raw_data
-        k0, k1 = sorted((float(self._params.sp_kmin.value()), float(self._params.sp_kmax.value())))
-        e0, e1 = sorted((float(self._params.sp_evs.value()), float(self._params.sp_eve.value())))
-        k0 = float(np.clip(k0, np.nanmin(d["kpar"]), np.nanmax(d["kpar"])))
-        k1 = float(np.clip(k1, np.nanmin(d["kpar"]), np.nanmax(d["kpar"])))
-        e0 = float(np.clip(e0, np.nanmin(d["ev_arr"]), np.nanmax(d["ev_arr"])))
-        e1 = float(np.clip(e1, np.nanmin(d["ev_arr"]), np.nanmax(d["ev_arr"])))
-        if k1 <= k0 or e1 <= e0:
-            return None
-        return k0, k1, e0, e1
+        return _plot_fit_roi_bounds(
+            d["kpar"], d["ev_arr"],
+            k_min=self._params.sp_kmin.value(),
+            k_max=self._params.sp_kmax.value(),
+            ev_start=self._params.sp_evs.value(),
+            ev_end=self._params.sp_eve.value(),
+        )
 
     def _fit_roi_data(self, disp: np.ndarray, kpar: np.ndarray, ev: np.ndarray) -> np.ndarray:
-        bounds = self._fit_roi_bounds()
-        if bounds is None:
-            return np.asarray(disp)
-        k0, k1, e0, e1 = bounds
-        mk = (kpar >= k0) & (kpar <= k1)
-        me = (ev >= e0) & (ev <= e1)
-        if not mk.any() or not me.any():
-            return np.asarray(disp)
-        return np.asarray(disp)[np.ix_(mk, me)]
+        return _plot_fit_roi_data(disp, kpar, ev, self._fit_roi_bounds())
 
     def _map_color_kwargs(self, disp: np.ndarray, mode: str, *, roi_scale: bool = False) -> tuple[str, dict]:
         d = self._raw_data
         ref = self._fit_roi_data(disp, d["kpar"], d["ev_arr"]) if roi_scale and d is not None else disp
-        if mode in ("Raw", "EDCnorm"):
-            finite = ref[np.isfinite(ref)]
-            vmax = float(np.nanpercentile(finite, 99)) if finite.size else 1.0
-            return "inferno", {"vmin": 0, "vmax": max(vmax, 1e-12)}
-        pos = ref[np.isfinite(ref) & (ref > 0)]
-        vmax = float(np.nanpercentile(pos, 99)) if pos.size else 1.0
-        return "hot_r", {"vmin": 0, "vmax": max(vmax, 1e-12)}
+        return _plot_map_color_kwargs(disp, mode=mode, roi_ref=ref)
 
     def _draw_fit_roi_overlay(self, ax):
-        bounds = self._fit_roi_bounds()
-        if bounds is None:
-            return
-        k0, k1, e0, e1 = bounds
-        rect = Rectangle(
-            (k0, e0), k1 - k0, e1 - e0,
-            fill=False, edgecolor="#7dd3fc", linewidth=1.1,
-            linestyle="--", alpha=0.95, zorder=8,
-        )
-        ax.add_patch(rect)
+        _plot_draw_fit_roi_overlay(ax, self._fit_roi_bounds())
 
     def _ef_offset_text(self) -> str:
         return f"EF offset={self._params.sp_ef.value()*1000:+.0f} meV"
 
     def _draw_ef_label(self, ax, *, horizontal: bool = True):
         txt = f"EF  {self._ef_offset_text()}"
-        if horizontal:
-            x0, x1 = ax.get_xlim()
-            x = x0 + 0.012 * (x1 - x0)
-            ax.text(
-                x, 0.0, txt,
-                color="cyan", fontsize=8, va="bottom", ha="left",
-                bbox=dict(facecolor="#1a1a1a", edgecolor="none", alpha=0.65, pad=1.5),
-                zorder=9,
-            )
-        else:
-            y0, y1 = ax.get_ylim()
-            y = y0 + 0.88 * (y1 - y0)
-            ax.text(
-                0.0, y, txt,
-                color="cyan", fontsize=7, va="top", ha="left", rotation=90,
-                bbox=dict(facecolor="#1a1a1a", edgecolor="none", alpha=0.65, pad=1.2),
-                zorder=9,
-            )
+        _plot_draw_ef_label(ax, txt, horizontal=horizontal)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Band map
@@ -3297,46 +3341,23 @@ class ArpesExplorer(QMainWindow):
         kpar = d["kpar"]; ev = d["ev_arr"]
 
         ax = self._bm_canvas.ax
-        ax.cla(); ax.set_facecolor("#1a1a1a")
-        self._bm_canvas.fig.set_facecolor("#2b2b2b")
-
-        gamma = self._sp_gamma.value()
-        _norm = lambda vmin, vmax: (PowerNorm(gamma=gamma, vmin=vmin, vmax=vmax)
-                                    if gamma != 1.0 else None)
-        if mode in ("Raw", "EDCnorm"):
-            cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
-            n = _norm(ckw["vmin"], ckw["vmax"])
-            kw = dict(norm=n) if n else ckw
-            ax.pcolormesh(kpar, ev, disp.T, cmap=cmap, shading="auto", **kw)
-        elif mode == "SecDev":
-            cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
-            n = _norm(ckw["vmin"], ckw["vmax"])
-            kw = dict(norm=n) if n else ckw
-            ax.pcolormesh(kpar, ev, disp.T, cmap=cmap, shading="auto", **kw)
-        elif mode == "Curvature":
-            cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
-            n = _norm(ckw["vmin"], ckw["vmax"])
-            kw = dict(norm=n) if n else ckw
-            ax.pcolormesh(kpar, ev, disp.T, cmap=cmap, shading="auto", **kw)
-
+        cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
         int_win = self._params.sp_int_win.value()
-        ax.axhline(0,          color="cyan", lw=0.8, ls="--", alpha=0.6)
-        ax.axvline(0,          color="w",    lw=0.5, ls="--", alpha=0.4)
-        ax.axhspan(self._sel_ev - int_win, self._sel_ev + int_win,
-                   alpha=0.14, color="lime", zorder=2, lw=0)
-        ax.axhline(self._sel_ev, color="lime", lw=0.8, ls="--", zorder=3)
-        ax.axvline(self._sel_k,  color="lime", lw=1.0, ls=":",  zorder=3)
+        fname = Path(d["path"]).name
+        _plot_draw_bandmap_axes(
+            ax,
+            kpar=kpar, ev=ev, disp=disp,
+            cmap=cmap, color_kwargs=ckw,
+            gamma=self._sp_gamma.value(),
+            sel_ev=self._sel_ev, sel_k=self._sel_k, int_win=int_win,
+            title=f"{fname}  [{mode}]  {self._ef_offset_text()}",
+            title_size=9, label_size=10,
+            show_k_zero=True,
+        )
 
         self._draw_fit_roi_overlay(ax)
         self._draw_kf_overlay(ax)
         self._draw_ef_label(ax, horizontal=True)
-
-        fname = Path(d["path"]).name
-        ax.set_xlabel("k// (π/a)", fontsize=10, color="w")
-        ax.set_ylabel("E − EF (eV)", fontsize=10, color="w")
-        ax.set_title(f"{fname}  [{mode}]  {self._ef_offset_text()}", fontsize=9, color="w")
-        ax.tick_params(colors="w")
-        for sp in ax.spines.values(): sp.set_edgecolor("#555")
         self._bm_canvas.redraw()
         self._draw_mdc_energy_map()
 
@@ -3350,30 +3371,59 @@ class ArpesExplorer(QMainWindow):
         kpar = d["kpar"]
         ev = d["ev_arr"]
         ax = self._mdc_map_canvas.ax
-        ax.cla(); ax.set_facecolor("#1a1a1a")
-        self._mdc_map_canvas.fig.set_facecolor("#2b2b2b")
         cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=True)
-        ax.pcolormesh(kpar, ev, disp.T, cmap=cmap, shading="auto", **ckw)
         int_win = self._params.sp_int_win.value()
-        ax.axhline(0, color="cyan", lw=0.7, ls="--", alpha=0.6)
-        ax.axhspan(self._sel_ev - int_win, self._sel_ev + int_win,
-                   alpha=0.14, color="lime", zorder=2, lw=0)
-        ax.axhline(self._sel_ev, color="lime", lw=0.7, ls="--", zorder=3)
-        ax.axvline(self._sel_k,  color="lime", lw=0.9, ls=":", zorder=3)
+        _plot_draw_bandmap_axes(
+            ax,
+            kpar=kpar, ev=ev, disp=disp,
+            cmap=cmap, color_kwargs=ckw,
+            gamma=1.0,
+            sel_ev=self._sel_ev, sel_k=self._sel_k, int_win=int_win,
+            title=f"BM [{mode}]  {self._ef_offset_text()}",
+            title_size=8, label_size=8, tick_label_size=8,
+            show_k_zero=False,
+        )
         bounds = self._fit_roi_bounds()
         if bounds is not None:
             k0, k1, e0, e1 = bounds
             ax.set_xlim(k0, k1)
             ax.set_ylim(e0, e1)
-            self._draw_fit_roi_overlay(ax)
+        self._draw_fit_roi_overlay(ax)
         self._draw_kf_overlay(ax)
         self._draw_ef_label(ax, horizontal=True)
-        ax.set_xlabel("k// (π/a)", fontsize=8, color="w")
-        ax.set_ylabel("E − EF (eV)", fontsize=8, color="w")
-        ax.set_title(f"BM [{mode}]  {self._ef_offset_text()}", fontsize=8, color="w")
-        ax.tick_params(colors="w", labelsize=8)
-        for sp in ax.spines.values(): sp.set_edgecolor("#555")
         self._mdc_map_canvas.redraw()
+
+    def _draw_mdc_waterfall(self):
+        if not hasattr(self, "_waterfall_canvas") or self._raw_data is None:
+            return
+        data, kpar, ev = self._get_work_data()
+        if data is None:
+            return
+
+        ax = self._waterfall_canvas.ax
+        self._waterfall_canvas.fig.set_facecolor("#2b2b2b")
+
+        bounds = self._fit_roi_bounds() or (
+            float(self._params.sp_kmin.value()),
+            float(self._params.sp_kmax.value()),
+            float(self._params.sp_evs.value()),
+            float(self._params.sp_eve.value()),
+        )
+        n_target = int(self._params.sp_wf_n.value()) if hasattr(self._params, "sp_wf_n") else 32
+        amp_scale = float(self._params.sp_wf_relief.value()) if hasattr(self._params, "sp_wf_relief") else 1.8
+        _plot_draw_waterfall_axes(
+            ax, data, kpar, ev,
+            bounds=bounds,
+            n_target=n_target,
+            amp_scale=amp_scale,
+            smooth_sigma=self._params.sp_sff.value(),
+            fit_result=self._fit_res,
+            n_pairs=self._params.sp_np.value(),
+            pair_colors=PAIR_COLORS,
+            gamma_center=self._params.sp_cx.value(),
+        )
+        self._waterfall_canvas.fig.tight_layout(pad=0.6)
+        self._waterfall_canvas.redraw()
 
     def _draw_kf_overlay(self, ax):
         if self._fit_res is None:
@@ -3396,27 +3446,30 @@ class ArpesExplorer(QMainWindow):
 
     def _get_mdc(self):
         if self._raw_data is None: return None
-        d = self._raw_data
-        norm = apply_edcnorm(d["data"]) if self._params.chk_norm.isChecked() else d["data"]
-        int_win = self._params.sp_int_win.value()
-        mask_e = np.abs(d["ev_arr"] - self._sel_ev) <= int_win
-        if not mask_e.any():
-            mask_e[np.argmin(np.abs(d["ev_arr"] - self._sel_ev))] = True
-        mdc = np.nanmean(norm[:, mask_e], axis=1).astype(float)
-        return d["kpar"], mdc
+        return _plot_mdc_curve(
+            self._raw_data,
+            selected_ev=self._sel_ev,
+            int_window=self._params.sp_int_win.value(),
+            edc_norm_enabled=bool(self._params.chk_norm.isChecked()),
+        )
 
     def _get_edc(self):
         if self._raw_data is None: return None
-        d = self._raw_data
-        norm = apply_edcnorm(d["data"]) if self._params.chk_norm.isChecked() else d["data"]
-        idx = int(np.argmin(np.abs(d["kpar"] - self._sel_k)))
-        return d["ev_arr"], norm[idx, :].astype(float)
+        return _plot_edc_curve(
+            self._raw_data,
+            selected_k=self._sel_k,
+            edc_norm_enabled=bool(self._params.chk_norm.isChecked()),
+        )
 
     def _draw_mdc_edc(self):
         ax_mdc = self._mdc_edc.axes[0]
-        ax_edc = self._mdc_edc.axes[1]
-        ax_mdc.cla(); ax_edc.cla()
+        ax_edc = self._edc_canvas.axes[0] if hasattr(self, "_edc_canvas") else None
+        ax_mdc.cla()
+        if ax_edc is not None:
+            ax_edc.cla()
         self._mdc_edc._dark()
+        if hasattr(self, "_edc_canvas"):
+            self._edc_canvas._dark()
 
         # ── MDC ──────────────────────────────────────────────────────────────
         res = self._get_mdc()
@@ -3515,7 +3568,7 @@ class ArpesExplorer(QMainWindow):
 
         # ── EDC ──────────────────────────────────────────────────────────────
         res2 = self._get_edc()
-        if res2 is not None:
+        if ax_edc is not None and res2 is not None:
             ev_arr, edc = res2
             lo, hi = np.nanpercentile(edc, [1, 99])
             edc_n = np.clip((edc - lo) / (hi - lo + 1e-12), 0, 1)
@@ -3534,6 +3587,9 @@ class ArpesExplorer(QMainWindow):
 
         self._mdc_edc.fig.tight_layout(pad=0.5)
         self._mdc_edc.redraw()
+        if hasattr(self, "_edc_canvas"):
+            self._edc_canvas.fig.tight_layout(pad=0.5)
+            self._edc_canvas.redraw()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Interactions carte
@@ -3715,12 +3771,14 @@ class ArpesExplorer(QMainWindow):
 
             if r["success"]:
                 k0s = "  ".join(f"{v:.3f}" for v in r["k0"])
+                gamma_vals = r["gamma"] if isinstance(r["gamma"], (list, tuple, np.ndarray)) else [r["gamma"]]
+                gammas = "  ".join(f"{float(v):.4f}" for v in gamma_vals)
                 self._params.lbl_res.setText(
                     f"✓  E={self._sel_ev:.3f} eV\n"
                     f"kF=[{k0s}] π/a\n"
-                    f"γ={r['gamma']:.4f}  rms={r['residual']:.4f}\n"
+                    f"γ=[{gammas}]  rms={r['residual']:.4f}\n"
                     f"xg={r['xg']:.4f} π/a")
-                self._status(f"Guess OK  kF={k0s}  γ={r['gamma']:.4f}")
+                self._status(f"Guess OK  kF={k0s}  γ=[{gammas}]")
             else:
                 self._params.lbl_res.setText("✗  Fit échoué")
         except Exception as e:
@@ -3758,22 +3816,16 @@ class ArpesExplorer(QMainWindow):
             self._params.sp_cx.setValue(gamma)
             entry_now = self._current_entry()
             azi_ref = entry_now.meta.azi if (entry_now and entry_now.meta.azi is not None) else None
-            self._session.gamma_reference = {
-                "kx": float(gamma),
-                "ky": 0.0,
-                "polar": float((self._raw_data.get("metadata", {}) or {}).get("polar", 0.0) or 0.0),
-                "tilt": float((self._raw_data.get("metadata", {}) or {}).get("tilt_ref", 0.0) or 0.0),
-                "azi": float(azi_ref) if azi_ref is not None else None,
-                "hv": self._raw_data.get("hv"),
-                "path": self._raw_data.get("path"),
-                "polar_already_applied_to_kx": bool(
-                    (self._raw_data.get("metadata", {}) or {}).get("polar_already_applied_to_kx", False)
-                ),
-                "source": "bm",
-            }
-            if entry_now and entry_now.meta.direction:
-                self._session.gamma_reference["direction"] = entry_now.meta.direction
             meta_now = self._raw_data.get("metadata", {}) or {}
+            self._session.gamma_reference = _gamma_build_reference(
+                kx=gamma, ky=0.0,
+                metadata=meta_now,
+                hv=self._raw_data.get("hv"),
+                path=self._raw_data.get("path"),
+                azi=azi_ref,
+                source="bm",
+                direction=(entry_now.meta.direction if entry_now else None),
+            )
             if not meta_now.get("angle_offsets_applied") and not meta_now.get("bm_gamma_axis_centered"):
                 offsets = self._angle_offsets_from_k_center(
                     float(gamma), 0.0,
@@ -3794,6 +3846,8 @@ class ArpesExplorer(QMainWindow):
             )
             self._draw_bm()
             self._draw_mdc_edc()
+            if hasattr(self, "_mdc_fit_tabs") and self._tabs.currentIndex() == 1:
+                self._draw_mdc_waterfall()
             self._status(f"Γ BM estimé : {gamma:+.4f} π/a  n={res['n']}  MAD={res['mad']:.4f}")
         except Exception as exc:
             QMessageBox.warning(self, "Auto Γ BM", str(exc))
@@ -3852,41 +3906,40 @@ class ArpesExplorer(QMainWindow):
         self._status("Fit complet en cours …")
         QApplication.processEvents()
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                kF_init_list = [p.get("kF_init", 0.30) for p in (fp.pairs or [])]
-                fr = AP.fit_mdc_peak_pairs(
-                    data, kpar, ev,
-                    n_pairs=fp.n_pairs, ev_start=fp.ev_start, ev_end=fp.ev_end,
-                    smooth_fit=fp.smooth_fit, smooth_detect=fp.smooth_detect,
-                    gamma_init=fp.gamma_init, gamma_max=fp.gamma_max,
-                    kF_init=kF_init_list or None, center_init=fp.center_init,
-                    xg_range=fp.xg_range, min_amplitude=fp.min_amplitude,
-                    max_jump=fp.max_jump, scan_direction=fp.scan_direction,
-                    width_mode=fp.width_mode, k_min=fp.k_min, k_max=fp.k_max,
-                    k0_max=fp.k0_max, verbose=False,
-                )
+            controller = FitController(AP)
+            fr = controller.run_full_fit(
+                data,
+                kpar,
+                ev,
+                fp,
+                resolution_source=getattr(self._params, "_resolution_source_detail", ""),
+            )
             self._fit_res = fr
 
             # Sauvegarder dans la session
             if self._current_path:
                 name  = self._session.key_for_path(self._current_path)
                 entry = self._session.get_or_create(name)
-                entry.fit_params  = fp
-                entry.ef_offset   = self._params.sp_ef.value()
-                entry.edcnorm     = self._params.chk_norm.isChecked()
-                entry.view_mode   = self._cmb_view.currentText()
-                entry.meta.hv     = self._raw_data["hv"]
+                controller.update_entry_after_fit(
+                    entry,
+                    fp,
+                    ef_offset=self._params.sp_ef.value(),
+                    edcnorm=self._params.chk_norm.isChecked(),
+                    view_mode=self._cmb_view.currentText(),
+                    hv=self._raw_data["hv"],
+                )
                 self._session.set_fit_result(name, fr)
                 self._browser.refresh_item(name)
+                self._refresh_helper_buttons()
 
-            n_e  = len(fr["e_fitted"])
-            n_ok = int(np.isfinite(np.asarray(fr["kF_minus"][0])).sum())
-            self._params.lbl_res.setText(
-                f"✓  Fit complet  {n_ok}/{n_e} points\n"
-                f"xg = {float(np.nanmean(fr['xg'])):.4f} π/a")
+            summary = controller.summarize(fr)
+            self._params.lbl_res.setText(summary.label_text)
+            self._params.lbl_res.setToolTip(
+                "Résolution instrumentale domine, fit non fiable"
+                if summary.resolution_dominates else ""
+            )
             self._draw_bm()
-            self._status(f"Fit OK — {n_ok}/{n_e}  xg={float(np.nanmean(fr['xg'])):.4f}")
+            self._status(summary.status_text)
         except Exception as e:
             self._status(f"⚠ Fit complet : {e}"); traceback.print_exc()
 
@@ -3924,6 +3977,7 @@ class ArpesExplorer(QMainWindow):
                 T_init=T_init, half_width_init=0.15,
                 source_name=Path(self._current_path).name if self._current_path else "",
                 current_offset=self._params.sp_ef.value(),
+                metadata=d.get("metadata", {}) or {},
             )
             if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.result_payload:
                 return
@@ -3939,96 +3993,113 @@ class ArpesExplorer(QMainWindow):
         key = self._session.key_for_path(self._current_path)
         entry = self._session.get_or_create(key)
 
-        if payload["mode"] == "scalar":
-            new_off = float(self._params.sp_ef.value()) - float(payload["ef_shift"])
-            entry.ef_offset = new_off
-            entry.ef_correction = {}   # supprimer une éventuelle correction poly
-            self._params.sp_ef.blockSignals(True)
-            self._params.sp_ef.setValue(new_off)
-            self._params.sp_ef.blockSignals(False)
-            msg = f"EF scalaire : Δ={payload['ef_shift']*1000:+.1f} meV → offset={new_off:.4f} eV"
-            ref_payload = {
-                "mode": "scalar",
-                "ef_shift": float(payload["ef_shift"]),
-                "T": float(payload["T"]),
-                "fwhm_res": float(payload["fwhm_res"]),
-                "source_file": str(self._current_path),
-            }
-        else:
-            # En mode poly, on remet l'offset scalaire à 0 : la correction
-            # par colonne porte tout le décalage EF.
-            entry.ef_offset = 0.0
-            entry.ef_correction = {
-                "mode": "poly",
-                "poly_coefs": [float(c) for c in payload["poly_coefs"]],
-                "k_min": float(payload["k_min"]),
-                "k_max": float(payload["k_max"]),
-                "T": float(payload["T"]),
-                "fwhm_res": float(payload["fwhm_res"]),
-                "rms": float(payload["rms"]),
-                "n_valid": int(payload["n_valid"]),
-                "source": "self",
-                "source_file": str(self._current_path),
-            }
-            self._params.sp_ef.blockSignals(True)
-            self._params.sp_ef.setValue(0.0)
-            self._params.sp_ef.blockSignals(False)
-            msg = (f"EF par colonne : {payload['n_valid']} k valides, "
-                   f"FWHM≈{payload['fwhm_res']*1000:.0f} meV, "
-                   f"rms={payload['rms']*1000:.1f} meV")
-            ref_payload = dict(entry.ef_correction)
+        update = compute_ef_calibration_update(
+            payload,
+            current_ef_offset=float(self._params.sp_ef.value()),
+            source_meta=(self._raw_data or {}).get("metadata") or {},
+            source_path=str(self._current_path),
+        )
+        entry.ef_offset = update.new_ef_offset
+        entry.ef_correction = update.ef_correction
+        self._params.sp_ef.blockSignals(True)
+        self._params.sp_ef.setValue(update.new_ef_offset)
+        self._params.sp_ef.blockSignals(False)
+        msg = update.msg
 
         if payload.get("save_as_reference"):
-            self._session.ef_reference = ref_payload
+            self._session.ef_reference = update.ref_payload
             msg += "  |  référence dossier sauvegardée"
 
         self._session.save()
         self._load_file(self._current_path)
+        self._refresh_helper_buttons()
         self._status(msg)
 
     def _apply_ef_reference_to_current(self):
         """Copie session.ef_reference vers FileEntry courant."""
         ref = self._session.ef_reference or {}
         if not ref or not self._current_path:
-            self._status("⚠ Aucune référence EF en session")
+            self._status("⚠ Aucune référence EF en session — calibrer un Au d'abord")
             return
         key = self._session.key_for_path(self._current_path)
         entry = self._session.get_or_create(key)
-        if ref.get("mode") == "poly":
-            entry.ef_offset = 0.0
-            entry.ef_correction = dict(ref)
-            entry.ef_correction["source"] = "reference"
-            self._params.sp_ef.blockSignals(True)
-            self._params.sp_ef.setValue(0.0)
-            self._params.sp_ef.blockSignals(False)
-        elif ref.get("mode") == "scalar":
-            cur_off = float(self._params.sp_ef.value())
-            new_off = cur_off - float(ref.get("ef_shift", 0.0))
-            entry.ef_offset = new_off
-            entry.ef_correction = {}
-            self._params.sp_ef.blockSignals(True)
-            self._params.sp_ef.setValue(new_off)
-            self._params.sp_ef.blockSignals(False)
-        else:
-            self._status("⚠ Référence EF mal formée"); return
+
+        # Garde-fou : éviter une double application en mode scalaire (qui
+        # soustrait cumulativement ef_shift à l'offset courant).
+        if ef_reference_already_applied(entry.ef_correction):
+            ans = QMessageBox.question(
+                self,
+                "Référence EF déjà appliquée",
+                "Une référence EF est déjà appliquée à ce fichier. "
+                "L'appliquer à nouveau cumulerait les décalages et serait probablement faux.\n\n"
+                "Continuer quand même ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if ans != QMessageBox.StandardButton.Yes:
+                self._status("Application de la référence EF annulée")
+                return
+
+        ref_path = ref.get("source_file", "")
+        ref_name = Path(ref_path).name if ref_path else "?"
+
+        try:
+            app = apply_ef_reference_to_target(
+                ref,
+                current_ef_offset=float(self._params.sp_ef.value()),
+                target_meta=(self._raw_data or {}).get("metadata") or {},
+                ref_path_str=ref_name,
+            )
+        except EFReferenceError:
+            self._status("⚠ Référence EF mal formée")
+            return
+        entry.ef_offset = app.new_ef_offset
+        entry.ef_correction = app.ef_correction
+        self._params.sp_ef.blockSignals(True)
+        self._params.sp_ef.setValue(app.new_ef_offset)
+        self._params.sp_ef.blockSignals(False)
         self._session.save()
         self._load_file(self._current_path)
-        self._status(f"Référence EF appliquée ({ref.get('mode')})")
+        self._status(app.msg)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Copy params
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _refresh_helper_buttons(self):
+        """Met à jour l'état/label des boutons EF réf et Propager params."""
+        self._params.update_ef_reference_button(self._session.ef_reference or None)
+        if not self._current_path:
+            self._params.update_copy_params_button(0)
+            return
+        cur_key = self._session.key_for_path(self._current_path)
+        n = sum(
+            1 for name, entry in self._session.files.items()
+            if entry.fit_result is None and name != cur_key
+        )
+        self._params.update_copy_params_button(n)
+
     def _copy_params(self):
         """Sauvegarde les params courants dans tous les fichiers non-fittés."""
-        if not self._current_path: return
+        if not self._current_path:
+            return
         fp = self._params.get_fit_params()
-        n  = 0
+        cur_key = self._session.key_for_path(self._current_path)
+        targets: list[str] = []
         for name, entry in self._session.files.items():
-            if entry.fit_result is None and name != self._session.key_for_path(self._current_path):
-                entry.fit_params = fp; n += 1
+            if entry.fit_result is None and name != cur_key:
+                entry.fit_params = fp
+                targets.append(name)
         self._session.save()
-        self._status(f"Params copiés vers {n} fichier(s) non-fittés")
+        n = len(targets)
+        if n == 0:
+            self._status("Aucun fichier cible — tous les autres sont déjà fittés")
+        elif n <= 3:
+            self._status(f"Params copiés vers {n} fichier(s) : {', '.join(targets)}")
+        else:
+            preview = ", ".join(targets[:2])
+            self._status(f"Params copiés vers {n} fichiers : {preview}, … (+{n-2})")
+        self._refresh_helper_buttons()
 
     # ─────────────────────────────────────────────────────────────────────────
     def _status(self, msg: str): self.statusBar().showMessage(msg)
