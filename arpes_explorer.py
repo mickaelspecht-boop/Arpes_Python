@@ -64,8 +64,8 @@ from arpes.io.logbook import (
     _format_direction_label,
     _record_matches_path,
 )
-from arpes.io.loader_orchestrator import LoaderOrchestrator
 from arpes.ui.controllers.logbook_controller import LogbookIngestController
+from arpes.ui.controllers.load_controller import LoadController
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes_plot_controller import (
     apply_edcnorm,
@@ -82,7 +82,6 @@ from arpes_plot_controller import (
     mdc_curve as _plot_mdc_curve,
     scroll_zoom_limits as _plot_scroll_zoom_limits,
 )
-from arpes.physics.resolution import estimate_resolutions
 from arpes.core.session import FileEntry, FitParams, Session
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -2092,6 +2091,7 @@ class ArpesExplorer(QMainWindow):
         self._disp_cache_key: tuple | None = None
 
         self._logbook_ctrl = LogbookIngestController(self)
+        self._load_ctrl = LoadController(self)
         self._build_ui()
         self._install_shortcuts()
         self._status("Prêt — ouvrir un dossier ou un fichier")
@@ -2871,175 +2871,7 @@ class ArpesExplorer(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _load_file(self, path: str):
-        global AP
-        if AP is None:
-            try:
-                AP = _load_ap()
-            except Exception as e:
-                self._status(f"⚠ arpes_plots : {e}")
-
-        self._status(f"Chargement {Path(path).name} …")
-        QApplication.processEvents()
-        try:
-            key = self._session.key_for_path(path)
-            is_new_entry = key not in self._session.files
-            entry = self._session.get_or_create(key)
-            fmt_guess = ""
-            try:
-                fmt_guess = detect_format(path) if detect_format is not None else ""
-            except Exception:
-                fmt_guess = ""
-            if fmt_guess == "bessy_ses_ibw" and (
-                is_new_entry
-                or (
-                    abs(float(entry.ef_offset) - 0.052) < 1e-9
-                    and not entry.ef_correction
-                    and not entry.fit_result
-                )
-            ):
-                entry.ef_offset = 0.0
-            self._params.sp_ef.blockSignals(True)
-            self._params.sp_ef.setValue(entry.ef_offset)
-            self._params.sp_ef.blockSignals(False)
-            hv_before_load = float(self._params.sp_hv.value())
-            logbook_hit = self._logbook_ctrl.apply_to_controls(path)
-            hv_from_logbook = (
-                logbook_hit
-                and float(self._params.sp_hv.value()) != hv_before_load
-                and float(self._params.sp_hv.value()) > 0
-            )
-            if entry.meta.hv and entry.meta.hv > 0 and self._params.sp_hv.value() <= 0:
-                self._params.set_hv_value_with_source(entry.meta.hv, "file")
-            hv_for_load = self._params.sp_hv.value()
-            angle_offsets = self._angle_offsets_for_load(path, entry, hv_for_load)
-            orchestrator = LoaderOrchestrator(load_arpes_file, _loader_label)
-            load_result = orchestrator.load(
-                path,
-                entry,
-                work_func=self._params.sp_phi.value(),
-                ef_offset=self._params.sp_ef.value(),
-                hv=hv_for_load,
-                angle_offsets=angle_offsets,
-                bessy_energy_reference=self._bessy_energy_reference_mode(),
-                best_angle_load_func=self._load_with_best_angle_offsets,
-            )
-            d = load_result.data
-            angle_offsets = load_result.angle_offsets
-            if d is None:
-                self._status("⚠ erlab non disponible")
-                return
-
-            md = orchestrator.apply_loaded_metadata(d, entry)
-
-            # Correction EF par colonne si calibrée pour ce fichier
-            if entry.ef_correction.get("mode") == "poly":
-                d, ef_info = apply_ef_correction_to_dict(d, entry.ef_correction)
-                self._ef_correction_info = ef_info
-            else:
-                self._ef_correction_info = {}
-
-            self._raw_data    = d
-            self._current_path = path
-            self._fit_res = None
-
-            hv_src = orchestrator.resolve_hv_after_load(
-                d,
-                entry,
-                hv_for_load=hv_for_load,
-                hv_from_logbook=hv_from_logbook,
-            )
-            if hv_src.source == "file" and hv_src.value is not None:
-                self._params.set_hv_value_with_source(float(hv_src.value), "file")
-            elif hv_src.value is not None:
-                self._params.update_hv_source(hv_src.source)
-            else:
-                self._params.update_hv_source(None)
-
-            # Restaurer params depuis session
-            self._params.sp_ef.blockSignals(True)
-            self._params.sp_ef.setValue(entry.ef_offset)
-            self._params.sp_ef.blockSignals(False)
-            self._params.chk_norm.blockSignals(True)
-            self._params.chk_norm.setChecked(entry.edcnorm)
-            self._params.chk_norm.blockSignals(False)
-            self._params.load_fit_params(entry.fit_params)
-            saved_res = (entry.fit_result or {}).get("resolution", {}) if entry.fit_result else {}
-            if saved_res:
-                saved_source = str(saved_res.get("source", "") or "")
-                if saved_source == "manual":
-                    res_kind = "manual"
-                elif "defaut" in saved_source or saved_source == "default":
-                    res_kind = "default"
-                else:
-                    res_kind = "estimated"
-                self._params.set_resolution_with_source(
-                    float(saved_res.get("dE_meV", 15.0) or 15.0),
-                    float(saved_res.get("dk_inv_a", 0.005) or 0.005),
-                    res_kind,
-                    saved_source,
-                )
-            else:
-                res = estimate_resolutions(md)
-                res_kind = "default" if "defaut" in res.get("source", "") else "estimated"
-                self._params.set_resolution_with_source(res["dE_meV"], res["dk_inv_a"], res_kind, res.get("source", ""))
-            self._cmb_view.blockSignals(True)
-            self._cmb_view.setCurrentText(entry.view_mode)
-            self._cmb_view.blockSignals(False)
-            self._load_grid_controls(entry.grid_correction)
-
-            # Restaurer fit_result si disponible
-            if entry.fit_result:
-                self._fit_res = entry.fit_result
-
-            self._apply_stored_gamma_to_current_file(save_entry=True)
-
-            self._update_display_data()
-            grid_note = ""
-            if entry.grid_correction.get("enabled"):
-                grid_msg = self._grid_status_text(self._grid_display_info, "affichage BM")
-                grid_note = "  |  " + grid_msg
-                self._params.lbl_grid.setText(grid_msg)
-            gamma_note = ""
-            md_now = d.get("metadata", {}) or {}
-            if md_now.get("angle_offsets_applied"):
-                ao = md_now.get("angle_offsets_applied") or {}
-                cand = md_now.get("angle_offset_candidate", ao.get("candidate", ""))
-                cand_txt = f" {cand}" if cand else ""
-                gamma_note = (
-                    f"  |  Γ offset angulaire{cand_txt} θ0={float(ao.get('theta0_deg', 0.0)):+.3f}°"
-                )
-            elif md_now.get("bm_gamma_axis_centered"):
-                gamma_note = f"  |  Γ axe shift={float(md_now.get('bm_gamma_axis_shift', 0.0)):+.4f}"
-            loader_note = ""
-            loader_warnings = md_now.get("loader_warnings") or []
-            if loader_warnings:
-                loader_note = f"  |  ⚠ loader: {str(loader_warnings[0])[:120]}"
-            elif md_now.get("energy_reference"):
-                loader_note = f"  |  refE={md_now.get('energy_reference')}"
-            self._sel_ev = float(np.clip(-0.30, d["ev_arr"].min(), d["ev_arr"].max()))
-            self._sel_k  = 0.0
-            self._sync_ev_spinbox()
-
-            self._draw_bm()
-            self._draw_mdc_edc()
-            if self._tabs.currentIndex() == 3:
-                self._draw_fs_tab()
-
-            self._session.save()
-            self._browser.select_file(path)
-            self._browser.refresh_item(self._session.key_for_path(path))
-            hv_txt = f"{d['hv']:.0f} eV" if d.get("hv") is not None else "—"
-            lb_txt = "  |  logbook" if logbook_hit else ""
-            self._status(
-                f"Chargé : {Path(path).name}  hν={hv_txt}  |  "
-                f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
-                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV"
-                f"{lb_txt}{grid_note}{gamma_note}{loader_note}"
-            )
-            self._refresh_helper_buttons()
-        except Exception as e:
-            self._status(f"⚠ {e}")
-            traceback.print_exc()
+        self._load_ctrl.load(path)
 
     def _update_display_data(self):
         if self._raw_data is None:
