@@ -101,6 +101,11 @@ from PyQt6.QtWidgets import (
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_ap():
+    try:
+        import arpes.ui.widgets.plots as plots
+        return plots
+    except Exception:
+        pass
     code_dir = Path(__file__).resolve().parent
     for name in ["arpes_plots.py", "arpes_plots(1).py"]:
         p = code_dir / name
@@ -188,7 +193,7 @@ def apply_ef_correction_to_dict(d: dict, cfg: dict) -> tuple[dict, dict]:
     data = np.asarray(d["data"], dtype=float)
     ef_smooth = np.polyval(coefs, kpar)
     try:
-        from arpes_plots import apply_ef_correction_per_column as _apply
+        from arpes.ui.widgets.plots import apply_ef_correction_per_column as _apply
     except Exception:
         return d, {}
     data_corr = _apply(data, kpar, ev, ef_smooth)
