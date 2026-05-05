@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     import arpes_explorer
+    from arpes import app as arpes_app
     from arpes_explorer import (
         QApplication,
         FileBrowserPanel,
@@ -123,8 +124,8 @@ class TestArpesExplorerLogbookHelpers(unittest.TestCase):
                     return "BM"
                 return "unknown"
 
-            with mock.patch.object(arpes_explorer, "detect_format", fake_detect_format), \
-                 mock.patch.object(arpes_explorer, "detect_scan_kind", fake_detect_scan_kind):
+            with mock.patch.object(arpes_app, "detect_format", fake_detect_format), \
+                 mock.patch.object(arpes_app, "detect_scan_kind", fake_detect_scan_kind):
                 panel = FileBrowserPanel(session)
                 panel.set_folder(root)
 

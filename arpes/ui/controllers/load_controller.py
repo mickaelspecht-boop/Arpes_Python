@@ -81,7 +81,7 @@ class LoadController:
 
     # ------------------------------------------------------------ steps
     def _ensure_arpes_plots(self) -> None:
-        import arpes_explorer as _ae
+        from arpes import app as _ae
         if _ae.AP is None:
             try:
                 _ae.AP = _ae._load_ap()
@@ -89,7 +89,7 @@ class LoadController:
                 self._status(f"⚠ arpes_plots : {e}")
 
     def _prepare_entry(self, path: str) -> _PreparedEntry:
-        import arpes_explorer as _ae
+        from arpes import app as _ae
         key = self._session.key_for_path(path)
         is_new_entry = key not in self._session.files
         entry = self._session.get_or_create(key)
@@ -134,7 +134,7 @@ class LoadController:
         )
 
     def _dispatch_loader(self, path: str, prepared: _PreparedEntry):
-        import arpes_explorer as _ae
+        from arpes import app as _ae
         orchestrator = LoaderOrchestrator(_ae.load_arpes_file, _ae._loader_label)
         load_result = orchestrator.load(
             path,
@@ -149,7 +149,7 @@ class LoadController:
         return load_result, orchestrator
 
     def _apply_post_load(self, d, prepared, load_result, orchestrator, path):
-        import arpes_explorer as _ae
+        from arpes import app as _ae
         entry = prepared.entry
         if entry.ef_correction.get("mode") == "poly":
             d, ef_info = _ae.apply_ef_correction_to_dict(d, entry.ef_correction)

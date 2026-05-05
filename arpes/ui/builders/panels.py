@@ -18,14 +18,14 @@ from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
 
 
 def build_left_panel(window) -> QWidget:
-    from arpes_explorer import FileBrowserPanel
+    from arpes.app import FileBrowserPanel
 
     window._browser = FileBrowserPanel(window._session)
     return window._browser
 
 
 def build_right_panel(window) -> QWidget:
-    from arpes_explorer import FitParamsPanel
+    from arpes.app import FitParamsPanel
 
     right_split = QSplitter(Qt.Orientation.Vertical)
 
@@ -87,7 +87,7 @@ def _build_tabs(window) -> QTabWidget:
 
 
 def _build_carte_tab(window) -> QWidget:
-    from arpes_explorer import MplCanvas
+    from arpes.app import MplCanvas
 
     carte_widget = QWidget()
     carte_lay = QVBoxLayout(carte_widget)
@@ -132,7 +132,7 @@ def _build_carte_tab(window) -> QWidget:
 
 
 def _build_mdc_tab(window) -> QWidget:
-    from arpes_explorer import MplCanvas
+    from arpes.app import MplCanvas
 
     mdc_widget = QWidget()
     mdc_lay = QVBoxLayout(mdc_widget)
@@ -167,7 +167,7 @@ def _build_mdc_tab(window) -> QWidget:
 
 
 def _build_results_tab(window) -> QWidget:
-    from arpes_explorer import ResultsPanel
+    from arpes.app import ResultsPanel
 
     window._results = ResultsPanel(window._session)
     return window._results
