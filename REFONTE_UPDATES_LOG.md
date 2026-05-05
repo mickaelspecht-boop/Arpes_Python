@@ -24,3 +24,11 @@
 - Résultat : `arpes_explorer.py` passe de `3627` à `3308` lignes ; `plot_controller.py` contient les corps UI de draw (`466` lignes).
 - Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/plot_controller.py arpes_plot_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
 - Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
+
+## Update ι.1 — `GammaController`
+
+- État initial vérifié : logique Γ encore dans `ArpesExplorer` (`_store_fs_center_reference`, `_set_fs_center_pick_mode`, `_detect_fs_gamma`, `_estimate_gamma_bm`, `_apply_gamma_reference_to_bm`, wrappers de référence/azimut).
+- Correction appliquée : création de `arpes/ui/controllers/gamma_controller.py`; `ArpesExplorer` instancie `self._gamma_ctrl` et conserve des wrappers de compatibilité.
+- Résultat : `arpes_explorer.py` passe de `3308` à `3013` lignes ; `gamma_controller.py` contient les actions UI Γ (`379` lignes).
+- Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/gamma_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
+- Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
