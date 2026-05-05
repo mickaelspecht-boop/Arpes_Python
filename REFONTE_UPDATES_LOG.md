@@ -48,3 +48,11 @@
 - Résultat : `arpes_explorer.py` passe de `2964` à `2948` lignes ; `fs_controller.py` contient les actions UI FS (`53` lignes).
 - Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/fs_controller.py arpes/ui/controllers/plot_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
 - Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
+
+## Update ι.4 — `BrowserController`
+
+- État initial vérifié : `FileBrowserPanel` contenait encore sélection, navigation, refresh d'item, ouverture/réduction de groupes et repopulation.
+- Correction appliquée : création de `arpes/ui/controllers/browser_controller.py`; `FileBrowserPanel` instancie `self._browser_ctrl` et conserve des wrappers de compatibilité.
+- Résultat : `arpes_explorer.py` passe de `2948` à `2844` lignes ; `browser_controller.py` contient la logique browser (`147` lignes).
+- Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/browser_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
+- Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
