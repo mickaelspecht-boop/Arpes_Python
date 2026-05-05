@@ -2098,8 +2098,25 @@ class ArpesExplorer(QMainWindow):
 
     # ─────────────────────────────────────────────────────────────────────────
     def _build_ui(self):
-        from arpes.ui.builders.panels import build_ui
-        build_ui(self)
+        from PyQt6.QtWidgets import QStatusBar
+        from arpes.ui.builders.menus import build_menubar
+        from arpes.ui.builders.panels import (
+            build_central_widget,
+            build_left_panel,
+            build_right_panel,
+        )
+
+        self.setMenuBar(build_menubar(self))
+        self._left = build_left_panel(self)
+        self._right = build_right_panel(self)
+        central = build_central_widget(self, self._left, self._right)
+        self.setCentralWidget(central)
+        self._wire_signals()
+        self.setStatusBar(QStatusBar())
+
+    def _wire_signals(self):
+        from arpes.ui.builders.panels import wire_ui_signals
+        wire_ui_signals(self)
 
     def _on_tab_changed(self, index: int):
         # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS
