@@ -56,3 +56,52 @@
 - Résultat : `arpes_explorer.py` passe de `2948` à `2844` lignes ; `browser_controller.py` contient la logique browser (`147` lignes).
 - Validation : `python3 -m py_compile arpes_explorer.py arpes/ui/controllers/browser_controller.py` OK ; `python3 -m unittest discover tests` OK (`130` tests, `12` skipped) ; env `peaks` OK (`130` tests, `5` skipped).
 - Validation app : lancement `arpes_explorer.py` en `QT_QPA_PLATFORM=offscreen` avec env `peaks`, processus vivant après `5s` puis terminé.
+
+## Update κ → ν — résumé rapide (déjà committés)
+
+- κ (`747e5f0`) : `arpes_explorer.py` migré dans `arpes/app.py` + shim entry-point racine.
+- λ (`3e27fc7`) : extraction logique pure controllers racine → `arpes/physics/` (`gamma.py`, etc.).
+- μ (`51f0e41`) : nettoyage pyflakes + docstring package.
+- ν (`d673f8c`) : extraction widgets (`canvas`, `browsers/files`, `params`, `results`, `dialogs`) + helpers (`load_arpes_file`, `loader_label`, `apply_ef_correction_to_dict`) hors `arpes/app.py`. `arpes/app.py` 2820 → 1016 LOC.
+
+## Update ξ — `InteractionController` + `FitRunnerController` + proxy dispatch
+
+- État initial vérifié : `arpes/app.py` à `1016` LOC contenait encore toute la logique d'interaction temps-réel (`_on_view_changed`, `_on_ev_spinbox_changed`, ROI fit, `_on_map_click`, debouncers) + tous les fits MDC + calibration EF (`_fit_guess`, `_fit_full`, `_clear_kf`, `_ef_calibrate`, `_apply_ef_calibration_result`, `_apply_ef_reference_to_current`, `_refresh_helper_buttons`, `_copy_params`).
+- Correction appliquée :
+  - création de `arpes/ui/controllers/interaction_controller.py` (`210` LOC) avec 14 méthodes interaction/scheduling.
+  - création de `arpes/ui/controllers/fit_runner_controller.py` (`290` LOC) avec 9 méthodes fit/EF.
+  - extension de `_PROXY_MAP` dans `ArpesExplorer` (`+23` entrées) → dispatch via `__getattr__` vers `_interaction_ctrl` / `_fit_runner_ctrl`.
+  - réordonnancement `__init__` : controllers instanciés AVANT `QTimer.timeout.connect(self._on_model_changed)` (sinon `__getattr__` lève `AttributeError`).
+- Résultat : `arpes/app.py` passe de `1016` à `579` LOC. Aucun `_on_*` / `_apply_*` / `_fit_*` / `_ef_*` / `_clear_*` / `_get_work_*` / `_refresh_helper_*` / `_copy_*` / `_sync_*` / `_schedule_*` / `_set_fit_roi_*` / `_reset_fit_roi_*` ne reste sur `ArpesExplorer` (tous proxiés).
+- Note : `FitRunnerController` utilise encore `from arpes import app as _ae; _ae.AP` (lazy global) — sera nettoyé en ο.
+- Validation : `python3 -m unittest discover tests` OK (`130` tests, `1` skipped) ; `import arpes_explorer` OK.
+- Pas encore committé au moment de l'écriture de cette ligne — commit immédiat dans la foulée.
+
+## Plan restant — à exécuter ensuite (NE PAS enchaîner sans top utilisateur)
+
+Cibles finales architecture : `arpes/app.py` < `600` LOC (uniquement `ArpesExplorer` orchestrateur + `main()`), 0 import circulaire lazy, 0 global mutable, naming clair, tests UI smoke, shims fins.
+
+- **ο — supprimer `AP` global + lazy `from arpes import app as _ae`** :
+  - `_load_ap()` ne s'exécute plus comme module-level write sur `arpes.app.AP`. Appelé une fois dans `main()`.
+  - `LoadController`, `FitRunnerController`, `GammaController` reçoivent `ap` via constructeur ou via `parent.ap` (attribut d'instance, pas global).
+  - Effacer `AP = None` racine + tout `_ae.AP` / `arpes.app.AP` dans le code.
+  - Vérifier `_score_bm_gamma_residual` (utilise `AP` directement aussi).
+
+- **π — renames** :
+  - `arpes/physics/fit.py::FitController` → `MdcFitter` (naming : ce n'est PAS un controller UI, c'est un runner pur). Update imports : `arpes/app.py`, `arpes/ui/controllers/fit_runner_controller.py`, tests éventuels.
+  - `arpes/physics/display.py` → `arpes/physics/plot_compute.py` (le nom `display` est trompeur, ça calcule, ça n'affiche rien). Update tous les `from arpes.physics.display import …`.
+
+- **ρ — `tests/test_ui_smoke.py`** :
+  - Crée un `QApplication`, instancie `ArpesExplorer`, vérifie `_PROXY_MAP` résout chaque clé sans `AttributeError`, vérifie `win._tabs.count() >= 4`. `QT_QPA_PLATFORM=offscreen`. Skip si Qt indispo.
+
+- **σ — slim shims** :
+  - `arpes_explorer.py` racine → 5 LOC max (re-export `from arpes.app import *` + `if __name__ == "__main__": main()`).
+  - Évaluer `arpes_plots.py` racine : si plus aucun caller externe, retirer ; sinon garder shim 5 LOC.
+
+### Précautions reprises pour codex
+
+1. Vérifier toujours après chaque step : `python3 -m unittest discover tests` doit rester `130 OK skipped=1` (env `peaks`, `/Users/alexandrespecht/.local/bin/micromamba run -n peaks`).
+2. `import arpes_explorer` doit rester OK (smoke).
+3. Branche `refonte`. Commits suivent format `refonte <lettre> : <description>` (cf `git log`).
+4. Ordre `__init__` : controllers AVANT debouncers (timer connect résout via `__getattr__`).
+5. Mock test patterns : si on déplace une fonction utilisée par un test via `mock.patch.object`, ajouter le mock sur le NOUVEAU module aussi (cf `tests/test_arpes_explorer_helpers.py` qui patche à la fois `arpes_app` et `_files_mod`).

@@ -63,6 +63,8 @@ from arpes.ui.controllers.plot_controller import PlotController
 from arpes.ui.controllers.gamma_controller import GammaController
 from arpes.ui.controllers.norm_controller import NormController
 from arpes.ui.controllers.fs_controller import FSController
+from arpes.ui.controllers.interaction_controller import InteractionController
+from arpes.ui.controllers.fit_runner_controller import FitRunnerController
 from arpes.core.session import FileEntry, FitParams, Session
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -156,13 +158,6 @@ class ArpesExplorer(QMainWindow):
         self._fit_roi_ax = None
         self._fit_roi_rect = None
 
-        # Debouncers : évitent N redraws quand l'utilisateur clique-clique
-        # rapidement sur un spinbox ou tape une valeur.
-        self._redraw_timer = QTimer(self); self._redraw_timer.setSingleShot(True)
-        self._redraw_timer.timeout.connect(self._on_model_changed)
-        self._fit_redraw_timer = QTimer(self); self._fit_redraw_timer.setSingleShot(True)
-        self._fit_redraw_timer.timeout.connect(self._on_fit_only_changed)
-
         # Cache de _update_display_data : recompute uniquement si une des clés
         # influence le résultat affiché.
         self._disp_cache_key: tuple | None = None
@@ -173,9 +168,103 @@ class ArpesExplorer(QMainWindow):
         self._gamma_ctrl = GammaController(self)
         self._norm_ctrl = NormController(self)
         self._fs_ctrl = FSController(self)
+        self._interaction_ctrl = InteractionController(self)
+        self._fit_runner_ctrl = FitRunnerController(self)
+
+        # Debouncers : évitent N redraws quand l'utilisateur clique-clique
+        # rapidement sur un spinbox ou tape une valeur.
+        self._redraw_timer = QTimer(self); self._redraw_timer.setSingleShot(True)
+        self._redraw_timer.timeout.connect(self._on_model_changed)
+        self._fit_redraw_timer = QTimer(self); self._fit_redraw_timer.setSingleShot(True)
+        self._fit_redraw_timer.timeout.connect(self._on_fit_only_changed)
+
         self._build_ui()
         self._install_shortcuts()
         self._status("Prêt — ouvrir un dossier ou un fichier")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Proxy dispatch — délègue les méthodes legacy aux controllers.
+    #
+    # Permet de garder l'API publique de ArpesExplorer (utilisée par les
+    # signaux Qt + appels internes) sans dupliquer ~40 stubs `def _x(self):
+    # return self._ctrl._x()`. Au connect-time Qt résout `getattr(window,
+    # "_method")` → dispatch ici → bound method du controller.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    _PROXY_MAP = {
+        # FSController
+        "_current_is_fs": "_fs_ctrl",
+        "_on_fs_params_changed": "_fs_ctrl",
+        "_save_current_fs_center": "_fs_ctrl",
+        "_draw_fs_tab": "_fs_ctrl",
+        # PlotController
+        "_on_scroll_zoom": "_plot_ctrl",
+        "_update_display_data": "_plot_ctrl",
+        "_fit_roi_bounds": "_plot_ctrl",
+        "_fit_roi_data": "_plot_ctrl",
+        "_map_color_kwargs": "_plot_ctrl",
+        "_draw_fit_roi_overlay": "_plot_ctrl",
+        "_ef_offset_text": "_plot_ctrl",
+        "_draw_ef_label": "_plot_ctrl",
+        "_draw_bm": "_plot_ctrl",
+        "_draw_mdc_energy_map": "_plot_ctrl",
+        "_draw_mdc_waterfall": "_plot_ctrl",
+        "_draw_kf_overlay": "_plot_ctrl",
+        "_get_mdc": "_plot_ctrl",
+        "_get_edc": "_plot_ctrl",
+        "_draw_mdc_edc": "_plot_ctrl",
+        # GammaController
+        "_store_fs_center_reference": "_gamma_ctrl",
+        "_k_to_angle_offset_deg": "_gamma_ctrl",
+        "_angle_offsets_from_k_center": "_gamma_ctrl",
+        "_project_gamma_by_azi": "_gamma_ctrl",
+        "_set_fs_center_pick_mode": "_gamma_ctrl",
+        "_on_fs_map_click": "_gamma_ctrl",
+        "_detect_fs_gamma": "_gamma_ctrl",
+        "_stored_gamma_reference": "_gamma_ctrl",
+        "_gamma_reference_to_bm_center": "_gamma_ctrl",
+        "_center_current_bm_axis_on_gamma": "_gamma_ctrl",
+        "_apply_stored_gamma_to_current_file": "_gamma_ctrl",
+        "_estimate_gamma_bm": "_gamma_ctrl",
+        "_apply_gamma_reference_to_bm": "_gamma_ctrl",
+        # NormController
+        "_load_grid_controls": "_norm_ctrl",
+        "_display_grid_config": "_norm_ctrl",
+        "_grid_status_text": "_norm_ctrl",
+        "_apply_grid_correction": "_norm_ctrl",
+        "_reset_grid_correction": "_norm_ctrl",
+        # InteractionController
+        "_on_view_changed": "_interaction_ctrl",
+        "_on_ev_spinbox_changed": "_interaction_ctrl",
+        "_schedule_model_redraw": "_interaction_ctrl",
+        "_schedule_fit_only_redraw": "_interaction_ctrl",
+        "_on_model_changed": "_interaction_ctrl",
+        "_on_fit_only_changed": "_interaction_ctrl",
+        "_set_fit_roi_pick_mode": "_interaction_ctrl",
+        "_on_fit_roi_press": "_interaction_ctrl",
+        "_on_fit_roi_motion": "_interaction_ctrl",
+        "_on_fit_roi_release": "_interaction_ctrl",
+        "_apply_fit_roi_from_bounds": "_interaction_ctrl",
+        "_reset_fit_roi_range": "_interaction_ctrl",
+        "_on_map_click": "_interaction_ctrl",
+        "_sync_ev_spinbox": "_interaction_ctrl",
+        # FitRunnerController
+        "_get_work_data": "_fit_runner_ctrl",
+        "_fit_guess": "_fit_runner_ctrl",
+        "_fit_full": "_fit_runner_ctrl",
+        "_clear_kf": "_fit_runner_ctrl",
+        "_ef_calibrate": "_fit_runner_ctrl",
+        "_apply_ef_calibration_result": "_fit_runner_ctrl",
+        "_apply_ef_reference_to_current": "_fit_runner_ctrl",
+        "_refresh_helper_buttons": "_fit_runner_ctrl",
+        "_copy_params": "_fit_runner_ctrl",
+    }
+
+    def __getattr__(self, name: str):
+        if name.startswith("_") and name in self._PROXY_MAP:
+            ctrl = object.__getattribute__(self, self._PROXY_MAP[name])
+            return getattr(ctrl, name)
+        raise AttributeError(name)
 
     # ─────────────────────────────────────────────────────────────────────────
     def _build_ui(self):
@@ -240,12 +329,6 @@ class ArpesExplorer(QMainWindow):
             return None
         return self._session.get_or_create(self._session.key_for_path(self._current_path))
 
-    def _current_is_fs(self) -> bool:
-        return self._fs_ctrl._current_is_fs()
-    def _on_fs_params_changed(self):
-        return self._fs_ctrl._on_fs_params_changed()
-    def _save_current_fs_center(self):
-        return self._fs_ctrl._save_current_fs_center()
     def _same_path(self, a, b) -> bool:
         if not a or not b:
             return False
@@ -254,38 +337,7 @@ class ArpesExplorer(QMainWindow):
         except Exception:
             return str(a) == str(b)
 
-    def _on_scroll_zoom(self, event):
-        return self._plot_ctrl._on_scroll_zoom(event)
-    def _draw_fs_tab(self):
-        return self._fs_ctrl._draw_fs_tab()
-    def _store_fs_center_reference(self, kx: float, ky: float, *, source: str):
-        return self._gamma_ctrl._store_fs_center_reference(kx, ky, source=source)
-    def _k_to_angle_offset_deg(self, k_pi_a: float, *, hv: float | None = None) -> float | None:
-        return self._gamma_ctrl._k_to_angle_offset_deg(k_pi_a, hv=hv)
-    def _angle_offsets_from_k_center(
-        self,
-        kx: float,
-        ky: float = 0.0,
-        *,
-        hv: float | None = None,
-        source: str = "",
-        ref_path: str | None = None,
-        azi: float | None = None,
-    ) -> dict:
-        return self._gamma_ctrl._angle_offsets_from_k_center(
-            kx, ky, hv=hv, source=source, ref_path=ref_path, azi=azi
-        )
 
-    def _project_gamma_by_azi(
-        self,
-        ref: dict,
-        azi_target: float | None,
-        *,
-        warn_label: str = "Γ",
-    ) -> tuple[float, float]:
-        return self._gamma_ctrl._project_gamma_by_azi(
-            ref, azi_target, warn_label=warn_label
-        )
     def _cls_manipulator_from_param(self, path: str | Path) -> dict:
         """Wrapper UI : délègue à `arpes_cls_geometry.manipulator_from_param`."""
         return _cls_manipulator_from_param_pure(path)
@@ -470,30 +522,6 @@ class ArpesExplorer(QMainWindow):
         """
         return "auto"
 
-    def _set_fs_center_pick_mode(self, active: bool):
-        return self._gamma_ctrl._set_fs_center_pick_mode(active)
-    def _on_fs_map_click(self, event):
-        return self._gamma_ctrl._on_fs_map_click(event)
-    def _detect_fs_gamma(self):
-        return self._gamma_ctrl._detect_fs_gamma()
-    def _stored_gamma_reference(self) -> dict:
-        return self._gamma_ctrl._stored_gamma_reference()
-    def _gamma_reference_to_bm_center(self, ref: dict) -> tuple[float, float]:
-        return self._gamma_ctrl._gamma_reference_to_bm_center(ref)
-    def _center_current_bm_axis_on_gamma(self, gamma_bm: float, ref: dict | None = None) -> bool:
-        return self._gamma_ctrl._center_current_bm_axis_on_gamma(gamma_bm, ref)
-    def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
-        return self._gamma_ctrl._apply_stored_gamma_to_current_file(save_entry=save_entry)
-    def _load_grid_controls(self, cfg: dict | None):
-        return self._norm_ctrl._load_grid_controls(cfg)
-    def _display_grid_config(self, cfg: dict | None) -> dict:
-        return self._norm_ctrl._display_grid_config(cfg)
-    def _grid_status_text(self, info: dict, target: str) -> str:
-        return self._norm_ctrl._grid_status_text(info, target)
-    def _apply_grid_correction(self):
-        return self._norm_ctrl._apply_grid_correction()
-    def _reset_grid_correction(self):
-        return self._norm_ctrl._reset_grid_correction()
     def _install_shortcuts(self):
         QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(self._fit_guess)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._fit_full)
@@ -511,475 +539,40 @@ class ArpesExplorer(QMainWindow):
     def _load_file(self, path: str):
         self._load_ctrl.load(path)
 
-    def _update_display_data(self):
-        return self._plot_ctrl._update_display_data()
-    def _on_view_changed(self):
-        if self._current_path:
-            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-            entry.view_mode = self._cmb_view.currentText()
-        self._update_display_data()
-        self._draw_bm()
 
-    def _on_ev_spinbox_changed(self, val: float):
-        """L'utilisateur saisit directement une énergie → met à jour sel_ev + carte."""
-        if self._raw_data is None:
-            return
-        ev_arr = self._raw_data["ev_arr"]
-        self._sel_ev = float(np.clip(val, ev_arr.min(), ev_arr.max()))
-        self._draw_bm()
-        self._draw_mdc_edc()
-        if hasattr(self, "_mdc_fit_tabs") and self._tabs.currentIndex() == 1 and self._mdc_fit_tabs.currentIndex() == 1:
-            self._draw_mdc_waterfall()
 
-    def _schedule_model_redraw(self, _=None):
-        self._redraw_timer.start(120)
 
-    def _schedule_fit_only_redraw(self, _=None):
-        self._fit_redraw_timer.start(120)
 
-    def _on_model_changed(self, _=None):
-        self._update_display_data()
-        self._draw_bm()
-        if self._tabs.currentIndex() == 1:
-            self._draw_mdc_edc()
-            if hasattr(self, "_mdc_fit_tabs") and self._mdc_fit_tabs.currentIndex() == 1:
-                self._draw_mdc_waterfall()
 
-    def _on_fit_only_changed(self, _=None):
-        # Paramètres qui n'affectent ni la BM affichée ni la donnée raw :
-        # uniquement les overlays MDC/EDC et le waterfall.
-        if self._tabs.currentIndex() != 1:
-            return
-        self._draw_mdc_edc()
-        if hasattr(self, "_mdc_fit_tabs") and self._mdc_fit_tabs.currentIndex() == 1:
-            self._draw_mdc_waterfall()
 
-    def _fit_roi_bounds(self) -> tuple[float, float, float, float] | None:
-        return self._plot_ctrl._fit_roi_bounds()
-    def _fit_roi_data(self, disp: np.ndarray, kpar: np.ndarray, ev: np.ndarray) -> np.ndarray:
-        return self._plot_ctrl._fit_roi_data(disp, kpar, ev)
-    def _map_color_kwargs(self, disp: np.ndarray, mode: str, *, roi_scale: bool = False) -> tuple[str, dict]:
-        return self._plot_ctrl._map_color_kwargs(disp, mode, roi_scale=roi_scale)
-    def _draw_fit_roi_overlay(self, ax):
-        return self._plot_ctrl._draw_fit_roi_overlay(ax)
-    def _ef_offset_text(self) -> str:
-        return self._plot_ctrl._ef_offset_text()
-    def _draw_ef_label(self, ax, *, horizontal: bool = True):
-        return self._plot_ctrl._draw_ef_label(ax, horizontal=horizontal)
-    def _draw_bm(self):
-        return self._plot_ctrl._draw_bm()
-    def _draw_mdc_energy_map(self):
-        return self._plot_ctrl._draw_mdc_energy_map()
-    def _draw_mdc_waterfall(self):
-        return self._plot_ctrl._draw_mdc_waterfall()
-    def _draw_kf_overlay(self, ax):
-        return self._plot_ctrl._draw_kf_overlay(ax)
-    def _get_mdc(self):
-        return self._plot_ctrl._get_mdc()
-    def _get_edc(self):
-        return self._plot_ctrl._get_edc()
-    def _draw_mdc_edc(self):
-        return self._plot_ctrl._draw_mdc_edc()
-    def _set_fit_roi_pick_mode(self, active: bool):
-        active = bool(active)
-        if not active and self._fit_roi_rect is not None:
-            try:
-                canvas = self._fit_roi_rect.figure.canvas
-                self._fit_roi_rect.remove()
-                canvas.draw_idle()
-            except Exception:
-                pass
-        self._fit_roi_active = active
-        self._fit_roi_start = None
-        self._fit_roi_ax = None
-        self._fit_roi_rect = None
-        self._params.set_fit_roi_active(active)
-        for canv in (getattr(self, "_bm_canvas", None), getattr(self, "_mdc_map_canvas", None)):
-            if canv is None or not hasattr(canv, "canvas"):
-                continue
-            if active:
-                canv.canvas.setCursor(Qt.CursorShape.CrossCursor)
-            else:
-                canv.canvas.unsetCursor()
-        if active:
-            if self._tabs.currentIndex() not in (0, 1):
-                self._tabs.setCurrentIndex(1)
-            self._status("Sélection zone fit : cliquer-glisser un rectangle sur la carte.")
 
-    def _on_fit_roi_press(self, event):
-        if not self._fit_roi_active:
-            return
-        if event.inaxes not in (self._bm_canvas.ax, self._mdc_map_canvas.ax):
-            return
-        button = getattr(event.button, "value", event.button)
-        if button != 1 or event.xdata is None or event.ydata is None:
-            return
-        self._fit_roi_start = (float(event.xdata), float(event.ydata))
-        self._fit_roi_ax = event.inaxes
-        if self._fit_roi_rect is not None:
-            try:
-                self._fit_roi_rect.remove()
-            except Exception:
-                pass
-        self._fit_roi_rect = Rectangle(
-            self._fit_roi_start, 0.0, 0.0,
-            fill=False, edgecolor="#38bdf8", linewidth=1.4,
-            linestyle="-", alpha=0.95, zorder=20,
-        )
-        event.inaxes.add_patch(self._fit_roi_rect)
-        event.canvas.draw_idle()
 
-    def _on_fit_roi_motion(self, event):
-        if not self._fit_roi_active or self._fit_roi_start is None or self._fit_roi_rect is None:
-            return
-        if event.inaxes is not self._fit_roi_ax or event.xdata is None or event.ydata is None:
-            return
-        x0, y0 = self._fit_roi_start
-        x1, y1 = float(event.xdata), float(event.ydata)
-        self._fit_roi_rect.set_x(min(x0, x1))
-        self._fit_roi_rect.set_y(min(y0, y1))
-        self._fit_roi_rect.set_width(abs(x1 - x0))
-        self._fit_roi_rect.set_height(abs(y1 - y0))
-        event.canvas.draw_idle()
 
-    def _on_fit_roi_release(self, event):
-        if not self._fit_roi_active or self._fit_roi_start is None:
-            return
-        if event.inaxes is not self._fit_roi_ax or event.xdata is None or event.ydata is None:
-            self._set_fit_roi_pick_mode(False)
-            return
-        x0, y0 = self._fit_roi_start
-        x1, y1 = float(event.xdata), float(event.ydata)
-        if abs(x1 - x0) < 1e-4 or abs(y1 - y0) < 1e-4:
-            self._set_fit_roi_pick_mode(False)
-            return
-        self._apply_fit_roi_from_bounds(min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1))
-        self._set_fit_roi_pick_mode(False)
 
-    def _apply_fit_roi_from_bounds(self, k0: float, k1: float, e0: float, e1: float):
-        if self._raw_data is None:
-            return
-        d = self._raw_data
-        k0 = float(np.clip(k0, np.nanmin(d["kpar"]), np.nanmax(d["kpar"])))
-        k1 = float(np.clip(k1, np.nanmin(d["kpar"]), np.nanmax(d["kpar"])))
-        e0 = float(np.clip(e0, np.nanmin(d["ev_arr"]), np.nanmax(d["ev_arr"])))
-        e1 = float(np.clip(e1, np.nanmin(d["ev_arr"]), np.nanmax(d["ev_arr"])))
-        if k1 <= k0 or e1 <= e0:
-            return
-        for sp, val in (
-            (self._params.sp_kmin, k0), (self._params.sp_kmax, k1),
-            (self._params.sp_evs, e0), (self._params.sp_eve, e1),
-        ):
-            sp.blockSignals(True)
-            sp.setValue(float(val))
-            sp.blockSignals(False)
-        self._sel_k = float((k0 + k1) * 0.5)
-        self._sel_ev = float((e0 + e1) * 0.5)
-        self._sync_ev_spinbox()
-        self._params.params_changed.emit()
-        self._draw_bm()
-        self._draw_mdc_edc()
-        self._status(
-            f"Zone fit : k={k0:+.3f}→{k1:+.3f} π/a, "
-            f"E={e0:+.3f}→{e1:+.3f} eV"
-        )
 
-    def _reset_fit_roi_range(self):
-        if self._raw_data is None:
-            return
-        d = self._raw_data
-        self._apply_fit_roi_from_bounds(
-            float(np.nanmin(d["kpar"])), float(np.nanmax(d["kpar"])),
-            float(np.nanmin(d["ev_arr"])), float(np.nanmax(d["ev_arr"])),
-        )
 
-    def _on_map_click(self, event):
-        if self._fit_roi_active:
-            return
-        if event.inaxes not in (self._bm_canvas.ax, self._mdc_map_canvas.ax): return
-        if event.xdata is None or event.ydata is None: return
-        d = self._raw_data
-        self._sel_ev = float(np.clip(event.ydata,
-                                     d["ev_arr"].min(), d["ev_arr"].max()))
-        self._sel_k  = float(np.clip(event.xdata,
-                                     d["kpar"].min(), d["kpar"].max()))
-        self._sync_ev_spinbox()
-        self._draw_bm()
-        self._draw_mdc_edc()
 
-    def _sync_ev_spinbox(self):
-        self._params.sp_ev.blockSignals(True)
-        self._params.sp_ev.setValue(self._sel_ev)
-        self._params.sp_ev.blockSignals(False)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Fit
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _get_work_data(self):
-        """Données normalisées (pour le fit)."""
-        if self._raw_data is None: return None, None, None
-        d    = self._raw_data
-        norm = apply_edcnorm(d["data"]) if self._params.chk_norm.isChecked() else d["data"]
-        return norm, d["kpar"], d["ev_arr"]
 
-    def _fit_guess(self):
-        if AP is None: self._status("⚠ arpes_plots non chargé"); return
-        data, kpar, ev = self._get_work_data()
-        if data is None: return
-        fp = self._params.get_fit_params()
 
-        ax = self._mdc_edc.axes[0]
-        ax.cla(); ax.set_facecolor("#1a1a1a")
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                kF_init_list = [p.get("kF_init", 0.30) for p in (fp.pairs or [])]
-                r = AP.debug_mdc_fit(
-                    data, kpar, ev,
-                    energy=self._sel_ev, n_pairs=fp.n_pairs,
-                    smooth_fit=fp.smooth_fit, smooth_detect=fp.smooth_detect,
-                    gamma_init=fp.gamma_init, gamma_max=fp.gamma_max,
-                    kF_init=kF_init_list or None, center_init=fp.center_init,
-                    xg_range=fp.xg_range, k_min=fp.k_min, k_max=fp.k_max,
-                    k0_max=fp.k0_max, width_mode=fp.width_mode, ax=ax,
-                )
-            ax.set_title(f"Guess  E={self._sel_ev:.3f} eV", fontsize=8, color="w")
-            ax.tick_params(colors="w", labelsize=7)
-            for sp in ax.spines.values(): sp.set_edgecolor("#555")
-            try:
-                leg = ax.get_legend()
-                if leg:
-                    leg.get_frame().set_facecolor("#333")
-                    for t in leg.get_texts(): t.set_color("w")
-            except Exception: pass
 
-            if r["success"]:
-                k0s = "  ".join(f"{v:.3f}" for v in r["k0"])
-                gamma_vals = r["gamma"] if isinstance(r["gamma"], (list, tuple, np.ndarray)) else [r["gamma"]]
-                gammas = "  ".join(f"{float(v):.4f}" for v in gamma_vals)
-                self._params.lbl_res.setText(
-                    f"✓  E={self._sel_ev:.3f} eV\n"
-                    f"kF=[{k0s}] π/a\n"
-                    f"γ=[{gammas}]  rms={r['residual']:.4f}\n"
-                    f"xg={r['xg']:.4f} π/a")
-                self._status(f"Guess OK  kF={k0s}  γ=[{gammas}]")
-            else:
-                self._params.lbl_res.setText("✗  Fit échoué")
-        except Exception as e:
-            ax.text(0.5, 0.5, str(e), transform=ax.transAxes,
-                    ha="center", va="center", color="tomato", fontsize=8)
-            traceback.print_exc()
-        self._mdc_edc.fig.tight_layout(pad=0.5)
-        self._mdc_edc.redraw()
-
-    def _estimate_gamma_bm(self):
-        return self._gamma_ctrl._estimate_gamma_bm()
-    def _apply_gamma_reference_to_bm(self):
-        return self._gamma_ctrl._apply_gamma_reference_to_bm()
-    def _fit_full(self):
-        if AP is None: self._status("⚠ arpes_plots non chargé"); return
-        data, kpar, ev = self._get_work_data()
-        if data is None: return
-        fp = self._params.get_fit_params()
-
-        self._status("Fit complet en cours …")
-        QApplication.processEvents()
-        try:
-            controller = FitController(AP)
-            fr = controller.run_full_fit(
-                data,
-                kpar,
-                ev,
-                fp,
-                resolution_source=getattr(self._params, "_resolution_source_detail", ""),
-            )
-            self._fit_res = fr
-
-            # Sauvegarder dans la session
-            if self._current_path:
-                name  = self._session.key_for_path(self._current_path)
-                entry = self._session.get_or_create(name)
-                controller.update_entry_after_fit(
-                    entry,
-                    fp,
-                    ef_offset=self._params.sp_ef.value(),
-                    edcnorm=self._params.chk_norm.isChecked(),
-                    view_mode=self._cmb_view.currentText(),
-                    hv=self._raw_data["hv"],
-                )
-                self._session.set_fit_result(name, fr)
-                self._browser.refresh_item(name)
-                self._refresh_helper_buttons()
-
-            summary = controller.summarize(fr)
-            self._params.lbl_res.setText(summary.label_text)
-            self._params.lbl_res.setToolTip(
-                "Résolution instrumentale domine, fit non fiable"
-                if summary.resolution_dominates else ""
-            )
-            self._draw_bm()
-            self._status(summary.status_text)
-        except Exception as e:
-            self._status(f"⚠ Fit complet : {e}"); traceback.print_exc()
-
-    def _clear_kf(self):
-        self._fit_res = None
-        self._draw_bm()
-        self._params.lbl_res.setText("kF effacé")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Calibration EF
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _ef_calibrate(self):
-        if self._raw_data is None:
-            self._status("⚠ Aucune donnée chargée"); return
-        d = self._raw_data
-        # Température : metadata > entry > défaut
-        entry_now = self._current_entry()
-        T_md = (d.get("metadata", {}) or {}).get("temperature")
-        try:
-            T_md = float(T_md) if T_md is not None else None
-        except (TypeError, ValueError):
-            T_md = None
-        if T_md and np.isfinite(T_md) and T_md > 0:
-            T_init = T_md
-        elif entry_now and entry_now.meta.temperature and entry_now.meta.temperature > 0:
-            T_init = float(entry_now.meta.temperature)
-        else:
-            T_init = 28.0
 
-        try:
-            dlg = EFCalibrationDialog(
-                self,
-                data=d["data"], kpar=d["kpar"], ev_arr=d["ev_arr"],
-                T_init=T_init, half_width_init=0.15,
-                source_name=Path(self._current_path).name if self._current_path else "",
-                current_offset=self._params.sp_ef.value(),
-                metadata=d.get("metadata", {}) or {},
-            )
-            if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.result_payload:
-                return
-            payload = dlg.result_payload
-            self._apply_ef_calibration_result(payload)
-        except Exception as e:
-            self._status(f"⚠ Calibration EF : {e}"); traceback.print_exc()
 
-    def _apply_ef_calibration_result(self, payload: dict):
-        """Sauvegarde la correction sur le fichier courant et recharge."""
-        if not self._current_path:
-            return
-        key = self._session.key_for_path(self._current_path)
-        entry = self._session.get_or_create(key)
-
-        update = compute_ef_calibration_update(
-            payload,
-            current_ef_offset=float(self._params.sp_ef.value()),
-            source_meta=(self._raw_data or {}).get("metadata") or {},
-            source_path=str(self._current_path),
-        )
-        entry.ef_offset = update.new_ef_offset
-        entry.ef_correction = update.ef_correction
-        self._params.sp_ef.blockSignals(True)
-        self._params.sp_ef.setValue(update.new_ef_offset)
-        self._params.sp_ef.blockSignals(False)
-        msg = update.msg
-
-        if payload.get("save_as_reference"):
-            self._session.ef_reference = update.ref_payload
-            msg += "  |  référence dossier sauvegardée"
-
-        self._session.save()
-        self._load_file(self._current_path)
-        self._refresh_helper_buttons()
-        self._status(msg)
-
-    def _apply_ef_reference_to_current(self):
-        """Copie session.ef_reference vers FileEntry courant."""
-        ref = self._session.ef_reference or {}
-        if not ref or not self._current_path:
-            self._status("⚠ Aucune référence EF en session — calibrer un Au d'abord")
-            return
-        key = self._session.key_for_path(self._current_path)
-        entry = self._session.get_or_create(key)
-
-        # Garde-fou : éviter une double application en mode scalaire (qui
-        # soustrait cumulativement ef_shift à l'offset courant).
-        if ef_reference_already_applied(entry.ef_correction):
-            ans = QMessageBox.question(
-                self,
-                "Référence EF déjà appliquée",
-                "Une référence EF est déjà appliquée à ce fichier. "
-                "L'appliquer à nouveau cumulerait les décalages et serait probablement faux.\n\n"
-                "Continuer quand même ?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if ans != QMessageBox.StandardButton.Yes:
-                self._status("Application de la référence EF annulée")
-                return
-
-        ref_path = ref.get("source_file", "")
-        ref_name = Path(ref_path).name if ref_path else "?"
-
-        try:
-            app = apply_ef_reference_to_target(
-                ref,
-                current_ef_offset=float(self._params.sp_ef.value()),
-                target_meta=(self._raw_data or {}).get("metadata") or {},
-                ref_path_str=ref_name,
-            )
-        except EFReferenceError:
-            self._status("⚠ Référence EF mal formée")
-            return
-        entry.ef_offset = app.new_ef_offset
-        entry.ef_correction = app.ef_correction
-        self._params.sp_ef.blockSignals(True)
-        self._params.sp_ef.setValue(app.new_ef_offset)
-        self._params.sp_ef.blockSignals(False)
-        self._session.save()
-        self._load_file(self._current_path)
-        self._status(app.msg)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Copy params
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _refresh_helper_buttons(self):
-        """Met à jour l'état/label des boutons EF réf et Propager params."""
-        self._params.update_ef_reference_button(self._session.ef_reference or None)
-        if not self._current_path:
-            self._params.update_copy_params_button(0)
-            return
-        cur_key = self._session.key_for_path(self._current_path)
-        n = sum(
-            1 for name, entry in self._session.files.items()
-            if entry.fit_result is None and name != cur_key
-        )
-        self._params.update_copy_params_button(n)
 
-    def _copy_params(self):
-        """Sauvegarde les params courants dans tous les fichiers non-fittés."""
-        if not self._current_path:
-            return
-        fp = self._params.get_fit_params()
-        cur_key = self._session.key_for_path(self._current_path)
-        targets: list[str] = []
-        for name, entry in self._session.files.items():
-            if entry.fit_result is None and name != cur_key:
-                entry.fit_params = fp
-                targets.append(name)
-        self._session.save()
-        n = len(targets)
-        if n == 0:
-            self._status("Aucun fichier cible — tous les autres sont déjà fittés")
-        elif n <= 3:
-            self._status(f"Params copiés vers {n} fichier(s) : {', '.join(targets)}")
-        else:
-            preview = ", ".join(targets[:2])
-            self._status(f"Params copiés vers {n} fichiers : {preview}, … (+{n-2})")
-        self._refresh_helper_buttons()
 
     # ─────────────────────────────────────────────────────────────────────────
     def _status(self, msg: str): self.statusBar().showMessage(msg)
