@@ -145,7 +145,7 @@ class PlotController:
         result = compute_bandmap_display(
             d,
             mode=mode,
-            edc_norm_enabled=mode == "EDCnorm",
+            edc_norm_enabled=mode in ("EDCnorm", "SecDev", "Curvature"),
             grid_correction=grid_cfg_active,
             grid_artifact_fn=remove_detector_grid_artifact,
         )

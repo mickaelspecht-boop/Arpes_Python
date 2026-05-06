@@ -17,6 +17,11 @@ try:
 except Exception:  # pragma: no cover - fallback numpy si scipy absent
     _scipy_griddata = None
 
+try:
+    from scipy.spatial import cKDTree as _ScipyCKDTree
+except Exception:  # pragma: no cover
+    _ScipyCKDTree = None
+
 
 K_INV_A_PER_SQRT_EV = 0.5123167
 
@@ -197,8 +202,7 @@ def _interpolate_cloud_to_grid(
     if _scipy_griddata is not None:
         return _scipy_griddata(points, intensity, (kk_grid, zz_grid), method="linear")
 
-    # Fallback sans scipy: IDW local. Pas une triangulation stricte, mais évite
-    # de casser l'onglet KZ dans un environnement Python minimal.
+    # Fallback sans scipy.interpolate.griddata : IDW local sur k-NN.
     out = np.full(kk_grid.shape, np.nan, dtype=float)
     k_span = max(float(np.nanmax(k) - np.nanmin(k)), 1e-12)
     z_span = max(float(np.nanmax(z) - np.nanmin(z)), 1e-12)
@@ -207,14 +211,28 @@ def _interpolate_cloud_to_grid(
     flat_k = (kk_grid.ravel() / k_span)
     flat_z = (zz_grid.ravel() / z_span)
     flat_out = out.ravel()
-    for idx, (kg, zg) in enumerate(zip(flat_k, flat_z)):
-        d2 = (pts[:, 0] - kg) ** 2 + (pts[:, 1] - zg) ** 2
-        nearest = np.argpartition(d2, n_neigh - 1)[:n_neigh]
-        if d2[nearest[0]] < 1e-24:
-            flat_out[idx] = intensity[nearest[0]]
-            continue
-        weights = 1.0 / np.maximum(d2[nearest], 1e-24)
-        flat_out[idx] = float(np.sum(weights * intensity[nearest]) / np.sum(weights))
+    grid_pts = np.column_stack([flat_k, flat_z])
+    if _ScipyCKDTree is not None:
+        tree = _ScipyCKDTree(pts)
+        d, idx = tree.query(grid_pts, k=n_neigh)
+        if n_neigh == 1:
+            d = d[:, None]
+            idx = idx[:, None]
+        weights = 1.0 / np.maximum(d ** 2, 1e-24)
+        exact = d[:, 0] < 1e-12
+        flat_out[:] = (weights * intensity[idx]).sum(axis=1) / weights.sum(axis=1)
+        if exact.any():
+            flat_out[exact] = intensity[idx[exact, 0]]
+    else:
+        # cKDTree absent : boucle Python (lent, mais évite plantage env minimal).
+        for idx_row, (kg, zg) in enumerate(zip(flat_k, flat_z)):
+            d2 = (pts[:, 0] - kg) ** 2 + (pts[:, 1] - zg) ** 2
+            nearest = np.argpartition(d2, n_neigh - 1)[:n_neigh]
+            if d2[nearest[0]] < 1e-24:
+                flat_out[idx_row] = intensity[nearest[0]]
+                continue
+            weights_b = 1.0 / np.maximum(d2[nearest], 1e-24)
+            flat_out[idx_row] = float(np.sum(weights_b * intensity[nearest]) / np.sum(weights_b))
     for col, kval in enumerate(kk_grid[0, :]):
         step = abs(kk_grid[0, 1] - kk_grid[0, 0]) if kk_grid.shape[1] > 1 else k_span
         close = np.abs(k - kval) <= max(2.0 * step, 1e-12)
