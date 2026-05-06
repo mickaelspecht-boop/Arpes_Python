@@ -140,3 +140,15 @@ Cibles finales architecture : `arpes/app.py` < `600` LOC (uniquement `ArpesExplo
 - Vérification post-fix : `grep -rn "physics\.display\|FitController"` → 0 hit.
 - Validation : `python3 -m unittest discover tests` OK (`130` tests, `1` skipped) ; smoke headless `ArpesExplorer()` OK + `from arpes.physics.fit import MdcFitter` + `from arpes.physics.plot_compute import apply_edcnorm` résolvent.
 - Note : `tests/test_fit_controller.py` garde son nom de fichier (renaming le fichier de test n'apporte rien et casse la mémoire git blame). Class à l'intérieur reste `TestFitController` — peut être renommée en σ si voulu.
+
+## Update ρ — `tests/test_ui_smoke.py`
+
+- Motivation : les bugs ν latents (params.py utilisant `_dspin`, results.py sans `QLabel`) n'ont été détectés qu'en ο en lançant manuellement un smoke headless. Aucun test automatisé n'instanciait `ArpesExplorer`. Boucle ouverte à reboucler.
+- Correction appliquée : `tests/test_ui_smoke.py` — instancie `ArpesExplorer` avec `QT_QPA_PLATFORM=offscreen`, vérifie 4 invariants :
+  1. `test_window_instantiates` : `_tabs.count() == 4`, `win.ap is not None`.
+  2. `test_controllers_wired` : 8 attributs `_*_ctrl` présents.
+  3. `test_proxy_dispatch_resolves_every_entry` : chaque clé de `_PROXY_MAP` résout vers une méthode callable du controller cible, et `getattr(win, name).__qualname__ == f"{ControllerClass.__name__}.{name}"`.
+  4. `test_widgets_built` : `_params`, `_results`, `_browser`, `_bm_canvas`, `_mdc_edc`, `_tabs` présents après `_build_ui()`.
+- Skip si Qt indisponible (`UI_AVAILABLE = False`).
+- Validation : `python3 -m unittest tests.test_ui_smoke -v` → 4 OK ; suite complète `134` tests OK skipped=1 (`130 + 4`).
+- Filet de sécurité futur : tout refactor qui casse `_PROXY_MAP` ou un import widget sera bloqué dès `unittest discover`.
