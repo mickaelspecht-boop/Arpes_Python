@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Architecture ARPES Explorer</title>
+  <desc id="desc">Diagramme d'architecture de l'application ARPES Explorer, base sur les modules Python du projet.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#344054"/>
+    </marker>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .title { font: 700 34px Arial, Helvetica, sans-serif; fill: #111827; }
+      .subtitle { font: 18px Arial, Helvetica, sans-serif; fill: #475467; }
+      .section { font: 700 18px Arial, Helvetica, sans-serif; fill: #111827; }
+      .label { font: 15px Arial, Helvetica, sans-serif; fill: #1f2937; }
+      .small { font: 13px Arial, Helvetica, sans-serif; fill: #475467; }
+      .tiny { font: 12px Arial, Helvetica, sans-serif; fill: #667085; }
+      .mono { font: 13px "SFMono-Regular", Consolas, monospace; fill: #344054; }
+      .box { fill: #ffffff; stroke: #98a2b3; stroke-width: 1.5; rx: 8; }
+      .boxStrong { fill: #eef4ff; stroke: #2e90fa; stroke-width: 2; rx: 8; }
+      .boxCore { fill: #ecfdf3; stroke: #12b76a; stroke-width: 2; rx: 8; }
+      .boxWarn { fill: #fffaeb; stroke: #f79009; stroke-width: 2; rx: 8; }
+      .boxRisk { fill: #fff1f3; stroke: #f04438; stroke-width: 2; rx: 8; }
+      .boxData { fill: #f4f3ff; stroke: #7a5af8; stroke-width: 2; rx: 8; }
+      .lane { fill: #ffffff; stroke: #d0d5dd; stroke-width: 1.3; rx: 12; }
+      .flow { stroke: #344054; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .flowSoft { stroke: #667085; stroke-width: 1.7; stroke-dasharray: 7 6; fill: none; marker-end: url(#arrow); }
+      .note { fill: #f9fafb; stroke: #d0d5dd; stroke-width: 1; rx: 8; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1800" height="1200"/>
+
+  <text class="title" x="70" y="62">ARPES Explorer - architecture observee</text>
+  <text class="subtitle" x="70" y="96">Application PyQt6/Matplotlib pour charger, visualiser, calibrer et fitter des donnees ARPES. Diagramme genere depuis le code local.</text>
+  <text class="tiny" x="70" y="122">Sources inspectees: arpes/app.py, arpes/core/*, arpes/io/*, arpes/physics/*, arpes/ui/*, tests/*</text>
+
+  <rect class="lane" x="55" y="155" width="1690" height="295"/>
+  <text class="section" x="80" y="190">1. Couche presentation et orchestration UI</text>
+
+  <rect class="boxStrong" x="80" y="215" width="280" height="165"/>
+  <text class="label" x="105" y="245">Point d'entree</text>
+  <text class="mono" x="105" y="275">arpes/app.py</text>
+  <text class="small" x="105" y="304">ArpesExplorer(QMainWindow)</text>
+  <text class="small" x="105" y="329">Etat courant: session, path,</text>
+  <text class="small" x="105" y="351">raw_data, fit_res, selection</text>
+
+  <rect class="box" x="415" y="205" width="345" height="210"/>
+  <text class="label" x="440" y="235">Builders UI</text>
+  <text class="mono" x="440" y="262">arpes/ui/builders/panels.py</text>
+  <text class="mono" x="440" y="286">arpes/ui/builders/menus.py</text>
+  <text class="small" x="440" y="318">Construit: navigateur fichiers,</text>
+  <text class="small" x="440" y="341">onglets BM/MDC/Resultats/FS,</text>
+  <text class="small" x="440" y="364">panneaux parametres, signaux Qt</text>
+
+  <rect class="boxData" x="815" y="205" width="345" height="210"/>
+  <text class="label" x="840" y="235">Widgets reutilisables</text>
+  <text class="mono" x="840" y="262">ui/widgets/*</text>
+  <text class="small" x="840" y="294">MplCanvas, FileBrowserPanel,</text>
+  <text class="small" x="840" y="317">FitParamsPanel, ResultsPanel,</text>
+  <text class="small" x="840" y="340">dialogs, helpers, plots legacy</text>
+
+  <rect class="boxStrong" x="1215" y="205" width="485" height="210"/>
+  <text class="label" x="1240" y="235">Controllers UI</text>
+  <text class="mono" x="1240" y="262">load, plot, fit_runner, interaction</text>
+  <text class="mono" x="1240" y="286">gamma, norm, fs, logbook</text>
+  <text class="small" x="1240" y="318">ArpesExplorer.__getattr__ route les methodes</text>
+  <text class="small" x="1240" y="341">legacy via _PROXY_MAP vers ces controllers.</text>
+  <text class="small" x="1240" y="364">Tests smoke verifient wiring et proxy.</text>
+
+  <path class="flow" d="M360 300 H415"/>
+  <path class="flow" d="M760 300 H815"/>
+  <path class="flow" d="M1160 300 H1215"/>
+
+  <rect class="lane" x="55" y="485" width="1690" height="335"/>
+  <text class="section" x="80" y="520">2. Pipeline donnees, calculs et persistance</text>
+
+  <rect class="box" x="80" y="555" width="280" height="195"/>
+  <text class="label" x="105" y="585">Entrees utilisateur</text>
+  <text class="small" x="105" y="615">Dossier ou fichier ARPES</text>
+  <text class="small" x="105" y="640">Logbook CSV/Excel</text>
+  <text class="small" x="105" y="665">Parametres UI: hv, EF, fit,</text>
+  <text class="small" x="105" y="688">resolution, normalisation, ROI</text>
+
+  <rect class="boxCore" x="415" y="540" width="345" height="245"/>
+  <text class="label" x="440" y="570">IO normalise</text>
+  <text class="mono" x="440" y="597">io/loader_orchestrator.py</text>
+  <text class="mono" x="440" y="621">io/loaders/common.py</text>
+  <text class="mono" x="440" y="645">io/loaders/{solaris,bessy,cls}.py</text>
+  <text class="small" x="440" y="677">Convention interne: energy = E-EF,</text>
+  <text class="small" x="440" y="700">data shape (n_k, n_E), k en pi/a.</text>
+  <text class="small" x="440" y="723">Validation ARPESData + registre loaders.</text>
+
+  <rect class="boxCore" x="815" y="540" width="345" height="245"/>
+  <text class="label" x="840" y="570">Moteurs physiques/numeriques</text>
+  <text class="mono" x="840" y="597">physics/fit.py, plot_compute.py</text>
+  <text class="mono" x="840" y="621">physics/ef_calibration.py</text>
+  <text class="mono" x="840" y="645">physics/gamma.py, norm.py</text>
+  <text class="mono" x="840" y="669">physics/fs.py, resolution.py</text>
+  <text class="small" x="840" y="701">Fit MDC, affichages BM/MDC/EDC,</text>
+  <text class="small" x="840" y="724">FS, correction EF, Gamma, artefacts grille.</text>
+
+  <rect class="boxData" x="1215" y="540" width="250" height="245"/>
+  <text class="label" x="1240" y="570">Modele session</text>
+  <text class="mono" x="1240" y="597">core/session.py</text>
+  <text class="mono" x="1240" y="621">core/models.py</text>
+  <text class="small" x="1240" y="653">Dataclasses: FitParams,</text>
+  <text class="small" x="1240" y="676">FileEntry, FileMeta,</text>
+  <text class="small" x="1240" y="699">ResolutionInfo, LoadContext</text>
+  <text class="small" x="1240" y="722">JSON: .arpes_session.json</text>
+
+  <rect class="box" x="1515" y="555" width="185" height="195"/>
+  <text class="label" x="1540" y="585">Sorties</text>
+  <text class="small" x="1540" y="615">Figures Matplotlib</text>
+  <text class="small" x="1540" y="640">Table resultats</text>
+  <text class="small" x="1540" y="665">CSV via io/export.py</text>
+  <text class="small" x="1540" y="690">PDF mentionne dans UI</text>
+
+  <path class="flow" d="M360 652 H415"/>
+  <path class="flow" d="M760 652 H815"/>
+  <path class="flow" d="M1160 652 H1215"/>
+  <path class="flow" d="M1465 652 H1515"/>
+  <path class="flowSoft" d="M1340 540 V425 H1460 V415"/>
+  <path class="flowSoft" d="M985 540 V425 H1460"/>
+
+  <rect class="lane" x="55" y="855" width="835" height="280"/>
+  <text class="section" x="80" y="890">Points forts observes</text>
+
+  <rect class="boxCore" x="80" y="920" width="780" height="185"/>
+  <text class="label" x="110" y="950">Forces</text>
+  <text class="small" x="110" y="980">1. Separation en progression: controllers UI, builders, core/session, IO, physics.</text>
+  <text class="small" x="110" y="1008">2. Loaders avec registre et validation ARPESData, convention explicite des axes.</text>
+  <text class="small" x="110" y="1036">3. Persistance session testable sans Qt: dataclasses + JSON stable.</text>
+  <text class="small" x="110" y="1064">4. Couverture tests large pour export, IO, loaders, session, UI smoke, fit, Gamma, EF, resolution.</text>
+  <text class="small" x="110" y="1092">5. Calculs metier souvent sortis de l'UI: plot_compute, fit, norm, gamma, ef_calibration.</text>
+
+  <rect class="lane" x="910" y="855" width="835" height="280"/>
+  <text class="section" x="935" y="890">Points faibles / risques observes</text>
+
+  <rect class="boxRisk" x="935" y="920" width="780" height="185"/>
+  <text class="label" x="965" y="950">Faiblesses</text>
+  <text class="small" x="965" y="980">1. ArpesExplorer reste une God class d'orchestration: beaucoup d'etat mutable partage.</text>
+  <text class="small" x="965" y="1008">2. Proxy __getattr__ + _PROXY_MAP garde une API legacy implicite, moins lisible qu'appels explicites.</text>
+  <text class="small" x="965" y="1036">3. Plusieurs contrats restent des dicts runtime (raw_data, metadata, fit_result), validation partielle.</text>
+  <text class="small" x="965" y="1064">4. Dependances runtime non declarees ici: aucun pyproject/requirements detecte a la racine inspectee.</text>
+  <text class="small" x="965" y="1092">5. Couche UI importe beaucoup de calculs et helpers: couplage encore present malgre refonte.</text>
+
+  <rect class="note" x="80" y="1148" width="1635" height="32"/>
+  <text class="tiny" x="100" y="1169">Limite de rigueur: ce diagramme ne decrit que ce qui est visible dans le code local. Il n'infere pas de backend distant, base de donnees, API reseau ou packaging absent.</text>
+</svg>

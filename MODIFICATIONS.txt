@@ -1,0 +1,162 @@
+Journal des modifications ARPES
+================================
+
+Regle de travail
+----------------
+- Avant chaque modification, ajouter ici le but, les fichiers vises et le risque.
+- Apres chaque modification, ajouter ce qui a ete fait et les verifications lancees.
+- Ne pas lister de changement non effectue.
+
+Modifications prevues
+---------------------
+- Aucune pour l'instant. En attente des demandes utilisateur.
+
+Modifications effectuees
+------------------------
+- 2026-05-06 : creation de ce journal de suivi.
+- 2026-05-06 : chargement Raw par defaut pour les nouveaux fichiers.
+  Fichiers modifies : arpes/core/session.py, arpes/ui/widgets/params.py,
+  arpes/ui/builders/panels.py.
+  Detail : FileEntry par defaut passe a view_mode=Raw et edcnorm=False ;
+  combobox Vue passe a Raw ; checkbox EDCnorm decochee par defaut.
+- 2026-05-06 : choix de visualisation ajoute aussi dans l'onglet Fit.
+  Fichiers modifies : arpes/app.py, arpes/ui/builders/panels.py,
+  arpes/ui/controllers/interaction_controller.py, arpes/ui/controllers/load_controller.py.
+  Detail : ajout de _cmb_view_fit, synchronisation avec _cmb_view,
+  nouvelle entree _on_view_fit_changed dans _PROXY_MAP.
+- 2026-05-06 : fenetre de fit rendue plus explicite.
+  Fichiers modifies : arpes/ui/controllers/plot_controller.py,
+  arpes/ui/controllers/interaction_controller.py.
+  Detail : titre et annotation indiquent que la carte Fit est zoomee sur la
+  plage fit et que le contraste est recalcule sur cette zone ; statusbar plus explicite.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_session tests.test_ui_smoke tests.test_plot_controller
+  Resultat : OK, 19 tests, 4 skips.
+- 2026-05-06 : suppression du bouton cochable EDCnorm.
+  Fichiers modifies : arpes/ui/widgets/params.py, arpes/ui/controllers/load_controller.py,
+  arpes/ui/controllers/interaction_controller.py, arpes/ui/controllers/plot_controller.py,
+  arpes/ui/controllers/fit_runner_controller.py, arpes/physics/plot_compute.py,
+  tests/test_plot_controller.py.
+  Detail : le mode Vue devient l'unique source de verite. Raw = brut, EDCnorm =
+  normalise, SecDev/Curvature = modes derives sans checkbox supplementaire.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_session tests.test_ui_smoke tests.test_plot_controller tests.test_fit_controller
+  Resultat : OK, 23 tests, 4 skips.
+- 2026-05-06 : amelioration carte KZ selon diagnostic arcs/trous.
+  Fichiers modifies : arpes/physics/kz.py, arpes/io/kz_dataset.py,
+  arpes/ui/widgets/kz.py, arpes/ui/controllers/kz_controller.py,
+  tests/test_kz.py, tests/test_kz_dataset.py.
+  Detail : ajout des modes d'affichage KZ "interpolated", "points" et
+  "binned" ; interpolation nuage k//-kz avec scipy si disponible et fallback
+  numpy IDW ; diagnostics points bruts, bins remplis et backend interpolation.
+  Filtrage dossier KZ durci : ignore zip, [FS], fixed cut, alignements et
+  doublons evidents. Affichage hν min/max, scans retenus/ignores, points et bins.
+  Garde-fous : aucune logique Qt dans physics, aucun chargement dans plot,
+  hν variable obligatoire, sources visibles.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_kz tests.test_kz_dataset
+  Resultat : OK, 9 tests.
+- 2026-05-06 : verifications globales lancees.
+  Commande : python3 -m unittest discover tests
+  Resultat : OK, 144 tests, 16 skips.
+- 2026-05-06 : ajout visualisation brute hν-k// type Figure 4a article Ba122.
+  Fichiers modifies : arpes/physics/kz.py, arpes/ui/widgets/kz.py,
+  arpes/ui/controllers/kz_controller.py, tests/test_kz.py.
+  Detail : nouveau resultat HvKMapResult et fonction compute_hv_k_map ;
+  nouveau mode UI "hv map" ; affichage hν en ordonnee et k// en abscisse,
+  integre autour de E centre +/- fenetre E, sans conversion kz.
+  Message UI explicite : "raw hν map (no kz conversion)".
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_kz tests.test_kz_dataset
+  Resultat : OK, 11 tests.
+- 2026-05-06 : ajout visualisation MDC waterfall type Figure 4b article Ba122.
+  Fichiers modifies : arpes/physics/kz.py, arpes/ui/widgets/kz.py,
+  arpes/ui/controllers/kz_controller.py, tests/test_kz.py.
+  Detail : nouveau resultat MdcWaterfallResult et fonction compute_mdc_waterfall ;
+  nouveau mode UI "MDC waterfall" ; empile une MDC I(k//) par hν, integree
+  autour de E centre +/- fenetre E ; labels hν a droite ; aucun fit automatique.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_kz tests.test_kz_dataset
+  Resultat : OK, 12 tests.
+- 2026-05-06 : ajout logbook KZ optionnel selon conseil.
+  Fichiers modifies : arpes/core/session.py, arpes/io/kz_dataset.py,
+  arpes/ui/widgets/kz.py, arpes/ui/controllers/kz_controller.py,
+  arpes/ui/builders/panels.py, arpes/app.py, tests/test_kz_dataset.py,
+  tests/test_session.py.
+  Detail : persistance separee kz_logbook_path, kz_logbook_sheet,
+  kz_logbook_mapping, kz_logbook_records ; bouton "Logbook KZ" dans panneau KZ ;
+  resolution hν par priorite fichier/header, logbook KZ, logbook principal,
+  valeur manuelle, erreur. Les sources hν sont resumees dans l'info KZ :
+  file, kz_logbook, main_logbook, manual, unknown.
+  Correction importante : le loader tente d'abord le fichier sans fallback hν ;
+  le logbook n'est utilise que si hν fichier est absent/inutilisable.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_kz tests.test_kz_dataset tests.test_session
+  Resultat : OK, 17 tests.
+- 2026-05-06 : correction crash panneau resultats et warning KZ.
+  Fichiers modifies : arpes/ui/widgets/results.py, arpes/physics/kz.py.
+  Detail : ajout import numpy as np dans results.py pour corriger NameError
+  lors de refresh resultats ; remplacement du np.nanmean KZ par une moyenne
+  sure qui laisse NaN sans RuntimeWarning quand une tranche EF est vide.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_kz tests.test_kz_dataset tests.test_ui_smoke tests.test_export
+  Resultat : OK, 22 tests, 4 skips.
+- 2026-05-06 : retrait des emojis/pictogrammes visibles et ajout d'indicateurs d'action.
+  Fichiers modifies : arpes/ui/widgets/params.py, arpes/ui/builders/panels.py,
+  arpes/ui/widgets/results.py, arpes/ui/widgets/browsers/files.py,
+  arpes/ui/widgets/dialogs.py, arpes/physics/fs.py, arpes/physics/gamma.py,
+  arpes/physics/fit.py, arpes/physics/ef_calibration.py,
+  arpes/ui/widgets/plots/common.py, arpes/app.py,
+  arpes/ui/controllers/logbook_controller.py, arpes/ui/controllers/kz_controller.py,
+  arpes/ui/controllers/fit_runner_controller.py, arpes/ui/controllers/gamma_controller.py,
+  arpes/ui/controllers/norm_controller.py, arpes/ui/controllers/load_controller.py.
+  Detail : boutons et onglets passent a des libelles textuels sobres ; provenance
+  hν affiche Fichier/Logbook/Manuel/Inconnu ; provenance resolution affiche
+  Estimee/Manuelle/Defaut ; statuts utilisent OK ou Attention. Ajout du label
+  "Derniere action" dans le panneau parametres, mis a jour apres chargement
+  fichier/logbook/logbook KZ/KZ, guess MDC, fit complet, calibration EF,
+  application reference EF, detection/application Gamma, correction grille et
+  propagation de parametres.
+- 2026-05-06 : verification absence emoji/pictogrammes.
+  Commande : rg -n "[\\x{1F300}-\\x{1FAFF}\\x{2600}-\\x{27BF}]" arpes tests docs *.py *.md
+  Resultat : aucune occurrence.
+- 2026-05-06 : verifications globales lancees.
+  Commande : python3 -m unittest discover tests
+  Resultat : OK, 149 tests, 16 skips.
+- 2026-05-06 : exclusion E > EF pour SecDev et Curvature.
+  Fichiers modifies : arpes/physics/plot_compute.py, tests/test_plot_controller.py.
+  Detail : les modes derives calculent seulement sur ev_arr <= 0 et masquent
+  les colonnes au-dessus de EF par NaN. Raw et EDCnorm restent inchanges.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_plot_controller tests.test_ui_smoke
+  Resultat : OK, 17 tests, 4 skips.
+- 2026-05-06 : implementation MVP onglet KZ selon conseil.
+  Fichiers crees : arpes/physics/kz.py, arpes/io/kz_dataset.py,
+  arpes/ui/widgets/kz.py, arpes/ui/controllers/kz_controller.py,
+  tests/test_kz.py, tests/test_kz_dataset.py.
+  Fichiers modifies : arpes/app.py, arpes/ui/builders/panels.py,
+  tests/test_ui_smoke.py.
+  Detail : ajout d'un onglet KZ, choix dossier KZ, chargement serie hν via
+  loaders BM existants, calcul k//-kz pur dans physics, affichage carte KZ,
+  parametres V0/a/c/E/bins/unite/normalisation.
+  Garde-fous : au moins deux scans hν requis, hν variable obligatoire,
+  V0>0 obligatoire, kz interne en A^-1 avec option pi/c, NaN hors points valides.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_kz tests.test_kz_dataset tests.test_plot_controller tests.test_session tests.test_fit_controller tests.test_ui_smoke
+  Resultat : OK, 31 tests, 4 skips.
+- 2026-05-06 : compilation syntaxe.
+  Commande : python3 -m py_compile arpes/physics/kz.py arpes/io/kz_dataset.py arpes/ui/widgets/kz.py arpes/ui/controllers/kz_controller.py arpes/app.py arpes/ui/builders/panels.py
+  Resultat : OK.
+- 2026-05-06 : remplacement des textes "zoom plage fit / contraste recalcule"
+  par "Plage d'analyse".
+  Fichiers modifies : arpes/ui/builders/panels.py, arpes/ui/controllers/plot_controller.py,
+  arpes/ui/controllers/interaction_controller.py.
+  Detail : titre carte Fit et label topbar raccourcis ; statusbar ROI raccourcie.
+- 2026-05-06 : analyse conseil sur bruit plage analyse.
+  Avis : Raw ne cree pas le bruit ; bruit plausible des donnees ARPES, amplifie
+  visuellement par le contraste local calcule sur la ROI.
+  Recommandation : Raw comme reference, EDCnorm comme aide, SecDev/Curvature
+  comme guide visuel ; reduire k_min/k_max et tester stabilite fit.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m unittest tests.test_session tests.test_ui_smoke tests.test_plot_controller tests.test_fit_controller
+  Resultat : OK, 23 tests, 4 skips.
