@@ -188,10 +188,10 @@ def apply_reference_to_target(
                 f"offset={new_off:.4f} eV (source: {ref_path_str})"
             )
             if src_ef_kin is None or tgt_ef_kin is None:
-                msg += "  ⚠ correction per-file impossible (ef_kin_nominal manquant)"
+                msg += "  |  Attention: correction per-file impossible (ef_kin_nominal manquant)"
             elif not modes_match:
                 msg += (
-                    f"  ⚠ modes énergie différents "
+                    f"  |  Attention: modes énergie différents "
                     f"(src={src_ref_mode or '?'} vs cible={tgt_ref_mode or '?'}) — "
                     f"correction per-file ignorée"
                 )

@@ -7,6 +7,7 @@ import unittest
 import numpy as np
 
 from arpes.physics.plot_compute import (
+    _compute_below_ef_only,
     apply_edcnorm,
     compute_bandmap_display,
     display_grid_config,
@@ -41,12 +42,22 @@ class TestPlotController(unittest.TestCase):
         out = compute_bandmap_display(raw, mode="Raw", edc_norm_enabled=True)
         self.assertIs(out.data, raw["data"])
 
-    def test_edcnorm_respects_checkbox(self):
+    def test_edcnorm_mode_normalizes(self):
         raw = self._raw()
-        off = compute_bandmap_display(raw, mode="EDCnorm", edc_norm_enabled=False)
-        self.assertIs(off.data, raw["data"])
-        on = compute_bandmap_display(raw, mode="EDCnorm", edc_norm_enabled=True)
-        np.testing.assert_allclose(np.nanmean(on.data, axis=0), [1.0, 1.0, 1.0])
+        out = compute_bandmap_display(raw, mode="EDCnorm", edc_norm_enabled=False)
+        np.testing.assert_allclose(np.nanmean(out.data, axis=0), [1.0, 1.0, 1.0])
+
+    def test_derivative_modes_mask_above_ef(self):
+        data = np.arange(20, dtype=float).reshape(4, 5)
+        ev = np.asarray([-0.2, -0.1, 0.0, 0.1, 0.2])
+
+        def fake_compute(d, _k, _e):
+            return np.ones_like(d)
+
+        out = _compute_below_ef_only(fake_compute, data, np.arange(4), ev)
+        self.assertEqual(out.shape, data.shape)
+        np.testing.assert_allclose(out[:, :3], 1.0)
+        self.assertTrue(np.isnan(out[:, 3:]).all())
 
     def test_grid_config_clamps_strength(self):
         self.assertEqual(display_grid_config({"strength": 2.0})["strength"], 1.0)

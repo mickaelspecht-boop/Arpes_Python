@@ -47,14 +47,14 @@ class FitRunnerController:
         if p._raw_data is None:
             return None, None, None
         d = p._raw_data
-        norm = apply_edcnorm(d["data"]) if self._params.chk_norm.isChecked() else d["data"]
+        norm = apply_edcnorm(d["data"]) if p._cmb_view.currentText() == "EDCnorm" else d["data"]
         return norm, d["kpar"], d["ev_arr"]
 
     # -------------------------------------------------------------------- fit
     def _fit_guess(self):
         p = self._parent
         if p.ap is None:
-            self._status("⚠ arpes_plots non chargé")
+            self._status("Attention: arpes_plots non chargé")
             return
         data, kpar, ev = self._get_work_data()
         if data is None:
@@ -94,13 +94,15 @@ class FitRunnerController:
                 gamma_vals = r["gamma"] if isinstance(r["gamma"], (list, tuple, np.ndarray)) else [r["gamma"]]
                 gammas = "  ".join(f"{float(v):.4f}" for v in gamma_vals)
                 self._params.lbl_res.setText(
-                    f"✓  E={p._sel_ev:.3f} eV\n"
+                    f"OK  E={p._sel_ev:.3f} eV\n"
                     f"kF=[{k0s}] π/a\n"
                     f"γ=[{gammas}]  rms={r['residual']:.4f}\n"
                     f"xg={r['xg']:.4f} π/a")
                 self._status(f"Guess OK  kF={k0s}  γ=[{gammas}]")
+                if hasattr(self._params, "mark_action_done"):
+                    self._params.mark_action_done(f"guess MDC OK à E={p._sel_ev:.3f} eV")
             else:
-                self._params.lbl_res.setText("✗  Fit échoué")
+                self._params.lbl_res.setText("Fit échoué")
         except Exception as e:
             ax.text(0.5, 0.5, str(e), transform=ax.transAxes,
                     ha="center", va="center", color="tomato", fontsize=8)
@@ -111,14 +113,14 @@ class FitRunnerController:
     def _fit_full(self):
         p = self._parent
         if p.ap is None:
-            self._status("⚠ arpes_plots non chargé")
+            self._status("Attention: arpes_plots non chargé")
             return
         data, kpar, ev = self._get_work_data()
         if data is None:
             return
         fp = self._params.get_fit_params()
 
-        self._status("Fit complet en cours …")
+        self._status("Fit complet en cours ...")
         QApplication.processEvents()
         try:
             controller = MdcFitter(p.ap)
@@ -134,7 +136,7 @@ class FitRunnerController:
                 controller.update_entry_after_fit(
                     entry, fp,
                     ef_offset=self._params.sp_ef.value(),
-                    edcnorm=self._params.chk_norm.isChecked(),
+                    edcnorm=p._cmb_view.currentText() == "EDCnorm",
                     view_mode=p._cmb_view.currentText(),
                     hv=p._raw_data["hv"],
                 )
@@ -150,8 +152,10 @@ class FitRunnerController:
             )
             p._draw_bm()
             self._status(summary.status_text)
+            if hasattr(self._params, "mark_action_done"):
+                self._params.mark_action_done("fit complet terminé")
         except Exception as e:
-            self._status(f"⚠ Fit complet : {e}")
+            self._status(f"Attention: Fit complet : {e}")
             traceback.print_exc()
 
     def _clear_kf(self):
@@ -164,7 +168,7 @@ class FitRunnerController:
     def _ef_calibrate(self):
         p = self._parent
         if p._raw_data is None:
-            self._status("⚠ Aucune donnée chargée")
+            self._status("Attention: Aucune donnée chargée")
             return
         d = p._raw_data
         entry_now = p._current_entry()
@@ -193,7 +197,7 @@ class FitRunnerController:
                 return
             self._apply_ef_calibration_result(dlg.result_payload)
         except Exception as e:
-            self._status(f"⚠ Calibration EF : {e}")
+            self._status(f"Attention: Calibration EF : {e}")
             traceback.print_exc()
 
     def _apply_ef_calibration_result(self, payload: dict):
@@ -224,12 +228,14 @@ class FitRunnerController:
         p._load_file(p._current_path)
         self._refresh_helper_buttons()
         self._status(msg)
+        if hasattr(self._params, "mark_action_done"):
+            self._params.mark_action_done("calibration EF appliquée")
 
     def _apply_ef_reference_to_current(self):
         p = self._parent
         ref = self._session.ef_reference or {}
         if not ref or not p._current_path:
-            self._status("⚠ Aucune référence EF en session — calibrer un Au d'abord")
+            self._status("Attention: Aucune référence EF en session - calibrer un Au d'abord")
             return
         key = self._session.key_for_path(p._current_path)
         entry = self._session.get_or_create(key)
@@ -259,7 +265,7 @@ class FitRunnerController:
                 ref_path_str=ref_name,
             )
         except EFReferenceError:
-            self._status("⚠ Référence EF mal formée")
+            self._status("Attention: Référence EF mal formée")
             return
         entry.ef_offset = app.new_ef_offset
         entry.ef_correction = app.ef_correction
@@ -269,6 +275,8 @@ class FitRunnerController:
         self._session.save()
         p._load_file(p._current_path)
         self._status(app.msg)
+        if hasattr(self._params, "mark_action_done"):
+            self._params.mark_action_done("référence EF appliquée")
 
     # ----------------------------------------------------------- params utils
     def _refresh_helper_buttons(self):
@@ -298,10 +306,12 @@ class FitRunnerController:
         self._session.save()
         n = len(targets)
         if n == 0:
-            self._status("Aucun fichier cible — tous les autres sont déjà fittés")
+            self._status("Aucun fichier cible - tous les autres sont déjà fittés")
         elif n <= 3:
             self._status(f"Params copiés vers {n} fichier(s) : {', '.join(targets)}")
         else:
             preview = ", ".join(targets[:2])
-            self._status(f"Params copiés vers {n} fichiers : {preview}, … (+{n-2})")
+            self._status(f"Params copiés vers {n} fichiers : {preview}, ... (+{n-2})")
+        if hasattr(self._params, "mark_action_done"):
+            self._params.mark_action_done(f"paramètres propagés vers {n} fichier(s)")
         self._refresh_helper_buttons()

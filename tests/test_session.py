@@ -32,6 +32,10 @@ class TestSessionManager(unittest.TestCase):
                 meta=FileMeta(hv=48.0, temperature=20.0, direction="G-M"),
             )
             session.files["BM1"] = entry
+            session.kz_logbook_path = str(root / "kz.xlsx")
+            session.kz_logbook_sheet = "KZ"
+            session.kz_logbook_mapping = {"file": "Scan", "hv": "Energy"}
+            session.kz_logbook_records = [{"Scan": "BM1", "Energy": np.float64(48.0)}]
             session.gamma_reference = {"kx": np.float64(0.01)}
             session.save()
 
@@ -40,6 +44,8 @@ class TestSessionManager(unittest.TestCase):
             self.assertIn("BM1", raw["files"])
             self.assertEqual(raw["files"]["BM1"]["fit_params"]["dE_meV"], 25.0)
             self.assertEqual(raw["files"]["BM1"]["fit_result"]["e_fitted"], [-0.1, 0.0])
+            self.assertEqual(raw["kz_logbook_sheet"], "KZ")
+            self.assertEqual(raw["kz_logbook_records"][0]["Energy"], 48.0)
 
             restored = Session(root)
             restored.load(root / ".arpes_session.json")
@@ -49,6 +55,8 @@ class TestSessionManager(unittest.TestCase):
             self.assertEqual(out.fit_params.n_pairs, 2)
             self.assertEqual(out.meta.direction, "G-M")
             self.assertEqual(out.fit_result["resolution"]["dk_inv_a"], 0.006)
+            self.assertEqual(restored.kz_logbook_sheet, "KZ")
+            self.assertEqual(restored.kz_logbook_mapping["hv"], "Energy")
 
     def test_session_load_ignores_unknown_legacy_fields(self):
         with tempfile.TemporaryDirectory() as tmp:

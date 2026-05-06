@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
+from arpes.ui.widgets.kz import KzCanvas, KzControlPanel
 
 
 def build_left_panel(window) -> QWidget:
@@ -42,6 +43,8 @@ def build_right_panel(window) -> QWidget:
     window._right_stack = QStackedWidget()
     window._right_stack.addWidget(right_split)
     window._right_stack.addWidget(window._fs_controls)
+    window._kz_controls = KzControlPanel()
+    window._right_stack.addWidget(window._kz_controls)
     return window._right_stack
 
 
@@ -79,10 +82,11 @@ def _build_tabs(window) -> QTabWidget:
         "QTabBar::tab{background:#333;color:#ccc;padding:5px 12px;}"
         "QTabBar::tab:selected{background:#2a6099;color:white;}"
     )
-    window._tabs.addTab(_build_carte_tab(window), "🗺  BM")
-    window._tabs.addTab(_build_mdc_tab(window), "🎯  MDC Fit")
-    window._tabs.addTab(_build_results_tab(window), "📊  Résultats")
-    window._tabs.addTab(_build_fs_tab(window), "🧭  FS")
+    window._tabs.addTab(_build_carte_tab(window), "BM")
+    window._tabs.addTab(_build_mdc_tab(window), "MDC Fit")
+    window._tabs.addTab(_build_results_tab(window), "Résultats")
+    window._tabs.addTab(_build_fs_tab(window), "FS")
+    window._tabs.addTab(_build_kz_tab(window), "KZ")
     return window._tabs
 
 
@@ -95,10 +99,7 @@ def _build_carte_tab(window) -> QWidget:
 
     vbar = QHBoxLayout()
     vbar.addWidget(QLabel("Vue :"))
-    window._cmb_view = QComboBox()
-    window._cmb_view.addItems(["Raw", "EDCnorm", "SecDev", "Curvature"])
-    window._cmb_view.setCurrentText("EDCnorm")
-    window._cmb_view.setFixedWidth(120)
+    window._cmb_view = _new_view_combo()
     vbar.addWidget(window._cmb_view)
 
     lbl_gamma = QLabel("  γ:")
@@ -131,6 +132,19 @@ def _build_carte_tab(window) -> QWidget:
     return carte_widget
 
 
+def _new_view_combo() -> QComboBox:
+    combo = QComboBox()
+    combo.addItems(["Raw", "EDCnorm", "SecDev", "Curvature"])
+    combo.setCurrentText("Raw")
+    combo.setFixedWidth(120)
+    combo.setToolTip(
+        "Raw : intensite brute.\n"
+        "EDCnorm : normalisation par EDC moyenne.\n"
+        "SecDev/Curvature : derivees pour faire ressortir les dispersions."
+    )
+    return combo
+
+
 def _build_mdc_tab(window) -> QWidget:
     from arpes.app import MplCanvas
 
@@ -146,6 +160,19 @@ def _build_mdc_tab(window) -> QWidget:
     fit_view = QWidget()
     fit_lay = QVBoxLayout(fit_view)
     fit_lay.setContentsMargins(0, 0, 0, 0)
+    fit_bar = QHBoxLayout()
+    fit_bar.addWidget(QLabel("Vue :"))
+    window._cmb_view_fit = _new_view_combo()
+    fit_bar.addWidget(window._cmb_view_fit)
+    fit_bar.addStretch()
+    window._lbl_fit_view_info = QLabel("Plage d'analyse")
+    window._lbl_fit_view_info.setStyleSheet("color:#aaa;font-size:10px;")
+    window._lbl_fit_view_info.setToolTip(
+        "Dans l'onglet Fit, la carte est zoomee sur la plage d'analyse.\n"
+        "Le contraste est recalcule sur cette fenetre pour mieux voir les pics."
+    )
+    fit_bar.addWidget(window._lbl_fit_view_info)
+    fit_lay.addLayout(fit_bar)
     mdc_split = QSplitter(Qt.Orientation.Vertical)
     window._mdc_map_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
     mdc_split.addWidget(window._mdc_map_canvas)
@@ -181,12 +208,18 @@ def _build_fs_tab(window) -> QWidget:
     return window._fs_canvas
 
 
+def _build_kz_tab(window) -> QWidget:
+    window._kz_canvas = KzCanvas()
+    return window._kz_canvas
+
+
 def wire_ui_signals(window) -> None:
     """Connect all signals for widgets created by these builders."""
     window._browser.file_selected.connect(window._load_file)
     window._tabs.currentChanged.connect(window._on_tab_changed)
     window._mdc_fit_tabs.currentChanged.connect(window._on_mdc_fit_subtab_changed)
     window._cmb_view.currentIndexChanged.connect(window._on_view_changed)
+    window._cmb_view_fit.currentIndexChanged.connect(window._on_view_fit_changed)
     window._sp_gamma.valueChanged.connect(window._draw_bm)
 
     _connect_map_canvas(window._bm_canvas, window)
@@ -203,6 +236,12 @@ def wire_ui_signals(window) -> None:
             window._fs_controls.gamma_requested.connect(window._detect_fs_gamma)
         if hasattr(window._fs_controls, "manual_center_requested"):
             window._fs_controls.manual_center_requested.connect(window._set_fs_center_pick_mode)
+
+    window._kz_controls.folder_requested.connect(window._open_kz_folder)
+    if hasattr(window._kz_controls, "kz_logbook_requested"):
+        window._kz_controls.kz_logbook_requested.connect(window._open_kz_logbook)
+    window._kz_controls.redraw_requested.connect(window._draw_kz_tab)
+    window._kz_controls.params_changed.connect(window._on_kz_params_changed)
 
 
 def _connect_map_canvas(canvas_widget, window) -> None:

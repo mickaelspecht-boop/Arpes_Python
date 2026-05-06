@@ -3,7 +3,7 @@
 arpes_explorer.py — Interface interactive ARPES (BaNi₂As₂) v3
 ═══════════════════════════════════════════════════════════════
 Features :
-  • Panneau fichiers (browse dossier, statut ○/◑/●)
+  • Panneau fichiers (browse dossier, statut unloaded/loaded/fitted)
   • Session JSON (.arpes_session.json) — sauvegarde auto à chaque fit
   • Band map avec modes Raw / EDCnorm / SecDev / Curvature
   • MDC (en énergie) + EDC (en k) live sur clic
@@ -46,7 +46,6 @@ from arpes.physics.ef_calibration import (
     compute_calibration_update as compute_ef_calibration_update,
 )
 from arpes.physics.fit import MdcFitter
-from arpes.physics.plot_compute import apply_edcnorm
 from arpes.physics.gamma import (
     angle_offset_candidates_for_load as _gamma_angle_offset_candidates,
     score_bm_gamma_residual as _gamma_score_bm_residual,
@@ -65,6 +64,7 @@ from arpes.ui.controllers.norm_controller import NormController
 from arpes.ui.controllers.fs_controller import FSController
 from arpes.ui.controllers.interaction_controller import InteractionController
 from arpes.ui.controllers.fit_runner_controller import FitRunnerController
+from arpes.ui.controllers.kz_controller import KzController
 from arpes.core.session import FileEntry, FitParams, Session
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -168,6 +168,7 @@ class ArpesExplorer(QMainWindow):
         self._fs_ctrl = FSController(self)
         self._interaction_ctrl = InteractionController(self)
         self._fit_runner_ctrl = FitRunnerController(self)
+        self._kz_ctrl = KzController(self)
 
         # Debouncers : évitent N redraws quand l'utilisateur clique-clique
         # rapidement sur un spinbox ou tape une valeur.
@@ -178,7 +179,7 @@ class ArpesExplorer(QMainWindow):
 
         self._build_ui()
         self._install_shortcuts()
-        self._status("Prêt — ouvrir un dossier ou un fichier")
+        self._status("Prêt - ouvrir un dossier ou un fichier")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Proxy dispatch — délègue les méthodes legacy aux controllers.
@@ -233,6 +234,7 @@ class ArpesExplorer(QMainWindow):
         "_reset_grid_correction": "_norm_ctrl",
         # InteractionController
         "_on_view_changed": "_interaction_ctrl",
+        "_on_view_fit_changed": "_interaction_ctrl",
         "_on_ev_spinbox_changed": "_interaction_ctrl",
         "_schedule_model_redraw": "_interaction_ctrl",
         "_schedule_fit_only_redraw": "_interaction_ctrl",
@@ -256,6 +258,14 @@ class ArpesExplorer(QMainWindow):
         "_apply_ef_reference_to_current": "_fit_runner_ctrl",
         "_refresh_helper_buttons": "_fit_runner_ctrl",
         "_copy_params": "_fit_runner_ctrl",
+        # KzController
+        "_open_kz_folder": "_kz_ctrl",
+        "_open_kz_logbook": "_kz_ctrl",
+        "_refresh_kz_dataset": "_kz_ctrl",
+        "_on_kz_params_changed": "_kz_ctrl",
+        "_draw_kz_tab": "_kz_ctrl",
+        "_current_supports_kz": "_kz_ctrl",
+        "_save_kz_session": "_kz_ctrl",
     }
 
     def __getattr__(self, name: str):
@@ -287,15 +297,20 @@ class ArpesExplorer(QMainWindow):
         wire_ui_signals(self)
 
     def _on_tab_changed(self, index: int):
-        # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS
+        # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS, 4=KZ
         if hasattr(self, "_right_stack"):
-            self._right_stack.setCurrentIndex(1 if index == 3 else 0)
+            self._right_stack.setCurrentIndex(2 if index == 4 else (1 if index == 3 else 0))
         if index == 0:
             self._params.set_context("bm")
         elif index == 1:
             self._params.set_context("mdc")
             if hasattr(self, "_mdc_fit_tabs"):
                 self._params.set_waterfall_controls_visible(self._mdc_fit_tabs.currentIndex() == 1)
+        elif index == 4:
+            self._params.set_context("other")
+            self._set_fit_roi_pick_mode(False)
+            self._set_fs_center_pick_mode(False)
+            self._draw_kz_tab()
         else:
             self._params.set_context("other")
             self._set_fit_roi_pick_mode(False)

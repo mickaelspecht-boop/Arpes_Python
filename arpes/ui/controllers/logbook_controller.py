@@ -70,6 +70,8 @@ class LogbookIngestController:
             used = ", ".join(f"{k}={v or '—'}" for k, v in mapping.items())
             sheet_txt = f" [{sheet_name}]" if sheet_name else ""
             self._status(f"Logbook chargé : {Path(path).name}{sheet_txt} | {len(records)} lignes | {used}")
+            if hasattr(self._params, "mark_action_done"):
+                self._params.mark_action_done(f"logbook chargé ({len(records)} lignes)")
             QMessageBox.information(
                 self._parent, "Logbook chargé",
                 f"{Path(path).name}{sheet_txt}\n{len(records)} lignes lues.\n\nColonnes détectées :\n{used}"
@@ -79,7 +81,7 @@ class LogbookIngestController:
             self._browser.refresh()
         except Exception as exc:
             QMessageBox.warning(self._parent, "Logbook", str(exc))
-            self._status(f"⚠ Logbook : {exc}")
+            self._status(f"Attention: Logbook : {exc}")
 
     def read(self, path: Path) -> tuple[list[dict], dict[str, str], str]:
         """Lit le logbook via `read_logbook_file` en injectant les sélecteurs UI."""

@@ -99,7 +99,7 @@ class EFCalibrationDialog(QDialog):
         self.sp_sigma.setToolTip("Sigma initiale de résolution gaussienne pour le fit (FWHM=2.355σ).")
         fl.addRow("σ init :", self.sp_sigma)
 
-        self.btn_fit = QPushButton("▶ Fitter")
+        self.btn_fit = QPushButton("Fitter")
         self.btn_fit.clicked.connect(self._do_fit)
         fl.addRow(self.btn_fit)
 
@@ -115,7 +115,7 @@ class EFCalibrationDialog(QDialog):
         )
         fl.addRow(self.chk_save_ref)
 
-        self.btn_apply  = QPushButton("✓ Appliquer à ce fichier")
+        self.btn_apply  = QPushButton("Appliquer à ce fichier")
         self.btn_apply.setEnabled(False)
         self.btn_apply.clicked.connect(self._on_apply)
         self.btn_cancel = QPushButton("Annuler")
@@ -197,7 +197,7 @@ class EFCalibrationDialog(QDialog):
                     units="binding", ax=_ax, verbose=False,
                 )
             except Exception as e:
-                self.lbl_result.setText(f"⚠ fit échoué : {e}")
+                self.lbl_result.setText(f"Attention: fit échoué : {e}")
                 return
             ef     = float(r["EF"])
             efe    = float(r.get("EF_err", np.nan))
@@ -237,7 +237,7 @@ class EFCalibrationDialog(QDialog):
                     verbose=False,
                 )
             except Exception as e:
-                self.lbl_result.setText(f"⚠ fit par colonne échoué : {e}")
+                self.lbl_result.setText(f"Attention: fit par colonne échoué : {e}")
                 return
             self._fit = {
                 "mode": "poly",

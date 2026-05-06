@@ -141,6 +141,8 @@ class GammaController:
         self._draw_fs_tab()
         msg = f"Gamma FS manuel : kx={kx:+.4f}, ky={ky:+.4f} π/a"
         self._status(msg)
+        if hasattr(self._params, "mark_action_done"):
+            self._params.mark_action_done(f"Gamma FS manuel mémorisé ({kx:+.4f}, {ky:+.4f})")
         try:
             self._fs_controls.lbl_info.setText(msg)
         except Exception:
@@ -159,6 +161,8 @@ class GammaController:
                    f"| {len(res.get('gamma_kx_list', []))} coupes kx, "
                    f"{len(res.get('gamma_ky_list', []))} coupes ky")
             self._status(msg)
+            if hasattr(self._params, "mark_action_done"):
+                self._params.mark_action_done(f"Gamma FS détecté ({res['kx']:+.4f}, {res['ky']:+.4f})")
             try:
                 self._fs_controls.lbl_info.setText(msg)
             except Exception:
@@ -268,7 +272,7 @@ class GammaController:
         try:
             import arpes.ui.widgets.plots as ap
         except Exception:
-            self._status("⚠ arpes_plots non chargé")
+            self._status("Attention: arpes_plots non chargé")
             return
         data, kpar, ev = self._get_work_data()
         if data is None:
@@ -322,6 +326,8 @@ class GammaController:
                 f"Γ BM = {gamma:+.4f} π/a\n"
                 f"n={res['n']}  MAD={res['mad']:.4f}"
             )
+            if hasattr(self._params, "mark_action_done"):
+                self._params.mark_action_done(f"Auto Γ BM appliqué ({gamma:+.4f} π/a)")
             self._draw_bm()
             self._draw_mdc_edc()
             if hasattr(self, "_mdc_fit_tabs") and self._tabs.currentIndex() == 1:
@@ -329,7 +335,7 @@ class GammaController:
             self._status(f"Γ BM estimé : {gamma:+.4f} π/a  n={res['n']}  MAD={res['mad']:.4f}")
         except Exception as exc:
             QMessageBox.warning(self._parent, "Auto Γ BM", str(exc))
-            self._status(f"⚠ Auto Γ BM : {exc}")
+            self._status(f"Attention: Auto Γ BM : {exc}")
 
     def _apply_gamma_reference_to_bm(self):
         ref = self._stored_gamma_reference()
@@ -346,6 +352,8 @@ class GammaController:
                 entry.fit_params.center_init = 0.0
                 self._session.save()
             self._params.lbl_res.setText("Γ déjà appliqué par offset angulaire loader")
+            if hasattr(self._params, "mark_action_done"):
+                self._params.mark_action_done("Γ FS appliqué par offset loader")
             self._draw_bm()
             self._draw_mdc_edc()
             self._status("Γ FS appliqué : offset angulaire loader déjà actif")
@@ -367,6 +375,8 @@ class GammaController:
             f"corr polar={correction:+.4f}\n"
             f"{mode_msg}"
         )
+        if hasattr(self._params, "mark_action_done"):
+            self._params.mark_action_done(f"Γ FS appliqué à la BM ({gamma_bm:+.4f} π/a)")
         self._update_display_data()
         self._draw_bm()
         self._draw_mdc_edc()

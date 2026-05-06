@@ -160,13 +160,13 @@ def fit_fermi_edge(
     residual = float(np.sqrt(np.mean((I_norm - I_fitted)**2)))
 
     if verbose:
-        print(f"{'✓' if success else '✗'} Fit EF   "
+        print(f"{'OK' if success else 'ECHEC'} Fit EF   "
               f"EF = {EF_fit:+.4f} eV  ±{EF_err*1000:.1f} meV  "
               f"| FWHM_res = {fwhm_fit*1000:.0f} meV  "
               f"| T_eff = {T_eff:.0f} K  (T_nominal={temperature_K:.0f} K)  "
               f"| résidu = {residual:.4f}")
         if units == 'binding' and abs(EF_fit) > 0.05:
-            print(f"  ⚠ EF offset = {EF_fit*1000:+.0f} meV — l'axe energie est decale de cette valeur.")
+            print(f"  Attention: EF offset = {EF_fit*1000:+.0f} meV — l'axe energie est decale de cette valeur.")
             print(f"    → Appliquer ev_arr = ev_arr - ({EF_fit:.4f}) pour corriger.")
 
     # --- figure ---

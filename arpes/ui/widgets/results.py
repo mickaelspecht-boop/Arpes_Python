@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -48,11 +49,11 @@ class ResultsPanel(QWidget):
             "QHeaderView::section{background:#333;color:#ddd;}")
         right.addWidget(self._table, stretch=1)
 
-        btn_ref = QPushButton("🔄  Actualiser")
+        btn_ref = QPushButton("Actualiser")
         btn_ref.clicked.connect(self.refresh)
-        btn_csv = QPushButton("💾  Export CSV")
+        btn_csv = QPushButton("Export CSV")
         btn_csv.clicked.connect(self._export_csv)
-        btn_pdf = QPushButton("🖼  Export figure")
+        btn_pdf = QPushButton("Export figure")
         btn_pdf.clicked.connect(self._export_fig)
         for b in (btn_ref, btn_csv, btn_pdf):
             right.addWidget(b)
@@ -141,6 +142,4 @@ class ResultsPanel(QWidget):
         if path:
             self._canvas.fig.savefig(path, dpi=200, bbox_inches="tight",
                                      facecolor=self._canvas.fig.get_facecolor())
-
-
 

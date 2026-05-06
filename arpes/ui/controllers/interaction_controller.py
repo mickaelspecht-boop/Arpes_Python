@@ -28,11 +28,27 @@ class InteractionController:
     # ---------------------------------------------------------------- callbacks
     def _on_view_changed(self):
         p = self._parent
+        if hasattr(p, "_cmb_view_fit") and p._cmb_view_fit.currentText() != p._cmb_view.currentText():
+            p._cmb_view_fit.blockSignals(True)
+            p._cmb_view_fit.setCurrentText(p._cmb_view.currentText())
+            p._cmb_view_fit.blockSignals(False)
+        mode = p._cmb_view.currentText()
         if p._current_path:
             entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
-            entry.view_mode = p._cmb_view.currentText()
+            entry.view_mode = mode
+            entry.edcnorm = mode == "EDCnorm"
         p._update_display_data()
         p._draw_bm()
+        if p._tabs.currentIndex() == 1:
+            p._draw_mdc_edc()
+
+    def _on_view_fit_changed(self):
+        p = self._parent
+        if p._cmb_view.currentText() != p._cmb_view_fit.currentText():
+            p._cmb_view.blockSignals(True)
+            p._cmb_view.setCurrentText(p._cmb_view_fit.currentText())
+            p._cmb_view.blockSignals(False)
+        self._on_view_changed()
 
     def _on_ev_spinbox_changed(self, val: float):
         p = self._parent

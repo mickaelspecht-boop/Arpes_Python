@@ -103,7 +103,7 @@ def project_gamma_by_azi(
     azi_ref = ref.get("azi")
     if azi_ref is None or azi_target is None:
         if abs(ky_ref) > 1e-3 and on_warn is not None:
-            on_warn(f"⚠ {warn_label} : azi inconnu — projection non corrigée")
+            on_warn(f"Attention: {warn_label} : azi inconnu — projection non corrigée")
         return kx_ref, ky_ref
 
     d_azi = np.radians(float(azi_target) - float(azi_ref))
@@ -179,7 +179,7 @@ def gamma_reference_to_bm_center(
     if abs(p_bm - p_ref) > polar_tolerance_deg:
         if on_warn is not None:
             on_warn(
-                f"⚠ Γ FS→BM ignoré : polar diffère de {p_bm - p_ref:+.1f}° "
+                f"Attention: Γ FS→BM ignoré : polar diffère de {p_bm - p_ref:+.1f}° "
                 f"(>±{polar_tolerance_deg:.0f}°). Utilise 'Auto Γ BM'."
             )
         return float("nan"), 0.0

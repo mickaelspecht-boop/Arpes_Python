@@ -75,13 +75,13 @@ class MdcFitter:
             gc = np.asarray(fr["gamma_corrige"][0], dtype=float)
             if np.isfinite(gb).any() and np.isfinite(gc).any():
                 resolution_dominates = float(np.nanmedian(gc)) < 0.3 * float(np.nanmedian(gb))
-                warn = " ⚠" if resolution_dominates else ""
+                warn = " Attention" if resolution_dominates else ""
                 gamma_note = (
                     f"\nΓ med = {float(np.nanmedian(gb)):.4f} brut / "
                     f"{float(np.nanmedian(gc)):.4f} corrigé{warn}"
                 )
         label_text = (
-            f"✓  Fit complet  {n_ok}/{n_e} points\n"
+            f"OK  Fit complet  {n_ok}/{n_e} points\n"
             f"xg = {xg_mean:.4f} π/a"
             f"{gamma_note}"
         )

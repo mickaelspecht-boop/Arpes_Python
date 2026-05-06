@@ -126,14 +126,14 @@ class FSControlPanel(QScrollArea):
         self.lbl_info.setWordWrap(True)
         self.lbl_info.setStyleSheet("color:#aaa; font-size:10px;")
         lay.addWidget(self.lbl_info)
-        btn = QPushButton("↻ Redessiner FS")
+        btn = QPushButton("Redessiner FS")
         btn.clicked.connect(self.redraw_requested)
         lay.addWidget(btn)
-        btn_g = QPushButton("◎ Détecter Γ FS")
+        btn_g = QPushButton("Détecter Γ FS")
         btn_g.setToolTip("Détecte Γ par milieux de paires MDC sur la FS et recentre la carte.")
         btn_g.clicked.connect(self.gamma_requested)
         lay.addWidget(btn_g)
-        self.btn_pick_center = QPushButton("⌖ Viser Γ manuel")
+        self.btn_pick_center = QPushButton("Viser Γ manuel")
         self.btn_pick_center.setCheckable(True)
         self.btn_pick_center.setToolTip(
             "Active un curseur sur la carte FS.\n"

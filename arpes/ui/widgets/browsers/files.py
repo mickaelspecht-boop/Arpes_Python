@@ -32,7 +32,7 @@ from arpes.io.logbook import (
 class FileBrowserPanel(QWidget):
     file_selected = pyqtSignal(str)   # émet le chemin complet
 
-    STATUS_ICONS = {"unloaded": "○", "loaded": "◑", "fitted": "●"}
+    STATUS_ICONS = {"unloaded": "[ ]", "loaded": "[L]", "fitted": "[F]"}
     STATUS_COLORS = {"unloaded": "#888", "loaded": "#f0c040", "fitted": "#60e080"}
 
     def __init__(self, session: Session):
@@ -55,11 +55,11 @@ class FileBrowserPanel(QWidget):
         lay.setContentsMargins(4, 4, 4, 4)
 
         top = QHBoxLayout()
-        btn = QPushButton("📂 Dossier")
+        btn = QPushButton("Dossier")
         btn.clicked.connect(self._open_folder)
         top.addWidget(btn)
-        btn_refresh = QPushButton("↻")
-        btn_refresh.setFixedWidth(32)
+        btn_refresh = QPushButton("Actualiser")
+        btn_refresh.setFixedWidth(78)
         btn_refresh.setToolTip("Rafraîchir la liste des fichiers")
         btn_refresh.clicked.connect(self.refresh)
         top.addWidget(btn_refresh)
@@ -124,7 +124,7 @@ class FileBrowserPanel(QWidget):
         )
         lay.addWidget(self._lbl_selection)
 
-        self._btn_load = QPushButton("↵ Charger la sélection")
+        self._btn_load = QPushButton("Charger la sélection")
         self._btn_load.clicked.connect(self._load_selected)
         self._btn_load.setEnabled(False)
         lay.addWidget(self._btn_load)
@@ -495,21 +495,21 @@ class FileBrowserPanel(QWidget):
         has_path = bool(item and item.data(Qt.ItemDataRole.UserRole))
         has_group = bool(item and item.data(Qt.ItemDataRole.UserRole + 2) is not None)
         if has_path:
-            self._btn_load.setText("↵ Charger ce fichier")
+            self._btn_load.setText("Charger ce fichier")
             self._btn_load.setEnabled(True)
         elif has_group:
-            self._btn_load.setText("↵ Ouvrir/réduire le groupe")
+            self._btn_load.setText("Ouvrir/réduire le groupe")
             self._btn_load.setEnabled(True)
         else:
-            self._btn_load.setText("↵ Charger la sélection")
+            self._btn_load.setText("Charger la sélection")
             self._btn_load.setEnabled(False)
         self._lbl_selection.setText(self._describe_item(item))
 
     def _add_header(self, group: str, n_items: int):
         label = self._group_label(group)
         collapsed = group in self._collapsed_groups
-        arrow = "▶" if collapsed else "▼"
-        item = QListWidgetItem(f"{arrow}  📁  {label}  ({n_items})")
+        arrow = ">" if collapsed else "v"
+        item = QListWidgetItem(f"{arrow}  {label}  ({n_items})")
         item.setData(Qt.ItemDataRole.UserRole, None)
         item.setData(Qt.ItemDataRole.UserRole + 2, group)
         item.setToolTip("Double-cliquer pour ouvrir/réduire ce dossier")
@@ -538,4 +538,3 @@ class FileBrowserPanel(QWidget):
         return self._browser_ctrl.navigate(delta)
     def select_file(self, path: str) -> bool:
         return self._browser_ctrl.select_file(path)
-

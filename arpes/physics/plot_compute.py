@@ -41,6 +41,18 @@ def compute_curvature(data: np.ndarray, kpar, ev_arr, sigma_k=2.0, sigma_e=2.0) 
     return -lap / (denom + 1e-30)
 
 
+def _compute_below_ef_only(compute_fn, data: np.ndarray, kpar, ev_arr) -> np.ndarray:
+    """Calcule un mode derive seulement pour E <= EF, masque E > EF."""
+    ev_arr = np.asarray(ev_arr, dtype=float)
+    data = np.asarray(data)
+    out = np.full_like(data, np.nan, dtype=float)
+    below = ev_arr <= 0.0
+    if below.sum() < 3:
+        return out
+    out[:, below] = compute_fn(data[:, below], kpar, ev_arr[below])
+    return out
+
+
 def display_grid_config(cfg: dict | None) -> dict:
     cfg = cfg or {}
     try:
@@ -79,13 +91,13 @@ def compute_bandmap_display(
     if mode == "Raw":
         disp = raw
     elif mode == "EDCnorm":
-        disp = apply_edcnorm(raw) if edc_norm_enabled else raw
+        disp = apply_edcnorm(raw)
     elif mode == "SecDev":
         norm = apply_edcnorm(raw) if edc_norm_enabled else raw
-        disp = compute_secdev(norm, raw_data["kpar"], raw_data["ev_arr"])
+        disp = _compute_below_ef_only(compute_secdev, norm, raw_data["kpar"], raw_data["ev_arr"])
     elif mode == "Curvature":
         norm = apply_edcnorm(raw) if edc_norm_enabled else raw
-        disp = compute_curvature(norm, raw_data["kpar"], raw_data["ev_arr"])
+        disp = _compute_below_ef_only(compute_curvature, norm, raw_data["kpar"], raw_data["ev_arr"])
     else:
         disp = raw
 

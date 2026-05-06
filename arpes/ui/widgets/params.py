@@ -54,7 +54,7 @@ class ClickablePairLabel(QLabel):
         if self._n == 1:
             self.setText("Paire 1 / 1")
         else:
-            self.setText(f"◀  Paire {self._current + 1} / {self._n}  ▶")
+            self.setText(f"<  Paire {self._current + 1} / {self._n}  >")
 
     def mousePressEvent(self, event):
         if self._n < 2:
@@ -117,7 +117,7 @@ class FitParamsPanel(QScrollArea):
         self.sp_int_win.valueChanged.connect(self.fit_only_changed)
         fl.addRow("E (eV):", self.sp_ev)
         fl.addRow("± intég. (eV):", self.sp_int_win)
-        fl.addRow(QLabel("💡 Clic sur la carte ou ici"))
+        fl.addRow(QLabel("Clic sur la carte ou ici"))
         lay.addWidget(self._energy_widget)
 
         # ── calibration EF ────────────────────────────────────────────────────
@@ -137,29 +137,27 @@ class FitParamsPanel(QScrollArea):
             "Décalage EF en eV. Ajuste le zéro d'énergie.\n"
             "Utiliser 'Calibrer EF auto' pour le calculer par fit Fermi-Dirac."
         )
-        self.chk_norm = QCheckBox("EDCnorm"); self.chk_norm.setChecked(True)
-        self.chk_norm.stateChanged.connect(self.params_changed)
-        btn_ef = QPushButton("🎛  Calibrer EF auto")
+        btn_ef = QPushButton("Calibrer EF auto")
         btn_ef.clicked.connect(self.ef_calib_requested)
-        self.btn_ef_ref = QPushButton("⇩  Aucune réf EF (calibrer un Au d'abord)")
+        self.btn_ef_ref = QPushButton("Aucune réf EF (calibrer un Au d'abord)")
         self.btn_ef_ref.clicked.connect(self.ef_apply_reference_requested)
         self.btn_ef_ref.setEnabled(False)
-        btn_log = QPushButton("📒  Charger logbook")
+        btn_log = QPushButton("Charger logbook")
         btn_log.clicked.connect(self.logbook_requested)
-        self.btn_copy = QPushButton("📋  Propager fit params (0 cible)")
+        self.btn_copy = QPushButton("Propager fit params (0 cible)")
         self.btn_copy.clicked.connect(self.copy_params_requested)
         self.btn_copy.setEnabled(False)
         self.update_ef_reference_button(None)
         self.update_copy_params_button(0)
-        # Indicateur de provenance pour hν (📁 fichier / 📋 logbook / ✏️ manuel / — inconnu)
-        self.lbl_hv_src = QLabel("—")
+        self.lbl_hv_src = QLabel("Inconnu")
         self.lbl_hv_src.setToolTip(
             "Provenance de hν :\n"
-            "📁 = lue depuis le fichier\n"
-            "📋 = lue depuis le logbook\n"
-            "✏️ = saisie manuelle\n"
-            "— = inconnu"
+            "Fichier = lue depuis le fichier\n"
+            "Logbook = lue depuis le logbook\n"
+            "Manuel = saisie manuelle\n"
+            "Inconnu = source inconnue"
         )
+        self.lbl_hv_src.setMinimumWidth(58)
         hv_row = QWidget()
         hv_lay = QHBoxLayout(hv_row); hv_lay.setContentsMargins(0, 0, 0, 0)
         hv_lay.addWidget(self.sp_hv, 1)
@@ -170,11 +168,14 @@ class FitParamsPanel(QScrollArea):
         fl_ef.addRow("φ (eV):",       self.sp_phi)
         fl_ef.addRow("hν (eV):", hv_row)
         fl_ef.addRow("EF offset:",    self.sp_ef)
-        fl_ef.addRow(self.chk_norm)
         fl_ef.addRow(btn_log)
         fl_ef.addRow(btn_ef)
         fl_ef.addRow(self.btn_ef_ref)
         fl_ef.addRow(self.btn_copy)
+        self.lbl_action = QLabel("Dernière action : aucune")
+        self.lbl_action.setWordWrap(True)
+        self.lbl_action.setStyleSheet("color:#9fc;font-size:10px;")
+        fl_ef.addRow(self.lbl_action)
         lay.addWidget(self._ef_widget)
 
         # ── utilitaires BM ────────────────────────────────────────────────────
@@ -218,7 +219,7 @@ class FitParamsPanel(QScrollArea):
         self.sp_kmax = dspin( 0.80, -5.0, 5.0, 0.05)
         for w in (self.sp_evs, self.sp_eve, self.sp_kmin, self.sp_kmax):
             w.valueChanged.connect(self.params_changed)
-        self.btn_fit_roi = QPushButton("▢  Sélectionner sur carte")
+        self.btn_fit_roi = QPushButton("Sélectionner sur carte")
         self.btn_fit_roi.setCheckable(True)
         self.btn_fit_roi.setToolTip(
             "Active une sélection rectangulaire par cliquer-glisser sur la carte BM/MDC Fit.\n"
@@ -343,7 +344,7 @@ class FitParamsPanel(QScrollArea):
         self.lbl_dE_src = QLabel("—")
         self.lbl_dk_src = QLabel("—")
         for lbl in (self.lbl_dE_src, self.lbl_dk_src):
-            lbl.setToolTip("Provenance résolution : 🔬 = estimée, ✏️ = manuelle, — = défaut")
+            lbl.setToolTip("Provenance résolution : Estimée, Manuelle ou Défaut")
         self.sp_dE_meV.valueChanged.connect(self._mark_resolution_manual_if_user_edit)
         self.sp_dk_inv_a.valueChanged.connect(self._mark_resolution_manual_if_user_edit)
         self.sp_dE_meV.valueChanged.connect(self.fit_only_changed)
@@ -400,7 +401,7 @@ class FitParamsPanel(QScrollArea):
 
         # ── boutons ───────────────────────────────────────────────────────────
         _fcl.addWidget(hsep())
-        btn_g = QPushButton("🎯  Guess  (fit MDC ici)  [Ctrl+G]")
+        btn_g = QPushButton("Guess  (fit MDC ici)  [Ctrl+G]")
         btn_g.setStyleSheet("background:#1a6b3a;color:white;font-weight:bold;padding:6px;")
         btn_g.clicked.connect(self.guess_requested)
         _fcl.addWidget(btn_g)
@@ -409,27 +410,27 @@ class FitParamsPanel(QScrollArea):
         gamma_lay = QVBoxLayout(self._gamma_tools_widget)
         gamma_lay.setContentsMargins(0, 0, 0, 0)
         gamma_lay.setSpacing(4)
-        btn_gamma = QPushButton("◎  Auto Γ BM")
+        btn_gamma = QPushButton("Auto Γ BM")
         btn_gamma.setToolTip("Estime le centre Γ par la médiane des milieux de paires MDC.")
         btn_gamma.clicked.connect(self.gamma_bm_requested)
         gamma_lay.addWidget(btn_gamma)
 
-        btn_ref = QPushButton("↳  Γ FS → BM")
+        btn_ref = QPushButton("Γ FS → BM")
         btn_ref.setToolTip("Applique le Γ de référence mesuré sur une FS à la BM courante.")
         btn_ref.clicked.connect(self.gamma_ref_requested)
         gamma_lay.addWidget(btn_ref)
         _fcl.addWidget(self._gamma_tools_widget)
 
-        btn_f = QPushButton("▶  Fit complet  [Ctrl+F]")
+        btn_f = QPushButton("Fit complet  [Ctrl+F]")
         btn_f.setStyleSheet("background:#2a6099;color:white;font-weight:bold;padding:6px;")
         btn_f.clicked.connect(self.full_fit_requested)
         _fcl.addWidget(btn_f)
 
-        btn_cl = QPushButton("✕  Effacer kF")
+        btn_cl = QPushButton("Effacer kF")
         btn_cl.clicked.connect(self.clear_kf_requested)
         _fcl.addWidget(btn_cl)
 
-        self.lbl_res = QLabel("—")
+        self.lbl_res = QLabel("")
         self.lbl_res.setWordWrap(True)
         self.lbl_res.setStyleSheet("color:#8fc;font-family:monospace;font-size:11px;")
         _fcl.addWidget(self.lbl_res)
@@ -441,7 +442,7 @@ class FitParamsPanel(QScrollArea):
     def update_ef_reference_button(self, ref: dict | None):
         """Met à jour le label/état du bouton EF réf selon la session."""
         if not ref:
-            self.btn_ef_ref.setText("⇩  Aucune réf EF (calibrer un Au d'abord)")
+            self.btn_ef_ref.setText("Aucune réf EF (calibrer un Au d'abord)")
             self.btn_ef_ref.setEnabled(False)
             self.btn_ef_ref.setToolTip(
                 "Aucune référence EF enregistrée dans cette session.\n"
@@ -454,13 +455,13 @@ class FitParamsPanel(QScrollArea):
         src_name = Path(src_path).name if src_path else "(source inconnue)"
         if mode == "scalar":
             shift_meV = float(ref.get("ef_shift", 0.0)) * 1000.0
-            label = f"⇩  Appliquer EF réf : {src_name} (Δ={shift_meV:+.1f} meV)"
+            label = f"Appliquer EF réf : {src_name} (delta={shift_meV:+.1f} meV)"
         elif mode == "poly":
             n_valid = int(ref.get("n_valid", 0))
             fwhm = float(ref.get("fwhm_res", 0.0)) * 1000.0
-            label = f"⇩  Appliquer EF réf poly : {src_name} (n={n_valid}, FWHM≈{fwhm:.0f} meV)"
+            label = f"Appliquer EF réf poly : {src_name} (n={n_valid}, FWHM≈{fwhm:.0f} meV)"
         else:
-            label = f"⇩  Appliquer EF réf : {src_name}"
+            label = f"Appliquer EF réf : {src_name}"
         self.btn_ef_ref.setText(label)
         self.btn_ef_ref.setEnabled(True)
         self.btn_ef_ref.setToolTip(
@@ -472,8 +473,8 @@ class FitParamsPanel(QScrollArea):
 
     def update_hv_source(self, source: str | None):
         """Affiche la provenance de hν : 'file', 'logbook', 'manual', None."""
-        icons = {"file": "📁", "logbook": "📋", "manual": "✏️"}
-        self.lbl_hv_src.setText(icons.get(source or "", "—"))
+        labels = {"file": "Fichier", "logbook": "Logbook", "manual": "Manuel"}
+        self.lbl_hv_src.setText(labels.get(source or "", "Inconnu"))
 
     def _mark_hv_manual_if_user_edit(self):
         if not getattr(self, "_hv_source_lock", False):
@@ -494,9 +495,12 @@ class FitParamsPanel(QScrollArea):
         """Affiche la provenance de la resolution : 'estimated', 'manual', 'default'."""
         self._resolution_source = source or "default"
         self._resolution_source_detail = self._resolution_source
-        icon = {"estimated": "🔬", "manual": "✏️", "default": "—"}.get(self._resolution_source, "—")
-        self.lbl_dE_src.setText(icon)
-        self.lbl_dk_src.setText(icon)
+        label = {"estimated": "Estimée", "manual": "Manuelle", "default": "Défaut"}.get(self._resolution_source, "Défaut")
+        self.lbl_dE_src.setText(label)
+        self.lbl_dk_src.setText(label)
+
+    def mark_action_done(self, text: str):
+        self.lbl_action.setText(f"Dernière action : {text}")
 
     def _mark_resolution_manual_if_user_edit(self):
         if not getattr(self, "_resolution_source_lock", False):
@@ -519,14 +523,14 @@ class FitParamsPanel(QScrollArea):
     def update_copy_params_button(self, n_targets: int):
         """Met à jour le label/état du bouton 'Propager fit params'."""
         if n_targets <= 0:
-            self.btn_copy.setText("📋  Propager fit params (0 cible)")
+            self.btn_copy.setText("Propager fit params (0 cible)")
             self.btn_copy.setEnabled(False)
             self.btn_copy.setToolTip(
                 "Aucun fichier non-fitté dans le dossier (hors fichier courant).\n"
                 "Tous les autres ont déjà un fit_result enregistré : ils ne seront pas écrasés."
             )
         else:
-            self.btn_copy.setText(f"📋  Propager fit params ({n_targets} cible{'s' if n_targets > 1 else ''})")
+            self.btn_copy.setText(f"Propager fit params ({n_targets} cible{'s' if n_targets > 1 else ''})")
             self.btn_copy.setEnabled(True)
             self.btn_copy.setToolTip(
                 f"Copie les paramètres de fit MDC actuels vers les {n_targets} "
@@ -666,4 +670,3 @@ class FitParamsPanel(QScrollArea):
         self._save_pair()
         self._current_pair = i
         self._load_pair(i)
-

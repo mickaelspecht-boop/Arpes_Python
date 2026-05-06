@@ -62,9 +62,11 @@ class NormController:
             msg = self._grid_status_text(self._grid_display_info, "affichage BM")
             self._params.lbl_grid.setText(msg)
             self._status(msg)
+            if hasattr(self._params, "mark_action_done"):
+                self._params.mark_action_done("correction grille appliquée")
         except Exception as exc:
             QMessageBox.warning(self._parent, "Effet grille", str(exc))
-            self._status(f"⚠ Effet grille : {exc}")
+            self._status(f"Attention: Effet grille : {exc}")
 
     def _reset_grid_correction(self):
         if not self._current_path:
@@ -79,3 +81,5 @@ class NormController:
             self._draw_mdc_edc()
         self._params.lbl_grid.setText("Correction grille désactivée pour ce fichier.")
         self._status("Correction grille désactivée pour ce fichier.")
+        if hasattr(self._params, "mark_action_done"):
+            self._params.mark_action_done("correction grille désactivée")

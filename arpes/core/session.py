@@ -55,8 +55,8 @@ class FileMeta:
 @dataclass
 class FileEntry:
     ef_offset: float = 0.052
-    edcnorm: bool = True
-    view_mode: str = "EDCnorm"
+    edcnorm: bool = False
+    view_mode: str = "Raw"
     fit_params: FitParams = field(default_factory=FitParams)
     fit_result: Optional[dict] = None
     meta: FileMeta = field(default_factory=FileMeta)
@@ -106,6 +106,10 @@ class Session:
         self.logbook_sheet: str = ""
         self.logbook_mapping: dict[str, str] = {}
         self.logbook_records: list[dict] = []
+        self.kz_logbook_path: str = ""
+        self.kz_logbook_sheet: str = ""
+        self.kz_logbook_mapping: dict[str, str] = {}
+        self.kz_logbook_records: list[dict] = []
         self.gamma_reference: dict = {}
         self.angle_offsets: dict = {}
         self.ef_reference: dict = {}
@@ -125,6 +129,10 @@ class Session:
             "logbook_sheet": self.logbook_sheet,
             "logbook_mapping": _to_serial(self.logbook_mapping),
             "logbook_records": _to_serial(self.logbook_records),
+            "kz_logbook_path": self.kz_logbook_path,
+            "kz_logbook_sheet": self.kz_logbook_sheet,
+            "kz_logbook_mapping": _to_serial(self.kz_logbook_mapping),
+            "kz_logbook_records": _to_serial(self.kz_logbook_records),
             "gamma_reference": _to_serial(self.gamma_reference),
             "angle_offsets": _to_serial(self.angle_offsets),
             "ef_reference": _to_serial(self.ef_reference),
@@ -142,6 +150,10 @@ class Session:
         self.logbook_sheet = raw.get("logbook_sheet", "")
         self.logbook_mapping = raw.get("logbook_mapping", {})
         self.logbook_records = raw.get("logbook_records", [])
+        self.kz_logbook_path = raw.get("kz_logbook_path", "")
+        self.kz_logbook_sheet = raw.get("kz_logbook_sheet", "")
+        self.kz_logbook_mapping = raw.get("kz_logbook_mapping", {})
+        self.kz_logbook_records = raw.get("kz_logbook_records", [])
         self.gamma_reference = raw.get("gamma_reference", {})
         self.angle_offsets = raw.get("angle_offsets", {}) or {}
         self.ef_reference = raw.get("ef_reference", {}) or {}
@@ -151,8 +163,8 @@ class Session:
             mt = FileMeta(**_known_kwargs(FileMeta, edict.get("meta", {})))
             entry = FileEntry(
                 ef_offset=edict.get("ef_offset", 0.052),
-                edcnorm=edict.get("edcnorm", True),
-                view_mode=edict.get("view_mode", "EDCnorm"),
+                edcnorm=edict.get("edcnorm", False),
+                view_mode=edict.get("view_mode", "Raw"),
                 fit_params=fp,
                 fit_result=edict.get("fit_result"),
                 meta=mt,

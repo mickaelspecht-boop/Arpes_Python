@@ -138,14 +138,14 @@ class PlotController:
             grid_cfg_active.get("peak_sensitivity"),
             grid_cfg_active.get("notch_width"),
         ) if grid_cfg_active else None
-        cache_key = (id(raw), mode, bool(self._params.chk_norm.isChecked()), grid_key)
+        cache_key = (id(raw), mode, grid_key)
         if cache_key == self._disp_cache_key and self._data_disp is not None:
             return  # rien n'a changé qui affecte l'affichage BM
 
         result = compute_bandmap_display(
             d,
             mode=mode,
-            edc_norm_enabled=bool(self._params.chk_norm.isChecked()),
+            edc_norm_enabled=mode == "EDCnorm",
             grid_correction=grid_cfg_active,
             grid_artifact_fn=remove_detector_grid_artifact,
         )
@@ -234,7 +234,7 @@ class PlotController:
             cmap=cmap, color_kwargs=ckw,
             gamma=1.0,
             sel_ev=self._sel_ev, sel_k=self._sel_k, int_win=int_win,
-            title=f"BM [{mode}]  {self._ef_offset_text()}",
+            title=f"Plage d'analyse [{mode}]",
             title_size=8, label_size=8, tick_label_size=8,
             show_k_zero=False,
         )
@@ -243,6 +243,17 @@ class PlotController:
             k0, k1, e0, e1 = bounds
             ax.set_xlim(k0, k1)
             ax.set_ylim(e0, e1)
+            info = f"Fenetre fit: k {k0:+.3f} -> {k1:+.3f} pi/a | E {e0:+.3f} -> {e1:+.3f} eV"
+            ax.text(
+                0.01, 0.02, info,
+                transform=ax.transAxes,
+                ha="left", va="bottom",
+                color="white", fontsize=7,
+                bbox={"facecolor": "#111827", "edgecolor": "#38bdf8", "alpha": 0.72, "pad": 3},
+                zorder=30,
+            )
+            if hasattr(self, "_lbl_fit_view_info"):
+                self._lbl_fit_view_info.setText("Plage d'analyse")
         self._draw_fit_roi_overlay(ax)
         self._draw_kf_overlay(ax)
         self._draw_ef_label(ax, horizontal=True)
@@ -305,7 +316,7 @@ class PlotController:
             self._raw_data,
             selected_ev=self._sel_ev,
             int_window=self._params.sp_int_win.value(),
-            edc_norm_enabled=bool(self._params.chk_norm.isChecked()),
+            edc_norm_enabled=self._cmb_view.currentText() == "EDCnorm",
         )
 
     def _get_edc(self):
@@ -313,7 +324,7 @@ class PlotController:
         return _plot_edc_curve(
             self._raw_data,
             selected_k=self._sel_k,
-            edc_norm_enabled=bool(self._params.chk_norm.isChecked()),
+            edc_norm_enabled=self._cmb_view.currentText() == "EDCnorm",
         )
 
     def _draw_mdc_edc(self):

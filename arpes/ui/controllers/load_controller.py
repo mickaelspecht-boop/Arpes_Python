@@ -68,23 +68,23 @@ class LoadController:
 
     # ------------------------------------------------------------ public
     def load(self, path: str) -> None:
-        """Pipeline complet — entrée unique appelée par le file browser."""
+        """Pipeline complet - entrée unique appelée par le file browser."""
         self._ensure_arpes_plots()
-        self._status(f"Chargement {Path(path).name} …")
+        self._status(f"Chargement {Path(path).name} ...")
         QApplication.processEvents()
         try:
             prepared = self._prepare_entry(path)
             load_result, orchestrator = self._dispatch_loader(path, prepared)
             d = load_result.data
             if d is None:
-                self._status("⚠ erlab non disponible")
+                self._status("Attention: erlab non disponible")
                 return
             md = orchestrator.apply_loaded_metadata(d, prepared.entry)
             self._apply_post_load(d, prepared, load_result, orchestrator, path)
             self._restore_session(d, prepared.entry, md)
             self._refresh_ui(d, prepared, path)
         except Exception as e:
-            self._status(f"⚠ {e}")
+            self._status(f"Attention: {e}")
             traceback.print_exc()
 
     # ------------------------------------------------------------ steps
@@ -93,7 +93,7 @@ class LoadController:
             from arpes.app import _load_ap
             self._parent.ap = _load_ap()
             if self._parent.ap is None:
-                self._status("⚠ arpes_plots introuvable")
+                self._status("Attention: arpes_plots introuvable")
 
     def _prepare_entry(self, path: str) -> _PreparedEntry:
         key = self._session.key_for_path(path)
@@ -183,9 +183,6 @@ class LoadController:
         self._params.sp_ef.blockSignals(True)
         self._params.sp_ef.setValue(entry.ef_offset)
         self._params.sp_ef.blockSignals(False)
-        self._params.chk_norm.blockSignals(True)
-        self._params.chk_norm.setChecked(entry.edcnorm)
-        self._params.chk_norm.blockSignals(False)
         self._params.load_fit_params(entry.fit_params)
         saved_res = (entry.fit_result or {}).get("resolution", {}) if entry.fit_result else {}
         if saved_res:
@@ -211,6 +208,10 @@ class LoadController:
         self._parent._cmb_view.blockSignals(True)
         self._parent._cmb_view.setCurrentText(entry.view_mode)
         self._parent._cmb_view.blockSignals(False)
+        if hasattr(self._parent, "_cmb_view_fit"):
+            self._parent._cmb_view_fit.blockSignals(True)
+            self._parent._cmb_view_fit.setCurrentText(entry.view_mode)
+            self._parent._cmb_view_fit.blockSignals(False)
         self._parent._load_grid_controls(entry.grid_correction)
 
         if entry.fit_result:
@@ -240,7 +241,7 @@ class LoadController:
         loader_note = ""
         loader_warnings = md_now.get("loader_warnings") or []
         if loader_warnings:
-            loader_note = f"  |  ⚠ loader: {str(loader_warnings[0])[:120]}"
+            loader_note = f"  |  Attention: loader: {str(loader_warnings[0])[:120]}"
         elif md_now.get("energy_reference"):
             loader_note = f"  |  refE={md_now.get('energy_reference')}"
         self._parent._sel_ev = float(np.clip(-0.30, d["ev_arr"].min(), d["ev_arr"].max()))
@@ -263,4 +264,6 @@ class LoadController:
             f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV"
             f"{lb_txt}{grid_note}{gamma_note}{loader_note}"
         )
+        if hasattr(self._params, "mark_action_done"):
+            self._params.mark_action_done(f"fichier chargé ({Path(path).name})")
         self._parent._refresh_helper_buttons()
