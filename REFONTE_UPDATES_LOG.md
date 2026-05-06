@@ -105,3 +105,24 @@ Cibles finales architecture : `arpes/app.py` < `600` LOC (uniquement `ArpesExplo
 3. Branche `refonte`. Commits suivent format `refonte <lettre> : <description>` (cf `git log`).
 4. Ordre `__init__` : controllers AVANT debouncers (timer connect résout via `__getattr__`).
 5. Mock test patterns : si on déplace une fonction utilisée par un test via `mock.patch.object`, ajouter le mock sur le NOUVEAU module aussi (cf `tests/test_arpes_explorer_helpers.py` qui patche à la fois `arpes_app` et `_files_mod`).
+
+## Update ο — kill `AP` global + DI propre
+
+- État initial vérifié : 4 fichiers utilisaient `from arpes import app as _ae; _ae.AP` ou `AP` direct.
+  - `arpes/app.py` (`AP = None` module-level + `_score_bm_gamma_residual` lit `AP`)
+  - `arpes/ui/controllers/load_controller.py` (`_ae.AP`, `_ae.detect_format`, `_ae.load_arpes_file`, `_ae._loader_label`, `_ae.apply_ef_correction_to_dict` — 5 lazy imports)
+  - `arpes/ui/controllers/fit_runner_controller.py` (`_ae.AP` ×3)
+  - `arpes_explorer.py` (re-export `AP`)
+- Correction appliquée :
+  - `arpes/app.py` : suppression de `AP = None`. `_load_ap()` retourne `None` si introuvable au lieu de lever. `ArpesExplorer.__init__` stocke `self.ap = _load_ap()` (attribut d'instance, pas global mutable). `_score_bm_gamma_residual` lit `self.ap` au lieu de `AP`.
+  - `load_controller.py` : remplacé `_ae.detect_format`/`load_arpes_file`/`_loader_label`/`apply_ef_correction_to_dict` par imports directs (`from arpes.io.loaders import …`, `from arpes.physics.display import …`). `_ae.AP` → `self._parent.ap`. `_ensure_arpes_plots` recharge si `parent.ap is None`.
+  - `fit_runner_controller.py` : `_ae.AP` → `p.ap` (3 occurrences). Drop `from arpes import app as _ae`.
+  - `arpes_explorer.py` shim : drop ré-exports `AP`, `_load_ap`, `_loader_label`, `apply_ef_correction_to_dict`, `detect_format`, `load_arpes_file` (plus utilisés par tests). Shim passe de 40 à 22 LOC.
+- Bugs collatéraux corrigés (présents depuis ν, jamais détectés faute de smoke test) :
+  - `arpes/ui/widgets/params.py` utilisait `_dspin`/`_ispin`/`_sep` (legacy) alors qu'il importe `dspin`/`ispin`/`hsep`. Renommés via regex.
+  - `arpes/ui/widgets/results.py` utilisait `QLabel` sans l'importer. Ajouté à la liste d'imports `PyQt6.QtWidgets`.
+- Vérification post-fix : `grep -rn "_ae\.AP\|arpes\.app\.AP\|^AP\b\|from arpes import app as _ae"` → 0 hit.
+- Validation :
+  - `python3 -m unittest discover tests` OK (`130` tests, `1` skipped).
+  - Smoke : `ArpesExplorer()` instancié headless, `w.ap` non-None, 4 tabs, proxy `_fit_guess` résout vers `FitRunnerController._fit_guess`, proxy `_on_view_changed` vers `InteractionController._on_view_changed`.
+- Note : `arpes/app.py` passe de `579` à `607` LOC (ajout `self.ap = _load_ap()` + docstring). Toujours sous cible `<700`.

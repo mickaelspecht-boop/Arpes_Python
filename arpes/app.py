@@ -84,6 +84,7 @@ from PyQt6.QtWidgets import (
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_ap():
+    """Charge le module arpes_plots — retourne None si introuvable."""
     try:
         import arpes.ui.widgets.plots as plots
         return plots
@@ -97,7 +98,7 @@ def _load_ap():
             mod  = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
             return mod
-    raise FileNotFoundError("arpes_plots.py introuvable")
+    return None
 
 try:
     from arpes.io.loaders import (
@@ -128,10 +129,6 @@ from arpes.ui.widgets.params import ClickablePairLabel, FitParamsPanel, PAIR_COL
 from arpes.ui.widgets.results import ResultsPanel
 from arpes.ui.widgets.dialogs import EFCalibrationDialog
 
-AP = None
-
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Fenêtre principale
 # ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +140,7 @@ class ArpesExplorer(QMainWindow):
         self.setWindowTitle("ARPES Explorer — BaNi₂As₂")
         self.resize(1500, 900)
 
+        self.ap = _load_ap()
         self._session     = Session()
         self._current_path: str | None = None
         self._raw_data:   dict | None  = None   # chargé depuis fichier
@@ -439,7 +437,7 @@ class ArpesExplorer(QMainWindow):
 
     def _score_bm_gamma_residual(self, d: dict) -> float:
         """Wrapper UI : délègue à `arpes_gamma.score_bm_gamma_residual`."""
-        if AP is None:
+        if self.ap is None:
             return float("inf")
         return _gamma_score_bm_residual(
             d,
@@ -447,7 +445,7 @@ class ArpesExplorer(QMainWindow):
             k_range=(self._params.sp_kmin.value(), self._params.sp_kmax.value()),
             center_window=self._params.sp_xg.value() * 2.0,
             smooth_sigma=self._params.sp_sfd.value(),
-            estimate_fn=AP.estimate_gamma_bm_mdc,
+            estimate_fn=self.ap.estimate_gamma_bm_mdc,
         )
 
     def _load_with_best_angle_offsets(

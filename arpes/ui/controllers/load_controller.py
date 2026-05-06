@@ -26,6 +26,15 @@ from PyQt6.QtWidgets import QApplication
 from arpes.io.loader_orchestrator import LoaderOrchestrator
 from arpes.physics.resolution import estimate_resolutions
 
+try:
+    from arpes.io.loaders import detect_format, load_arpes_file, loader_label
+except ImportError:
+    detect_format = None
+    load_arpes_file = None
+    loader_label = lambda *a, **k: ""  # noqa: E731
+
+from arpes.physics.display import apply_ef_correction_to_dict
+
 
 @dataclass
 class _PreparedEntry:
@@ -80,21 +89,19 @@ class LoadController:
 
     # ------------------------------------------------------------ steps
     def _ensure_arpes_plots(self) -> None:
-        from arpes import app as _ae
-        if _ae.AP is None:
-            try:
-                _ae.AP = _ae._load_ap()
-            except Exception as e:
-                self._status(f"⚠ arpes_plots : {e}")
+        if self._parent.ap is None:
+            from arpes.app import _load_ap
+            self._parent.ap = _load_ap()
+            if self._parent.ap is None:
+                self._status("⚠ arpes_plots introuvable")
 
     def _prepare_entry(self, path: str) -> _PreparedEntry:
-        from arpes import app as _ae
         key = self._session.key_for_path(path)
         is_new_entry = key not in self._session.files
         entry = self._session.get_or_create(key)
         fmt_guess = ""
         try:
-            fmt_guess = _ae.detect_format(path) if _ae.detect_format is not None else ""
+            fmt_guess = detect_format(path) if detect_format is not None else ""
         except Exception:
             fmt_guess = ""
         if fmt_guess == "bessy_ses_ibw" and (
@@ -133,8 +140,7 @@ class LoadController:
         )
 
     def _dispatch_loader(self, path: str, prepared: _PreparedEntry):
-        from arpes import app as _ae
-        orchestrator = LoaderOrchestrator(_ae.load_arpes_file, _ae._loader_label)
+        orchestrator = LoaderOrchestrator(load_arpes_file, loader_label)
         load_result = orchestrator.load(
             path,
             prepared.entry,
@@ -148,10 +154,9 @@ class LoadController:
         return load_result, orchestrator
 
     def _apply_post_load(self, d, prepared, load_result, orchestrator, path):
-        from arpes import app as _ae
         entry = prepared.entry
         if entry.ef_correction.get("mode") == "poly":
-            d, ef_info = _ae.apply_ef_correction_to_dict(d, entry.ef_correction)
+            d, ef_info = apply_ef_correction_to_dict(d, entry.ef_correction)
             self._parent._ef_correction_info = ef_info
         else:
             self._parent._ef_correction_info = {}

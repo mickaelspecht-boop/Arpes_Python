@@ -107,9 +107,9 @@ class FitParamsPanel(QScrollArea):
         # ── énergie ──────────────────────────────────────────────────────────
         self._energy_widget = QGroupBox("Énergie sélectionnée")
         fl = QFormLayout(self._energy_widget)
-        self.sp_ev = _dspin(-0.30, -3.0, 0.2, 0.01)
+        self.sp_ev = dspin(-0.30, -3.0, 0.2, 0.01)
         # sp_ev est connecté dans ArpesExplorer._build_ui (→ _on_ev_spinbox_changed)
-        self.sp_int_win = _dspin(0.010, 0.001, 0.200, 0.005, dec=3)
+        self.sp_int_win = dspin(0.010, 0.001, 0.200, 0.005, dec=3)
         self.sp_int_win.setToolTip(
             "Fenêtre d'intégration ±eV pour la MDC\n"
             "Élargir = moins de bruit, moins de résolution en énergie\n"
@@ -123,16 +123,16 @@ class FitParamsPanel(QScrollArea):
         # ── calibration EF ────────────────────────────────────────────────────
         self._ef_widget = QGroupBox("EF / Chargement")
         fl_ef = QFormLayout(self._ef_widget)
-        self.sp_phi = _dspin(4.031, 3.0, 6.0, 0.01)
+        self.sp_phi = dspin(4.031, 3.0, 6.0, 0.01)
         self.sp_phi.setToolTip("Fonction de travail φ (eV). Utilisée pour calculer E_kin → E−EF.")
-        self.sp_hv  = _dspin(0.0, 0.0, 500.0, 1.0)
+        self.sp_hv  = dspin(0.0, 0.0, 500.0, 1.0)
         self.sp_hv.setToolTip(
             "Énergie du photon incident (eV).\n"
             "→ CLS/LNLS : entrer manuellement AVANT de charger (obligatoire).\n"
             "→ Solaris/DA30 : lu automatiquement depuis le fichier.\n"
             "→ BESSY/SES : gardé pour diagnostic/kz; E−EF utilise automatiquement Center Energy."
         )
-        self.sp_ef  = _dspin(0.052, -0.3, 0.3, 0.005)
+        self.sp_ef  = dspin(0.052, -0.3, 0.3, 0.005)
         self.sp_ef.setToolTip(
             "Décalage EF en eV. Ajuste le zéro d'énergie.\n"
             "Utiliser 'Calibrer EF auto' pour le calculer par fit Fermi-Dirac."
@@ -180,7 +180,7 @@ class FitParamsPanel(QScrollArea):
         # ── utilitaires BM ────────────────────────────────────────────────────
         self._utils_widget = QGroupBox("Utilitaires")
         fl_ut = QFormLayout(self._utils_widget)
-        self.sp_grid_strength = _dspin(0.85, 0.0, 1.0, 0.05, dec=2)
+        self.sp_grid_strength = dspin(0.85, 0.0, 1.0, 0.05, dec=2)
         self.sp_grid_strength.setToolTip(
             "Force de suppression de la trame affichée.\n"
             "0 = aucun effet, 1 = correction complète. Valeur conseillée : 0.8-0.9."
@@ -212,10 +212,10 @@ class FitParamsPanel(QScrollArea):
         # ── plage d'analyse ───────────────────────────────────────────────────
         grp_r = QGroupBox("Plage d'analyse")
         fl2 = QFormLayout(grp_r)
-        self.sp_evs  = _dspin(-0.90, -5.0, 1.0, 0.05)
-        self.sp_eve  = _dspin(-0.005, -5.0, 1.0, 0.005)
-        self.sp_kmin = _dspin(-0.80, -5.0, 5.0, 0.05)
-        self.sp_kmax = _dspin( 0.80, -5.0, 5.0, 0.05)
+        self.sp_evs  = dspin(-0.90, -5.0, 1.0, 0.05)
+        self.sp_eve  = dspin(-0.005, -5.0, 1.0, 0.005)
+        self.sp_kmin = dspin(-0.80, -5.0, 5.0, 0.05)
+        self.sp_kmax = dspin( 0.80, -5.0, 5.0, 0.05)
         for w in (self.sp_evs, self.sp_eve, self.sp_kmin, self.sp_kmax):
             w.valueChanged.connect(self.params_changed)
         self.btn_fit_roi = QPushButton("▢  Sélectionner sur carte")
@@ -244,15 +244,15 @@ class FitParamsPanel(QScrollArea):
         # ── fit MDC ───────────────────────────────────────────────────────────
         grp_f = QGroupBox("Fit MDC (Lorentzien)")
         fl3 = QFormLayout(grp_f)
-        self.sp_np   = _ispin(1,   1, 8)
+        self.sp_np   = ispin(1,   1, 8)
         self.sp_np.setToolTip("Nombre de paires de Lorentziennes (= nombre de bandes croisées).")
         self.sp_np.valueChanged.connect(self._on_n_pairs_changed)
-        self.sp_sff  = _dspin(2.0,  0.0, 10.0, 0.5, dec=1)
+        self.sp_sff  = dspin(2.0,  0.0, 10.0, 0.5, dec=1)
         self.sp_sff.setToolTip(
             "Sigma du lissage gaussien appliqué à la MDC avant l'optimisation scipy.\n"
             "Augmenter pour données bruitées. Voir la courbe orange dans le graphique MDC."
         )
-        self.sp_sfd  = _dspin(3.0,  0.0, 10.0, 0.5, dec=1)
+        self.sp_sfd  = dspin(3.0,  0.0, 10.0, 0.5, dec=1)
         self.sp_sfd.setToolTip(
             "Sigma du lissage gaussien utilisé pour détecter les pics initiaux.\n"
             "Voir la courbe grise dans le graphique MDC."
@@ -261,36 +261,36 @@ class FitParamsPanel(QScrollArea):
         # ── paramètres par paire (navigables) ────────────────────────────────
         self._pair_lbl = ClickablePairLabel()
         self._pair_lbl.pair_changed.connect(self._on_pair_changed)
-        self.sp_kfi  = _dspin(0.30,  0.0,  3.0, 0.01)
+        self.sp_kfi  = dspin(0.30,  0.0,  3.0, 0.01)
         self.sp_kfi.setToolTip(
             "Position initiale kF (π/a) pour cette paire, comptée depuis centre Γ.\n"
             "Voir les lignes tiret-point colorées dans le graphique MDC."
         )
-        self.sp_gi   = _dspin(0.08, 0.01,  0.5, 0.01)
+        self.sp_gi   = dspin(0.08, 0.01,  0.5, 0.01)
         self.sp_gi.setToolTip(
             "Demi-largeur initiale de la Lorentzienne (π/a).\n"
             "Valeur de départ pour l'optimiseur. Voir les courbes colorées dans le graphique MDC."
         )
-        self.sp_gm   = _dspin(0.30, 0.05,  1.0, 0.05)
+        self.sp_gm   = dspin(0.30, 0.05,  1.0, 0.05)
         self.sp_gm.setToolTip(
             "Demi-largeur maximale autorisée (π/a) — contrainte de l'optimiseur scipy.\n"
             "Voir les zones colorées translucides autour des pics dans le graphique MDC."
         )
 
         # ── paramètres globaux ────────────────────────────────────────────────
-        self.sp_xg   = _dspin(0.10, 0.0,  0.5,  0.01)
+        self.sp_xg   = dspin(0.10, 0.0,  0.5,  0.01)
         self.sp_xg.setToolTip(
             "Demi-largeur de la zone de contrainte autour du centre Γ (π/a).\n"
             "L'optimiseur limite xg dans [centre − xg_range, centre + xg_range].\n"
             "Voir le rectangle cyan dans le graphique MDC."
         )
-        self.sp_cx   = _dspin(0.0, -1.0,  1.0,  0.01)
+        self.sp_cx   = dspin(0.0, -1.0,  1.0,  0.01)
         self.sp_cx.setToolTip(
             "Centre de symétrie des paires (position Γ, en π/a).\n"
             "Voir la ligne cyan pointillée dans le graphique MDC.\n"
             "Utiliser 'Auto Γ BM' ou 'Γ FS → BM' pour le calculer automatiquement."
         )
-        self.sp_k0m  = _dspin(0.0,  0.0,  2.0,  0.05)
+        self.sp_k0m  = dspin(0.0,  0.0,  2.0,  0.05)
         self.sp_k0m.setToolTip(
             "Distance maximale autorisée de kF par rapport à Γ (π/a).\n"
             "Voir les lignes magenta dans le graphique MDC si actif."
@@ -306,13 +306,13 @@ class FitParamsPanel(QScrollArea):
             "symmetric : les deux pics de la paire ont le même γ.\n"
             "asymmetric : γ gauche et droit peuvent différer (pics asymétriques)."
         )
-        self.sp_ma   = _dspin(0.01, 0.0, 1.0, 0.01)
+        self.sp_ma   = dspin(0.01, 0.0, 1.0, 0.01)
         self.sp_ma.setToolTip(
             "Amplitude minimale relative d'un pic pour être accepté (0–1).\n"
             "Rejette les pics dont l'amplitude est < ampl_min × max(MDC).\n"
             "Augmenter pour éliminer les faux pics dus au bruit."
         )
-        self.sp_mj   = _dspin(0.20, 0.0, 1.0, 0.05)
+        self.sp_mj   = dspin(0.20, 0.0, 1.0, 0.05)
         self.sp_mj.setToolTip(
             "Saut maximal autorisé entre positions kF consécutives (π/a).\n"
             "Contrôle la continuité de la dispersion lors du fit complet.\n"
@@ -330,12 +330,12 @@ class FitParamsPanel(QScrollArea):
             w.valueChanged.connect(self.fit_only_changed)
         self.cmb_wm.currentIndexChanged.connect(self.fit_only_changed)
 
-        self.sp_dE_meV = _dspin(15.0, 1.0, 200.0, 1.0, dec=1)
+        self.sp_dE_meV = dspin(15.0, 1.0, 200.0, 1.0, dec=1)
         self.sp_dE_meV.setToolTip(
             "FWHM énergie instrumentale estimée ou saisie manuellement (meV).\n"
             "Utilisée pour calculer Γ corrigé après fit MDC."
         )
-        self.sp_dk_inv_a = _dspin(0.005, 0.001, 0.1, 0.001, dec=4)
+        self.sp_dk_inv_a = dspin(0.005, 0.001, 0.1, 0.001, dec=4)
         self.sp_dk_inv_a.setToolTip(
             "FWHM k instrumentale en π/a, estimée depuis angle_step si disponible.\n"
             "Utilisée pour calculer Γ corrigé après fit MDC."
@@ -355,21 +355,21 @@ class FitParamsPanel(QScrollArea):
         fl3.addRow("Nb paires:",        self.sp_np)
         fl3.addRow("Lissage fit σ:",    self.sp_sff)
         fl3.addRow("Lissage détect σ:", self.sp_sfd)
-        fl3.addRow(_sep())
+        fl3.addRow(hsep())
         fl3.addRow(self._pair_lbl)
         fl3.addRow("kF init (π/a):",    self.sp_kfi)
         fl3.addRow("γ init (π/a):",     self.sp_gi)
         fl3.addRow("γ max (π/a):",      self.sp_gm)
-        fl3.addRow(_sep())
+        fl3.addRow(hsep())
         fl3.addRow("Fenêtre Γ (π/a):",  self.sp_xg)
         fl3.addRow("Centre Γ (π/a):",   self.sp_cx)
         fl3.addRow("kF max (π/a):",     k0w)
         fl3.addRow("Symétrie paire:",   self.cmb_wm)
-        fl3.addRow(_sep())
+        fl3.addRow(hsep())
         fl3.addRow("Ampl. min:",        self.sp_ma)
         fl3.addRow("Saut max (π/a):",   self.sp_mj)
         fl3.addRow("Sens scan:",        self.cmb_sd)
-        fl3.addRow(_sep())
+        fl3.addRow(hsep())
         de_row = QWidget(); de_lay = QHBoxLayout(de_row); de_lay.setContentsMargins(0,0,0,0)
         de_lay.addWidget(self.sp_dE_meV, 1); de_lay.addWidget(self.lbl_dE_src)
         dk_row = QWidget(); dk_lay = QHBoxLayout(dk_row); dk_lay.setContentsMargins(0,0,0,0)
@@ -381,12 +381,12 @@ class FitParamsPanel(QScrollArea):
         # ── waterfall MDC (visible seulement dans le sous-onglet Waterfall) ────
         self._waterfall_controls_widget = QGroupBox("Waterfall MDC")
         fl_wf = QFormLayout(self._waterfall_controls_widget)
-        self.sp_wf_n = _ispin(32, 10, 80)
+        self.sp_wf_n = ispin(32, 10, 80)
         self.sp_wf_n.setToolTip(
             "Nombre cible de MDCs affichées dans le waterfall.\n"
             "Moins de courbes = plus de relief et moins de surcharge."
         )
-        self.sp_wf_relief = _dspin(1.8, 0.5, 4.0, 0.1, dec=1)
+        self.sp_wf_relief = dspin(1.8, 0.5, 4.0, 0.1, dec=1)
         self.sp_wf_relief.setToolTip(
             "Amplitude visuelle des MDCs dans le waterfall.\n"
             "Augmenter pour mieux voir les pics ; trop haut crée du chevauchement."
@@ -399,7 +399,7 @@ class FitParamsPanel(QScrollArea):
         _fcl.addWidget(self._waterfall_controls_widget)
 
         # ── boutons ───────────────────────────────────────────────────────────
-        _fcl.addWidget(_sep())
+        _fcl.addWidget(hsep())
         btn_g = QPushButton("🎯  Guess  (fit MDC ici)  [Ctrl+G]")
         btn_g.setStyleSheet("background:#1a6b3a;color:white;font-weight:bold;padding:6px;")
         btn_g.clicked.connect(self.guess_requested)

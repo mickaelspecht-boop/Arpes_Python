@@ -53,8 +53,7 @@ class FitRunnerController:
     # -------------------------------------------------------------------- fit
     def _fit_guess(self):
         p = self._parent
-        from arpes import app as _ae
-        if _ae.AP is None:
+        if p.ap is None:
             self._status("⚠ arpes_plots non chargé")
             return
         data, kpar, ev = self._get_work_data()
@@ -68,7 +67,7 @@ class FitRunnerController:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 kF_init_list = [pp.get("kF_init", 0.30) for pp in (fp.pairs or [])]
-                r = _ae.AP.debug_mdc_fit(
+                r = p.ap.debug_mdc_fit(
                     data, kpar, ev,
                     energy=p._sel_ev, n_pairs=fp.n_pairs,
                     smooth_fit=fp.smooth_fit, smooth_detect=fp.smooth_detect,
@@ -111,8 +110,7 @@ class FitRunnerController:
 
     def _fit_full(self):
         p = self._parent
-        from arpes import app as _ae
-        if _ae.AP is None:
+        if p.ap is None:
             self._status("⚠ arpes_plots non chargé")
             return
         data, kpar, ev = self._get_work_data()
@@ -123,7 +121,7 @@ class FitRunnerController:
         self._status("Fit complet en cours …")
         QApplication.processEvents()
         try:
-            controller = FitController(_ae.AP)
+            controller = FitController(p.ap)
             fr = controller.run_full_fit(
                 data, kpar, ev, fp,
                 resolution_source=getattr(self._params, "_resolution_source_detail", ""),
