@@ -18,17 +18,27 @@ def draw_theory_overlay(ax, overlay: dict[str, Any] | None) -> int:
     config_raw = overlay.get("config") or {}
     data = TheoryBandData.from_dict(data_raw)
     config = TheoryOverlayConfig.from_dict({**config_raw, "enabled": overlay.get("enabled", False)})
-    curves = filter_bands_for_view(data, config, xlim=ax.get_xlim(), ylim=ax.get_ylim())
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+    curves = filter_bands_for_view(data, config, xlim=xlim, ylim=ylim)
     best = (overlay.get("comparison") or [{}])[0] if overlay.get("comparison") else {}
+    import numpy as _np
+    y0, y1 = sorted((float(ylim[0]), float(ylim[1])))
+    margin = 0.1 * max(y1 - y0, 1e-9)
     for k, band in curves:
+        b = _np.asarray(band, dtype=float).copy()
+        out = (b < y0 - margin) | (b > y1 + margin)
+        b[out] = _np.nan
         ax.plot(
             k,
-            band,
+            b,
             color="#f8fafc",
             lw=0.85,
             alpha=float(config.alpha),
             zorder=6,
         )
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
     if curves:
         label = _overlay_label(data, config, best)
         ax.text(

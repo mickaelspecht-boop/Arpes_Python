@@ -44,7 +44,7 @@ class TheoryBandData:
             efermi=_finite_float(data.get("efermi"), 0.0),
             k_distance=[float(x) for x in data.get("k_distance", [])],
             bands=[[float(v) for v in row] for row in data.get("bands", [])],
-            labels=[dict(x) for x in data.get("labels", [])],
+            labels=[{**dict(x), "label": _clean_label(x.get("label", ""))} for x in data.get("labels", [])],
             path_type=str(data.get("path_type") or "setyawan_curtarolo"),
             warning=str(data.get("warning") or ""),
         )
@@ -388,8 +388,42 @@ def _nearest_kpoint_index(kpoints: list[Any], coord: np.ndarray) -> int | None:
     return int(np.argmin(distances))
 
 
+_GREEK_MAP = {
+    "GAMMA": "Γ", "SIGMA": "Σ", "DELTA": "Δ", "LAMBDA": "Λ",
+    "PI": "Π", "OMEGA": "Ω", "PHI": "Φ", "THETA": "Θ", "EPSILON": "Ε",
+}
+
+_SUBSCRIPT_MAP = str.maketrans("0123456789+-", "₀₁₂₃₄₅₆₇₈₉₊₋")
+
+
 def _clean_label(label: Any) -> str:
+    """Convertit labels pymatgen (`\\Sigma_1`, `\\Gamma`, etc.) en Unicode.
+
+    Gere : `G`, `GAMMA`, `\\GAMMA` -> `Γ` ; `\\Sigma_1`, `\\Sigma_{1}` -> `Σ₁` ;
+    `Y_1` -> `Y₁`. Caractères grecs latex courants traduits via `_GREEK_MAP`.
+    """
     text = str(label).strip()
+    if not text:
+        return ""
+    # Cas legacy
     if text.upper() in {"G", "GAMMA", "\\GAMMA"}:
         return "Γ"
-    return text
+    # Strip backslashes leading
+    raw = text.lstrip("\\")
+    # Split base / subscript
+    base, _, sub = raw.partition("_")
+    sub = sub.strip("{}")
+    # Greek replacement on base
+    base_upper = base.upper()
+    base_clean = _GREEK_MAP.get(base_upper, base)
+    if base_clean == base and len(base_upper) == 1:
+        # Lettre simple (X, Y, M, N, P, ...). Garde majuscule.
+        base_clean = base_upper
+    # Subscript -> unicode
+    if sub:
+        try:
+            sub_clean = sub.translate(_SUBSCRIPT_MAP)
+        except Exception:
+            sub_clean = sub
+        return f"{base_clean}{sub_clean}"
+    return base_clean
