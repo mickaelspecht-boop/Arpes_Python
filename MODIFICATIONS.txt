@@ -42,6 +42,56 @@ Modifications effectuees
 - 2026-05-06 : verifications lancees.
   Commande : python3 -m unittest tests.test_session tests.test_ui_smoke tests.test_plot_controller tests.test_fit_controller
   Resultat : OK, 23 tests, 4 skips.
+- 2026-05-06 : ajout prototype retirable overlay DFT Materials Project.
+  Fichiers crees : arpes/theory/__init__.py, arpes/theory/models.py,
+  arpes/theory/materials_project.py, arpes/theory/plot.py,
+  arpes/ui/controllers/theory_overlay_controller.py, tests/test_theory_overlay.py.
+  Fichiers modifies : arpes/app.py, arpes/core/session.py,
+  arpes/ui/widgets/params.py, arpes/ui/builders/panels.py,
+  arpes/ui/controllers/load_controller.py, arpes/ui/controllers/plot_controller.py,
+  tests/test_session.py, tests/test_ui_smoke.py.
+  Detail : ajout d'un panneau "DFT / Theorie" sur BM, import optionnel par
+  MP-ID via mp-api confine a arpes/theory, cache .arpes_theory_cache,
+  superposition des bandes comme guide visuel uniquement, selection de segment
+  proposee depuis la direction logbook si possible, controles manuels dE/dk,
+  scale k, opacite et nombre de bandes. Aucun changement dans les loaders
+  ARPES experimentaux ni dans le fit ; retrait possible en supprimant
+  arpes/theory, le controller et les blocs THEORY_OVERLAY.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m py_compile arpes/theory/*.py arpes/ui/controllers/theory_overlay_controller.py arpes/core/session.py arpes/ui/widgets/params.py arpes/app.py arpes/ui/builders/panels.py arpes/ui/controllers/plot_controller.py tests/test_theory_overlay.py tests/test_session.py tests/test_ui_smoke.py
+  Resultat : OK.
+- 2026-05-06 : verifications globales lancees.
+  Commande : python3 -m unittest discover tests
+  Resultat : OK, 162 tests, 24 skips.
+- 2026-05-06 : comparaison overlay DFT avec fits experimentaux.
+  Fichiers modifies : arpes/theory/__init__.py, arpes/theory/models.py,
+  arpes/theory/plot.py, arpes/ui/widgets/params.py,
+  arpes/ui/builders/panels.py, arpes/ui/controllers/theory_overlay_controller.py,
+  arpes/app.py, tests/test_theory_overlay.py.
+  Detail : ajout du bouton "Comparer au fit" dans le panneau DFT/Theorie.
+  La comparaison score les points kF fittes (`kF_minus`/`kF_plus`,
+  `e_fitted`) contre les bandes DFT importees en utilisant les memes controles
+  manuels dE/dk/scale/segment que l'overlay. Le score est un RMS vertical en
+  meV, affiche dans le panneau et la statusbar ; il reste un diagnostic visuel
+  et ne modifie pas le fit. Les scores sont effaces quand l'alignement manuel
+  change pour eviter une comparaison obsolete.
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m py_compile arpes/theory/*.py arpes/ui/controllers/theory_overlay_controller.py arpes/ui/widgets/params.py arpes/ui/builders/panels.py arpes/app.py tests/test_theory_overlay.py
+  Resultat : OK.
+- 2026-05-06 : verifications globales lancees.
+  Commande : python3 -m unittest discover tests
+  Resultat : OK, 164 tests, 24 skips.
+- 2026-05-06 : correction calibration EF QWidget non defini.
+  Fichiers modifies : arpes/ui/widgets/dialogs.py.
+  Detail : ajout des imports manquants utilises par EFCalibrationDialog
+  (`QWidget`, `QSpinBox`, `FigureCanvas`). Corrige le crash a l'ouverture de
+  "Calibrer EF auto".
+- 2026-05-06 : verifications lancees.
+  Commande : python3 -m py_compile arpes/ui/widgets/dialogs.py arpes/ui/controllers/fit_runner_controller.py
+  Resultat : OK.
+- 2026-05-06 : verifications globales lancees.
+  Commande : python3 -m unittest discover tests
+  Resultat : OK, 164 tests, 24 skips.
 - 2026-05-06 : amelioration carte KZ selon diagnostic arcs/trous.
   Fichiers modifies : arpes/physics/kz.py, arpes/io/kz_dataset.py,
   arpes/ui/widgets/kz.py, arpes/ui/controllers/kz_controller.py,
