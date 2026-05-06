@@ -152,3 +152,41 @@ Cibles finales architecture : `arpes/app.py` < `600` LOC (uniquement `ArpesExplo
 - Skip si Qt indisponible (`UI_AVAILABLE = False`).
 - Validation : `python3 -m unittest tests.test_ui_smoke -v` → 4 OK ; suite complète `134` tests OK skipped=1 (`130 + 4`).
 - Filet de sécurité futur : tout refactor qui casse `_PROXY_MAP` ou un import widget sera bloqué dès `unittest discover`.
+
+## Update σ — slim shims racine
+
+- État initial : `arpes_explorer.py` à `22` LOC contenait des ré-exports de classes/widgets pour les tests (`ArpesExplorer`, `FileBrowserPanel`, `FileEntry`, `FileMeta`, `Session`, `_format_direction_label`, `_infer_logbook_mapping`, `MplCanvas`, `FitParamsPanel`, `ResultsPanel`, `QApplication`, `main`).
+- Correction appliquée :
+  - `tests/test_arpes_explorer_helpers.py` : imports migrés vers leurs modules canoniques (`arpes.core.session`, `arpes.io.logbook`, `arpes.ui.widgets.browsers`, `PyQt6.QtWidgets`). Le test ne dépend plus du shim racine.
+  - `arpes_explorer.py` : réduit à `5` LOC — juste `from arpes.app import main` + `if __name__ == "__main__": main()`. Conservé pour exécution directe `python3 arpes_explorer.py`.
+- `arpes_plots.py` : déjà à `3` LOC depuis η (`from arpes.ui.widgets.plots import *`). Toujours utilisé par `tests/test_resolution.py` + fallback `_load_ap()`. Conservé.
+- Validation : `python3 -m unittest discover tests` OK (`134` tests, `1` skipped) ; `python3 -c "import arpes_explorer"` OK.
+
+## Bilan final refonte α → σ
+
+- `arpes/app.py` : `2820` → `607` LOC (orchestrateur `ArpesExplorer` + `main()`).
+- `arpes_explorer.py` : `~3500` (mono-fichier original) → `5` LOC (shim).
+- `arpes_plots.py` : `2722` → `3` LOC (shim).
+- Architecture finale :
+  ```
+  arpes/
+    app.py                      # 607 LOC, orchestrator + main()
+    core/session.py
+    io/{loaders, export, logbook, loader_orchestrator}
+    physics/{fit (MdcFitter), gamma, ef_calibration, plot_compute,
+             cls_geometry, fs, resolution}
+    ui/
+      builders/{menus, panels}
+      controllers/{logbook, load, plot, gamma, norm, fs, browser,
+                   interaction, fit_runner}
+      widgets/{canvas, params, results, dialogs, _qt_helpers,
+               browsers/{files}, plots/}
+  arpes_explorer.py             # shim 5 LOC
+  arpes_plots.py                # shim 3 LOC
+  tests/                        # 134 tests, 1 skipped
+  ```
+- Dette résiduelle (acceptable) :
+  - Mixed FR/EN docstrings/commentaires (cosmétique).
+  - `_PROXY_MAP` magique mais préférable à `~60` stubs explicites.
+  - Pas de tests UI fonctionnels (ouverture fichier, fit, etc.) — smoke seulement.
+- Branche `refonte` prête à merger ou continuer (τ = harmonisation FR→EN si voulu).

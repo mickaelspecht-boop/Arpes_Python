@@ -7,18 +7,12 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    import arpes_explorer
+    from PyQt6.QtWidgets import QApplication
     from arpes import app as arpes_app
+    from arpes.core.session import FileEntry, FileMeta, Session
+    from arpes.io.logbook import _format_direction_label, _infer_logbook_mapping
+    from arpes.ui.widgets.browsers import FileBrowserPanel
     from arpes.ui.widgets.browsers import files as _files_mod
-    from arpes_explorer import (
-        QApplication,
-        FileBrowserPanel,
-        FileEntry,
-        FileMeta,
-        Session,
-        _format_direction_label,
-        _infer_logbook_mapping,
-    )
     ARPES_EXPLORER_HELPERS_AVAILABLE = True
 except ImportError:
     ARPES_EXPLORER_HELPERS_AVAILABLE = False
