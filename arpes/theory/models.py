@@ -131,14 +131,35 @@ def segment_from_direction(direction: str, labels: list[dict[str, Any]]) -> str:
 
 
 def available_segments(labels: list[dict[str, Any]]) -> list[str]:
+    """Liste tous les segments DFT exploitables.
+
+    Priorité 1 : paires Γ-X (les plus utiles pour ARPES).
+    Priorité 2 : paires consécutives sur le chemin Setyawan-Curtarolo.
+    Priorité 3 : autres paires non-consécutives (utile si scan diagonal).
+    Doublons éliminés en préservant l'ordre.
+    """
+    names = [str(item.get("label") or "") for item in labels if item.get("label")]
     out: list[str] = []
+    seen: set[str] = set()
+
+    def push(seg: str) -> None:
+        if seg and seg not in seen:
+            seen.add(seg)
+            out.append(seg)
+
+    if "Γ" in names:
+        for label in names:
+            if label and label != "Γ":
+                push(f"Γ-{label}")
     last = ""
-    for item in labels:
-        label = str(item.get("label") or "")
+    for label in names:
         if last and label:
-            out.append(f"{last}-{label}")
-        if label:
-            last = label
+            push(f"{last}-{label}")
+        last = label
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if a and b and a != b:
+                push(f"{a}-{b}")
     return out
 
 

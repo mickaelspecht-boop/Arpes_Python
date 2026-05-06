@@ -172,6 +172,56 @@ class TheoryOverlayController:
         dlg.mpid_selected.connect(self._params.txt_theory_mpid.setText)
         dlg.exec()
 
+    def _align_theory_to_arpes(self) -> None:
+        """Calcule scale + Δk pour mapper segment choisi sur [0, 1] (π/a).
+
+        Premier label segment → 0, second → 1. Le sens vient du nom segment.
+        """
+        overlay = self._current_overlay()
+        data_d = overlay.get("data") or {}
+        labels = data_d.get("labels") or []
+        if not labels:
+            self._parent._status("Attention: importer une DFT avant alignement.")
+            return
+        segment = self._params.cmb_theory_segment.currentText().strip()
+        if not segment or "-" not in segment:
+            self._parent._status("Attention: choisir un segment Γ-X (ou autre) avant aligner.")
+            return
+        a, b = [s.strip() for s in segment.split("-", 1)]
+        pos = {
+            str(item.get("label") or "").upper().replace("GAMMA", "Γ"): item.get("k")
+            for item in labels
+        }
+        a_key = a.upper().replace("GAMMA", "Γ")
+        b_key = b.upper().replace("GAMMA", "Γ")
+        pa, pb = pos.get(a_key), pos.get(b_key)
+        if pa is None or pb is None:
+            self._parent._status(
+                f"Attention: segment {segment} introuvable dans labels DFT."
+            )
+            return
+        try:
+            pa_f, pb_f = float(pa), float(pb)
+        except (TypeError, ValueError):
+            self._parent._status(f"Attention: positions {segment} non numériques.")
+            return
+        if abs(pb_f - pa_f) <= 1e-9:
+            self._parent._status(f"Attention: largeur segment {segment} nulle.")
+            return
+        scale = 1.0 / (pb_f - pa_f)
+        shift = -pa_f / (pb_f - pa_f)
+        self._params.sp_theory_kscale.blockSignals(True)
+        self._params.sp_theory_dk.blockSignals(True)
+        self._params.sp_theory_kscale.setValue(float(scale))
+        self._params.sp_theory_dk.setValue(float(shift))
+        self._params.sp_theory_kscale.blockSignals(False)
+        self._params.sp_theory_dk.blockSignals(False)
+        self._on_theory_overlay_changed()
+        self._parent._status(
+            f"Aligné {segment} sur ARPES π/a : scale={scale:.3f}, Δk={shift:+.3f} "
+            f"({a}→0, {b}→1). ΔE encore manuel."
+        )
+
     def _restore_theory_overlay_for_entry(self) -> None:
         overlay = self._current_overlay()
         self._params.set_theory_overlay_state(overlay)

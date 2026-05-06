@@ -63,10 +63,17 @@ def build_theory_section(panel, lay) -> None:
         "Diagnostic visuel uniquement, sans modifier le fit."
     )
     btn_theory_compare.clicked.connect(panel.theory_compare_requested)
+    btn_theory_align = QPushButton("Aligner π/a")
+    btn_theory_align.setToolTip(
+        "Calcule scale k et Δk pour mapper le segment choisi sur [0, 1] (π/a).\n"
+        "Premier label du segment → 0, second → 1."
+    )
+    btn_theory_align.clicked.connect(panel.theory_align_requested)
     theory_btns = QWidget()
     theory_btns_lay = QHBoxLayout(theory_btns)
     theory_btns_lay.setContentsMargins(0, 0, 0, 0)
     theory_btns_lay.addWidget(btn_theory_import)
+    theory_btns_lay.addWidget(btn_theory_align)
     theory_btns_lay.addWidget(btn_theory_compare)
     theory_btns_lay.addWidget(btn_theory_clear)
     panel.lbl_theory_status = QLabel("Guide visuel uniquement.")
