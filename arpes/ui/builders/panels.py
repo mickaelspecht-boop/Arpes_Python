@@ -269,3 +269,8 @@ def wire_param_signals(window) -> None:
     p.grid_reset_requested.connect(window._reset_grid_correction)
     p.fit_roi_requested.connect(window._set_fit_roi_pick_mode)
     p.fit_roi_reset_requested.connect(window._reset_fit_roi_range)
+    # THEORY_OVERLAY: optional/removable DFT guide wiring.
+    p.theory_import_requested.connect(window._import_theory_overlay)
+    p.theory_clear_requested.connect(window._clear_theory_overlay)
+    p.theory_overlay_changed.connect(window._on_theory_overlay_changed)
+    p.theory_compare_requested.connect(window._compare_theory_overlay)

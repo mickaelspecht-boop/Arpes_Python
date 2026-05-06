@@ -65,6 +65,7 @@ from arpes.ui.controllers.fs_controller import FSController
 from arpes.ui.controllers.interaction_controller import InteractionController
 from arpes.ui.controllers.fit_runner_controller import FitRunnerController
 from arpes.ui.controllers.kz_controller import KzController
+from arpes.ui.controllers.theory_overlay_controller import TheoryOverlayController
 from arpes.core.session import FileEntry, FitParams, Session
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -147,6 +148,7 @@ class ArpesExplorer(QMainWindow):
         self._data_disp:  np.ndarray | None = None  # données affichées (mode)
         self._grid_display_info: dict = {}
         self._fit_res:    dict | None  = None
+        self._theory_overlay: dict = {}
 
         self._sel_ev = -0.30
         self._sel_k  = 0.0
@@ -169,6 +171,7 @@ class ArpesExplorer(QMainWindow):
         self._interaction_ctrl = InteractionController(self)
         self._fit_runner_ctrl = FitRunnerController(self)
         self._kz_ctrl = KzController(self)
+        self._theory_overlay_ctrl = TheoryOverlayController(self)
 
         # Debouncers : évitent N redraws quand l'utilisateur clique-clique
         # rapidement sur un spinbox ou tape une valeur.
@@ -266,6 +269,13 @@ class ArpesExplorer(QMainWindow):
         "_draw_kz_tab": "_kz_ctrl",
         "_current_supports_kz": "_kz_ctrl",
         "_save_kz_session": "_kz_ctrl",
+        # THEORY_OVERLAY
+        "_import_theory_overlay": "_theory_overlay_ctrl",
+        "_clear_theory_overlay": "_theory_overlay_ctrl",
+        "_on_theory_overlay_changed": "_theory_overlay_ctrl",
+        "_compare_theory_overlay": "_theory_overlay_ctrl",
+        "_draw_theory_overlay": "_theory_overlay_ctrl",
+        "_restore_theory_overlay_for_entry": "_theory_overlay_ctrl",
     }
 
     def __getattr__(self, name: str):

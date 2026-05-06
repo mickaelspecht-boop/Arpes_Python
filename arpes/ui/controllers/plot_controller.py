@@ -211,6 +211,7 @@ class PlotController:
         )
 
         self._draw_fit_roi_overlay(ax)
+        self._draw_theory_overlay(ax)
         self._draw_kf_overlay(ax)
         self._draw_ef_label(ax, horizontal=True)
         self._bm_canvas.redraw()
@@ -255,6 +256,7 @@ class PlotController:
             if hasattr(self, "_lbl_fit_view_info"):
                 self._lbl_fit_view_info.setText("Plage d'analyse")
         self._draw_fit_roi_overlay(ax)
+        self._draw_theory_overlay(ax)
         self._draw_kf_overlay(ax)
         self._draw_ef_label(ax, horizontal=True)
         self._mdc_map_canvas.redraw()

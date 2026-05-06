@@ -43,6 +43,7 @@ class TestUiSmoke(unittest.TestCase):
             "_logbook_ctrl", "_load_ctrl", "_plot_ctrl",
             "_gamma_ctrl", "_norm_ctrl", "_fs_ctrl",
             "_interaction_ctrl", "_fit_runner_ctrl", "_kz_ctrl",
+            "_theory_overlay_ctrl",
         ):
             self.assertTrue(
                 hasattr(win, attr),
@@ -72,6 +73,7 @@ class TestUiSmoke(unittest.TestCase):
         for attr in ("_params", "_results", "_browser", "_bm_canvas",
                      "_mdc_edc", "_tabs", "_kz_canvas", "_kz_controls"):
             self.assertTrue(hasattr(win, attr), f"widget {attr} non construit")
+        self.assertTrue(hasattr(win._params, "_theory_widget"))
 
 
 if __name__ == "__main__":

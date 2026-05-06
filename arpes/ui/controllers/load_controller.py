@@ -217,6 +217,7 @@ class LoadController:
         if entry.fit_result:
             self._parent._fit_res = entry.fit_result
 
+        self._parent._restore_theory_overlay_for_entry()
         self._parent._apply_stored_gamma_to_current_file(save_entry=True)
 
     def _refresh_ui(self, d, prepared, path):

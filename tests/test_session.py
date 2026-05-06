@@ -54,9 +54,25 @@ class TestSessionManager(unittest.TestCase):
             self.assertFalse(out.edcnorm)
             self.assertEqual(out.fit_params.n_pairs, 2)
             self.assertEqual(out.meta.direction, "G-M")
+            self.assertEqual(out.theory_overlay, {})
             self.assertEqual(out.fit_result["resolution"]["dk_inv_a"], 0.006)
             self.assertEqual(restored.kz_logbook_sheet, "KZ")
             self.assertEqual(restored.kz_logbook_mapping["hv"], "Energy")
+
+    def test_session_round_trip_preserves_theory_overlay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = Session(root)
+            entry = session.get_or_create("BM1")
+            entry.theory_overlay = {"enabled": True, "data": {"material_id": "mp-149"}}
+            session.save()
+
+            restored = Session(root)
+            restored.load(root / ".arpes_session.json")
+            self.assertEqual(
+                restored.files["BM1"].theory_overlay["data"]["material_id"],
+                "mp-149",
+            )
 
     def test_session_load_ignores_unknown_legacy_fields(self):
         with tempfile.TemporaryDirectory() as tmp:

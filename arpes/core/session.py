@@ -64,6 +64,7 @@ class FileEntry:
     fs_center_ky: Optional[float] = None
     grid_correction: dict = field(default_factory=dict)
     ef_correction: dict = field(default_factory=dict)
+    theory_overlay: dict = field(default_factory=dict)
 
     @property
     def status(self) -> str:
@@ -172,6 +173,7 @@ class Session:
                 fs_center_ky=edict.get("fs_center_ky"),
                 grid_correction=edict.get("grid_correction", {}) or {},
                 ef_correction=edict.get("ef_correction", {}) or {},
+                theory_overlay=edict.get("theory_overlay", {}) or {},
             )
             self.files[name] = entry
 

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -86,6 +87,10 @@ class FitParamsPanel(QScrollArea):
     grid_reset_requested = pyqtSignal()
     fit_roi_requested = pyqtSignal(bool)
     fit_roi_reset_requested = pyqtSignal()
+    theory_import_requested = pyqtSignal()
+    theory_clear_requested = pyqtSignal()
+    theory_overlay_changed = pyqtSignal()
+    theory_compare_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -203,6 +208,68 @@ class FitParamsPanel(QScrollArea):
         fl_ut.addRow(btn_grid_reset)
         fl_ut.addRow(self.lbl_grid)
         lay.addWidget(self._utils_widget)
+
+        # THEORY_OVERLAY: optional DFT guide, isolated from loaders/fits.
+        self._theory_widget = QGroupBox("DFT / Théorie")
+        fl_th = QFormLayout(self._theory_widget)
+        self.chk_theory = QCheckBox("Afficher overlay DFT")
+        self.chk_theory.setToolTip(
+            "Affiche des bandes DFT importées comme guide visuel.\n"
+            "Aucun fit ni correction n'utilise ces bandes automatiquement."
+        )
+        self.txt_theory_mpid = QLineEdit()
+        self.txt_theory_mpid.setPlaceholderText("mp-149")
+        self.txt_theory_mpid.setToolTip("Materials Project ID. Nécessite mp-api + MP_API_KEY.")
+        self.cmb_theory_segment = QComboBox()
+        self.cmb_theory_segment.setEditable(True)
+        self.cmb_theory_segment.setToolTip("Segment DFT proposé depuis la direction logbook, modifiable.")
+        self.sp_theory_de = dspin(0.0, -5.0, 5.0, 0.05, dec=3)
+        self.sp_theory_de.setToolTip("Décalage énergie manuel appliqué aux bandes DFT (eV).")
+        self.sp_theory_dk = dspin(0.0, -5.0, 5.0, 0.02, dec=3)
+        self.sp_theory_dk.setToolTip("Décalage k manuel appliqué aux bandes DFT (π/a affiché).")
+        self.sp_theory_kscale = dspin(1.0, 0.1, 5.0, 0.05, dec=3)
+        self.sp_theory_kscale.setToolTip("Facteur d'échelle k manuel pour rapprocher axe DFT et axe ARPES.")
+        self.sp_theory_alpha = dspin(0.65, 0.05, 1.0, 0.05, dec=2)
+        self.sp_theory_max = ispin(10, 1, 80)
+        btn_theory_import = QPushButton("Importer MP")
+        btn_theory_import.clicked.connect(self.theory_import_requested)
+        btn_theory_clear = QPushButton("Vider")
+        btn_theory_clear.clicked.connect(self.theory_clear_requested)
+        btn_theory_compare = QPushButton("Comparer au fit")
+        btn_theory_compare.setToolTip(
+            "Score les bandes DFT contre les points kF fittés.\n"
+            "Diagnostic visuel uniquement, sans modifier le fit."
+        )
+        btn_theory_compare.clicked.connect(self.theory_compare_requested)
+        theory_btns = QWidget()
+        theory_btns_lay = QHBoxLayout(theory_btns)
+        theory_btns_lay.setContentsMargins(0, 0, 0, 0)
+        theory_btns_lay.addWidget(btn_theory_import)
+        theory_btns_lay.addWidget(btn_theory_compare)
+        theory_btns_lay.addWidget(btn_theory_clear)
+        self.lbl_theory_status = QLabel("Guide visuel uniquement.")
+        self.lbl_theory_status.setWordWrap(True)
+        self.lbl_theory_status.setStyleSheet("color:#aaa;font-size:10px;")
+        for w in (
+            self.chk_theory, self.cmb_theory_segment, self.sp_theory_de,
+            self.sp_theory_dk, self.sp_theory_kscale, self.sp_theory_alpha,
+            self.sp_theory_max,
+        ):
+            signal = w.stateChanged if isinstance(w, QCheckBox) else (
+                w.currentIndexChanged if isinstance(w, QComboBox) else w.valueChanged
+            )
+            signal.connect(self.theory_overlay_changed)
+        fl_th.addRow(self.chk_theory)
+        fl_th.addRow("MP-ID:", self.txt_theory_mpid)
+        fl_th.addRow("Segment:", self.cmb_theory_segment)
+        fl_th.addRow("ΔE (eV):", self.sp_theory_de)
+        fl_th.addRow("Δk:", self.sp_theory_dk)
+        fl_th.addRow("Scale k:", self.sp_theory_kscale)
+        fl_th.addRow("Opacité:", self.sp_theory_alpha)
+        fl_th.addRow("Max bandes:", self.sp_theory_max)
+        fl_th.addRow(theory_btns)
+        fl_th.addRow(self.lbl_theory_status)
+        lay.addWidget(self._theory_widget)
 
         # ── contrôles fit (cachés sur l'onglet BM) ────────────────────────────
         self._fit_controls_widget = QWidget()
@@ -581,6 +648,7 @@ class FitParamsPanel(QScrollArea):
         self._energy_widget.setVisible(is_bm)
         self._ef_widget.setVisible(is_bm)
         self._utils_widget.setVisible(is_bm)
+        self._theory_widget.setVisible(is_bm)
         self._fit_controls_widget.setVisible(is_mdc)
         self._gamma_tools_widget.setVisible(False)
         if not is_mdc:
@@ -602,6 +670,63 @@ class FitParamsPanel(QScrollArea):
             "fft2_peak_sensitivity": 2.5,
             "fft2_plane": "display",
         }
+
+    def theory_overlay_config(self) -> dict:
+        return {
+            "enabled": bool(self.chk_theory.isChecked()),
+            "material_id": self.txt_theory_mpid.text().strip(),
+            "segment": self.cmb_theory_segment.currentText().strip(),
+            "energy_shift": float(self.sp_theory_de.value()),
+            "k_shift": float(self.sp_theory_dk.value()),
+            "k_scale": float(self.sp_theory_kscale.value()),
+            "alpha": float(self.sp_theory_alpha.value()),
+            "max_bands": int(self.sp_theory_max.value()),
+        }
+
+    def set_theory_overlay_state(self, overlay: dict):
+        data = overlay.get("data") or {}
+        config = overlay.get("config") or {}
+        segments = list(overlay.get("segments") or [])
+        self.chk_theory.blockSignals(True)
+        self.chk_theory.setChecked(bool(overlay.get("enabled", False)))
+        self.chk_theory.blockSignals(False)
+        if data.get("material_id"):
+            self.txt_theory_mpid.setText(str(data.get("material_id")))
+        self.cmb_theory_segment.blockSignals(True)
+        self.cmb_theory_segment.clear()
+        self.cmb_theory_segment.addItem("")
+        self.cmb_theory_segment.addItems(segments)
+        if config.get("segment"):
+            self.cmb_theory_segment.setCurrentText(str(config.get("segment")))
+        self.cmb_theory_segment.blockSignals(False)
+        for sp, key, default in (
+            (self.sp_theory_de, "energy_shift", 0.0),
+            (self.sp_theory_dk, "k_shift", 0.0),
+            (self.sp_theory_kscale, "k_scale", 1.0),
+            (self.sp_theory_alpha, "alpha", 0.65),
+            (self.sp_theory_max, "max_bands", 10),
+        ):
+            sp.blockSignals(True)
+            sp.setValue(config.get(key, default))
+            sp.blockSignals(False)
+        warning = overlay.get("warning") or ""
+        mpid = data.get("material_id") or ""
+        if mpid:
+            txt = f"DFT MP {mpid}. Guide visuel, alignement manuel requis."
+            if warning:
+                txt += f" Attention: {warning}"
+            comparison = overlay.get("comparison") or []
+            if comparison:
+                best = comparison[0]
+                txt += (
+                    f"\nComparaison: bande {best.get('band_index')} "
+                    f"{best.get('branch')} paire {int(best.get('pair_index', 0)) + 1}, "
+                    f"RMS={float(best.get('rms_e', 0.0)) * 1000:.0f} meV "
+                    f"({int(best.get('n_points', 0))} pts)."
+                )
+        else:
+            txt = "Guide visuel uniquement."
+        self.lbl_theory_status.setText(txt)
 
     def load_fit_params(self, fp: FitParams):
         for sp, val in [
