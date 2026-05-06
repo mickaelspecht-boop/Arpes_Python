@@ -53,6 +53,13 @@ def build_theory_section(panel, lay) -> None:
     panel.sp_theory_kscale.setToolTip("Facteur d'échelle k manuel pour rapprocher axe DFT et axe ARPES.")
     panel.sp_theory_alpha = dspin(0.65, 0.05, 1.0, 0.05, dec=2)
     panel.sp_theory_max = ispin(10, 1, 80)
+    panel.chk_theory_mirror = QCheckBox("Miroir Γ (k → -k)")
+    panel.chk_theory_mirror.setToolTip(
+        "Duplique les bandes DFT en miroir autour de Γ (k → -k).\n"
+        "Utile pour scans symétriques [-X, Γ, +X] où le path Setyawan-Curtarolo\n"
+        "ne couvre que la moitié droite. Valable pour cristaux à symétrie\n"
+        "d'inversion (ex BaNi₂As₂ I4/mmm)."
+    )
     btn_theory_import = QPushButton("Importer MP")
     btn_theory_import.clicked.connect(panel.theory_import_requested)
     btn_theory_clear = QPushButton("Vider")
@@ -82,7 +89,7 @@ def build_theory_section(panel, lay) -> None:
     for w in (
         panel.chk_theory, panel.cmb_theory_segment, panel.sp_theory_de,
         panel.sp_theory_dk, panel.sp_theory_kscale, panel.sp_theory_alpha,
-        panel.sp_theory_max,
+        panel.sp_theory_max, panel.chk_theory_mirror,
     ):
         signal = w.stateChanged if isinstance(w, QCheckBox) else (
             w.currentIndexChanged if isinstance(w, QComboBox) else w.valueChanged
@@ -96,6 +103,7 @@ def build_theory_section(panel, lay) -> None:
     fl_th.addRow("Scale k:", panel.sp_theory_kscale)
     fl_th.addRow("Opacité:", panel.sp_theory_alpha)
     fl_th.addRow("Max bandes:", panel.sp_theory_max)
+    fl_th.addRow(panel.chk_theory_mirror)
     fl_th.addRow(theory_btns)
     fl_th.addRow(panel.lbl_theory_status)
     lay.addWidget(panel._theory_widget)

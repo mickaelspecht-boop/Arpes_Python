@@ -299,6 +299,7 @@ class FitParamsPanel(QScrollArea):
             "k_scale": float(self.sp_theory_kscale.value()),
             "alpha": float(self.sp_theory_alpha.value()),
             "max_bands": int(self.sp_theory_max.value()),
+            "mirror_gamma": bool(self.chk_theory_mirror.isChecked()),
         }
 
     def set_theory_overlay_state(self, overlay: dict):
@@ -327,6 +328,9 @@ class FitParamsPanel(QScrollArea):
             sp.blockSignals(True)
             sp.setValue(config.get(key, default))
             sp.blockSignals(False)
+        self.chk_theory_mirror.blockSignals(True)
+        self.chk_theory_mirror.setChecked(bool(config.get("mirror_gamma", False)))
+        self.chk_theory_mirror.blockSignals(False)
         warning = overlay.get("warning") or ""
         mpid = data.get("material_id") or ""
         if mpid:

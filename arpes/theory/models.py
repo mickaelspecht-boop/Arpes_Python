@@ -59,6 +59,7 @@ class TheoryOverlayConfig:
     k_scale: float = 1.0
     alpha: float = 0.65
     max_bands: int = 10
+    mirror_gamma: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +70,7 @@ class TheoryOverlayConfig:
             "k_scale": float(self.k_scale),
             "alpha": float(self.alpha),
             "max_bands": int(self.max_bands),
+            "mirror_gamma": bool(self.mirror_gamma),
         }
 
     @classmethod
@@ -82,6 +84,7 @@ class TheoryOverlayConfig:
             k_scale=_finite_float(data.get("k_scale"), 1.0) or 1.0,
             alpha=_finite_float(data.get("alpha"), 0.65),
             max_bands=max(1, int(_finite_float(data.get("max_bands"), 10))),
+            mirror_gamma=bool(data.get("mirror_gamma", False)),
         )
 
 
@@ -202,6 +205,8 @@ def filter_bands_for_view(
         band = bands[idx].copy()
         band[~segment_mask] = np.nan
         curves.append((k, band))
+        if config.mirror_gamma:
+            curves.append((-k, band.copy()))
     return curves
 
 
