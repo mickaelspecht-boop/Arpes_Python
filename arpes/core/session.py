@@ -50,6 +50,8 @@ class FileMeta:
     tilt: Optional[float] = None
     source_format: str = ""
     loader_label: str = ""
+    formula: str = ""
+    mp_id: str = ""
 
 
 @dataclass

@@ -21,6 +21,8 @@ class LogbookAppliedValues:
     azi: float | None = None
     polar: float | None = None
     tilt: float | None = None
+    formula: str = ""
+    mp_id: str = ""
     sources: dict[str, str] = field(default_factory=dict)
 
     def has_any(self) -> bool:
@@ -32,6 +34,8 @@ class LogbookAppliedValues:
             self.azi is not None,
             self.polar is not None,
             self.tilt is not None,
+            bool(self.formula),
+            bool(self.mp_id),
         ])
 
 
@@ -104,6 +108,19 @@ class LogbookManager:
             out.tilt = float(tilt)
             out.sources["tilt"] = "logbook"
 
+        formula_col = m.get("formula", "")
+        formula = _cell_text(record.get(formula_col)) if formula_col else ""
+        if formula:
+            out.formula = formula
+            out.sources["formula"] = "logbook"
+
+        mp_id_col = m.get("mp_id", "")
+        mp_id_raw = _cell_text(record.get(mp_id_col)) if mp_id_col else ""
+        mp_id = _normalize_mp_id(mp_id_raw)
+        if mp_id:
+            out.mp_id = mp_id
+            out.sources["mp_id"] = "logbook"
+
         return out
 
     def values_for_path(self, path: str | Path) -> LogbookAppliedValues:
@@ -125,7 +142,30 @@ class LogbookManager:
             entry.meta.polar = values.polar
         if values.tilt is not None:
             entry.meta.tilt = values.tilt
+        if values.formula:
+            entry.meta.formula = values.formula
+        if values.mp_id:
+            entry.meta.mp_id = values.mp_id
         return values
+
+
+_MP_ID_PATTERN = re.compile(r"^mp-\d+$")
+
+
+def _normalize_mp_id(raw: str) -> str:
+    """Normalise un MPID logbook : 'mp-149', 'MP-149', '149' → 'mp-149'.
+
+    Retourne chaîne vide si format invalide (silencieusement, pas de raise).
+    """
+    text = (raw or "").strip().lower()
+    if not text:
+        return ""
+    if _MP_ID_PATTERN.match(text):
+        return text
+    digits = re.match(r"^(\d+)$", text)
+    if digits:
+        return f"mp-{digits.group(1)}"
+    return ""
 
 
 def _norm_text(value: Any) -> str:
@@ -267,6 +307,16 @@ def _infer_logbook_mapping(columns: list[str]) -> dict[str, str]:
             ["phi"], ["tilt"], ["manip", "t"],
         ]),
         "direction": _pick_direction_column(columns),
+        "formula": _pick_exact_column(columns, {
+            "formula", "formule", "compound", "compose", "material", "materiau",
+        }) or _pick_column(columns, [
+            ["formula"], ["formule"], ["compound"], ["material"],
+        ]),
+        "mp_id": _pick_exact_column(columns, {
+            "mp_id", "mp-id", "mpid", "materials project id", "mp",
+        }) or _pick_column(columns, [
+            ["mp", "id"], ["materials", "project", "id"],
+        ]),
     }
     legacy = _infer_legacy_measurement_plan_mapping(columns)
     for key, val in legacy.items():

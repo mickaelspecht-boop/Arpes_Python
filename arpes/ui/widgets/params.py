@@ -91,6 +91,7 @@ class FitParamsPanel(QScrollArea):
     theory_clear_requested = pyqtSignal()
     theory_overlay_changed = pyqtSignal()
     theory_compare_requested = pyqtSignal()
+    theory_search_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -220,6 +221,17 @@ class FitParamsPanel(QScrollArea):
         self.txt_theory_mpid = QLineEdit()
         self.txt_theory_mpid.setPlaceholderText("mp-149")
         self.txt_theory_mpid.setToolTip("Materials Project ID. Nécessite mp-api + MP_API_KEY.")
+        self.btn_theory_search = QPushButton("Chercher MP")
+        self.btn_theory_search.setToolTip(
+            "Recherche par formule chimique sur Materials Project (réseau).\n"
+            "Ouvre un dialog avec candidats et leur MPID."
+        )
+        self.btn_theory_search.clicked.connect(self.theory_search_requested)
+        mpid_row = QWidget()
+        mpid_lay = QHBoxLayout(mpid_row)
+        mpid_lay.setContentsMargins(0, 0, 0, 0)
+        mpid_lay.addWidget(self.txt_theory_mpid, 1)
+        mpid_lay.addWidget(self.btn_theory_search)
         self.cmb_theory_segment = QComboBox()
         self.cmb_theory_segment.setEditable(True)
         self.cmb_theory_segment.setToolTip("Segment DFT proposé depuis la direction logbook, modifiable.")
@@ -260,7 +272,7 @@ class FitParamsPanel(QScrollArea):
             )
             signal.connect(self.theory_overlay_changed)
         fl_th.addRow(self.chk_theory)
-        fl_th.addRow("MP-ID:", self.txt_theory_mpid)
+        fl_th.addRow("MP-ID:", mpid_row)
         fl_th.addRow("Segment:", self.cmb_theory_segment)
         fl_th.addRow("ΔE (eV):", self.sp_theory_de)
         fl_th.addRow("Δk:", self.sp_theory_dk)

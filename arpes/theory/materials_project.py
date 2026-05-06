@@ -55,6 +55,51 @@ def load_materials_project_band_data(
     return data
 
 
+def search_by_formula(
+    formula: str,
+    *,
+    api_key: str | None = None,
+    max_results: int = 25,
+) -> list[dict]:
+    """Recherche les candidats Materials Project par formule chimique.
+
+    Retourne une liste de dicts {material_id, formula_pretty, crystal_system,
+    spacegroup_symbol, energy_above_hull, is_stable}. Utilisé par le dialog
+    MP search pour proposer un MPID quand l'utilisateur tape une formule.
+    """
+    formula = str(formula or "").strip()
+    if not formula:
+        raise ValueError("Formule chimique vide.")
+    try:
+        from mp_api.client import MPRester
+    except Exception as exc:
+        raise MaterialsProjectUnavailable(
+            "mp-api indisponible. Installer mp-api et définir MP_API_KEY."
+        ) from exc
+
+    api_key = api_key or os.environ.get("MP_API_KEY") or None
+    fields = ["material_id", "formula_pretty", "symmetry", "energy_above_hull", "is_stable"]
+    try:
+        with MPRester(api_key) as mpr:
+            docs = mpr.materials.summary.search(formula=formula, fields=fields)
+    except Exception as exc:
+        raise RuntimeError(f"Recherche Materials Project échouée pour '{formula}': {exc}") from exc
+
+    out: list[dict] = []
+    for d in docs[: int(max_results)]:
+        sym = getattr(d, "symmetry", None)
+        out.append({
+            "material_id": str(getattr(d, "material_id", "") or ""),
+            "formula_pretty": str(getattr(d, "formula_pretty", "") or ""),
+            "crystal_system": str(getattr(sym, "crystal_system", "") or "") if sym else "",
+            "spacegroup_symbol": str(getattr(sym, "symbol", "") or "") if sym else "",
+            "energy_above_hull": float(getattr(d, "energy_above_hull", 0.0) or 0.0),
+            "is_stable": bool(getattr(d, "is_stable", False)),
+        })
+    out.sort(key=lambda r: (not r["is_stable"], r["energy_above_hull"]))
+    return out
+
+
 def _cache_path(cache_dir: str | Path | None, material_id: str, path_type: str) -> Path:
     root = Path(cache_dir) if cache_dir is not None else Path(".arpes_theory_cache")
     safe = material_id.replace("/", "_")

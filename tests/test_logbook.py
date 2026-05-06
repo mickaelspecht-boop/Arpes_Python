@@ -10,6 +10,7 @@ from arpes.io.logbook import (
     _extract_measurement_numbers,
     _format_direction_label,
     _infer_logbook_mapping,
+    _normalize_mp_id,
     _record_matches_path,
 )
 from arpes.core.session import FileEntry
@@ -115,6 +116,38 @@ class TestLogbookHelpers(unittest.TestCase):
         self.assertEqual(entry.meta.temperature, 12.0)
         self.assertEqual(entry.meta.polarization, "LV")
         self.assertEqual(entry.meta.direction, "Γ")
+
+
+class TestMpIdLogbook(unittest.TestCase):
+    def test_normalize_mp_id_variants(self):
+        self.assertEqual(_normalize_mp_id("mp-149"), "mp-149")
+        self.assertEqual(_normalize_mp_id("MP-149"), "mp-149")
+        self.assertEqual(_normalize_mp_id("  mp-568280  "), "mp-568280")
+        self.assertEqual(_normalize_mp_id("149"), "mp-149")
+        self.assertEqual(_normalize_mp_id(""), "")
+        self.assertEqual(_normalize_mp_id("not_an_id"), "")
+        self.assertEqual(_normalize_mp_id("mp-abc"), "")
+
+    def test_logbook_mp_id_and_formula_columns_picked(self):
+        columns = ["Filename", "Photon Energy", "Formula", "MP-ID"]
+        mapping = _infer_logbook_mapping(columns)
+        self.assertEqual(mapping["formula"], "Formula")
+        self.assertEqual(mapping["mp_id"], "MP-ID")
+
+    def test_logbook_applies_mp_id_to_entry(self):
+        records = [{
+            "Num": "9", "Energy": "100", "Formula": "BaNi2As2", "MP-ID": "mp-568280",
+        }]
+        mapping = _infer_logbook_mapping(["Num", "Energy", "Formula", "MP-ID"])
+        entry = FileEntry()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "Ba1220009w_Band Map B122_009.ibw"
+            path.write_text("dummy")
+            values = LogbookManager(records, mapping, root).apply_to_entry(entry, path)
+        self.assertEqual(entry.meta.formula, "BaNi2As2")
+        self.assertEqual(entry.meta.mp_id, "mp-568280")
+        self.assertEqual(values.sources["mp_id"], "logbook")
 
 
 if __name__ == "__main__":

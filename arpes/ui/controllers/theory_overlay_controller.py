@@ -41,6 +41,16 @@ class TheoryOverlayController:
         if not mpid:
             self._parent._status("Attention: MP-ID vide pour overlay DFT.")
             return
+        self._apply_mp_id(mpid, source="manuel", show_dialog_on_error=True)
+
+    def _apply_mp_id(self, mpid: str, *, source: str = "manuel",
+                     show_dialog_on_error: bool = False) -> bool:
+        """Fetch MP + applique overlay. source ∈ {manuel, logbook}.
+
+        Retourne True si succès, False sinon.
+        """
+        cfg = self._params.theory_overlay_config()
+        cfg["material_id"] = mpid
         try:
             cache_root = self._cache_root()
             data = load_materials_project_band_data(mpid, cache_dir=cache_root)
@@ -63,13 +73,30 @@ class TheoryOverlayController:
             }
             self._save_overlay(overlay)
             self._params.set_theory_overlay_state(overlay)
+            self._params.txt_theory_mpid.setText(mpid)
             self._parent._draw_bm()
-            self._parent._status(
-                f"DFT MP importée: {mpid}  |  guide visuel, alignement manuel requis."
-            )
+            label = "auto (logbook)" if source == "logbook" else "guide visuel, alignement manuel requis"
+            self._parent._status(f"DFT MP importée: {mpid}  |  {label}.")
+            return True
         except Exception as exc:
             self._parent._status(f"Attention: overlay DFT indisponible: {exc}")
-            QMessageBox.warning(self._parent, "Overlay DFT", str(exc))
+            if show_dialog_on_error:
+                QMessageBox.warning(self._parent, "Overlay DFT", str(exc))
+            return False
+
+    def _auto_fetch_theory_overlay_from_logbook(self) -> None:
+        """Si entry.meta.mp_id present et overlay vide, tente fetch silencieux."""
+        entry = self._parent._current_entry()
+        if entry is None:
+            return
+        mpid = (getattr(entry.meta, "mp_id", "") or "").strip()
+        if not mpid:
+            return
+        existing = entry.theory_overlay or {}
+        existing_data = (existing.get("data") or {}).get("material_id", "")
+        if existing_data == mpid:
+            return  # déjà chargé
+        self._apply_mp_id(mpid, source="logbook", show_dialog_on_error=False)
 
     def _clear_theory_overlay(self) -> None:
         self._save_overlay({})
@@ -129,6 +156,21 @@ class TheoryOverlayController:
                 pass
         except Exception as exc:
             self._parent._status(f"Attention: overlay DFT non dessiné: {exc}")
+
+    def _search_theory_mp(self) -> None:
+        """Ouvre dialog recherche MP par formule. Pré-rempli depuis logbook si dispo."""
+        from arpes.ui.widgets.dialogs import MPSearchDialog
+        entry = self._parent._current_entry()
+        initial = ""
+        if entry is not None:
+            initial = (
+                getattr(entry.meta, "formula", "")
+                or getattr(entry.meta, "material", "")
+                or ""
+            )
+        dlg = MPSearchDialog(self._parent, initial_formula=str(initial or ""))
+        dlg.mpid_selected.connect(self._params.txt_theory_mpid.setText)
+        dlg.exec()
 
     def _restore_theory_overlay_for_entry(self) -> None:
         overlay = self._current_overlay()

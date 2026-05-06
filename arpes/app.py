@@ -276,6 +276,8 @@ class ArpesExplorer(QMainWindow):
         "_compare_theory_overlay": "_theory_overlay_ctrl",
         "_draw_theory_overlay": "_theory_overlay_ctrl",
         "_restore_theory_overlay_for_entry": "_theory_overlay_ctrl",
+        "_search_theory_mp": "_theory_overlay_ctrl",
+        "_auto_fetch_theory_overlay_from_logbook": "_theory_overlay_ctrl",
     }
 
     def __getattr__(self, name: str):

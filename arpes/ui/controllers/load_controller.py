@@ -268,3 +268,4 @@ class LoadController:
         if hasattr(self._params, "mark_action_done"):
             self._params.mark_action_done(f"fichier chargé ({Path(path).name})")
         self._parent._refresh_helper_buttons()
+        self._parent._auto_fetch_theory_overlay_from_logbook()

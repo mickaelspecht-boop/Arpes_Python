@@ -274,3 +274,4 @@ def wire_param_signals(window) -> None:
     p.theory_clear_requested.connect(window._clear_theory_overlay)
     p.theory_overlay_changed.connect(window._on_theory_overlay_changed)
     p.theory_compare_requested.connect(window._compare_theory_overlay)
+    p.theory_search_requested.connect(window._search_theory_mp)
