@@ -33,7 +33,7 @@ except ImportError:
     load_arpes_file = None
     loader_label = lambda *a, **k: ""  # noqa: E731
 
-from arpes.physics.display import apply_ef_correction_to_dict
+from arpes.physics.plot_compute import apply_ef_correction_to_dict
 
 
 @dataclass

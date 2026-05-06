@@ -18,7 +18,7 @@ class FitSummary:
     resolution_dominates: bool = False
 
 
-class FitController:
+class MdcFitter:
     """Prepare les arguments, appelle arpes_plots, resume le resultat."""
 
     def __init__(self, arpes_plots_module: Any):

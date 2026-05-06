@@ -126,3 +126,17 @@ Cibles finales architecture : `arpes/app.py` < `600` LOC (uniquement `ArpesExplo
   - `python3 -m unittest discover tests` OK (`130` tests, `1` skipped).
   - Smoke : `ArpesExplorer()` instancié headless, `w.ap` non-None, 4 tabs, proxy `_fit_guess` résout vers `FitRunnerController._fit_guess`, proxy `_on_view_changed` vers `InteractionController._on_view_changed`.
 - Note : `arpes/app.py` passe de `579` à `607` LOC (ajout `self.ap = _load_ap()` + docstring). Toujours sous cible `<700`.
+
+## Update π — renames `FitController`→`MdcFitter` + `display.py`→`plot_compute.py`
+
+- Motivation : naming trompeur.
+  - `FitController` n'est PAS un controller UI Qt, c'est un runner pur (orchestration scipy fits MDC). Le mot "controller" doit rester réservé à `arpes/ui/controllers/*`.
+  - `arpes/physics/display.py` ne contient AUCUN code d'affichage Qt/matplotlib — uniquement transforms numpy (`apply_edcnorm`, `apply_ef_correction_to_dict`, `display_grid_config`). Le nom `display` était hérité d'une époque où ces helpers étaient mêlés au rendering.
+- Correction appliquée :
+  - `git mv arpes/physics/display.py arpes/physics/plot_compute.py`.
+  - `arpes/physics/fit.py` : `class FitController` → `class MdcFitter`.
+  - 8 fichiers consommateurs mis à jour via script `re.sub` :
+    - `arpes/app.py`, `arpes/ui/controllers/{plot,fit_runner,load,norm}_controller.py`, `arpes/physics/fit.py`, `tests/test_fit_controller.py`, `tests/test_plot_controller.py`.
+- Vérification post-fix : `grep -rn "physics\.display\|FitController"` → 0 hit.
+- Validation : `python3 -m unittest discover tests` OK (`130` tests, `1` skipped) ; smoke headless `ArpesExplorer()` OK + `from arpes.physics.fit import MdcFitter` + `from arpes.physics.plot_compute import apply_edcnorm` résolvent.
+- Note : `tests/test_fit_controller.py` garde son nom de fichier (renaming le fichier de test n'apporte rien et casse la mémoire git blame). Class à l'intérieur reste `TestFitController` — peut être renommée en σ si voulu.

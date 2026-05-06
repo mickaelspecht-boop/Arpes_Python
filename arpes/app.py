@@ -45,8 +45,8 @@ from arpes.physics.ef_calibration import (
     apply_reference_to_target as apply_ef_reference_to_target,
     compute_calibration_update as compute_ef_calibration_update,
 )
-from arpes.physics.fit import FitController
-from arpes.physics.display import apply_edcnorm
+from arpes.physics.fit import MdcFitter
+from arpes.physics.plot_compute import apply_edcnorm
 from arpes.physics.gamma import (
     angle_offset_candidates_for_load as _gamma_angle_offset_candidates,
     score_bm_gamma_residual as _gamma_score_bm_residual,
@@ -122,7 +122,7 @@ except Exception:
     FSControlPanel = None
     ERLAB_OK = False
 
-from arpes.physics.display import apply_ef_correction_to_dict
+from arpes.physics.plot_compute import apply_ef_correction_to_dict
 from arpes.ui.widgets.canvas import MplCanvas
 from arpes.ui.widgets.browsers import FileBrowserPanel
 from arpes.ui.widgets.params import ClickablePairLabel, FitParamsPanel, PAIR_COLORS

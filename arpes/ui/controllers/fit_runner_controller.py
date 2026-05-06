@@ -15,14 +15,14 @@ from pathlib import Path
 import numpy as np
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from arpes.physics.display import apply_edcnorm
+from arpes.physics.plot_compute import apply_edcnorm
 from arpes.physics.ef_calibration import (
     ReferenceError as EFReferenceError,
     already_applied as ef_reference_already_applied,
     apply_reference_to_target as apply_ef_reference_to_target,
     compute_calibration_update as compute_ef_calibration_update,
 )
-from arpes.physics.fit import FitController
+from arpes.physics.fit import MdcFitter
 from arpes.ui.widgets.dialogs import EFCalibrationDialog
 
 
@@ -121,7 +121,7 @@ class FitRunnerController:
         self._status("Fit complet en cours …")
         QApplication.processEvents()
         try:
-            controller = FitController(p.ap)
+            controller = MdcFitter(p.ap)
             fr = controller.run_full_fit(
                 data, kpar, ev, fp,
                 resolution_source=getattr(self._params, "_resolution_source_detail", ""),

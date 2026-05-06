@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from arpes.physics.fit import FitController
+from arpes.physics.fit import MdcFitter
 from arpes.core.session import FileEntry, FitParams
 
 
@@ -37,7 +37,7 @@ class TestFitController(unittest.TestCase):
             dE_meV=25.0,
             dk_inv_a=0.006,
         )
-        kwargs = FitController.fit_kwargs(fp, resolution_source="estime")
+        kwargs = MdcFitter.fit_kwargs(fp, resolution_source="estime")
         self.assertEqual(kwargs["n_pairs"], 2)
         self.assertEqual(kwargs["kF_init"], [0.2, 0.4])
         self.assertAlmostEqual(kwargs["dE_eV"], 0.025)
@@ -48,7 +48,7 @@ class TestFitController(unittest.TestCase):
     def test_run_full_fit_calls_arpes_plots(self):
         ap = FakeAP()
         fp = FitParams(dE_meV=20.0)
-        fr = FitController(ap).run_full_fit(
+        fr = MdcFitter(ap).run_full_fit(
             np.zeros((2, 2)),
             np.array([0.0, 1.0]),
             np.array([-0.1, 0.0]),
@@ -67,7 +67,7 @@ class TestFitController(unittest.TestCase):
             "gamma_brut": [[0.10, 0.12]],
             "gamma_corrige": [[0.01, 0.02]],
         }
-        summary = FitController.summarize(fr)
+        summary = MdcFitter.summarize(fr)
         self.assertEqual(summary.n_points, 2)
         self.assertEqual(summary.n_ok, 1)
         self.assertTrue(summary.resolution_dominates)
@@ -76,7 +76,7 @@ class TestFitController(unittest.TestCase):
     def test_update_entry_after_fit(self):
         entry = FileEntry()
         fp = FitParams(n_pairs=3)
-        FitController.update_entry_after_fit(
+        MdcFitter.update_entry_after_fit(
             entry,
             fp,
             ef_offset=0.01,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QMessageBox
 
-from arpes.physics.display import display_grid_config as _plot_display_grid_config
+from arpes.physics.plot_compute import display_grid_config as _plot_display_grid_config
 
 
 class NormController:
