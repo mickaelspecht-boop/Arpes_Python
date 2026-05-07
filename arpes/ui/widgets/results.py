@@ -34,9 +34,14 @@ class ResultsPanel(QWidget):
     def _build(self):
         lay = QHBoxLayout(self)
 
-        # canvas dispersion
-        self._canvas = MplCanvas(figsize=(6, 5))
-        lay.addWidget(self._canvas, stretch=2)
+        # canvas gauche : dispersion (top) + Γ(E) (bottom) empilés
+        canvases = QVBoxLayout()
+        self._canvas = MplCanvas(figsize=(6, 4))
+        self._canvas_gamma = MplCanvas(figsize=(6, 3))
+        canvases.addWidget(self._canvas, stretch=3)
+        canvases.addWidget(self._canvas_gamma, stretch=2)
+        cw = QWidget(); cw.setLayout(canvases)
+        lay.addWidget(cw, stretch=2)
 
         # droite : table + boutons
         right = QVBoxLayout()
@@ -145,6 +150,7 @@ class ResultsPanel(QWidget):
             ax.legend(fontsize=8, facecolor="#333", labelcolor="w",
                       loc="upper right", markerscale=2)
         self._canvas.redraw()
+        self._draw_gamma_panel(colors)
 
     def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
         a_val = float(getattr(meta, "crystal_a_angstrom", 0.0) or 0.0)
@@ -166,6 +172,58 @@ class ResultsPanel(QWidget):
             g0 = self._fmt(g_fl.gamma_zero, g_fl.gamma_zero_sigma, dec=4) if g_fl else "—"
             for col, val in enumerate([filename, label, kf, vf, mstar, g0]):
                 self._table_phys.setItem(row, col, QTableWidgetItem(val))
+
+    def _draw_gamma_panel(self, colors) -> None:
+        from arpes.analysis.results import fit_gamma_fermi_liquid
+        ax = self._canvas_gamma.ax
+        ax.cla(); ax.set_facecolor("#1a1a1a")
+        self._canvas_gamma.fig.set_facecolor("#2b2b2b")
+        plotted = 0
+        for ci, (name, entry) in enumerate(self._session.files.items()):
+            if entry.fit_result is None:
+                continue
+            fr = entry.fit_result
+            ev = np.asarray(fr.get("e_fitted", []), dtype=float)
+            g_arrays = fr.get("gamma_corrige") or fr.get("gamma") or []
+            sg_arrays = fr.get("sigma_gamma") or []
+            color = colors[ci]
+            for i, g_raw in enumerate(g_arrays):
+                g = np.asarray(g_raw, dtype=float)
+                n = min(len(ev), len(g))
+                if n == 0:
+                    continue
+                e_n, g_n = ev[:n], g[:n]
+                valid = np.isfinite(e_n) & np.isfinite(g_n)
+                if int(valid.sum()) < 3:
+                    continue
+                ax.plot(e_n[valid], g_n[valid], "o-", ms=3, lw=0.8, color=color,
+                        alpha=0.85, label=f"{name} P{i+1}" if plotted < 6 else "_")
+                if i < len(sg_arrays):
+                    sg = np.asarray(sg_arrays[i], dtype=float)[:n]
+                    band_valid = valid & np.isfinite(sg) & (sg > 0)
+                    if band_valid.any():
+                        ax.fill_between(e_n[band_valid],
+                                        g_n[band_valid] - sg[band_valid],
+                                        g_n[band_valid] + sg[band_valid],
+                                        color=color, alpha=0.18, lw=0)
+                fl = fit_gamma_fermi_liquid(fr, pair_index=i, e_window=0.30)
+                if np.isfinite(fl.gamma_zero) and np.isfinite(fl.coef_E2):
+                    e_grid = np.linspace(float(np.nanmin(e_n[valid])),
+                                         float(np.nanmax(e_n[valid])), 80)
+                    ax.plot(e_grid, fl.gamma_zero + fl.coef_E2 * e_grid ** 2,
+                            "--", color=color, lw=1.0, alpha=0.7)
+                plotted += 1
+        ax.set_xlabel("E − EF (eV)", fontsize=10, color="w")
+        ax.set_ylabel("Γ (π/a)", fontsize=10, color="w")
+        ax.set_title("Γ(E) — bandes ±σ et fit Fermi liquide (Γ₀ + a·E²)",
+                     fontsize=10, color="w")
+        ax.tick_params(colors="w")
+        for sp in ax.spines.values(): sp.set_edgecolor("#555")
+        if plotted > 0:
+            ax.legend(fontsize=7, facecolor="#333", labelcolor="w",
+                      loc="upper right", ncol=1)
+        self._canvas_gamma.fig.tight_layout(pad=0.6)
+        self._canvas_gamma.redraw()
 
     @staticmethod
     def _fmt(value: float, sigma: float, *, dec: int = 4) -> str:
