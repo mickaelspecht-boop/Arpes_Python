@@ -249,7 +249,9 @@ def _connect_map_canvas(canvas_widget, window) -> None:
     canvas_widget.canvas.mpl_connect("button_press_event", window._on_fit_roi_press)
     canvas_widget.canvas.mpl_connect("motion_notify_event", window._on_fit_roi_motion)
     canvas_widget.canvas.mpl_connect("button_release_event", window._on_fit_roi_release)
-    canvas_widget.canvas.mpl_connect("button_press_event", window._on_fit_delete_press)
+    canvas_widget.canvas.mpl_connect("button_press_event", window._on_fit_select_press)
+    canvas_widget.canvas.mpl_connect("motion_notify_event", window._on_fit_select_motion)
+    canvas_widget.canvas.mpl_connect("button_release_event", window._on_fit_select_release)
 
 
 def wire_param_signals(window) -> None:
@@ -270,7 +272,7 @@ def wire_param_signals(window) -> None:
     p.grid_reset_requested.connect(window._reset_grid_correction)
     p.fit_roi_requested.connect(window._set_fit_roi_pick_mode)
     p.fit_roi_reset_requested.connect(window._reset_fit_roi_range)
-    p.fit_delete_requested.connect(window._set_fit_delete_mode)
+    p.fit_undo_requested.connect(window._undo_fit_delete)
     # THEORY_OVERLAY: optional/removable DFT guide wiring.
     p.theory_import_requested.connect(window._import_theory_overlay)
     p.theory_clear_requested.connect(window._clear_theory_overlay)

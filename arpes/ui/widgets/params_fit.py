@@ -52,21 +52,20 @@ def _build_roi_group(panel, _fcl) -> None:
     btn_fit_roi_reset = QPushButton("Pleine BM")
     btn_fit_roi_reset.setToolTip("Remet la plage d'analyse sur toute la carte chargée.")
     btn_fit_roi_reset.clicked.connect(panel.fit_roi_reset_requested)
-    panel.btn_fit_delete = QPushButton("Supprimer points")
-    panel.btn_fit_delete.setCheckable(True)
-    panel.btn_fit_delete.setToolTip(
-        "Active la suppression de points de fit par clic sur la carte.\n"
-        "Clic gauche : retire le point kF le plus proche (mis à NaN).\n"
-        "Re-cliquer le bouton ou Échap pour quitter."
+    panel.btn_fit_undo = QPushButton("↶ Annuler suppression")
+    panel.btn_fit_undo.setEnabled(False)
+    panel.btn_fit_undo.setToolTip(
+        "Restaure les points de fit retirés par la dernière suppression "
+        "(touche Suppr/Backspace après sélection)."
     )
-    panel.btn_fit_delete.toggled.connect(panel.fit_delete_requested)
+    panel.btn_fit_undo.clicked.connect(panel.fit_undo_requested)
     roi_row = QWidget()
     roi_lay = QHBoxLayout(roi_row)
     roi_lay.setContentsMargins(0, 0, 0, 0)
     roi_lay.setSpacing(4)
     roi_lay.addWidget(panel.btn_fit_roi)
     roi_lay.addWidget(btn_fit_roi_reset)
-    roi_lay.addWidget(panel.btn_fit_delete)
+    roi_lay.addWidget(panel.btn_fit_undo)
     fl2.addRow("ev_start:", panel.sp_evs)
     fl2.addRow("ev_end:", panel.sp_eve)
     fl2.addRow("k_min:", panel.sp_kmin)

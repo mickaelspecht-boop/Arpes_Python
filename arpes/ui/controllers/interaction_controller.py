@@ -194,27 +194,14 @@ class InteractionController:
             f"E={e0:+.3f}→{e1:+.3f} eV"
         )
 
-    def _set_fit_delete_mode(self, active: bool):
-        p = self._parent
-        active = bool(active)
-        p._fit_delete_active = active
-        self._params.set_fit_delete_active(active)
-        for canv in (getattr(p, "_bm_canvas", None), getattr(p, "_mdc_map_canvas", None)):
-            if canv is None or not hasattr(canv, "canvas"):
-                continue
-            if active:
-                canv.canvas.setCursor(Qt.CursorShape.PointingHandCursor)
-            else:
-                canv.canvas.unsetCursor()
-        if active:
-            self._status(
-                "Suppression points de fit : clic sur un point pour le retirer. "
-                "Re-cliquer le bouton pour quitter."
-            )
+    # ----------------------------------------------------- selection points fit
+    _DRAG_THRESHOLD_PX = 4.0
+    _PICK_RADIUS_PX = 12.0
+    _UNDO_STACK_MAX = 20
 
-    def _on_fit_delete_press(self, event):
+    def _on_fit_select_press(self, event):
         p = self._parent
-        if not getattr(p, "_fit_delete_active", False):
+        if getattr(p, "_fit_roi_active", False):
             return
         if event.inaxes not in (
             getattr(p._bm_canvas, "ax", None),
@@ -224,35 +211,189 @@ class InteractionController:
         button = getattr(event.button, "value", event.button)
         if button != 1 or event.xdata is None or event.ydata is None:
             return
+        p._fit_select_press_xy = (float(event.xdata), float(event.ydata))
+        p._fit_select_press_ax = event.inaxes
+        p._fit_select_consumed_click = False
+        p._fit_select_modifier = bool(getattr(event, "key", "") or "") and "shift" in str(event.key).lower()
+
+    def _on_fit_select_motion(self, event):
+        p = self._parent
+        if getattr(p, "_fit_roi_active", False):
+            return
+        start = getattr(p, "_fit_select_press_xy", None)
+        ax = getattr(p, "_fit_select_press_ax", None)
+        if start is None or ax is None or event.inaxes is not ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        try:
+            d0 = ax.transData.transform(start)
+            d1 = ax.transData.transform((float(event.xdata), float(event.ydata)))
+        except Exception:
+            return
+        dx, dy = d1[0] - d0[0], d1[1] - d0[1]
+        if (dx * dx + dy * dy) ** 0.5 < self._DRAG_THRESHOLD_PX:
+            return
+        rect = getattr(p, "_fit_select_rect", None)
+        if rect is None:
+            rect = Rectangle(start, 0.0, 0.0, fill=False, edgecolor="#fbbf24",
+                             linewidth=1.2, linestyle="--", alpha=0.95, zorder=22)
+            ax.add_patch(rect)
+            p._fit_select_rect = rect
+        x0, y0 = start
+        x1, y1 = float(event.xdata), float(event.ydata)
+        rect.set_x(min(x0, x1))
+        rect.set_y(min(y0, y1))
+        rect.set_width(abs(x1 - x0))
+        rect.set_height(abs(y1 - y0))
+        event.canvas.draw_idle()
+
+    def _on_fit_select_release(self, event):
+        p = self._parent
+        if getattr(p, "_fit_roi_active", False):
+            return
+        start = getattr(p, "_fit_select_press_xy", None)
+        ax = getattr(p, "_fit_select_press_ax", None)
+        rect = getattr(p, "_fit_select_rect", None)
+        p._fit_select_press_xy = None
+        p._fit_select_press_ax = None
+        if start is None or ax is None:
+            return
+        if event.xdata is None or event.ydata is None or event.inaxes is not ax:
+            self._discard_select_rect()
+            return
+        try:
+            d0 = ax.transData.transform(start)
+            d1 = ax.transData.transform((float(event.xdata), float(event.ydata)))
+        except Exception:
+            self._discard_select_rect()
+            return
+        moved = ((d1[0] - d0[0]) ** 2 + (d1[1] - d0[1]) ** 2) ** 0.5
+        additive = bool(event.key and "shift" in str(event.key).lower())
+        if moved < self._DRAG_THRESHOLD_PX:
+            self._discard_select_rect()
+            self._handle_single_click_selection(ax, d1, additive=additive)
+        else:
+            x0, y0 = start
+            x1, y1 = float(event.xdata), float(event.ydata)
+            self._discard_select_rect()
+            self._handle_rect_selection(ax, sorted((x0, x1)), sorted((y0, y1)), additive=additive)
+        p._draw_bm()
+
+    def _discard_select_rect(self) -> None:
+        p = self._parent
+        rect = getattr(p, "_fit_select_rect", None)
+        if rect is not None:
+            try:
+                canvas = rect.figure.canvas
+                rect.remove()
+                canvas.draw_idle()
+            except Exception:
+                pass
+        p._fit_select_rect = None
+
+    def _handle_single_click_selection(self, ax, click_disp, *, additive: bool) -> None:
+        p = self._parent
+        if p._fit_res is None:
+            return
+        e_fit = np.asarray(p._fit_res.get("e_fitted", []), dtype=float)
+        if e_fit.size == 0:
+            return
+        nearest = self._find_nearest_kf_point(
+            p._fit_res, e_fit, ax, click_disp, pixel_radius=self._PICK_RADIUS_PX,
+        )
+        if nearest is None:
+            if not additive:
+                if p._fit_selected:
+                    p._fit_selected = []
+                    self._status("Sélection vidée.")
+            return
+        if not additive:
+            if nearest in p._fit_selected and len(p._fit_selected) == 1:
+                p._fit_selected = []
+            else:
+                p._fit_selected = [nearest]
+        else:
+            if nearest in p._fit_selected:
+                p._fit_selected.remove(nearest)
+            else:
+                p._fit_selected.append(nearest)
+        self._status(f"{len(p._fit_selected)} point(s) sélectionné(s). Suppr pour retirer.")
+
+    def _handle_rect_selection(self, ax, xs, ys, *, additive: bool) -> None:
+        p = self._parent
         if p._fit_res is None:
             return
         fr = p._fit_res
         e_fit = np.asarray(fr.get("e_fitted", []), dtype=float)
         if e_fit.size == 0:
             return
-        ax = event.inaxes
-        try:
-            click_disp = ax.transData.transform((float(event.xdata), float(event.ydata)))
-        except Exception:
+        x0, x1 = xs
+        y0, y1 = ys
+        hits: list[tuple[str, int, int]] = []
+        for branch in ("kF_minus", "kF_plus"):
+            for pair_idx, raw in enumerate(fr.get(branch) or []):
+                arr = np.asarray(raw, dtype=float)
+                n = min(arr.size, e_fit.size)
+                if n == 0:
+                    continue
+                k_arr = arr[:n]
+                e_arr = e_fit[:n]
+                mask = (
+                    np.isfinite(k_arr) & np.isfinite(e_arr)
+                    & (k_arr >= x0) & (k_arr <= x1)
+                    & (e_arr >= y0) & (e_arr <= y1)
+                )
+                for idx in np.flatnonzero(mask):
+                    hits.append((branch, pair_idx, int(idx)))
+        if not additive:
+            p._fit_selected = list(hits)
+        else:
+            existing = set(p._fit_selected)
+            for h in hits:
+                if h in existing:
+                    existing.remove(h)
+                else:
+                    existing.add(h)
+            p._fit_selected = list(existing)
+        self._status(f"{len(p._fit_selected)} point(s) sélectionné(s). Suppr pour retirer.")
+
+    def _delete_selected_fit_points(self) -> None:
+        p = self._parent
+        sel = list(getattr(p, "_fit_selected", []) or [])
+        if not sel or p._fit_res is None:
             return
-        nearest = self._find_nearest_kf_point(fr, e_fit, ax, click_disp)
-        if nearest is None:
-            self._status("Aucun point de fit dans le rayon de sélection.")
-            return
-        branch, pair_idx, point_idx = nearest
-        arr = np.asarray(fr[branch][pair_idx], dtype=float).copy()
-        arr[point_idx] = np.nan
-        fr[branch][pair_idx] = arr.tolist()
+        fr = p._fit_res
+        snapshot = {b: [list(arr) for arr in (fr.get(b) or [])] for b in ("kF_minus", "kF_plus")}
+        stack = getattr(p, "_fit_undo_stack", [])
+        stack.append(snapshot)
+        if len(stack) > self._UNDO_STACK_MAX:
+            del stack[: len(stack) - self._UNDO_STACK_MAX]
+        p._fit_undo_stack = stack
+        for branch, pair_idx, point_idx in sel:
+            arr = list(fr[branch][pair_idx])
+            if 0 <= point_idx < len(arr):
+                arr[point_idx] = float("nan")
+            fr[branch][pair_idx] = arr
+        p._fit_selected = []
         self._persist_fit_result(fr)
-        self._status(
-            f"Point retiré : {branch[3:]} paire {pair_idx + 1} idx {point_idx}."
-        )
+        self._params.set_fit_undo_enabled(True)
+        self._status(f"{len(sel)} point(s) supprimé(s). « Annuler » pour restaurer.")
         p._draw_bm()
-        if hasattr(p, "_draw_mdc_map"):
-            try:
-                p._draw_mdc_map()
-            except Exception:
-                pass
+
+    def _undo_fit_delete(self) -> None:
+        p = self._parent
+        stack = getattr(p, "_fit_undo_stack", []) or []
+        if not stack or p._fit_res is None:
+            self._params.set_fit_undo_enabled(False)
+            return
+        snap = stack.pop()
+        for branch, arrays in snap.items():
+            p._fit_res[branch] = [list(a) for a in arrays]
+        self._persist_fit_result(p._fit_res)
+        self._params.set_fit_undo_enabled(bool(stack))
+        self._status("Suppression annulée.")
+        p._draw_bm()
 
     def _find_nearest_kf_point(self, fr, e_fit, ax, click_disp, *, pixel_radius: float = 12.0):
         best = None
@@ -305,12 +446,31 @@ class InteractionController:
             return
         if event.xdata is None or event.ydata is None:
             return
+        if self._is_click_on_fit_point(event):
+            return
         d = p._raw_data
         p._sel_ev = float(np.clip(event.ydata, d["ev_arr"].min(), d["ev_arr"].max()))
         p._sel_k = float(np.clip(event.xdata, d["kpar"].min(), d["kpar"].max()))
         self._sync_ev_spinbox()
         p._draw_bm()
         p._draw_mdc_edc()
+
+    def _is_click_on_fit_point(self, event) -> bool:
+        p = self._parent
+        if p._fit_res is None:
+            return False
+        e_fit = np.asarray(p._fit_res.get("e_fitted", []), dtype=float)
+        if e_fit.size == 0:
+            return False
+        try:
+            disp = event.inaxes.transData.transform(
+                (float(event.xdata), float(event.ydata))
+            )
+        except Exception:
+            return False
+        return self._find_nearest_kf_point(
+            p._fit_res, e_fit, event.inaxes, disp, pixel_radius=self._PICK_RADIUS_PX,
+        ) is not None
 
     def _sync_ev_spinbox(self):
         self._params.sp_ev.blockSignals(True)

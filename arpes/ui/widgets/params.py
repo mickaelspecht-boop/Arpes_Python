@@ -83,7 +83,7 @@ class FitParamsPanel(QScrollArea):
     grid_reset_requested = pyqtSignal()
     fit_roi_requested = pyqtSignal(bool)
     fit_roi_reset_requested = pyqtSignal()
-    fit_delete_requested = pyqtSignal(bool)
+    fit_undo_requested = pyqtSignal()
     theory_import_requested = pyqtSignal()
     theory_clear_requested = pyqtSignal()
     theory_overlay_changed = pyqtSignal()
@@ -261,10 +261,8 @@ class FitParamsPanel(QScrollArea):
         self.btn_fit_roi.setChecked(bool(active))
         self.btn_fit_roi.blockSignals(False)
 
-    def set_fit_delete_active(self, active: bool):
-        self.btn_fit_delete.blockSignals(True)
-        self.btn_fit_delete.setChecked(bool(active))
-        self.btn_fit_delete.blockSignals(False)
+    def set_fit_undo_enabled(self, enabled: bool):
+        self.btn_fit_undo.setEnabled(bool(enabled))
 
     def set_context(self, context: str):
         """Adapte le panneau droit à l'onglet actif."""

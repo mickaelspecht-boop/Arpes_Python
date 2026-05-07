@@ -307,6 +307,28 @@ class PlotController:
             if i < len(fr.get("kF_plus", [])):
                 ax.scatter(np.asarray(fr["kF_plus"][i]), ev_f,
                            s=7, color=c, marker="^", zorder=5, alpha=0.85)
+        selected = list(getattr(self._parent, "_fit_selected", []) or [])
+        if not selected:
+            return
+        ev_f = np.asarray(fr["e_fitted"])
+        sel_k: list[float] = []
+        sel_e: list[float] = []
+        for branch, pair_idx, point_idx in selected:
+            arrays = fr.get(branch) or []
+            if not (0 <= pair_idx < len(arrays)):
+                continue
+            arr = np.asarray(arrays[pair_idx], dtype=float)
+            if not (0 <= point_idx < arr.size and point_idx < ev_f.size):
+                continue
+            k_val = arr[point_idx]
+            e_val = ev_f[point_idx]
+            if not (np.isfinite(k_val) and np.isfinite(e_val)):
+                continue
+            sel_k.append(float(k_val))
+            sel_e.append(float(e_val))
+        if sel_k:
+            ax.scatter(sel_k, sel_e, s=70, facecolors="none",
+                       edgecolors="#fbbf24", linewidths=1.6, zorder=7)
 
     # ─────────────────────────────────────────────────────────────────────────
     # MDC + EDC

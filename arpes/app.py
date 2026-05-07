@@ -158,7 +158,11 @@ class ArpesExplorer(QMainWindow):
         self._fit_roi_start: tuple[float, float] | None = None
         self._fit_roi_ax = None
         self._fit_roi_rect = None
-        self._fit_delete_active = False
+        self._fit_selected: list[tuple[str, int, int]] = []
+        self._fit_undo_stack: list[dict] = []
+        self._fit_select_press_xy: tuple[float, float] | None = None
+        self._fit_select_press_ax = None
+        self._fit_select_rect = None
 
         # Cache de _update_display_data : recompute uniquement si une des clés
         # influence le résultat affiché.
@@ -252,8 +256,11 @@ class ArpesExplorer(QMainWindow):
         "_on_fit_roi_release": "_interaction_ctrl",
         "_apply_fit_roi_from_bounds": "_interaction_ctrl",
         "_reset_fit_roi_range": "_interaction_ctrl",
-        "_set_fit_delete_mode": "_interaction_ctrl",
-        "_on_fit_delete_press": "_interaction_ctrl",
+        "_on_fit_select_press": "_interaction_ctrl",
+        "_on_fit_select_motion": "_interaction_ctrl",
+        "_on_fit_select_release": "_interaction_ctrl",
+        "_delete_selected_fit_points": "_interaction_ctrl",
+        "_undo_fit_delete": "_interaction_ctrl",
         "_on_map_click": "_interaction_ctrl",
         "_sync_ev_spinbox": "_interaction_ctrl",
         # FitRunnerController
@@ -573,6 +580,11 @@ class ArpesExplorer(QMainWindow):
             lambda: self._browser.navigate(-1))
         QShortcut(QKeySequence(Qt.Key.Key_Right), self).activated.connect(
             lambda: self._browser.navigate(+1))
+        QShortcut(QKeySequence(Qt.Key.Key_Delete), self).activated.connect(
+            self._delete_selected_fit_points)
+        QShortcut(QKeySequence(Qt.Key.Key_Backspace), self).activated.connect(
+            self._delete_selected_fit_points)
+        QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self._undo_fit_delete)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Chargement fichier
