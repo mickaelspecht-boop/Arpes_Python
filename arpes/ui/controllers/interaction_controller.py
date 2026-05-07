@@ -194,6 +194,99 @@ class InteractionController:
             f"E={e0:+.3f}→{e1:+.3f} eV"
         )
 
+    def _set_fit_delete_mode(self, active: bool):
+        p = self._parent
+        active = bool(active)
+        p._fit_delete_active = active
+        self._params.set_fit_delete_active(active)
+        for canv in (getattr(p, "_bm_canvas", None), getattr(p, "_mdc_map_canvas", None)):
+            if canv is None or not hasattr(canv, "canvas"):
+                continue
+            if active:
+                canv.canvas.setCursor(Qt.CursorShape.PointingHandCursor)
+            else:
+                canv.canvas.unsetCursor()
+        if active:
+            self._status(
+                "Suppression points de fit : clic sur un point pour le retirer. "
+                "Re-cliquer le bouton pour quitter."
+            )
+
+    def _on_fit_delete_press(self, event):
+        p = self._parent
+        if not getattr(p, "_fit_delete_active", False):
+            return
+        if event.inaxes not in (
+            getattr(p._bm_canvas, "ax", None),
+            getattr(p._mdc_map_canvas, "ax", None),
+        ):
+            return
+        button = getattr(event.button, "value", event.button)
+        if button != 1 or event.xdata is None or event.ydata is None:
+            return
+        if p._fit_res is None:
+            return
+        fr = p._fit_res
+        e_fit = np.asarray(fr.get("e_fitted", []), dtype=float)
+        if e_fit.size == 0:
+            return
+        ax = event.inaxes
+        try:
+            click_disp = ax.transData.transform((float(event.xdata), float(event.ydata)))
+        except Exception:
+            return
+        nearest = self._find_nearest_kf_point(fr, e_fit, ax, click_disp)
+        if nearest is None:
+            self._status("Aucun point de fit dans le rayon de sélection.")
+            return
+        branch, pair_idx, point_idx = nearest
+        arr = np.asarray(fr[branch][pair_idx], dtype=float).copy()
+        arr[point_idx] = np.nan
+        fr[branch][pair_idx] = arr.tolist()
+        self._persist_fit_result(fr)
+        self._status(
+            f"Point retiré : {branch[3:]} paire {pair_idx + 1} idx {point_idx}."
+        )
+        p._draw_bm()
+        if hasattr(p, "_draw_mdc_map"):
+            try:
+                p._draw_mdc_map()
+            except Exception:
+                pass
+
+    def _find_nearest_kf_point(self, fr, e_fit, ax, click_disp, *, pixel_radius: float = 12.0):
+        best = None
+        best_dist2 = float(pixel_radius) ** 2
+        for branch in ("kF_minus", "kF_plus"):
+            arrays = fr.get(branch) or []
+            for pair_idx, raw in enumerate(arrays):
+                arr = np.asarray(raw, dtype=float)
+                n = min(arr.size, e_fit.size)
+                if n == 0:
+                    continue
+                pts_data = np.column_stack([arr[:n], e_fit[:n]])
+                valid = np.all(np.isfinite(pts_data), axis=1)
+                if not valid.any():
+                    continue
+                pts_disp = ax.transData.transform(pts_data[valid])
+                d2 = np.sum((pts_disp - click_disp) ** 2, axis=1)
+                local_idx = int(np.argmin(d2))
+                global_idx = int(np.flatnonzero(valid)[local_idx])
+                if d2[local_idx] < best_dist2:
+                    best_dist2 = float(d2[local_idx])
+                    best = (branch, pair_idx, global_idx)
+        return best
+
+    def _persist_fit_result(self, fr: dict) -> None:
+        p = self._parent
+        p._fit_res = fr
+        path = getattr(p, "_current_path", None)
+        if path:
+            key = p._session.key_for_path(path)
+            entry = p._session.get_or_create(key)
+            entry.fit_result = fr
+            p._session.save()
+
     def _reset_fit_roi_range(self):
         p = self._parent
         if p._raw_data is None:

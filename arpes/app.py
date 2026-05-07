@@ -158,6 +158,7 @@ class ArpesExplorer(QMainWindow):
         self._fit_roi_start: tuple[float, float] | None = None
         self._fit_roi_ax = None
         self._fit_roi_rect = None
+        self._fit_delete_active = False
 
         # Cache de _update_display_data : recompute uniquement si une des clés
         # influence le résultat affiché.
@@ -251,6 +252,8 @@ class ArpesExplorer(QMainWindow):
         "_on_fit_roi_release": "_interaction_ctrl",
         "_apply_fit_roi_from_bounds": "_interaction_ctrl",
         "_reset_fit_roi_range": "_interaction_ctrl",
+        "_set_fit_delete_mode": "_interaction_ctrl",
+        "_on_fit_delete_press": "_interaction_ctrl",
         "_on_map_click": "_interaction_ctrl",
         "_sync_ev_spinbox": "_interaction_ctrl",
         # FitRunnerController
