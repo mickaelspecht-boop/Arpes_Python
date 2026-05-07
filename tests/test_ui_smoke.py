@@ -34,7 +34,7 @@ class TestUiSmoke(unittest.TestCase):
     def test_window_instantiates(self):
         win = self._make_window()
         self.assertIsNotNone(win)
-        self.assertEqual(win._tabs.count(), 5)
+        self.assertEqual(win._tabs.count(), 6)
         self.assertIsNotNone(win.ap, "arpes_plots doit être chargé")
 
     def test_controllers_wired(self):
@@ -71,7 +71,8 @@ class TestUiSmoke(unittest.TestCase):
     def test_widgets_built(self):
         win = self._make_window()
         for attr in ("_params", "_results", "_browser", "_bm_canvas",
-                     "_mdc_edc", "_tabs", "_kz_canvas", "_kz_controls"):
+                     "_mdc_edc", "_tabs", "_kz_canvas", "_kz_controls",
+                     "_help_panel"):
             self.assertTrue(hasattr(win, attr), f"widget {attr} non construit")
         self.assertTrue(hasattr(win._params, "_theory_widget"))
 

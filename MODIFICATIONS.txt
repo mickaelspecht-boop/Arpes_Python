@@ -9,10 +9,226 @@ Regle de travail
 
 Modifications prevues
 ---------------------
-- Aucune pour l'instant. En attente des demandes utilisateur.
+- Aucune pour l'instant. En attente du go utilisateur pour la feature suivante.
 
 Modifications effectuees
 ------------------------
+- 2026-05-07 : documentation in-app.
+  Fichiers crees : arpes/docs/workflow.md, arpes/docs/shortcuts.md,
+  arpes/docs/physics.md, arpes/ui/widgets/help_panel.py,
+  tests/test_help_panel.py.
+  Fichiers modifies : arpes/ui/builders/panels.py, arpes/app.py,
+  tests/test_ui_smoke.py.
+  Detail : ajout onglet "Aide" en fin de tabs principaux ; HelpPanel autonome
+  avec index QListWidget et rendu QTextBrowser.setMarkdown natif Qt ; sections
+  Workflow, Raccourcis et Formules Physiques ; fallback explicite si un fichier
+  markdown manque.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_help_panel tests.test_ui_smoke
+  Resultat : OK, 6 tests.
+- 2026-05-07 : compilation syntaxe.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m py_compile arpes/ui/widgets/help_panel.py arpes/ui/builders/panels.py arpes/app.py
+  Resultat : OK.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 198 tests, 1 skip.
+- 2026-05-07 : tags fichiers + filtre browser.
+  Fichiers crees : tests/test_file_tags.py.
+  Fichiers modifies : arpes/core/session.py,
+  arpes/ui/widgets/params.py, arpes/ui/widgets/params_ef.py,
+  arpes/ui/widgets/browsers/files.py, arpes/ui/controllers/browser_controller.py,
+  arpes/ui/controllers/load_controller.py, arpes/ui/builders/panels.py,
+  arpes/app.py, tests/test_session.py.
+  Detail : ajout FileMeta.tags avec normalisation virgules/dedoublonnage ;
+  champ "Tags" dans le panneau EF/Chargement sauvegarde sur le fichier courant ;
+  autocompletion depuis les tags de session ; champ "Filtre tag" dans le
+  browser filtre uniquement l'affichage ; les tags apparaissent dans le label
+  et le detail de selection des fichiers.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_session tests.test_file_tags tests.test_ui_smoke
+  Resultat : OK, 10 tests.
+- 2026-05-07 : compilation syntaxe.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m py_compile arpes/core/session.py arpes/ui/widgets/params.py arpes/ui/widgets/params_ef.py arpes/ui/widgets/browsers/files.py arpes/ui/controllers/browser_controller.py arpes/ui/controllers/load_controller.py arpes/app.py
+  Resultat : OK.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 196 tests, 1 skip.
+- 2026-05-07 : import DFT local.
+  Fichiers crees : arpes/theory/local_loaders.py,
+  tests/test_local_dft_loaders.py.
+  Fichiers modifies : arpes/ui/widgets/params.py,
+  arpes/ui/widgets/params_theory.py,
+  arpes/ui/controllers/theory_overlay_controller.py,
+  arpes/ui/builders/panels.py, arpes/app.py, arpes/theory/plot.py.
+  Detail : ajout loader local pour schema YAML/JSON minimal, tables QE
+  .dat/.txt et vasprun.xml via pymatgen ; bouton "Importer local" dans le
+  panneau DFT/Theorie ; QFileDialog filtre xml/dat/txt/yaml/yml/json ;
+  overlay sauvegarde comme les imports MP, avec segments detectes depuis les
+  labels et libelles "DFT locale" dans le panneau et sur la carte.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_local_dft_loaders tests.test_ui_smoke tests.test_self_energy
+  Resultat : OK, 9 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 194 tests, 1 skip.
+- 2026-05-07 : fenetre choix ZDB pertinente.
+  Fichiers crees : arpes/physics/bz.py,
+  arpes/ui/widgets/dialogs/bz_selector.py, tests/test_bz.py.
+  Fichiers modifies : arpes/physics/fs.py,
+  arpes/ui/widgets/dialogs/__init__.py, arpes/ui/controllers/fs_controller.py,
+  arpes/ui/builders/panels.py, arpes/app.py.
+  Detail : ajout presets ZDB tetragonal/carre, orthorhombique/rectangle et
+  hexagonal ; bouton "Choisir ZDB..." dans les controles FS ; dialog avec
+  schema indicatif des points Γ/X/M ou Γ/M/K ; application du preset aux
+  demi-ZDB x/y et a la forme de l'overlay FS. Le choix reste manuel/indicatif,
+  pas une detection automatique de structure cristalline.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_bz tests.test_fs tests.test_ui_smoke
+  Resultat : OK, 14 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 191 tests, 1 skip.
+- 2026-05-07 : socle undo global Ctrl+Z/Ctrl+Y.
+  Fichiers crees : arpes/core/undo.py, tests/test_undo_stack.py.
+  Fichiers modifies : arpes/app.py,
+  arpes/ui/controllers/interaction_controller.py.
+  Detail : ajout UndoFrame/UndoStack generique avec undo, redo, max_size et
+  protection contre push recursif pendant undo ; ArpesExplorer possede
+  maintenant _undo_stack ; la suppression de points fit utilise cette pile au
+  lieu du stack local ; Ctrl+Z annule et Ctrl+Y retablit la suppression. Le
+  bouton existant "Annuler suppression" reste connecte au meme undo.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_undo_stack tests.test_fit_controller tests.test_ui_smoke
+  Resultat : OK, 11 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 189 tests, 1 skip.
+- 2026-05-07 : mode affichage 2nd deriv E.
+  Fichiers modifies : arpes/physics/plot_compute.py,
+  arpes/ui/builders/panels.py, arpes/ui/controllers/plot_controller.py.
+  Fichiers crees : tests/test_second_deriv.py.
+  Detail : ajout compute_second_deriv_e, derivee seconde negative lissee
+  uniquement selon l'axe energie ; nouveau mode "2nd deriv E" dans les combos
+  Vue BM et Fit ; mode masque E > EF comme SecDev/Curvature ; sigma_smooth=0
+  desactive proprement le lissage.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_second_deriv tests.test_plot_controller tests.test_ui_smoke
+  Resultat : OK, 19 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 186 tests, 1 skip.
+- 2026-05-07 : kF(T) multi-fichier.
+  Fichiers crees : arpes/analysis/aggregation.py,
+  arpes/ui/widgets/dialogs/multi_file_analysis.py,
+  tests/test_multifile_aggregation.py.
+  Fichiers modifies : arpes/ui/widgets/dialogs/__init__.py,
+  arpes/ui/widgets/results.py.
+  Detail : ajout aggregate_session_entries qui extrait kF, m*, Gamma0 depuis
+  les entries fittes, filtre optionnellement par direction, trie selon T(K),
+  hν ou polarisation, et compte les entries ignorees. Ajout du bouton
+  "Analyse multi-fichier..." dans Resultats ouvrant un dialog avec liste
+  cochable et plot 3 panneaux kF/m*/Gamma0.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_multifile_aggregation tests.test_analysis_results tests.test_ui_smoke
+  Resultat : OK, 6 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 184 tests, 1 skip.
+- 2026-05-07 : self-energy / kink detection.
+  Fichiers crees : arpes/analysis/self_energy.py,
+  arpes/ui/widgets/dialogs/self_energy.py, tests/test_self_energy.py.
+  Fichiers modifies : arpes/ui/widgets/dialogs/__init__.py,
+  arpes/ui/widgets/params.py, arpes/ui/widgets/params_theory.py,
+  arpes/ui/builders/panels.py, arpes/ui/controllers/theory_overlay_controller.py,
+  arpes/app.py.
+  Detail : ajout calcul pur real_self_energy qui selectionne la meilleure bande
+  DFT via compare_fit_to_theory puis calcule Re Sigma(E)=E_exp-E_DFT(k_exp) ;
+  estimation simple kink par maximum de courbure et lambda_eff approximatif ;
+  bouton "Calculer Re Sigma" dans DFT/Theorie ouvrant un dialog matplotlib.
+  Erreurs explicites si DFT ou fit absent ou recouvrement insuffisant.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_self_energy tests.test_theory_overlay tests.test_ui_smoke
+  Resultat : OK, 12 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 182 tests, 1 skip.
+- 2026-05-07 : chi2_red par slice.
+  Fichiers modifies : arpes/ui/widgets/plots/mdc_fit.py,
+  arpes/ui/widgets/params_fit.py, arpes/ui/controllers/plot_controller.py,
+  arpes/ui/widgets/results.py.
+  Fichiers crees : tests/test_chi2_red.py.
+  Detail : chaque slice fittee stocke chi2_red = somme(residu^2)/dof dans
+  fit_result ; le panneau Fit ajoute un seuil chi2_red par defaut a 5.0 ;
+  les points dont chi2_red depasse le seuil sont affiches en orange sur la
+  carte kF ; la table Resultats affiche la mediane chi2_red. Sessions anciennes
+  sans chi2_red restent supportees.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_chi2_red tests.test_mdc_residuals tests.test_plot_controller tests.test_ui_smoke
+  Resultat : OK, 22 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 180 tests, 1 skip.
+- 2026-05-07 : styles export matplotlib publication.
+  Fichiers crees : arpes/io/export_styles.py, tests/test_export_styles.py.
+  Fichiers modifies : arpes/ui/widgets/results.py.
+  Detail : ajout presets default, publication_npj et publication_prb ; helper
+  apply_preset avec fallback si latex absent ; export figure passe a dpi 300
+  et utilise le style choisi dans le nouveau combo "Style export" du panneau
+  Resultats.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_export_styles tests.test_export tests.test_ui_smoke
+  Resultat : OK, 11 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 178 tests, 1 skip.
+- 2026-05-07 : diff sessions.
+  Fichiers crees : arpes/analysis/session_diff.py,
+  arpes/ui/widgets/dialogs/session_diff.py, tests/test_session_diff.py.
+  Fichiers modifies : arpes/ui/widgets/dialogs/__init__.py,
+  arpes/ui/builders/menus.py, arpes/ui/controllers/session_io_controller.py,
+  arpes/app.py.
+  Detail : nouveau calcul pur compare_session_payloads qui charge deux payloads
+  via Session.load_from_payload, calcule les resultats physiques par branche et
+  produit les deltas kF/vF/m* ; fichiers ou branches absents gardent une ligne
+  explicite. Ajout du dialog "Comparer sessions" dans le menu Fichier avec deux
+  choix de session et table de comparaison ; warning si crystal_a differe.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_session_diff tests.test_session tests.test_ui_smoke
+  Resultat : OK, 10 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 175 tests, 1 skip.
+- 2026-05-07 : plot residuels MDC.
+  Fichiers modifies : arpes/ui/widgets/plots/mdc_fit.py,
+  arpes/ui/widgets/plots/mdc_diagnostics.py, arpes/physics/plot_compute.py,
+  arpes/ui/controllers/plot_controller.py, tests/test_mdc_residuals.py.
+  Detail : fit_mdc_peak_pairs stocke maintenant fit_kpar, fit_curves et
+  residuals alignes sur e_fitted ; le diagnostic standalone ajoute un axe
+  residus sous le waterfall ; l'onglet Waterfall MDC de l'app cree aussi un
+  sous-axe residuel quand un fit complet contient ces donnees ; lignes zero
+  et +/- RMS global affichees comme reperes.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_mdc_residuals tests.test_plot_controller tests.test_fit_controller tests.test_plots_split
+  Resultat : OK, 21 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 173 tests, 1 skip.
+- 2026-05-07 : annotations sur points fit.
+  Fichiers modifies : arpes/core/session.py,
+  arpes/ui/controllers/interaction_controller.py,
+  arpes/ui/controllers/plot_controller.py, arpes/ui/builders/panels.py,
+  arpes/app.py, tests/test_annotations.py.
+  Detail : ajout de FileEntry.annotations persiste en JSON ; clic droit sur
+  un point kF ouvre une note multi-ligne ; l'annotation est remplacee si le
+  meme point est annote a nouveau ; etoile et libelle court affiches sur la
+  carte ; tooltip au survol du point annote ; points supprimes/NaN ignores au
+  rendu.
+- 2026-05-07 : verifications lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest tests.test_annotations tests.test_session tests.test_ui_smoke
+  Resultat : OK, 11 tests.
+- 2026-05-07 : verifications globales lancees.
+  Commande : /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python -m unittest discover tests
+  Resultat : OK, 170 tests, 1 skip.
 - 2026-05-06 : creation de ce journal de suivi.
 - 2026-05-06 : chargement Raw par defaut pour les nouveaux fichiers.
   Fichiers modifies : arpes/core/session.py, arpes/ui/widgets/params.py,

@@ -25,6 +25,16 @@ class FSController:
         self._save_current_fs_center()
         self._draw_fs_tab()
 
+    def _choose_bz_preset(self):
+        if not hasattr(self, "_fs_controls"):
+            return
+        from arpes.ui.widgets.dialogs import BZSelectorDialog
+        dialog = BZSelectorDialog(self._parent)
+        if dialog.exec():
+            self._fs_controls.apply_bz_preset(dialog.selected_key)
+            self._draw_fs_tab()
+            self._status(f"ZDB appliquée : {dialog.selected_key}")
+
     def _save_current_fs_center(self):
         if self._raw_data is None or not self._current_path or not self._current_is_fs():
             return

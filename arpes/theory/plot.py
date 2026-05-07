@@ -58,8 +58,9 @@ def draw_theory_overlay(ax, overlay: dict[str, Any] | None) -> int:
 
 def _overlay_label(data: TheoryBandData, config: TheoryOverlayConfig, best: dict[str, Any] | None = None) -> str:
     segment = f" | {config.segment}" if config.segment else ""
+    source_label = "DFT MP" if data.source == "materials_project" else "DFT locale"
     label = (
-        f"DFT MP {data.material_id}{segment} | "
+        f"{source_label} {data.material_id}{segment} | "
         f"dE={config.energy_shift:+.2f} eV dk={config.k_shift:+.2f}"
     )
     if best:

@@ -161,9 +161,15 @@ def _build_fit_mdc_group(panel, _fcl) -> None:
         "up : parcourt la BM de ev_start (bas) vers ev_end (proche EF).\n"
         "down : sens inverse. Choisir le sens où les pics sont les plus nets en départ."
     )
+    panel.sp_chi2_threshold = dspin(5.0, 0.1, 1_000.0, 0.5, dec=1)
+    panel.sp_chi2_threshold.setToolTip(
+        "Seuil chi2_red pour marquer les slices de fit douteuses en orange.\n"
+        "N'agit que sur l'affichage si le fit_result contient chi2_red."
+    )
 
     for w in (panel.sp_sff, panel.sp_sfd, panel.sp_kfi, panel.sp_gi, panel.sp_gm,
-              panel.sp_xg, panel.sp_cx, panel.sp_k0m, panel.sp_ma, panel.sp_mj):
+              panel.sp_xg, panel.sp_cx, panel.sp_k0m, panel.sp_ma, panel.sp_mj,
+              panel.sp_chi2_threshold):
         w.valueChanged.connect(panel.fit_only_changed)
     panel.cmb_wm.currentIndexChanged.connect(panel.fit_only_changed)
 
@@ -208,6 +214,7 @@ def _build_fit_mdc_group(panel, _fcl) -> None:
     fl3.addRow(hsep())
     fl3.addRow("Ampl. min:", panel.sp_ma)
     fl3.addRow("Saut max (π/a):", panel.sp_mj)
+    fl3.addRow("Seuil chi2_red:", panel.sp_chi2_threshold)
     fl3.addRow("Sens scan:", panel.cmb_sd)
     fl3.addRow(hsep())
     de_row = QWidget()

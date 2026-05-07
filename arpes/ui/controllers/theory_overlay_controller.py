@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
+from arpes.analysis.self_energy import real_self_energy
+from arpes.theory.local_loaders import load_local_band_data
 from arpes.theory.materials_project import load_materials_project_band_data
 from arpes.theory.models import available_segments, compare_fit_to_theory, segment_from_direction
 from arpes.theory.plot import draw_theory_overlay
@@ -42,6 +44,54 @@ class TheoryOverlayController:
             self._parent._status("Attention: MP-ID vide pour overlay DFT.")
             return
         self._apply_mp_id(mpid, source="manuel", show_dialog_on_error=True)
+
+    def _import_local_theory_overlay(self) -> None:
+        start_dir = ""
+        current = getattr(self._parent, "_current_path", None)
+        if current:
+            start_dir = str(Path(current).parent)
+        path_s, _ = QFileDialog.getOpenFileName(
+            self._parent,
+            "Importer DFT local",
+            start_dir,
+            "DFT local (*.xml *.dat *.txt *.yaml *.yml *.json);;Tous fichiers (*)",
+        )
+        if not path_s:
+            return
+        try:
+            data = load_local_band_data(Path(path_s))
+        except Exception as exc:
+            self._parent._status(f"Attention: import DFT local impossible: {exc}")
+            QMessageBox.warning(self._parent, "Import DFT local", str(exc))
+            return
+
+        cfg = self._params.theory_overlay_config()
+        cfg["material_id"] = data.material_id
+        entry = self._parent._current_entry()
+        direction = entry.meta.direction if entry is not None else ""
+        segment = segment_from_direction(direction, data.labels)
+        segments = available_segments(data.labels)
+        if segment and not cfg.get("segment"):
+            cfg["segment"] = segment
+        overlay = {
+            "enabled": True,
+            "data": data.to_dict(),
+            "config": cfg,
+            "segments": segments,
+            "status": "ok",
+            "warning": (
+                data.warning
+                or (
+                    "" if segment or not direction
+                    else f"Direction logbook {direction} non trouvée dans le chemin DFT."
+                )
+            ),
+        }
+        self._save_overlay(overlay)
+        self._params.set_theory_overlay_state(overlay)
+        self._params.txt_theory_mpid.setText(data.material_id)
+        self._parent._draw_bm()
+        self._parent._status(f"DFT locale importée: {Path(path_s).name} | alignement manuel requis.")
 
     def _apply_mp_id(self, mpid: str, *, source: str = "manuel",
                      show_dialog_on_error: bool = False) -> bool:
@@ -148,6 +198,26 @@ class TheoryOverlayController:
             f"bande {best['band_index']} {best['branch']} paire {best['pair_index'] + 1} "
             f"RMS={best['rms_e'] * 1000:.0f} meV sur {best['n_points']} points."
         )
+
+    def _calculate_self_energy(self) -> None:
+        overlay = dict(self._current_overlay() or {})
+        cfg = self._params.theory_overlay_config()
+        overlay["config"] = cfg
+        try:
+            result = real_self_energy(self._parent._fit_res, overlay)
+        except ValueError as exc:
+            self._parent._status(f"Attention: Re Sigma indisponible: {exc}")
+            return
+        from arpes.ui.widgets.dialogs import SelfEnergyDialog
+        dialog = SelfEnergyDialog(result, self._parent)
+        dialog.exec()
+        msg = (
+            f"Re Sigma: bande {result.band_index} {result.branch} "
+            f"P{result.pair_index + 1}, RMS={result.rms_e * 1000:.0f} meV"
+        )
+        if result.kink_energy == result.kink_energy:
+            msg += f", kink≈{result.kink_energy * 1000:.0f} meV"
+        self._parent._status(msg)
 
     def _draw_theory_overlay(self, ax) -> None:
         try:

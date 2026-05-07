@@ -5,21 +5,23 @@ import re
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QStringListModel, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QCompleter,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from arpes.core.session import Session
+from arpes.core.session import Session, normalize_tags, session_tags
 from arpes.io.loaders import detect_format, detect_scan_kind, loader_label
 from arpes.io.logbook import (
     _cell_float,
@@ -73,6 +75,16 @@ class FileBrowserPanel(QWidget):
         self._lbl_summary.setWordWrap(True)
         self._lbl_summary.setStyleSheet("font-size:10px; color:#aaa;")
         lay.addWidget(self._lbl_summary)
+
+        self._tag_filter = QLineEdit()
+        self._tag_filter.setPlaceholderText("Filtre tag")
+        self._tag_filter.setToolTip("Filtre l'affichage aux fichiers contenant ce tag.")
+        self._tag_filter_model = QStringListModel([])
+        filter_completer = QCompleter(self._tag_filter_model, self._tag_filter)
+        filter_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._tag_filter.setCompleter(filter_completer)
+        self._tag_filter.textChanged.connect(self._on_tag_filter_changed)
+        lay.addWidget(self._tag_filter)
 
         mode_row = QVBoxLayout()
         mode_title = QLabel("Organiser par:")
@@ -151,6 +163,7 @@ class FileBrowserPanel(QWidget):
                 self._session.load(self._session.json_path)
             except Exception:
                 pass
+        self.refresh_tag_completions()
         self._populate()
 
     def refresh(self):
@@ -158,6 +171,15 @@ class FileBrowserPanel(QWidget):
         self._loader_label_cache.clear()
         self._scan_kind_cache.clear()
         self._logbook_record_cache.clear()
+        self.refresh_tag_completions()
+        self._populate()
+
+    def refresh_tag_completions(self):
+        tags = session_tags(self._session)
+        if hasattr(self, "_tag_filter_model"):
+            self._tag_filter_model.setStringList(tags)
+
+    def _on_tag_filter_changed(self, _text: str):
         self._populate()
 
     def _is_cls_dataset_dir(self, p: Path) -> bool:
@@ -258,7 +280,27 @@ class FileBrowserPanel(QWidget):
         p = Path(path)
         icon = self.STATUS_ICONS[status]
         extra = self._item_context_suffix(p, key)
-        return f"  {icon}  {p.name}{self._loader_suffix_for_path(p, key)}{self._fs_suffix_for_path(p)}{extra}"
+        tags = self._tags_for_path(p, key)
+        tag_txt = f"  #{', #'.join(tags[:3])}" if tags else ""
+        return f"  {icon}  {p.name}{self._loader_suffix_for_path(p, key)}{self._fs_suffix_for_path(p)}{tag_txt}{extra}"
+
+    def _tags_for_path(self, path: str | Path, key: str | None = None) -> list[str]:
+        p = Path(path)
+        key = key or self._session.key_for_path(p)
+        entry = self._session.files.get(key)
+        if entry is None:
+            return []
+        return normalize_tags(getattr(entry.meta, "tags", []))
+
+    def _tag_filter_text(self) -> str:
+        return self._tag_filter.text().strip() if hasattr(self, "_tag_filter") else ""
+
+    def _tag_filter_matches(self, path: str | Path) -> bool:
+        wanted = [tag.casefold() for tag in normalize_tags(self._tag_filter_text())]
+        if not wanted:
+            return True
+        have = {tag.casefold() for tag in self._tags_for_path(path)}
+        return all(tag in have for tag in wanted)
 
     def _logbook_record_for_path(self, path: str | Path) -> dict | None:
         mapping = self._session.logbook_mapping or {}
@@ -488,6 +530,9 @@ class FileBrowserPanel(QWidget):
         if entry is not None:
             if entry.fit_result:
                 bits.append("fit enregistré")
+            tags = self._tags_for_path(p, key)
+            if tags:
+                bits.append("tags: " + ", ".join(tags))
         return "\n".join(bits)
 
     def _refresh_selection_state(self):

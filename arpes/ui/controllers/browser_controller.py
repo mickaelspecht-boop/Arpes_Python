@@ -33,7 +33,8 @@ class BrowserController:
             self._refresh_selection_state()
             return
 
-        all_paths = self._discover_items()
+        discovered_paths = self._discover_items()
+        all_paths = [p for p in discovered_paths if self._tag_filter_matches(p)]
         groups: dict[str, list[Path]] = {}
         for p in all_paths:
             group = self._group_key_for_path(p)

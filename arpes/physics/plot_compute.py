@@ -26,6 +26,20 @@ def compute_secdev(data: np.ndarray, kpar, ev_arr, sigma_k=2.0, sigma_e=2.0) -> 
     return -de
 
 
+def compute_second_deriv_e(data: np.ndarray, kpar, ev_arr, sigma_smooth=2.0) -> np.ndarray:
+    """-d²I/dE² lissée uniquement le long de l'axe énergie."""
+    from scipy.ndimage import gaussian_filter1d
+
+    ev_arr = np.asarray(ev_arr, dtype=float)
+    arr = data.astype(float)
+    if float(sigma_smooth) > 0:
+        d = gaussian_filter1d(arr, sigma=float(sigma_smooth), axis=1)
+    else:
+        d = arr
+    d2 = np.gradient(np.gradient(d, ev_arr, axis=1), ev_arr, axis=1)
+    return -d2
+
+
 def compute_curvature(data: np.ndarray, kpar, ev_arr, sigma_k=2.0, sigma_e=2.0) -> np.ndarray:
     """Courbure 2D -∇²I / (1+|∇I|²)^(3/2)."""
     from scipy.ndimage import gaussian_filter
@@ -95,6 +109,9 @@ def compute_bandmap_display(
     elif mode == "SecDev":
         norm = apply_edcnorm(raw) if edc_norm_enabled else raw
         disp = _compute_below_ef_only(compute_secdev, norm, raw_data["kpar"], raw_data["ev_arr"])
+    elif mode == "2nd deriv E":
+        norm = apply_edcnorm(raw) if edc_norm_enabled else raw
+        disp = _compute_below_ef_only(compute_second_deriv_e, norm, raw_data["kpar"], raw_data["ev_arr"])
     elif mode == "Curvature":
         norm = apply_edcnorm(raw) if edc_norm_enabled else raw
         disp = _compute_below_ef_only(compute_curvature, norm, raw_data["kpar"], raw_data["ev_arr"])
@@ -252,6 +269,7 @@ def draw_waterfall_axes(
     n_pairs: int = 0,
     pair_colors: list[str] | tuple[str, ...] = (),
     gamma_center: float = 0.0,
+    residual_ax=None,
 ) -> bool:
     """Dessine le waterfall MDC sur un axe Matplotlib.
 
@@ -259,6 +277,9 @@ def draw_waterfall_axes(
     """
     ax.cla()
     ax.set_facecolor("#1a1a1a")
+    if residual_ax is not None:
+        residual_ax.cla()
+        residual_ax.set_facecolor("#1a1a1a")
     wf = prepare_waterfall_data(
         data, kpar, ev,
         bounds=bounds,
@@ -268,6 +289,9 @@ def draw_waterfall_axes(
     if wf is None:
         ax.text(0.5, 0.5, "Plage waterfall vide", transform=ax.transAxes,
                 ha="center", va="center", color="tomato")
+        if residual_ax is not None:
+            residual_ax.text(0.5, 0.5, "Plage waterfall vide", transform=residual_ax.transAxes,
+                             ha="center", va="center", color="tomato")
         return False
 
     from scipy.ndimage import gaussian_filter1d
@@ -296,7 +320,21 @@ def draw_waterfall_axes(
 
     if fit_result is not None:
         e_fit = np.asarray(fit_result.get("e_fitted", []), dtype=float)
+        residuals = fit_result.get("residuals") or []
+        fit_curves = fit_result.get("fit_curves") or []
+        fit_kpar = np.asarray(fit_result.get("fit_kpar", kpar), dtype=float)
+        residual_rms = np.nan
+        if residual_ax is not None and residuals:
+            values = []
+            for raw in residuals:
+                arr = np.asarray(raw, dtype=float)
+                values.append(arr[np.isfinite(arr)])
+            if values:
+                flat = np.concatenate(values)
+                if flat.size:
+                    residual_rms = float(np.sqrt(np.nanmean(flat ** 2)))
         if e_fit.size:
+            residual_ticks: list[tuple[int, float]] = []
             for i in range(int(n_pairs)):
                 color = pair_colors[i % len(pair_colors)] if pair_colors else "white"
                 for key, marker in (("kF_minus", "o"), ("kF_plus", "^")):
@@ -330,6 +368,51 @@ def draw_waterfall_axes(
                     if xs:
                         ax.scatter(xs, ys, s=14, color=color, marker=marker,
                                    edgecolors="none", alpha=0.9, zorder=5)
+            if residual_ax is not None and residuals:
+                for ii, ee in enumerate(e_fit):
+                    if not np.isfinite(ee) or ee < e0 or ee > e1:
+                        continue
+                    rel = int(np.argmin(np.abs(wf.ev_sel - ee)))
+                    rank = min(range(wf.n_curves), key=lambda r: abs(wf.indices[r] - rel))
+                    offset = rank * wf.spacing
+                    if ii < len(fit_curves):
+                        fit_y = np.asarray(fit_curves[ii], dtype=float)
+                        if fit_y.size == fit_kpar.size:
+                            ax.plot(fit_kpar, wf.amp_scale * fit_y + offset,
+                                    color="white", lw=0.55, alpha=0.65)
+                    residual = np.asarray(residuals[ii], dtype=float)
+                    if residual.size != fit_kpar.size:
+                        continue
+                    residual_ax.plot(fit_kpar, residual + offset,
+                                     color="#fde047", lw=0.75, alpha=0.9)
+                    residual_ax.axhline(offset, color="#777", lw=0.45, alpha=0.55)
+                    if np.isfinite(residual_rms):
+                        residual_ax.axhline(offset + residual_rms, color="#999",
+                                            lw=0.35, ls="--", alpha=0.45)
+                        residual_ax.axhline(offset - residual_rms, color="#999",
+                                            lw=0.35, ls="--", alpha=0.45)
+                    residual_ticks.append((rank, float(ee)))
+                if residual_ticks:
+                    step = max(1, len(residual_ticks) // 6)
+                    shown = residual_ticks[::step]
+                    if shown[-1] != residual_ticks[-1]:
+                        shown.append(residual_ticks[-1])
+                    residual_ax.set_yticks([r * wf.spacing for r, _ in shown])
+                    residual_ax.set_yticklabels([f"{ee:.3f}" for _, ee in shown],
+                                                fontsize=7, color="w")
+                    residual_ax.set_title(
+                        "Résidus MDC" if not np.isfinite(residual_rms)
+                        else f"Résidus MDC  rms={residual_rms:.3f}",
+                        fontsize=8, color="w",
+                    )
+                else:
+                    residual_ax.text(0.5, 0.5, "Résidus hors plage",
+                                     transform=residual_ax.transAxes,
+                                     ha="center", va="center", color="#aaa", fontsize=8)
+            elif residual_ax is not None:
+                residual_ax.text(0.5, 0.5, "Résidus indisponibles",
+                                 transform=residual_ax.transAxes,
+                                 ha="center", va="center", color="#aaa", fontsize=8)
 
     tick_step = max(1, wf.n_curves // 9)
     tick_idx = list(range(0, wf.n_curves, tick_step))
@@ -350,6 +433,13 @@ def draw_waterfall_axes(
     ax.tick_params(colors="w", labelsize=8)
     for sp in ax.spines.values():
         sp.set_edgecolor("#555")
+    if residual_ax is not None:
+        residual_ax.set_xlim(k0, k1)
+        residual_ax.set_xlabel("k// (π/a)", fontsize=8, color="w")
+        residual_ax.set_ylabel("MDC-fit", fontsize=8, color="w")
+        residual_ax.tick_params(colors="w", labelsize=7)
+        for sp in residual_ax.spines.values():
+            sp.set_edgecolor("#555")
     return True
 
 

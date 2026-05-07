@@ -85,13 +85,16 @@ class FitParamsPanel(QScrollArea):
     fit_roi_reset_requested = pyqtSignal()
     fit_undo_requested = pyqtSignal()
     theory_import_requested = pyqtSignal()
+    theory_local_import_requested = pyqtSignal()
     theory_clear_requested = pyqtSignal()
     theory_overlay_changed = pyqtSignal()
     theory_compare_requested = pyqtSignal()
+    self_energy_requested = pyqtSignal()
     theory_search_requested = pyqtSignal()
     theory_align_requested = pyqtSignal()
     theory_efalign_requested = pyqtSignal()
     crystal_a_changed = pyqtSignal()
+    file_tags_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -178,6 +181,22 @@ class FitParamsPanel(QScrollArea):
             self.update_hv_source(source)
         finally:
             self._hv_source_lock = False
+
+    def set_file_tags(self, tags: list[str]):
+        if not hasattr(self, "txt_file_tags"):
+            return
+        self.txt_file_tags.blockSignals(True)
+        self.txt_file_tags.setText(", ".join(tags or []))
+        self.txt_file_tags.blockSignals(False)
+
+    def file_tags_text(self) -> str:
+        if not hasattr(self, "txt_file_tags"):
+            return ""
+        return self.txt_file_tags.text().strip()
+
+    def update_tag_completions(self, tags: list[str]):
+        if hasattr(self, "_tag_completer_model"):
+            self._tag_completer_model.setStringList(list(tags or []))
 
     def update_resolution_source(self, source: str | None):
         """Affiche la provenance de la resolution : 'estimated', 'manual', 'default'."""
@@ -344,12 +363,14 @@ class FitParamsPanel(QScrollArea):
         warning = overlay.get("warning") or ""
         mpid = data.get("material_id") or ""
         if mpid:
+            source = str(data.get("source") or "")
+            prefix = "DFT MP" if source == "materials_project" else "DFT locale"
             efermi = data.get("efermi")
             try:
                 ef_txt = f" | DFT E_F={float(efermi):.3f} eV (déjà soustrait)"
             except (TypeError, ValueError):
                 ef_txt = ""
-            txt = f"DFT MP {mpid}.{ef_txt} Guide visuel, alignement manuel requis."
+            txt = f"{prefix} {mpid}.{ef_txt} Guide visuel, alignement manuel requis."
             if warning:
                 txt += f" Attention: {warning}"
             comparison = overlay.get("comparison") or []

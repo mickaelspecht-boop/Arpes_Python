@@ -53,6 +53,7 @@ class FileMeta:
     formula: str = ""
     mp_id: str = ""
     crystal_a_angstrom: float = 0.0
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -68,6 +69,7 @@ class FileEntry:
     grid_correction: dict = field(default_factory=dict)
     ef_correction: dict = field(default_factory=dict)
     theory_overlay: dict = field(default_factory=dict)
+    annotations: dict[str, list[dict]] = field(default_factory=dict)
 
     @property
     def status(self) -> str:
@@ -79,6 +81,40 @@ class FileEntry:
 def _known_kwargs(cls, values: dict) -> dict:
     allowed = set(getattr(cls, "__dataclass_fields__", {}))
     return {key: val for key, val in (values or {}).items() if key in allowed}
+
+
+def normalize_tags(value) -> list[str]:
+    """Nettoie une saisie tags separee par virgules, sans changer la casse."""
+    if value is None:
+        raw: list[str] = []
+    elif isinstance(value, str):
+        raw = value.split(",")
+    elif isinstance(value, (list, tuple, set)):
+        raw = []
+        for item in value:
+            raw.extend(str(item).split(","))
+    else:
+        raw = [str(value)]
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        tag = str(item).strip()
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key not in seen:
+            seen.add(key)
+            out.append(tag)
+    return out
+
+
+def session_tags(session: "Session") -> list[str]:
+    """Retourne les tags existants, tries sans sensibilite a la casse."""
+    seen: dict[str, str] = {}
+    for entry in getattr(session, "files", {}).values():
+        for tag in normalize_tags(getattr(entry.meta, "tags", [])):
+            seen.setdefault(tag.casefold(), tag)
+    return sorted(seen.values(), key=lambda x: x.casefold())
 
 
 def _to_serial(obj):
@@ -189,6 +225,7 @@ class Session:
                 grid_correction=edict.get("grid_correction", {}) or {},
                 ef_correction=edict.get("ef_correction", {}) or {},
                 theory_overlay=edict.get("theory_overlay", {}) or {},
+                annotations=edict.get("annotations", {}) or {},
             )
             self.files[name] = entry
 

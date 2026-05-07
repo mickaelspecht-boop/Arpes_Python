@@ -75,6 +75,12 @@ def build_theory_section(panel, lay) -> None:
     )
     btn_theory_import = QPushButton("Importer MP")
     btn_theory_import.clicked.connect(panel.theory_import_requested)
+    btn_theory_local_import = QPushButton("Importer local")
+    btn_theory_local_import.setToolTip(
+        "Importe des bandes DFT locales depuis vasprun.xml, table QE .dat/.txt,\n"
+        "ou schema YAML/JSON minimal."
+    )
+    btn_theory_local_import.clicked.connect(panel.theory_local_import_requested)
     btn_theory_clear = QPushButton("Vider")
     btn_theory_clear.clicked.connect(panel.theory_clear_requested)
     btn_theory_compare = QPushButton("Comparer au fit")
@@ -83,6 +89,12 @@ def build_theory_section(panel, lay) -> None:
         "Diagnostic visuel uniquement, sans modifier le fit."
     )
     btn_theory_compare.clicked.connect(panel.theory_compare_requested)
+    btn_self_energy = QPushButton("Calculer Re Sigma")
+    btn_self_energy.setToolTip(
+        "Calcule Re Sigma(E)=E_exp-E_DFT(k_exp) avec la meilleure bande DFT\n"
+        "contre le fit MDC courant, puis ouvre un plot diagnostic."
+    )
+    btn_self_energy.clicked.connect(panel.self_energy_requested)
     btn_theory_align = QPushButton("Aligner π/a")
     btn_theory_align.setToolTip(
         "Calcule scale k et Δk pour mapper le segment choisi sur [0, 1] (π/a).\n"
@@ -99,9 +111,11 @@ def build_theory_section(panel, lay) -> None:
     theory_btns_lay = QHBoxLayout(theory_btns)
     theory_btns_lay.setContentsMargins(0, 0, 0, 0)
     theory_btns_lay.addWidget(btn_theory_import)
+    theory_btns_lay.addWidget(btn_theory_local_import)
     theory_btns_lay.addWidget(btn_theory_align)
     theory_btns_lay.addWidget(btn_theory_efalign)
     theory_btns_lay.addWidget(btn_theory_compare)
+    theory_btns_lay.addWidget(btn_self_energy)
     theory_btns_lay.addWidget(btn_theory_clear)
     panel.lbl_theory_status = QLabel("Guide visuel uniquement.")
     panel.lbl_theory_status.setWordWrap(True)

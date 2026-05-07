@@ -196,6 +196,9 @@ def fit_mdc_peak_pairs(
     sigma_gamma_list    = [[] for _ in range(n_pairs)]
     xg_list       = []
     e_fitted      = []
+    fit_curve_list = []
+    residual_list = []
+    chi2_list = []
     prev_popt     = None
     prev_k0       = list(kF_init)   # derniers k0 valides pour détecter les sauts
 
@@ -235,6 +238,10 @@ def fit_mdc_peak_pairs(
         try:
             popt, pcov = curve_fit(model, kpar_fit, mdc_n, p0=p0,
                                 bounds=(lo, hi), maxfev=8000)
+            fit_y = model(kpar_fit, *popt)
+            residual_y = mdc_n - fit_y
+            dof = max(1, int(kpar_fit.size) - int(len(popt)))
+            chi2_red = float(np.nansum(residual_y ** 2) / dof)
             sigma_full = np.sqrt(np.abs(np.diag(pcov)))
             sigma_xg = float(sigma_full[2])
             xg_fit = popt[2]
@@ -303,6 +310,9 @@ def fit_mdc_peak_pairs(
             if converged:
                 xg_list.append(xg_fit)
                 e_fitted.append(ev_arr[ie])
+                fit_curve_list.append(fit_y)
+                residual_list.append(residual_y)
+                chi2_list.append(chi2_red)
                 prev_popt = popt
                 # Mise à jour du k0 de référence pour la paire
                 # IMPORTANT : on ne met à jour que si A est suffisante (évite
@@ -325,6 +335,9 @@ def fit_mdc_peak_pairs(
             else:
                 xg_list.append(np.nan)
                 e_fitted.append(ev_arr[ie])
+                fit_curve_list.append(fit_y)
+                residual_list.append(residual_y)
+                chi2_list.append(chi2_red)
                 prev_popt = None   # reset warm-start si saut ou amplitude trop faible
                 # prev_k0 conservé intentionnellement : on garde le dernier k0 valide
                 # comme référence pour la détection de saut des prochaines tranches
@@ -342,6 +355,9 @@ def fit_mdc_peak_pairs(
                 sigma_gamma_list[i].append(np.nan)
             xg_list.append(np.nan)
             e_fitted.append(ev_arr[ie])
+            fit_curve_list.append(np.full_like(kpar_fit, np.nan, dtype=float))
+            residual_list.append(np.full_like(kpar_fit, np.nan, dtype=float))
+            chi2_list.append(np.nan)
             prev_popt = None
 
     # Réordonner en énergie croissante (indépendant du sens du scan)
@@ -368,6 +384,10 @@ def fit_mdc_peak_pairs(
         xg         =np.array(xg_list)[sort_idx],
         e_fitted   =e_arr_out[sort_idx],
         I_smoothed =I_fit,
+        fit_kpar   =kpar_fit,
+        fit_curves =[np.array(x) for x in np.asarray(fit_curve_list, dtype=float)[sort_idx]],
+        residuals  =[np.array(x) for x in np.asarray(residual_list, dtype=float)[sort_idx]],
+        chi2_red   =np.asarray(chi2_list, dtype=float)[sort_idx],
         kpar       =kpar,
         ev_arr     =ev_arr,
         n_pairs    =n_pairs,

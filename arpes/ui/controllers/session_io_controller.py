@@ -14,6 +14,7 @@ import json
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from arpes.io.recent_sessions import add_recent, list_recent, remove_recent
+from arpes.ui.widgets.dialogs.session_diff import SessionDiffDialog
 
 SESSION_EXT = ".arpes-session.json"
 SESSION_FILTER = f"ARPES Session (*{SESSION_EXT} *.json)"
@@ -90,6 +91,10 @@ class SessionIOController:
             self._parent._refresh_recent_sessions_menu()
             return
         self._open_session_path(p)
+
+    def _compare_sessions(self) -> None:
+        dialog = SessionDiffDialog(self._parent)
+        dialog.exec()
 
     def _open_session_path(self, path: Path) -> None:
         try:

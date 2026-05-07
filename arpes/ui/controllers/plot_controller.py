@@ -145,7 +145,7 @@ class PlotController:
         result = compute_bandmap_display(
             d,
             mode=mode,
-            edc_norm_enabled=mode in ("EDCnorm", "SecDev", "Curvature"),
+            edc_norm_enabled=mode in ("EDCnorm", "SecDev", "2nd deriv E", "Curvature"),
             grid_correction=grid_cfg_active,
             grid_artifact_fn=remove_detector_grid_artifact,
         )
@@ -268,7 +268,24 @@ class PlotController:
         if data is None:
             return
 
-        ax = self._waterfall_canvas.ax
+        has_residuals = bool(self._fit_res and self._fit_res.get("residuals"))
+        fig = self._waterfall_canvas.fig
+        if has_residuals:
+            fig.clear()
+            gs = fig.add_gridspec(2, 1, height_ratios=[3.0, 1.0], hspace=0.08)
+            ax = fig.add_subplot(gs[0, 0])
+            residual_ax = fig.add_subplot(gs[1, 0], sharex=ax)
+            self._waterfall_canvas.axes = [ax, residual_ax]
+            self._waterfall_canvas.ax = ax
+        elif len(getattr(self._waterfall_canvas, "axes", [])) != 1:
+            fig.clear()
+            ax = fig.add_subplot(111)
+            self._waterfall_canvas.axes = [ax]
+            self._waterfall_canvas.ax = ax
+            residual_ax = None
+        else:
+            ax = self._waterfall_canvas.ax
+            residual_ax = None
         self._waterfall_canvas.fig.set_facecolor("#2b2b2b")
 
         bounds = self._fit_roi_bounds() or (
@@ -289,6 +306,7 @@ class PlotController:
             n_pairs=self._params.sp_np.value(),
             pair_colors=PAIR_COLORS,
             gamma_center=self._params.sp_cx.value(),
+            residual_ax=residual_ax,
         )
         self._waterfall_canvas.fig.tight_layout(pad=0.6)
         self._waterfall_canvas.redraw()
@@ -298,37 +316,95 @@ class PlotController:
             return
         fr = self._fit_res
         n  = self._params.sp_np.value()
+        ev_f = np.asarray(fr["e_fitted"])
+        chi2 = np.asarray(fr.get("chi2_red", []), dtype=float)
+        threshold = float(getattr(self._params, "sp_chi2_threshold", None).value()) if hasattr(self._params, "sp_chi2_threshold") else np.inf
+        bad_mask = chi2 > threshold if chi2.size == ev_f.size else np.zeros(ev_f.size, dtype=bool)
         for i in range(n):
             c = PAIR_COLORS[i % len(PAIR_COLORS)]
-            ev_f = np.asarray(fr["e_fitted"])
             if i < len(fr.get("kF_minus", [])):
-                ax.scatter(np.asarray(fr["kF_minus"][i]), ev_f,
-                           s=7, color=c, marker="o", zorder=5, alpha=0.85)
+                self._scatter_kf_with_chi2(ax, np.asarray(fr["kF_minus"][i]), ev_f, bad_mask, c, "o")
             if i < len(fr.get("kF_plus", [])):
-                ax.scatter(np.asarray(fr["kF_plus"][i]), ev_f,
-                           s=7, color=c, marker="^", zorder=5, alpha=0.85)
+                self._scatter_kf_with_chi2(ax, np.asarray(fr["kF_plus"][i]), ev_f, bad_mask, c, "^")
         selected = list(getattr(self._parent, "_fit_selected", []) or [])
-        if not selected:
+        if selected:
+            ev_f = np.asarray(fr["e_fitted"])
+            sel_k: list[float] = []
+            sel_e: list[float] = []
+            for branch, pair_idx, point_idx in selected:
+                arrays = fr.get(branch) or []
+                if not (0 <= pair_idx < len(arrays)):
+                    continue
+                arr = np.asarray(arrays[pair_idx], dtype=float)
+                if not (0 <= point_idx < arr.size and point_idx < ev_f.size):
+                    continue
+                k_val = arr[point_idx]
+                e_val = ev_f[point_idx]
+                if not (np.isfinite(k_val) and np.isfinite(e_val)):
+                    continue
+                sel_k.append(float(k_val))
+                sel_e.append(float(e_val))
+            if sel_k:
+                ax.scatter(sel_k, sel_e, s=70, facecolors="none",
+                           edgecolors="#fbbf24", linewidths=1.6, zorder=7)
+        self._draw_fit_annotations(ax, fr)
+
+    def _scatter_kf_with_chi2(self, ax, k_values, ev_f, bad_mask, color, marker) -> None:
+        n = min(len(k_values), len(ev_f), len(bad_mask))
+        if n == 0:
             return
-        ev_f = np.asarray(fr["e_fitted"])
-        sel_k: list[float] = []
-        sel_e: list[float] = []
-        for branch, pair_idx, point_idx in selected:
+        k = np.asarray(k_values[:n], dtype=float)
+        e = np.asarray(ev_f[:n], dtype=float)
+        bad = np.asarray(bad_mask[:n], dtype=bool)
+        valid = np.isfinite(k) & np.isfinite(e)
+        good = valid & ~bad
+        if good.any():
+            ax.scatter(k[good], e[good], s=7, color=color, marker=marker,
+                       zorder=5, alpha=0.85)
+        if (valid & bad).any():
+            ax.scatter(k[valid & bad], e[valid & bad], s=20, color="#fb923c",
+                       marker=marker, edgecolors="black", linewidths=0.35,
+                       zorder=6, alpha=0.95)
+
+    def _draw_fit_annotations(self, ax, fr: dict) -> None:
+        p = self._parent
+        if not getattr(p, "_current_path", None):
+            return
+        entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
+        annotations = entry.annotations or {}
+        if not annotations:
+            return
+        ev_f = np.asarray(fr.get("e_fitted", []), dtype=float)
+        if ev_f.size == 0:
+            return
+        for branch in ("kF_minus", "kF_plus"):
             arrays = fr.get(branch) or []
-            if not (0 <= pair_idx < len(arrays)):
-                continue
-            arr = np.asarray(arrays[pair_idx], dtype=float)
-            if not (0 <= point_idx < arr.size and point_idx < ev_f.size):
-                continue
-            k_val = arr[point_idx]
-            e_val = ev_f[point_idx]
-            if not (np.isfinite(k_val) and np.isfinite(e_val)):
-                continue
-            sel_k.append(float(k_val))
-            sel_e.append(float(e_val))
-        if sel_k:
-            ax.scatter(sel_k, sel_e, s=70, facecolors="none",
-                       edgecolors="#fbbf24", linewidths=1.6, zorder=7)
+            for note in annotations.get(branch, []):
+                try:
+                    pair_idx = int(note.get("pair", -1))
+                    point_idx = int(note.get("index", -1))
+                except Exception:
+                    continue
+                if not (0 <= pair_idx < len(arrays)):
+                    continue
+                arr = np.asarray(arrays[pair_idx], dtype=float)
+                if not (0 <= point_idx < arr.size and point_idx < ev_f.size):
+                    continue
+                k_val = arr[point_idx]
+                e_val = ev_f[point_idx]
+                if not (np.isfinite(k_val) and np.isfinite(e_val)):
+                    continue
+                text = str(note.get("text", "")).strip()
+                ax.plot(
+                    k_val, e_val, marker="*", markersize=12,
+                    color="#fde047", markeredgecolor="black", zorder=8,
+                )
+                if text:
+                    ax.annotate(
+                        text[:30], xy=(k_val, e_val), xytext=(5, 5),
+                        textcoords="offset points", fontsize=7,
+                        color="#fde047", zorder=9,
+                    )
 
     # ─────────────────────────────────────────────────────────────────────────
     # MDC + EDC

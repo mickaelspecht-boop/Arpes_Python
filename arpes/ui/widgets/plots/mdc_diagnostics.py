@@ -322,7 +322,8 @@ def plot_mdc_waterfall_with_fit(
 ):
     """
     Affiche la carte 2D E(k) avec les kF ajustes superposes,
-    PLUS un waterfall des MDCs avec les positions kF marquees.
+    un waterfall des MDCs avec les positions kF marquees, puis les residus
+    MDC mesuree - MDC fittee quand ils sont disponibles dans fit_result.
 
     Parametres
     ----------
@@ -336,7 +337,14 @@ def plot_mdc_waterfall_with_fit(
 
     img = data_cut if data_cut is not None else I_sm
 
-    fig, (ax_map, ax_wf) = plt.subplots(1, 2, figsize=figsize)
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
+    gs = fig.add_gridspec(
+        2, 2, width_ratios=[1.05, 1.0], height_ratios=[3.0, 1.0],
+        wspace=0.28, hspace=0.18,
+    )
+    ax_map = fig.add_subplot(gs[:, 0])
+    ax_wf = fig.add_subplot(gs[0, 1])
+    ax_res = fig.add_subplot(gs[1, 1], sharex=ax_wf)
 
     # --- Carte 2D ---
     if vmin is None: vmin = np.nanpercentile(img, 2)
@@ -358,8 +366,25 @@ def plot_mdc_waterfall_with_fit(
     # --- Waterfall ---
     # Selectionne un sous-ensemble pour ne pas surcharger
     n_wf = min(30, len(e_fit))
+    if n_wf == 0:
+        ax_wf.set_title('Waterfall MDCs + positions kF')
+        ax_res.set_title('Residus MDC')
+        fig.suptitle(title, fontsize=12, fontweight='bold')
+        return fig, (ax_map, ax_wf, ax_res)
     idx_sel = np.round(np.linspace(0, len(e_fit) - 1, n_wf)).astype(int)
     spacing = 0.4 / n_wf  # ecart vertical entre MDCs
+    residuals = fit_result.get('residuals') or []
+    fit_curves = fit_result.get('fit_curves') or []
+    fit_kpar = np.asarray(fit_result.get('fit_kpar', kpar), dtype=float)
+    residual_rms = np.nan
+    if residuals:
+        resid_values = np.concatenate([
+            np.asarray(r, dtype=float)[np.isfinite(np.asarray(r, dtype=float))]
+            for r in residuals
+            if np.asarray(r, dtype=float).size
+        ] or [np.array([], dtype=float)])
+        if resid_values.size:
+            residual_rms = float(np.sqrt(np.nanmean(resid_values ** 2)))
 
     cmap_wf = plt.cm.RdYlBu_r
     for rank, ii in enumerate(idx_sel):
@@ -372,6 +397,11 @@ def plot_mdc_waterfall_with_fit(
         offset = rank * spacing
         color  = cmap_wf(rank / n_wf)
         ax_wf.plot(kpar, mdc_n + offset, lw=0.8, color=color)
+        if ii < len(fit_curves):
+            fit_y = np.asarray(fit_curves[ii], dtype=float)
+            if fit_y.size == fit_kpar.size:
+                ax_wf.plot(fit_kpar, fit_y + offset, lw=0.8,
+                           color='black', alpha=0.75)
         # points kF sur le waterfall
         for i in range(fit_result['n_pairs']):
             km = fit_result['kF_minus'][i][ii]
@@ -385,13 +415,42 @@ def plot_mdc_waterfall_with_fit(
                 ax_wf.plot(kp, mdc_at_kp + offset, 'o', ms=3,
                            color=colors_plus[i % 3], zorder=5)
 
-    ax_wf.set_xlabel('k (π/a)'); ax_wf.set_ylabel('MDC offset')
+        if ii < len(residuals):
+            residual = np.asarray(residuals[ii], dtype=float)
+            if residual.size == fit_kpar.size:
+                ax_res.plot(fit_kpar, residual + offset, lw=0.8, color=color)
+                ax_res.axhline(offset, color='#777777', lw=0.5, alpha=0.7)
+                if np.isfinite(residual_rms):
+                    ax_res.axhline(offset + residual_rms, color='#999999',
+                                   lw=0.4, ls='--', alpha=0.45)
+                    ax_res.axhline(offset - residual_rms, color='#999999',
+                                   lw=0.4, ls='--', alpha=0.45)
+
+    ax_wf.set_ylabel('MDC offset')
     ax_wf.set_title('Waterfall MDCs + positions kF')
     ax_wf.set_xlim(float(kpar[0]), float(kpar[-1]))
+    ax_res.set_xlabel('k (π/a)')
+    ax_res.set_ylabel('residu')
+    ax_res.set_title(
+        'Residus MDC' if not np.isfinite(residual_rms)
+        else f'Residus MDC  rms={residual_rms:.3f}',
+        fontsize=10,
+    )
+    if residuals:
+        tick_step = max(1, n_wf // 6)
+        tick_idx = list(range(0, n_wf, tick_step))
+        if tick_idx[-1] != n_wf - 1:
+            tick_idx.append(n_wf - 1)
+        ax_res.set_yticks([i * spacing for i in tick_idx])
+        ax_res.set_yticklabels([f"{e_fit[idx_sel[i]]:.3f}" for i in tick_idx], fontsize=7)
+    else:
+        ax_res.text(0.5, 0.5, 'Residus indisponibles',
+                    transform=ax_res.transAxes, ha='center', va='center',
+                    fontsize=8, color='0.4')
+    plt.setp(ax_wf.get_xticklabels(), visible=False)
 
     fig.suptitle(title, fontsize=12, fontweight='bold')
-    plt.tight_layout()
-    return fig, (ax_map, ax_wf)
+    return fig, (ax_map, ax_wf, ax_res)
 
 
 # =============================================================================

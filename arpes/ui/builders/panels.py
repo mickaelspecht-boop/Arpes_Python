@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
+from arpes.ui.widgets.help_panel import HelpPanel
 from arpes.ui.widgets.kz import KzCanvas, KzControlPanel
 
 
@@ -87,6 +88,7 @@ def _build_tabs(window) -> QTabWidget:
     window._tabs.addTab(_build_results_tab(window), "Résultats")
     window._tabs.addTab(_build_fs_tab(window), "FS")
     window._tabs.addTab(_build_kz_tab(window), "KZ")
+    window._tabs.addTab(_build_help_tab(window), "Aide")
     return window._tabs
 
 
@@ -134,13 +136,13 @@ def _build_carte_tab(window) -> QWidget:
 
 def _new_view_combo() -> QComboBox:
     combo = QComboBox()
-    combo.addItems(["Raw", "EDCnorm", "SecDev", "Curvature"])
+    combo.addItems(["Raw", "EDCnorm", "SecDev", "2nd deriv E", "Curvature"])
     combo.setCurrentText("Raw")
     combo.setFixedWidth(120)
     combo.setToolTip(
         "Raw : intensite brute.\n"
         "EDCnorm : normalisation par EDC moyenne.\n"
-        "SecDev/Curvature : derivees pour faire ressortir les dispersions."
+        "SecDev/2nd deriv E/Curvature : derivees pour faire ressortir les dispersions."
     )
     return combo
 
@@ -213,6 +215,11 @@ def _build_kz_tab(window) -> QWidget:
     return window._kz_canvas
 
 
+def _build_help_tab(window) -> QWidget:
+    window._help_panel = HelpPanel()
+    return window._help_panel
+
+
 def wire_ui_signals(window) -> None:
     """Connect all signals for widgets created by these builders."""
     window._browser.file_selected.connect(window._load_file)
@@ -236,6 +243,8 @@ def wire_ui_signals(window) -> None:
             window._fs_controls.gamma_requested.connect(window._detect_fs_gamma)
         if hasattr(window._fs_controls, "manual_center_requested"):
             window._fs_controls.manual_center_requested.connect(window._set_fs_center_pick_mode)
+        if hasattr(window._fs_controls, "bz_preset_requested"):
+            window._fs_controls.bz_preset_requested.connect(window._choose_bz_preset)
 
     window._kz_controls.folder_requested.connect(window._open_kz_folder)
     if hasattr(window._kz_controls, "kz_logbook_requested"):
@@ -246,11 +255,13 @@ def wire_ui_signals(window) -> None:
 
 def _connect_map_canvas(canvas_widget, window) -> None:
     canvas_widget.canvas.mpl_connect("button_press_event", window._on_map_click)
+    canvas_widget.canvas.mpl_connect("button_press_event", window._on_fit_annotate_press)
     canvas_widget.canvas.mpl_connect("button_press_event", window._on_fit_roi_press)
     canvas_widget.canvas.mpl_connect("motion_notify_event", window._on_fit_roi_motion)
     canvas_widget.canvas.mpl_connect("button_release_event", window._on_fit_roi_release)
     canvas_widget.canvas.mpl_connect("button_press_event", window._on_fit_select_press)
     canvas_widget.canvas.mpl_connect("motion_notify_event", window._on_fit_select_motion)
+    canvas_widget.canvas.mpl_connect("motion_notify_event", window._on_fit_annotation_motion)
     canvas_widget.canvas.mpl_connect("button_release_event", window._on_fit_select_release)
 
 
@@ -273,11 +284,14 @@ def wire_param_signals(window) -> None:
     p.fit_roi_requested.connect(window._set_fit_roi_pick_mode)
     p.fit_roi_reset_requested.connect(window._reset_fit_roi_range)
     p.fit_undo_requested.connect(window._undo_fit_delete)
+    p.file_tags_changed.connect(window._on_file_tags_changed)
     # THEORY_OVERLAY: optional/removable DFT guide wiring.
     p.theory_import_requested.connect(window._import_theory_overlay)
+    p.theory_local_import_requested.connect(window._import_local_theory_overlay)
     p.theory_clear_requested.connect(window._clear_theory_overlay)
     p.theory_overlay_changed.connect(window._on_theory_overlay_changed)
     p.theory_compare_requested.connect(window._compare_theory_overlay)
+    p.self_energy_requested.connect(window._calculate_self_energy)
     p.theory_search_requested.connect(window._search_theory_mp)
     p.theory_align_requested.connect(window._align_theory_to_arpes)
     p.theory_efalign_requested.connect(window._align_theory_efermi)

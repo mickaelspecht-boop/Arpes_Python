@@ -20,6 +20,10 @@ def build_menubar(window) -> QMenuBar:
     act_open.triggered.connect(window._open_session_file)
     file_menu.addAction(act_open)
 
+    act_compare = QAction("Comparer sessions...", window)
+    act_compare.triggered.connect(window._compare_sessions)
+    file_menu.addAction(act_compare)
+
     file_menu.addSeparator()
 
     recent_menu = file_menu.addMenu("Sessions récentes")

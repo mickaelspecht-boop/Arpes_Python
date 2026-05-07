@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 from PyQt6.QtWidgets import QApplication
 
+from arpes.core.session import normalize_tags, session_tags
 from arpes.io.loader_orchestrator import LoaderOrchestrator
 from arpes.physics.resolution import estimate_resolutions
 
@@ -86,6 +87,21 @@ class LoadController:
         except Exception as e:
             self._status(f"Attention: {e}")
             traceback.print_exc()
+
+    def _on_file_tags_changed(self) -> None:
+        entry = self._parent._current_entry()
+        if entry is None:
+            return
+        tags = normalize_tags(self._params.file_tags_text())
+        entry.meta.tags = tags
+        self._params.set_file_tags(tags)
+        self._params.update_tag_completions(session_tags(self._session))
+        self._session.save()
+        if hasattr(self._parent, "_browser"):
+            self._parent._browser.refresh_tag_completions()
+            self._parent._browser._populate()
+        tag_txt = ", ".join(tags) if tags else "aucun"
+        self._status(f"Tags fichier enregistrés: {tag_txt}.")
 
     # ------------------------------------------------------------ steps
     def _ensure_arpes_plots(self) -> None:
@@ -184,6 +200,10 @@ class LoadController:
         self._params.sp_ef.setValue(entry.ef_offset)
         self._params.sp_ef.blockSignals(False)
         self._params.load_fit_params(entry.fit_params)
+        tags = normalize_tags(getattr(entry.meta, "tags", []))
+        entry.meta.tags = tags
+        self._params.set_file_tags(tags)
+        self._params.update_tag_completions(session_tags(self._session))
         saved_res = (entry.fit_result or {}).get("resolution", {}) if entry.fit_result else {}
         if saved_res:
             saved_source = str(saved_res.get("source", "") or "")

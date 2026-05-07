@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -21,6 +22,7 @@ from PyQt6.QtWidgets import (
 from arpes.analysis.results import compute_results
 from arpes.core.session import Session
 from arpes.io.export import physics_rows, result_rows, write_physics_csv, write_results_csv
+from arpes.io.export_styles import PRESETS, savefig_with_preset
 from arpes.ui.widgets.canvas import MplCanvas
 
 DEFAULT_CRYSTAL_A_ANGSTROM = 4.143  # Fallback BaNi₂As₂ si meta.crystal_a_angstrom = 0.
@@ -48,9 +50,10 @@ class ResultsPanel(QWidget):
         right = QVBoxLayout()
         right.addWidget(QLabel("Résultats fittés"))
 
-        self._table = QTableWidget(0, 8)
+        self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
-            ["Fichier", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)", "Γ brut", "Γ corr."])
+            ["Fichier", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)",
+             "Γ brut", "Γ corr.", "chi2_red méd."])
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self._table.setStyleSheet(
@@ -89,13 +92,27 @@ class ResultsPanel(QWidget):
             "et le panneau Γ(E). Utile après suppression de points."
         )
         btn_recalc.clicked.connect(self.refresh_physics_only)
+        btn_multi = QPushButton("Analyse multi-fichier...")
+        btn_multi.setToolTip("Trace kF, m* et Γ0 pour les entrées fittées sélectionnées.")
+        btn_multi.clicked.connect(self._open_multi_file_analysis)
         btn_csv = QPushButton("Export CSV (par slice)")
         btn_csv.clicked.connect(self._export_csv)
         btn_csv_phys = QPushButton("Export CSV physique (± σ)")
         btn_csv_phys.clicked.connect(self._export_physics_csv)
+        style_row = QHBoxLayout()
+        style_row.addWidget(QLabel("Style export"))
+        self._cmb_export_style = QComboBox()
+        self._cmb_export_style.addItems(list(PRESETS.keys()))
+        self._cmb_export_style.setCurrentText("default")
+        self._cmb_export_style.setToolTip(
+            "Style matplotlib utilise pour l'export figure.\n"
+            "PRB utilise LaTeX si disponible, sinon fallback sans LaTeX."
+        )
+        style_row.addWidget(self._cmb_export_style, stretch=1)
+        right.addLayout(style_row)
         btn_pdf = QPushButton("Export figure")
         btn_pdf.clicked.connect(self._export_fig)
-        for b in (btn_ref, btn_recalc, btn_csv, btn_csv_phys, btn_pdf):
+        for b in (btn_ref, btn_recalc, btn_multi, btn_csv, btn_csv_phys, btn_pdf):
             right.addWidget(b)
 
         rw = QWidget(); rw.setLayout(right)
@@ -143,12 +160,16 @@ class ResultsPanel(QWidget):
                 gamma_b = float(np.nanmedian(np.asarray(fr["gamma_brut"][0], dtype=float)))
             if fr.get("gamma_corrige"):
                 gamma_c = float(np.nanmedian(np.asarray(fr["gamma_corrige"][0], dtype=float)))
+            chi2_med = np.nan
+            chi2 = np.asarray(fr.get("chi2_red", []), dtype=float)
+            if chi2.size and np.isfinite(chi2).any():
+                chi2_med = float(np.nanmedian(chi2))
 
             self._table.insertRow(row)
             for col, val in enumerate([
                 name, f"{meta.hv:.0f}", f"{meta.temperature:.0f}",
                 meta.direction, f"{kf_ef:.4f}", f"{xg_m:.4f}",
-                f"{gamma_b:.4f}", f"{gamma_c:.4f}",
+                f"{gamma_b:.4f}", f"{gamma_c:.4f}", f"{chi2_med:.3f}",
             ]):
                 self._table.setItem(row, col, QTableWidgetItem(val))
             row += 1
@@ -293,11 +314,20 @@ class ResultsPanel(QWidget):
             return
         write_physics_csv(path, rows)
 
+    def _open_multi_file_analysis(self):
+        from arpes.ui.widgets.dialogs import MultiFileAnalysisDialog
+        dialog = MultiFileAnalysisDialog(self._session, self)
+        dialog.exec()
+
     def _export_fig(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Export figure", str(self._session.folder or Path.home()),
             "PDF (*.pdf);;PNG (*.png)")
         if path:
-            self._canvas.fig.savefig(path, dpi=200, bbox_inches="tight",
-                                     facecolor=self._canvas.fig.get_facecolor())
-
+            savefig_with_preset(
+                self._canvas.fig,
+                path,
+                self._cmb_export_style.currentText(),
+                bbox_inches="tight",
+                facecolor=self._canvas.fig.get_facecolor(),
+            )

@@ -68,6 +68,7 @@ from arpes.ui.controllers.kz_controller import KzController
 from arpes.ui.controllers.theory_overlay_controller import TheoryOverlayController
 from arpes.ui.controllers.session_io_controller import SessionIOController
 from arpes.core.session import FileEntry, FitParams, Session
+from arpes.core.undo import UndoStack
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette, QKeySequence, QShortcut
@@ -159,7 +160,7 @@ class ArpesExplorer(QMainWindow):
         self._fit_roi_ax = None
         self._fit_roi_rect = None
         self._fit_selected: list[tuple[str, int, int]] = []
-        self._fit_undo_stack: list[dict] = []
+        self._undo_stack = UndoStack(max_size=50)
         self._fit_select_press_xy: tuple[float, float] | None = None
         self._fit_select_press_ax = None
         self._fit_select_rect = None
@@ -206,6 +207,7 @@ class ArpesExplorer(QMainWindow):
         "_on_fs_params_changed": "_fs_ctrl",
         "_save_current_fs_center": "_fs_ctrl",
         "_draw_fs_tab": "_fs_ctrl",
+        "_choose_bz_preset": "_fs_ctrl",
         # PlotController
         "_on_scroll_zoom": "_plot_ctrl",
         "_update_display_data": "_plot_ctrl",
@@ -259,8 +261,11 @@ class ArpesExplorer(QMainWindow):
         "_on_fit_select_press": "_interaction_ctrl",
         "_on_fit_select_motion": "_interaction_ctrl",
         "_on_fit_select_release": "_interaction_ctrl",
+        "_on_fit_annotate_press": "_interaction_ctrl",
+        "_on_fit_annotation_motion": "_interaction_ctrl",
         "_delete_selected_fit_points": "_interaction_ctrl",
         "_undo_fit_delete": "_interaction_ctrl",
+        "_redo_fit_delete": "_interaction_ctrl",
         "_on_map_click": "_interaction_ctrl",
         "_sync_ev_spinbox": "_interaction_ctrl",
         # FitRunnerController
@@ -273,6 +278,7 @@ class ArpesExplorer(QMainWindow):
         "_apply_ef_reference_to_current": "_fit_runner_ctrl",
         "_refresh_helper_buttons": "_fit_runner_ctrl",
         "_copy_params": "_fit_runner_ctrl",
+        "_on_file_tags_changed": "_load_ctrl",
         # KzController
         "_open_kz_folder": "_kz_ctrl",
         "_open_kz_logbook": "_kz_ctrl",
@@ -283,9 +289,11 @@ class ArpesExplorer(QMainWindow):
         "_save_kz_session": "_kz_ctrl",
         # THEORY_OVERLAY
         "_import_theory_overlay": "_theory_overlay_ctrl",
+        "_import_local_theory_overlay": "_theory_overlay_ctrl",
         "_clear_theory_overlay": "_theory_overlay_ctrl",
         "_on_theory_overlay_changed": "_theory_overlay_ctrl",
         "_compare_theory_overlay": "_theory_overlay_ctrl",
+        "_calculate_self_energy": "_theory_overlay_ctrl",
         "_draw_theory_overlay": "_theory_overlay_ctrl",
         "_restore_theory_overlay_for_entry": "_theory_overlay_ctrl",
         "_search_theory_mp": "_theory_overlay_ctrl",
@@ -296,6 +304,7 @@ class ArpesExplorer(QMainWindow):
         "_save_session_as": "_session_io_ctrl",
         "_open_session_file": "_session_io_ctrl",
         "_open_recent_session": "_session_io_ctrl",
+        "_compare_sessions": "_session_io_ctrl",
     }
 
     def __getattr__(self, name: str):
@@ -334,7 +343,7 @@ class ArpesExplorer(QMainWindow):
         wire_ui_signals(self)
 
     def _on_tab_changed(self, index: int):
-        # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS, 4=KZ
+        # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS, 4=KZ, 5=Aide
         if hasattr(self, "_right_stack"):
             self._right_stack.setCurrentIndex(2 if index == 4 else (1 if index == 3 else 0))
         if index == 0:
@@ -586,6 +595,7 @@ class ArpesExplorer(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_Backspace), self).activated.connect(
             self._delete_selected_fit_points)
         QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self._undo_fit_delete)
+        QShortcut(QKeySequence("Ctrl+Y"), self).activated.connect(self._redo_fit_delete)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Chargement fichier

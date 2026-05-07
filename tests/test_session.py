@@ -7,7 +7,14 @@ from pathlib import Path
 
 import numpy as np
 
-from arpes.core.session import FileEntry, FileMeta, FitParams, Session
+from arpes.core.session import (
+    FileEntry,
+    FileMeta,
+    FitParams,
+    Session,
+    normalize_tags,
+    session_tags,
+)
 
 
 class TestSessionManager(unittest.TestCase):
@@ -29,7 +36,7 @@ class TestSessionManager(unittest.TestCase):
                         "source": "estime PE=50 DA30",
                     },
                 },
-                meta=FileMeta(hv=48.0, temperature=20.0, direction="G-M"),
+                meta=FileMeta(hv=48.0, temperature=20.0, direction="G-M", tags=["publi", "T-dep"]),
             )
             session.files["BM1"] = entry
             session.kz_logbook_path = str(root / "kz.xlsx")
@@ -54,6 +61,7 @@ class TestSessionManager(unittest.TestCase):
             self.assertFalse(out.edcnorm)
             self.assertEqual(out.fit_params.n_pairs, 2)
             self.assertEqual(out.meta.direction, "G-M")
+            self.assertEqual(out.meta.tags, ["publi", "T-dep"])
             self.assertEqual(out.theory_overlay, {})
             self.assertEqual(out.fit_result["resolution"]["dk_inv_a"], 0.006)
             self.assertEqual(restored.kz_logbook_sheet, "KZ")
@@ -116,6 +124,13 @@ class TestSessionManager(unittest.TestCase):
 
             session = Session(root)
             self.assertEqual(session.key_for_path(file_path), "folder/BM1")
+
+    def test_normalize_and_collect_tags(self):
+        self.assertEqual(normalize_tags(" publi, outliers, Publi,  "), ["publi", "outliers"])
+        session = Session()
+        session.files["a"] = FileEntry(meta=FileMeta(tags=["T-dep", "publi"]))
+        session.files["b"] = FileEntry(meta=FileMeta(tags=["outliers", "publi"]))
+        self.assertEqual(session_tags(session), ["outliers", "publi", "T-dep"])
 
 
 if __name__ == "__main__":

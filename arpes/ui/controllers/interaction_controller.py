@@ -9,9 +9,14 @@ Sort de ArpesExplorer toute la logique d'interaction temps-réel :
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import numpy as np
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QInputDialog, QToolTip
 from matplotlib.patches import Rectangle
+
+from arpes.core.undo import UndoFrame
 
 
 class InteractionController:
@@ -216,6 +221,125 @@ class InteractionController:
         p._fit_select_consumed_click = False
         p._fit_select_modifier = bool(getattr(event, "key", "") or "") and "shift" in str(event.key).lower()
 
+    def _on_fit_annotate_press(self, event):
+        p = self._parent
+        if getattr(p, "_fit_roi_active", False):
+            return
+        if event.inaxes not in (
+            getattr(p._bm_canvas, "ax", None),
+            getattr(p._mdc_map_canvas, "ax", None),
+        ):
+            return
+        button = getattr(event.button, "value", event.button)
+        if button != 3 or event.xdata is None or event.ydata is None:
+            return
+        if p._fit_res is None or not getattr(p, "_current_path", None):
+            return
+        e_fit = np.asarray(p._fit_res.get("e_fitted", []), dtype=float)
+        if e_fit.size == 0:
+            return
+        try:
+            click_disp = event.inaxes.transData.transform(
+                (float(event.xdata), float(event.ydata))
+            )
+        except Exception:
+            return
+        nearest = self._find_nearest_kf_point(
+            p._fit_res, e_fit, event.inaxes, click_disp,
+            pixel_radius=self._PICK_RADIUS_PX,
+        )
+        if nearest is None:
+            return
+        branch, pair_idx, point_idx = nearest
+        current = self._annotation_text_for_point(branch, pair_idx, point_idx)
+        text, ok = QInputDialog.getMultiLineText(
+            p,
+            "Annotation point fit",
+            f"Note pour {branch}, paire {pair_idx + 1}, point {point_idx}:",
+            current,
+        )
+        if not ok:
+            return
+        text = text.strip()
+        if not text:
+            self._status("Annotation vide ignorée.")
+            return
+        key = p._session.key_for_path(p._current_path)
+        entry = p._session.get_or_create(key)
+        annotations = dict(entry.annotations or {})
+        branch_notes = list(annotations.get(branch, []))
+        note = {
+            "pair": int(pair_idx),
+            "index": int(point_idx),
+            "text": text,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        replaced = False
+        for idx, existing in enumerate(branch_notes):
+            if existing.get("pair") == pair_idx and existing.get("index") == point_idx:
+                branch_notes[idx] = note
+                replaced = True
+                break
+        if not replaced:
+            branch_notes.append(note)
+        annotations[branch] = branch_notes
+        entry.annotations = annotations
+        p._session.save()
+        self._status("Annotation enregistrée.")
+        p._draw_bm()
+        if getattr(p, "_tabs", None) is not None and p._tabs.currentIndex() == 1:
+            p._draw_mdc_edc()
+
+    def _on_fit_annotation_motion(self, event):
+        p = self._parent
+        if event.inaxes not in (
+            getattr(p._bm_canvas, "ax", None),
+            getattr(p._mdc_map_canvas, "ax", None),
+        ):
+            QToolTip.hideText()
+            return
+        if event.xdata is None or event.ydata is None or p._fit_res is None:
+            QToolTip.hideText()
+            return
+        e_fit = np.asarray(p._fit_res.get("e_fitted", []), dtype=float)
+        if e_fit.size == 0:
+            QToolTip.hideText()
+            return
+        try:
+            click_disp = event.inaxes.transData.transform(
+                (float(event.xdata), float(event.ydata))
+            )
+        except Exception:
+            QToolTip.hideText()
+            return
+        nearest = self._find_nearest_kf_point(
+            p._fit_res, e_fit, event.inaxes, click_disp,
+            pixel_radius=self._PICK_RADIUS_PX,
+        )
+        if nearest is None:
+            QToolTip.hideText()
+            return
+        branch, pair_idx, point_idx = nearest
+        text = self._annotation_text_for_point(branch, pair_idx, point_idx)
+        if not text:
+            QToolTip.hideText()
+            return
+        gui_event = getattr(event, "guiEvent", None)
+        if gui_event is None or not hasattr(gui_event, "globalPosition"):
+            return
+        QToolTip.showText(gui_event.globalPosition().toPoint(), text, event.canvas)
+
+    def _annotation_text_for_point(self, branch: str, pair_idx: int, point_idx: int) -> str:
+        p = self._parent
+        if not getattr(p, "_current_path", None):
+            return ""
+        key = p._session.key_for_path(p._current_path)
+        entry = p._session.get_or_create(key)
+        for note in (entry.annotations or {}).get(branch, []):
+            if note.get("pair") == pair_idx and note.get("index") == point_idx:
+                return str(note.get("text", ""))
+        return ""
+
     def _on_fit_select_motion(self, event):
         p = self._parent
         if getattr(p, "_fit_roi_active", False):
@@ -364,36 +488,55 @@ class InteractionController:
         if not sel or p._fit_res is None:
             return
         fr = p._fit_res
-        snapshot = {b: [list(arr) for arr in (fr.get(b) or [])] for b in ("kF_minus", "kF_plus")}
-        stack = getattr(p, "_fit_undo_stack", [])
-        stack.append(snapshot)
-        if len(stack) > self._UNDO_STACK_MAX:
-            del stack[: len(stack) - self._UNDO_STACK_MAX]
-        p._fit_undo_stack = stack
+        before = self._fit_branch_snapshot(fr)
         for branch, pair_idx, point_idx in sel:
             arr = list(fr[branch][pair_idx])
             if 0 <= point_idx < len(arr):
                 arr[point_idx] = float("nan")
             fr[branch][pair_idx] = arr
+        after = self._fit_branch_snapshot(fr)
+        p._undo_stack.push(UndoFrame(
+            action="fit_delete",
+            data={"n_points": len(sel)},
+            undo=lambda before=before: self._restore_fit_branches(before),
+            redo=lambda after=after: self._restore_fit_branches(after),
+        ))
         p._fit_selected = []
         self._persist_fit_result(fr)
-        self._params.set_fit_undo_enabled(True)
+        self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
         self._status(f"{len(sel)} point(s) supprimé(s). « Annuler » pour restaurer.")
         p._draw_bm()
 
     def _undo_fit_delete(self) -> None:
         p = self._parent
-        stack = getattr(p, "_fit_undo_stack", []) or []
-        if not stack or p._fit_res is None:
+        if p._fit_res is None:
             self._params.set_fit_undo_enabled(False)
             return
-        snap = stack.pop()
-        for branch, arrays in snap.items():
-            p._fit_res[branch] = [list(a) for a in arrays]
-        self._persist_fit_result(p._fit_res)
-        self._params.set_fit_undo_enabled(bool(stack))
-        self._status("Suppression annulée.")
+        frame = p._undo_stack.undo()
+        self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
+        self._status("Suppression annulée." if frame else "Aucune action à annuler.")
         p._draw_bm()
+
+    def _redo_fit_delete(self) -> None:
+        p = self._parent
+        if p._fit_res is None:
+            return
+        frame = p._undo_stack.redo()
+        self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
+        self._status("Suppression réappliquée." if frame else "Aucune action à rétablir.")
+        p._draw_bm()
+
+    def _fit_branch_snapshot(self, fr: dict) -> dict:
+        return {b: [list(arr) for arr in (fr.get(b) or [])] for b in ("kF_minus", "kF_plus")}
+
+    def _restore_fit_branches(self, snapshot: dict) -> None:
+        p = self._parent
+        if p._fit_res is None:
+            return
+        for branch, arrays in snapshot.items():
+            p._fit_res[branch] = [list(a) for a in arrays]
+        p._fit_selected = []
+        self._persist_fit_result(p._fit_res)
 
     def _find_nearest_kf_point(self, fr, e_fit, ax, click_disp, *, pixel_radius: float = 12.0):
         best = None

@@ -7,11 +7,14 @@ sur les signaux du panel.
 """
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt, QStringListModel
 from PyQt6.QtWidgets import (
+    QCompleter,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QWidget,
 )
@@ -81,9 +84,21 @@ def build_ef_section(panel, lay) -> None:
     hv_lay.addWidget(panel.lbl_hv_src)
     panel.sp_hv.valueChanged.connect(lambda _v: panel._mark_hv_manual_if_user_edit())
     panel._hv_source_lock = False
+    panel.txt_file_tags = QLineEdit()
+    panel.txt_file_tags.setPlaceholderText("outliers, publi, T-dep")
+    panel.txt_file_tags.setToolTip(
+        "Tags libres pour le fichier courant. Séparer par virgules.\n"
+        "Ils sont sauvegardés dans la session et utilisables dans le filtre browser."
+    )
+    panel._tag_completer_model = QStringListModel([])
+    tag_completer = QCompleter(panel._tag_completer_model, panel.txt_file_tags)
+    tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+    panel.txt_file_tags.setCompleter(tag_completer)
+    panel.txt_file_tags.editingFinished.connect(panel.file_tags_changed)
     fl_ef.addRow("φ (eV):", panel.sp_phi)
     fl_ef.addRow("hν (eV):", hv_row)
     fl_ef.addRow("EF offset:", panel.sp_ef)
+    fl_ef.addRow("Tags:", panel.txt_file_tags)
     fl_ef.addRow(btn_log)
     fl_ef.addRow(btn_ef)
     fl_ef.addRow(panel.btn_ef_ref)
