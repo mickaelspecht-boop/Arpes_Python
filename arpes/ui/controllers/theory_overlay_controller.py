@@ -222,6 +222,16 @@ class TheoryOverlayController:
             f"({a}→0, {b}→1). ΔE encore manuel."
         )
 
+    def _on_crystal_a_changed(self) -> None:
+        a = float(self._params.sp_crystal_a.value())
+        path = getattr(self._parent, "_current_path", None)
+        if not path:
+            return
+        entry = self._parent._session.get_or_create(self._parent._session.key_for_path(path))
+        entry.meta.crystal_a_angstrom = a
+        self._parent._session.save()
+        self._parent._status(f"Paramètre cristal a = {a:.4f} Å enregistré.")
+
     def _align_theory_efermi(self) -> None:
         self._params.sp_theory_de.blockSignals(True)
         self._params.sp_theory_de.setValue(0.0)

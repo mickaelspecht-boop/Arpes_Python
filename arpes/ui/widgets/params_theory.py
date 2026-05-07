@@ -53,6 +53,12 @@ def build_theory_section(panel, lay) -> None:
     panel.sp_theory_kscale.setToolTip("Facteur d'échelle k manuel pour rapprocher axe DFT et axe ARPES.")
     panel.sp_theory_alpha = dspin(0.65, 0.05, 1.0, 0.05, dec=2)
     panel.sp_theory_max = ispin(10, 1, 80)
+    panel.sp_crystal_a = dspin(4.143, 0.5, 50.0, 0.001, dec=4)
+    panel.sp_crystal_a.setToolTip(
+        "Paramètre de maille a (Å) du cristal. Sert à convertir kF (π/a) en\n"
+        "Å⁻¹ et à calculer m*/m_e dans la table résultats. 0 = unités réduites."
+    )
+    panel.sp_crystal_a.valueChanged.connect(panel.crystal_a_changed)
     panel.txt_theory_bands = QLineEdit()
     panel.txt_theory_bands.setPlaceholderText("ex: 1,3,5-8 (vide = top-N)")
     panel.txt_theory_bands.setToolTip(
@@ -118,6 +124,7 @@ def build_theory_section(panel, lay) -> None:
     fl_th.addRow("Opacité:", panel.sp_theory_alpha)
     fl_th.addRow("Max bandes:", panel.sp_theory_max)
     fl_th.addRow("Bandes idx:", panel.txt_theory_bands)
+    fl_th.addRow("a cristal (Å):", panel.sp_crystal_a)
     fl_th.addRow(panel.chk_theory_mirror)
     fl_th.addRow(theory_btns)
     fl_th.addRow(panel.lbl_theory_status)

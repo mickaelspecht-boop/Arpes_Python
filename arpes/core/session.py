@@ -52,6 +52,7 @@ class FileMeta:
     loader_label: str = ""
     formula: str = ""
     mp_id: str = ""
+    crystal_a_angstrom: float = 0.0
 
 
 @dataclass

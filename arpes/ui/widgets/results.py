@@ -22,7 +22,7 @@ from arpes.core.session import Session
 from arpes.io.export import result_rows, write_results_csv
 from arpes.ui.widgets.canvas import MplCanvas
 
-DEFAULT_CRYSTAL_A_ANGSTROM = 4.143  # BaNi₂As₂ a (à raffiner par fichier).
+DEFAULT_CRYSTAL_A_ANGSTROM = 4.143  # Fallback BaNi₂As₂ si meta.crystal_a_angstrom = 0.
 
 
 class ResultsPanel(QWidget):
@@ -130,7 +130,7 @@ class ResultsPanel(QWidget):
                 self._table.setItem(row, col, QTableWidgetItem(val))
             row += 1
 
-            self._populate_physics_rows(name, fr, n)
+            self._populate_physics_rows(name, fr, n, entry.meta)
 
         ax.axhline(0, color="cyan", lw=0.8, ls="--", alpha=0.5)
         ax.axvline(0, color="w",    lw=0.5, ls="--", alpha=0.3)
@@ -144,10 +144,13 @@ class ResultsPanel(QWidget):
                       loc="upper right", markerscale=2)
         self._canvas.redraw()
 
-    def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int) -> None:
+    def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
+        a_val = float(getattr(meta, "crystal_a_angstrom", 0.0) or 0.0)
+        if a_val <= 0:
+            a_val = DEFAULT_CRYSTAL_A_ANGSTROM
         bundle = compute_results(
             fr, e_window_kF=0.10, e_window_gamma=0.30,
-            crystal_a_angstrom=DEFAULT_CRYSTAL_A_ANGSTROM,
+            crystal_a_angstrom=a_val,
         )
         gamma_by_pair = {g.pair_index: g for g in bundle.gamma_fl}
         for br in bundle.branches:

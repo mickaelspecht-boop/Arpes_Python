@@ -292,6 +292,7 @@ class ArpesExplorer(QMainWindow):
         "_auto_fetch_theory_overlay_from_logbook": "_theory_overlay_ctrl",
         "_align_theory_to_arpes": "_theory_overlay_ctrl",
         "_align_theory_efermi": "_theory_overlay_ctrl",
+        "_on_crystal_a_changed": "_theory_overlay_ctrl",
         "_save_session_as": "_session_io_ctrl",
         "_open_session_file": "_session_io_ctrl",
         "_open_recent_session": "_session_io_ctrl",

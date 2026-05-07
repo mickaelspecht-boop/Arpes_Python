@@ -217,6 +217,12 @@ class LoadController:
         if entry.fit_result:
             self._parent._fit_res = entry.fit_result
 
+        a_val = float(getattr(entry.meta, "crystal_a_angstrom", 0.0) or 0.0)
+        if a_val <= 0.0:
+            a_val = 4.143
+        self._params.sp_crystal_a.blockSignals(True)
+        self._params.sp_crystal_a.setValue(a_val)
+        self._params.sp_crystal_a.blockSignals(False)
         self._parent._restore_theory_overlay_for_entry()
         self._parent._apply_stored_gamma_to_current_file(save_entry=True)
 

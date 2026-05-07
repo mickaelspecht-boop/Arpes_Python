@@ -91,6 +91,7 @@ class FitParamsPanel(QScrollArea):
     theory_search_requested = pyqtSignal()
     theory_align_requested = pyqtSignal()
     theory_efalign_requested = pyqtSignal()
+    crystal_a_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
