@@ -80,15 +80,22 @@ class ResultsPanel(QWidget):
             "QHeaderView::section{background:#333;color:#ddd;}")
         right.addWidget(self._table_phys, stretch=1)
 
-        btn_ref = QPushButton("Actualiser")
+        btn_ref = QPushButton("Actualiser tout")
+        btn_ref.setToolTip("Redessine la dispersion + Γ(E) et recalcule les tables.")
         btn_ref.clicked.connect(self.refresh)
+        btn_recalc = QPushButton("Recalculer résultats physiques")
+        btn_recalc.setToolTip(
+            "Recalcule uniquement la table 'Résultats physiques ± σ' "
+            "et le panneau Γ(E). Utile après suppression de points."
+        )
+        btn_recalc.clicked.connect(self.refresh_physics_only)
         btn_csv = QPushButton("Export CSV (par slice)")
         btn_csv.clicked.connect(self._export_csv)
         btn_csv_phys = QPushButton("Export CSV physique (± σ)")
         btn_csv_phys.clicked.connect(self._export_physics_csv)
         btn_pdf = QPushButton("Export figure")
         btn_pdf.clicked.connect(self._export_fig)
-        for b in (btn_ref, btn_csv, btn_csv_phys, btn_pdf):
+        for b in (btn_ref, btn_recalc, btn_csv, btn_csv_phys, btn_pdf):
             right.addWidget(b)
 
         rw = QWidget(); rw.setLayout(right)
@@ -192,6 +199,18 @@ class ResultsPanel(QWidget):
             g0 = self._fmt(g_fl.gamma_zero, g_fl.gamma_zero_sigma, dec=4) if g_fl else "—"
             for col, val in enumerate([filename, label, kf, vf, mstar, g0]):
                 self._table_phys.setItem(row, col, QTableWidgetItem(val))
+
+    def refresh_physics_only(self) -> None:
+        """Re-popule table physique + redessine Γ(E) sans toucher à la dispersion."""
+        import matplotlib.pyplot as _plt
+        self._table_phys.setRowCount(0)
+        for name, entry in self._session.files.items():
+            if entry.fit_result is None:
+                continue
+            n = entry.fit_params.n_pairs
+            self._populate_physics_rows(name, entry.fit_result, n, entry.meta)
+        colors = _plt.cm.plasma(np.linspace(0.1, 0.9, max(1, len(self._session.files))))
+        self._draw_gamma_panel(colors)
 
     def _draw_gamma_panel(self, colors) -> None:
         from arpes.analysis.results import fit_gamma_fermi_liquid

@@ -23,6 +23,7 @@ class LogbookAppliedValues:
     tilt: float | None = None
     formula: str = ""
     mp_id: str = ""
+    crystal_a_angstrom: float | None = None
     sources: dict[str, str] = field(default_factory=dict)
 
     def has_any(self) -> bool:
@@ -36,6 +37,7 @@ class LogbookAppliedValues:
             self.tilt is not None,
             bool(self.formula),
             bool(self.mp_id),
+            self.crystal_a_angstrom is not None,
         ])
 
 
@@ -121,6 +123,12 @@ class LogbookManager:
             out.mp_id = mp_id
             out.sources["mp_id"] = "logbook"
 
+        a_col = m.get("crystal_a_angstrom", "")
+        a_val = _cell_float(record.get(a_col)) if a_col else None
+        if a_val is not None and np.isfinite(a_val) and a_val > 0:
+            out.crystal_a_angstrom = float(a_val)
+            out.sources["crystal_a_angstrom"] = "logbook"
+
         return out
 
     def values_for_path(self, path: str | Path) -> LogbookAppliedValues:
@@ -146,6 +154,8 @@ class LogbookManager:
             entry.meta.formula = values.formula
         if values.mp_id:
             entry.meta.mp_id = values.mp_id
+        if values.crystal_a_angstrom is not None:
+            entry.meta.crystal_a_angstrom = float(values.crystal_a_angstrom)
         return values
 
 
@@ -316,6 +326,12 @@ def _infer_logbook_mapping(columns: list[str]) -> dict[str, str]:
             "mp_id", "mp-id", "mpid", "materials project id", "mp",
         }) or _pick_column(columns, [
             ["mp", "id"], ["materials", "project", "id"],
+        ]),
+        "crystal_a_angstrom": _pick_exact_column(columns, {
+            "a", "a (a)", "a (angstrom)", "a_angstrom", "a_a", "lattice_a",
+            "parametre a", "parametre_a", "lattice a", "a [a]",
+        }) or _pick_column(columns, [
+            ["lattice", "a"], ["parametre", "a"], ["a", "angstrom"],
         ]),
     }
     legacy = _infer_legacy_measurement_plan_mapping(columns)

@@ -427,6 +427,12 @@ class InteractionController:
             entry = p._session.get_or_create(key)
             entry.fit_result = fr
             p._session.save()
+        results = getattr(p, "_results", None)
+        if results is not None and hasattr(results, "refresh_physics_only"):
+            try:
+                results.refresh_physics_only()
+            except Exception:
+                pass
 
     def _reset_fit_roi_range(self):
         p = self._parent
