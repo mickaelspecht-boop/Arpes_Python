@@ -6,6 +6,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -57,6 +58,14 @@ class ResultsPanel(QWidget):
             "QHeaderView::section{background:#333;color:#ddd;}")
         right.addWidget(self._table, stretch=1)
 
+        self._chk_bootstrap = QCheckBox("Bootstrap σ (N=500, robuste outliers)")
+        self._chk_bootstrap.setToolTip(
+            "Remplace σ statistique propagée par σ bootstrap (rééchantillonnage\n"
+            "des points fittés près de E_F). Plus robuste si points aberrants\n"
+            "résiduels. ~1 s pour 4 branches × 500 itérations."
+        )
+        self._chk_bootstrap.toggled.connect(self.refresh)
+        right.addWidget(self._chk_bootstrap)
         right.addWidget(QLabel("Résultats physiques ± σ (fit MDC stat.)"))
         self._table_phys = QTableWidget(0, 6)
         self._table_phys.setHorizontalHeaderLabels([
@@ -160,8 +169,19 @@ class ResultsPanel(QWidget):
             fr, e_window_kF=0.10, e_window_gamma=0.30,
             crystal_a_angstrom=a_val,
         )
+        if self._chk_bootstrap.isChecked():
+            from arpes.analysis.bootstrap import bootstrap_branch_result
+            bs_branches = []
+            for br in bundle.branches:
+                bs_branches.append(bootstrap_branch_result(
+                    fr, branch=br.branch, pair_index=br.pair_index,
+                    e_window=0.10, crystal_a_angstrom=a_val, n_iter=500,
+                ))
+            branches = bs_branches
+        else:
+            branches = bundle.branches
         gamma_by_pair = {g.pair_index: g for g in bundle.gamma_fl}
-        for br in bundle.branches:
+        for br in branches:
             row = self._table_phys.rowCount()
             self._table_phys.insertRow(row)
             label = f"P{br.pair_index + 1} {br.branch.replace('kF_', '')}"
