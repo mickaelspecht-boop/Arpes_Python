@@ -89,6 +89,7 @@ class FitParamsPanel(QScrollArea):
     theory_compare_requested = pyqtSignal()
     theory_search_requested = pyqtSignal()
     theory_align_requested = pyqtSignal()
+    theory_efalign_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -300,6 +301,7 @@ class FitParamsPanel(QScrollArea):
             "alpha": float(self.sp_theory_alpha.value()),
             "max_bands": int(self.sp_theory_max.value()),
             "mirror_gamma": bool(self.chk_theory_mirror.isChecked()),
+            "band_indices": self.txt_theory_bands.text().strip(),
         }
 
     def set_theory_overlay_state(self, overlay: dict):
@@ -331,10 +333,18 @@ class FitParamsPanel(QScrollArea):
         self.chk_theory_mirror.blockSignals(True)
         self.chk_theory_mirror.setChecked(bool(config.get("mirror_gamma", False)))
         self.chk_theory_mirror.blockSignals(False)
+        self.txt_theory_bands.blockSignals(True)
+        self.txt_theory_bands.setText(str(config.get("band_indices", "") or ""))
+        self.txt_theory_bands.blockSignals(False)
         warning = overlay.get("warning") or ""
         mpid = data.get("material_id") or ""
         if mpid:
-            txt = f"DFT MP {mpid}. Guide visuel, alignement manuel requis."
+            efermi = data.get("efermi")
+            try:
+                ef_txt = f" | DFT E_F={float(efermi):.3f} eV (déjà soustrait)"
+            except (TypeError, ValueError):
+                ef_txt = ""
+            txt = f"DFT MP {mpid}.{ef_txt} Guide visuel, alignement manuel requis."
             if warning:
                 txt += f" Attention: {warning}"
             comparison = overlay.get("comparison") or []

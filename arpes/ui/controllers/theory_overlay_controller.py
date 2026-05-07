@@ -222,6 +222,16 @@ class TheoryOverlayController:
             f"({a}→0, {b}→1). ΔE encore manuel."
         )
 
+    def _align_theory_efermi(self) -> None:
+        self._params.sp_theory_de.blockSignals(True)
+        self._params.sp_theory_de.setValue(0.0)
+        self._params.sp_theory_de.blockSignals(False)
+        self._on_theory_overlay_changed()
+        self._parent._status(
+            "ΔE = 0 forcé. DFT E_F=0 (efermi MP soustrait). "
+            "Vérifier que la calibration EF ARPES est appliquée."
+        )
+
     def _restore_theory_overlay_for_entry(self) -> None:
         overlay = self._current_overlay()
         self._params.set_theory_overlay_state(overlay)

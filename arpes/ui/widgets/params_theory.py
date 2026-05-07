@@ -53,6 +53,13 @@ def build_theory_section(panel, lay) -> None:
     panel.sp_theory_kscale.setToolTip("Facteur d'échelle k manuel pour rapprocher axe DFT et axe ARPES.")
     panel.sp_theory_alpha = dspin(0.65, 0.05, 1.0, 0.05, dec=2)
     panel.sp_theory_max = ispin(10, 1, 80)
+    panel.txt_theory_bands = QLineEdit()
+    panel.txt_theory_bands.setPlaceholderText("ex: 1,3,5-8 (vide = top-N)")
+    panel.txt_theory_bands.setToolTip(
+        "Indices bandes DFT à afficher (0-based). Ranges OK : `1,3,5-8`.\n"
+        "Vide → sélection automatique top-N par overlap fenêtre Y."
+    )
+    panel.txt_theory_bands.editingFinished.connect(panel.theory_overlay_changed)
     panel.chk_theory_mirror = QCheckBox("Miroir Γ (k → -k)")
     panel.chk_theory_mirror.setToolTip(
         "Duplique les bandes DFT en miroir autour de Γ (k → -k).\n"
@@ -76,11 +83,18 @@ def build_theory_section(panel, lay) -> None:
         "Premier label du segment → 0, second → 1."
     )
     btn_theory_align.clicked.connect(panel.theory_align_requested)
+    btn_theory_efalign = QPushButton("Aligner E_F")
+    btn_theory_efalign.setToolTip(
+        "Force ΔE = 0. Bandes DFT centrées sur E_F = 0 (efermi MP déjà soustrait).\n"
+        "Utiliser après calibration EF ARPES pour vérifier le matching d'énergie."
+    )
+    btn_theory_efalign.clicked.connect(panel.theory_efalign_requested)
     theory_btns = QWidget()
     theory_btns_lay = QHBoxLayout(theory_btns)
     theory_btns_lay.setContentsMargins(0, 0, 0, 0)
     theory_btns_lay.addWidget(btn_theory_import)
     theory_btns_lay.addWidget(btn_theory_align)
+    theory_btns_lay.addWidget(btn_theory_efalign)
     theory_btns_lay.addWidget(btn_theory_compare)
     theory_btns_lay.addWidget(btn_theory_clear)
     panel.lbl_theory_status = QLabel("Guide visuel uniquement.")
@@ -103,6 +117,7 @@ def build_theory_section(panel, lay) -> None:
     fl_th.addRow("Scale k:", panel.sp_theory_kscale)
     fl_th.addRow("Opacité:", panel.sp_theory_alpha)
     fl_th.addRow("Max bandes:", panel.sp_theory_max)
+    fl_th.addRow("Bandes idx:", panel.txt_theory_bands)
     fl_th.addRow(panel.chk_theory_mirror)
     fl_th.addRow(theory_btns)
     fl_th.addRow(panel.lbl_theory_status)

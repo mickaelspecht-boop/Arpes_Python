@@ -60,6 +60,7 @@ class TheoryOverlayConfig:
     alpha: float = 0.65
     max_bands: int = 10
     mirror_gamma: bool = False
+    band_indices: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +72,7 @@ class TheoryOverlayConfig:
             "alpha": float(self.alpha),
             "max_bands": int(self.max_bands),
             "mirror_gamma": bool(self.mirror_gamma),
+            "band_indices": str(self.band_indices),
         }
 
     @classmethod
@@ -85,6 +87,7 @@ class TheoryOverlayConfig:
             alpha=_finite_float(data.get("alpha"), 0.65),
             max_bands=max(1, int(_finite_float(data.get("max_bands"), 10))),
             mirror_gamma=bool(data.get("mirror_gamma", False)),
+            band_indices=str(data.get("band_indices") or ""),
         )
 
 
@@ -166,6 +169,39 @@ def available_segments(labels: list[dict[str, Any]]) -> list[str]:
     return out
 
 
+def parse_band_indices(spec: str, n_bands: int) -> list[int]:
+    """Parse `'1,3,5-8'` → [1,3,5,6,7,8]. Skip out-of-range. Empty → []."""
+    out: list[int] = []
+    seen: set[int] = set()
+    if not spec:
+        return out
+    for chunk in spec.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "-" in chunk:
+            try:
+                lo_s, hi_s = chunk.split("-", 1)
+                lo, hi = int(lo_s), int(hi_s)
+            except ValueError:
+                continue
+            if lo > hi:
+                lo, hi = hi, lo
+            for idx in range(lo, hi + 1):
+                if 0 <= idx < n_bands and idx not in seen:
+                    seen.add(idx)
+                    out.append(idx)
+        else:
+            try:
+                idx = int(chunk)
+            except ValueError:
+                continue
+            if 0 <= idx < n_bands and idx not in seen:
+                seen.add(idx)
+                out.append(idx)
+    return out
+
+
 def filter_bands_for_view(
     data: TheoryBandData | dict[str, Any],
     config: TheoryOverlayConfig | dict[str, Any],
@@ -199,7 +235,11 @@ def filter_bands_for_view(
         distance = float(np.nanmin(np.abs(finite - y_center)))
         scored.append((-float(overlap), distance, idx))
     scored.sort()
-    selected = [idx for *_rest, idx in scored[: int(config.max_bands)]]
+    explicit = parse_band_indices(config.band_indices, len(bands))
+    if explicit:
+        selected = explicit
+    else:
+        selected = [idx for *_rest, idx in scored[: int(config.max_bands)]]
     curves: list[tuple[np.ndarray, np.ndarray]] = []
     for idx in selected:
         band = bands[idx].copy()
