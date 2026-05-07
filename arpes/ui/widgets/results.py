@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 
 from arpes.analysis.results import compute_results
 from arpes.core.session import Session
-from arpes.io.export import result_rows, write_results_csv
+from arpes.io.export import physics_rows, result_rows, write_physics_csv, write_results_csv
 from arpes.ui.widgets.canvas import MplCanvas
 
 DEFAULT_CRYSTAL_A_ANGSTROM = 4.143  # Fallback BaNi₂As₂ si meta.crystal_a_angstrom = 0.
@@ -68,11 +68,13 @@ class ResultsPanel(QWidget):
 
         btn_ref = QPushButton("Actualiser")
         btn_ref.clicked.connect(self.refresh)
-        btn_csv = QPushButton("Export CSV")
+        btn_csv = QPushButton("Export CSV (par slice)")
         btn_csv.clicked.connect(self._export_csv)
+        btn_csv_phys = QPushButton("Export CSV physique (± σ)")
+        btn_csv_phys.clicked.connect(self._export_physics_csv)
         btn_pdf = QPushButton("Export figure")
         btn_pdf.clicked.connect(self._export_fig)
-        for b in (btn_ref, btn_csv, btn_pdf):
+        for b in (btn_ref, btn_csv, btn_csv_phys, btn_pdf):
             right.addWidget(b)
 
         rw = QWidget(); rw.setLayout(right)
@@ -181,6 +183,18 @@ class ResultsPanel(QWidget):
         if not rows:
             return
         write_results_csv(path, rows)
+
+    def _export_physics_csv(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export CSV physique (± σ)",
+            str(self._session.folder or Path.home()), "CSV (*.csv)",
+        )
+        if not path:
+            return
+        rows = physics_rows(self._session)
+        if not rows:
+            return
+        write_physics_csv(path, rows)
 
     def _export_fig(self):
         path, _ = QFileDialog.getSaveFileName(
