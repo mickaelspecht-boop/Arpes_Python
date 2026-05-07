@@ -66,6 +66,7 @@ from arpes.ui.controllers.interaction_controller import InteractionController
 from arpes.ui.controllers.fit_runner_controller import FitRunnerController
 from arpes.ui.controllers.kz_controller import KzController
 from arpes.ui.controllers.theory_overlay_controller import TheoryOverlayController
+from arpes.ui.controllers.session_io_controller import SessionIOController
 from arpes.core.session import FileEntry, FitParams, Session
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -172,6 +173,7 @@ class ArpesExplorer(QMainWindow):
         self._fit_runner_ctrl = FitRunnerController(self)
         self._kz_ctrl = KzController(self)
         self._theory_overlay_ctrl = TheoryOverlayController(self)
+        self._session_io_ctrl = SessionIOController(self)
 
         # Debouncers : évitent N redraws quand l'utilisateur clique-clique
         # rapidement sur un spinbox ou tape une valeur.
@@ -279,6 +281,10 @@ class ArpesExplorer(QMainWindow):
         "_search_theory_mp": "_theory_overlay_ctrl",
         "_auto_fetch_theory_overlay_from_logbook": "_theory_overlay_ctrl",
         "_align_theory_to_arpes": "_theory_overlay_ctrl",
+        "_align_theory_efermi": "_theory_overlay_ctrl",
+        "_save_session_as": "_session_io_ctrl",
+        "_open_session_file": "_session_io_ctrl",
+        "_open_recent_session": "_session_io_ctrl",
     }
 
     def __getattr__(self, name: str):
@@ -286,6 +292,13 @@ class ArpesExplorer(QMainWindow):
             ctrl = object.__getattribute__(self, self._PROXY_MAP[name])
             return getattr(ctrl, name)
         raise AttributeError(name)
+
+    def _refresh_recent_sessions_menu(self) -> None:
+        menu = getattr(self, "_recent_sessions_menu", None)
+        if menu is None:
+            return
+        from arpes.ui.builders.menus import _populate_recent_menu
+        _populate_recent_menu(self, menu)
 
     # ─────────────────────────────────────────────────────────────────────────
     def _build_ui(self):

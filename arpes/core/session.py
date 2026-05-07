@@ -121,12 +121,17 @@ class Session:
     def json_path(self) -> Path | None:
         return self.folder / ".arpes_session.json" if self.folder else None
 
-    def save(self):
-        if not self.json_path:
-            return
-        data = {
+    def to_payload(self) -> dict:
+        """Serialize session state to a portable JSON-safe dict.
+
+        The folder path is stored as a hint only; on load the recipient
+        relocates to their own data folder and file keys (relative paths)
+        are resolved against it.
+        """
+        return {
             "version": self.VERSION,
-            "folder": str(self.folder),
+            "folder": str(self.folder) if self.folder else "",
+            "folder_hint": self.folder.name if self.folder else "",
             "work_func": self.work_func,
             "logbook_path": self.logbook_path,
             "logbook_sheet": self.logbook_sheet,
@@ -144,10 +149,17 @@ class Session:
                 for name, entry in self.files.items()
             },
         }
-        self.json_path.write_text(json.dumps(data, indent=2))
 
-    def load(self, path: Path):
-        raw = json.loads(path.read_text())
+    def save(self):
+        if not self.json_path:
+            return
+        self.json_path.write_text(json.dumps(self.to_payload(), indent=2))
+
+    def save_to(self, path: Path) -> None:
+        """Write session payload to an arbitrary path (Save As / Export)."""
+        Path(path).write_text(json.dumps(self.to_payload(), indent=2))
+
+    def load_from_payload(self, raw: dict) -> None:
         self.work_func = raw.get("work_func", 4.031)
         self.logbook_path = raw.get("logbook_path", "")
         self.logbook_sheet = raw.get("logbook_sheet", "")
@@ -178,6 +190,9 @@ class Session:
                 theory_overlay=edict.get("theory_overlay", {}) or {},
             )
             self.files[name] = entry
+
+    def load(self, path: Path):
+        self.load_from_payload(json.loads(Path(path).read_text()))
 
     def get_or_create(self, filename: str) -> FileEntry:
         if filename not in self.files:

@@ -276,3 +276,4 @@ def wire_param_signals(window) -> None:
     p.theory_compare_requested.connect(window._compare_theory_overlay)
     p.theory_search_requested.connect(window._search_theory_mp)
     p.theory_align_requested.connect(window._align_theory_to_arpes)
+    p.theory_efalign_requested.connect(window._align_theory_efermi)
