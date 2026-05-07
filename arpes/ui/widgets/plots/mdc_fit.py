@@ -191,6 +191,9 @@ def fit_mdc_peak_pairs(
     kF_plus_list  = [[] for _ in range(n_pairs)]
     k0_list       = [[] for _ in range(n_pairs)]
     gamma_list    = [[] for _ in range(n_pairs)]
+    sigma_kF_minus_list = [[] for _ in range(n_pairs)]
+    sigma_kF_plus_list  = [[] for _ in range(n_pairs)]
+    sigma_gamma_list    = [[] for _ in range(n_pairs)]
     xg_list       = []
     e_fitted      = []
     prev_popt     = None
@@ -230,8 +233,10 @@ def fit_mdc_peak_pairs(
             p0 = _make_p0(prev_k0)
 
         try:
-            popt, _ = curve_fit(model, kpar_fit, mdc_n, p0=p0,
+            popt, pcov = curve_fit(model, kpar_fit, mdc_n, p0=p0,
                                 bounds=(lo, hi), maxfev=8000)
+            sigma_full = np.sqrt(np.abs(np.diag(pcov)))
+            sigma_xg = float(sigma_full[2])
             xg_fit = popt[2]
             converged = False
             jumped   = False
@@ -254,8 +259,16 @@ def fit_mdc_peak_pairs(
 
                 km = (-k0_fit + xg_fit) if A1 > min_amplitude else np.nan
                 kp = (+k0_fit + xg_fit) if A2 > min_amplitude else np.nan
+                sigma_k0 = float(sigma_full[3 + n_pp * i])
+                sigma_kF = float(np.sqrt(sigma_k0 ** 2 + sigma_xg ** 2))
                 kF_minus_list[i].append(km if not jumped else np.nan)
                 kF_plus_list[i].append(kp if not jumped else np.nan)
+                sigma_kF_minus_list[i].append(
+                    sigma_kF if (np.isfinite(km) and not jumped) else np.nan
+                )
+                sigma_kF_plus_list[i].append(
+                    sigma_kF if (np.isfinite(kp) and not jumped) else np.nan
+                )
                 k0_list[i].append(
                     k0_fit if (not jumped and (A1>min_amplitude or A2>min_amplitude))
                     else np.nan
@@ -267,11 +280,19 @@ def fit_mdc_peak_pairs(
                     g1 = popt[3 + n_pp*i + 2]
                     g2 = popt[3 + n_pp*i + 4]
                     gamma_fit = float(np.nanmean([g1, g2]))
+                    sg1 = float(sigma_full[3 + n_pp * i + 2])
+                    sg2 = float(sigma_full[3 + n_pp * i + 4])
+                    sigma_gamma_val = float(0.5 * np.sqrt(sg1 ** 2 + sg2 ** 2))
                 elif width_mode == 'symmetric':
                     gamma_fit = float(popt[3 + n_pp*i + 3])
+                    sigma_gamma_val = float(sigma_full[3 + n_pp * i + 3])
                 else:
                     gamma_fit = float(popt[-1])
+                    sigma_gamma_val = float(sigma_full[-1])
                 gamma_list[i].append(gamma_fit if not jumped else np.nan)
+                sigma_gamma_list[i].append(
+                    sigma_gamma_val if not jumped else np.nan
+                )
 
                 if verbose:
                     status = 'OK' if (converged and not jumped) else ('JUMP' if jumped else 'LOW_A')
@@ -316,6 +337,9 @@ def fit_mdc_peak_pairs(
                 kF_plus_list[i].append(np.nan)
                 k0_list[i].append(np.nan)
                 gamma_list[i].append(np.nan)
+                sigma_kF_minus_list[i].append(np.nan)
+                sigma_kF_plus_list[i].append(np.nan)
+                sigma_gamma_list[i].append(np.nan)
             xg_list.append(np.nan)
             e_fitted.append(ev_arr[ie])
             prev_popt = None
@@ -337,6 +361,9 @@ def fit_mdc_peak_pairs(
     return dict(
         kF_minus   =[np.array(x)[sort_idx] for x in kF_minus_list],
         kF_plus    =[np.array(x)[sort_idx] for x in kF_plus_list],
+        sigma_kF_minus=[np.array(x)[sort_idx] for x in sigma_kF_minus_list],
+        sigma_kF_plus =[np.array(x)[sort_idx] for x in sigma_kF_plus_list],
+        sigma_gamma   =[np.array(x)[sort_idx] for x in sigma_gamma_list],
         k0         =k0_out,
         xg         =np.array(xg_list)[sort_idx],
         e_fitted   =e_arr_out[sort_idx],

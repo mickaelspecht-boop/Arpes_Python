@@ -17,9 +17,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from arpes.analysis.results import compute_results
 from arpes.core.session import Session
 from arpes.io.export import result_rows, write_results_csv
 from arpes.ui.widgets.canvas import MplCanvas
+
+DEFAULT_CRYSTAL_A_ANGSTROM = 4.143  # BaNi₂As₂ a (à raffiner par fichier).
 
 
 class ResultsPanel(QWidget):
@@ -49,6 +52,20 @@ class ResultsPanel(QWidget):
             "QHeaderView::section{background:#333;color:#ddd;}")
         right.addWidget(self._table, stretch=1)
 
+        right.addWidget(QLabel("Résultats physiques ± σ (fit MDC stat.)"))
+        self._table_phys = QTableWidget(0, 6)
+        self._table_phys.setHorizontalHeaderLabels([
+            "Fichier", "Paire/Branche",
+            "kF (π/a) ± σ", "vF (eV·π/a) ± σ",
+            "m*/me ± σ", "Γ₀ (π/a) ± σ",
+        ])
+        self._table_phys.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch)
+        self._table_phys.setStyleSheet(
+            "QTableWidget{background:#222;color:#ddd;font-size:10px;}"
+            "QHeaderView::section{background:#333;color:#ddd;}")
+        right.addWidget(self._table_phys, stretch=1)
+
         btn_ref = QPushButton("Actualiser")
         btn_ref.clicked.connect(self.refresh)
         btn_csv = QPushButton("Export CSV")
@@ -64,6 +81,7 @@ class ResultsPanel(QWidget):
 
     def refresh(self):
         self._table.setRowCount(0)
+        self._table_phys.setRowCount(0)
         ax = self._canvas.ax
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas.fig.set_facecolor("#2b2b2b")
@@ -112,6 +130,8 @@ class ResultsPanel(QWidget):
                 self._table.setItem(row, col, QTableWidgetItem(val))
             row += 1
 
+            self._populate_physics_rows(name, fr, n)
+
         ax.axhline(0, color="cyan", lw=0.8, ls="--", alpha=0.5)
         ax.axvline(0, color="w",    lw=0.5, ls="--", alpha=0.3)
         ax.set_xlabel("k// (π/a)", fontsize=10, color="w")
@@ -123,6 +143,30 @@ class ResultsPanel(QWidget):
             ax.legend(fontsize=8, facecolor="#333", labelcolor="w",
                       loc="upper right", markerscale=2)
         self._canvas.redraw()
+
+    def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int) -> None:
+        bundle = compute_results(
+            fr, e_window_kF=0.10, e_window_gamma=0.30,
+            crystal_a_angstrom=DEFAULT_CRYSTAL_A_ANGSTROM,
+        )
+        gamma_by_pair = {g.pair_index: g for g in bundle.gamma_fl}
+        for br in bundle.branches:
+            row = self._table_phys.rowCount()
+            self._table_phys.insertRow(row)
+            label = f"P{br.pair_index + 1} {br.branch.replace('kF_', '')}"
+            kf = self._fmt(br.kF_at_EF, br.kF_at_EF_sigma, dec=4)
+            vf = self._fmt(br.vF_eV_pi_a, br.vF_sigma, dec=2)
+            mstar = self._fmt(br.m_star_over_me, br.m_star_sigma, dec=2)
+            g_fl = gamma_by_pair.get(br.pair_index)
+            g0 = self._fmt(g_fl.gamma_zero, g_fl.gamma_zero_sigma, dec=4) if g_fl else "—"
+            for col, val in enumerate([filename, label, kf, vf, mstar, g0]):
+                self._table_phys.setItem(row, col, QTableWidgetItem(val))
+
+    @staticmethod
+    def _fmt(value: float, sigma: float, *, dec: int = 4) -> str:
+        if not (np.isfinite(value) and np.isfinite(sigma)):
+            return "—"
+        return f"{value:.{dec}f} ± {sigma:.{dec}f}"
 
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(
