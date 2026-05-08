@@ -24,6 +24,7 @@ import re
 import sys
 import traceback
 import warnings
+from collections import OrderedDict
 from pathlib import Path
 import matplotlib
 matplotlib.use("QtAgg")
@@ -168,6 +169,11 @@ class ArpesExplorer(QMainWindow):
         # Cache de _update_display_data : recompute uniquement si une des clés
         # influence le résultat affiché.
         self._disp_cache_key: tuple | None = None
+        self._display_cache: OrderedDict[tuple, tuple[np.ndarray, dict]] = OrderedDict()
+        self._display_cache_max = 12
+        self._current_raw_load_cache_key: tuple | None = None
+        self._raw_load_cache: OrderedDict[tuple, tuple[dict, dict]] = OrderedDict()
+        self._raw_load_cache_max = 6
 
         self._logbook_ctrl = LogbookIngestController(self)
         self._load_ctrl = LoadController(self)
@@ -224,6 +230,7 @@ class ArpesExplorer(QMainWindow):
         "_get_mdc": "_plot_ctrl",
         "_get_edc": "_plot_ctrl",
         "_draw_mdc_edc": "_plot_ctrl",
+        "_draw_current_view": "_plot_ctrl",
         # GammaController
         "_store_fs_center_reference": "_gamma_ctrl",
         "_k_to_angle_offset_deg": "_gamma_ctrl",
@@ -367,8 +374,10 @@ class ArpesExplorer(QMainWindow):
             self._draw_fs_tab()
         elif index == 1:
             self._set_fs_center_pick_mode(False)
-            self._draw_bm()
+            self._draw_mdc_energy_map()
             self._draw_mdc_edc()
+        elif index == 0:
+            self._draw_bm()
         else:
             self._set_fs_center_pick_mode(False)
 
@@ -376,7 +385,7 @@ class ArpesExplorer(QMainWindow):
         if hasattr(self, "_params"):
             self._params.set_waterfall_controls_visible(index == 1 and self._tabs.currentIndex() == 1)
         if index == 0:
-            self._draw_bm()
+            self._draw_mdc_energy_map()
             self._draw_mdc_edc()
         elif index == 1:
             self._draw_mdc_waterfall()

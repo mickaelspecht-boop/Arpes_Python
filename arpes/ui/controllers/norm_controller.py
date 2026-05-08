@@ -56,9 +56,7 @@ class NormController:
             entry.grid_correction = dict(cfg)
             self._session.save()
             self._update_display_data()
-            self._draw_bm()
-            if self._tabs.currentIndex() == 1:
-                self._draw_mdc_edc()
+            self._draw_current_view()
             msg = self._grid_status_text(self._grid_display_info, "affichage BM")
             self._params.lbl_grid.setText(msg)
             self._status(msg)
@@ -76,9 +74,7 @@ class NormController:
         self._session.save()
         self._grid_display_info = {}
         self._update_display_data()
-        self._draw_bm()
-        if self._tabs.currentIndex() == 1:
-            self._draw_mdc_edc()
+        self._draw_current_view()
         self._params.lbl_grid.setText("Correction grille désactivée pour ce fichier.")
         self._status("Correction grille désactivée pour ce fichier.")
         if hasattr(self._params, "mark_action_done"):

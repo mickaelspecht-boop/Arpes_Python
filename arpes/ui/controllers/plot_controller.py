@@ -23,6 +23,22 @@ from arpes.physics.plot_compute import (
 PAIR_COLORS = ["#ff8c00", "#00e5ff", "#7fff00", "#ff44cc"]
 
 
+def _axis_cache_signature(axis) -> tuple:
+    arr = np.asarray(axis, dtype=float)
+    if arr.size == 0:
+        return (0,)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return (arr.size, "all-nan")
+    return (
+        int(arr.size),
+        float(finite[0]),
+        float(finite[-1]),
+        float(np.nanmin(finite)),
+        float(np.nanmax(finite)),
+    )
+
+
 def _lorentzian(k, k0, gamma, A):
     return A * gamma**2 / ((k - k0)**2 + gamma**2)
 
@@ -138,9 +154,27 @@ class PlotController:
             grid_cfg_active.get("peak_sensitivity"),
             grid_cfg_active.get("notch_width"),
         ) if grid_cfg_active else None
-        cache_key = (id(raw), mode, grid_key)
+        raw_key = getattr(self, "_current_raw_load_cache_key", None)
+        cache_key = (
+            raw_key,
+            id(raw),
+            tuple(np.asarray(raw).shape),
+            mode,
+            grid_key,
+            _axis_cache_signature(d["kpar"]),
+            _axis_cache_signature(d["ev_arr"]),
+        )
         if cache_key == self._disp_cache_key and self._data_disp is not None:
             return  # rien n'a changé qui affecte l'affichage BM
+
+        display_cache = getattr(self, "_display_cache", None)
+        if display_cache is not None and cache_key in display_cache:
+            disp_cached, info_cached = display_cache.pop(cache_key)
+            display_cache[cache_key] = (disp_cached, info_cached)
+            self._data_disp = disp_cached
+            self._grid_display_info = dict(info_cached or {})
+            self._disp_cache_key = cache_key
+            return
 
         result = compute_bandmap_display(
             d,
@@ -152,6 +186,11 @@ class PlotController:
         self._data_disp = result.data
         self._grid_display_info = result.grid_info
         self._disp_cache_key = cache_key
+        if display_cache is not None:
+            display_cache[cache_key] = (result.data, dict(result.grid_info or {}))
+            max_items = int(getattr(self, "_display_cache_max", 12) or 12)
+            while len(display_cache) > max_items:
+                display_cache.popitem(last=False)
 
     def _fit_roi_bounds(self) -> tuple[float, float, float, float] | None:
         if self._raw_data is None:
@@ -187,6 +226,21 @@ class PlotController:
     # Band map
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _draw_current_view(self, *, include_curves: bool = True):
+        tabs = getattr(self, "_tabs", None)
+        index = tabs.currentIndex() if tabs is not None else 0
+        if index == 0:
+            self._draw_bm()
+        elif index == 1:
+            self._draw_mdc_energy_map()
+            if include_curves:
+                if hasattr(self, "_mdc_fit_tabs") and self._mdc_fit_tabs.currentIndex() == 1:
+                    self._draw_mdc_waterfall()
+                else:
+                    self._draw_mdc_edc()
+        elif index == 3:
+            self._draw_fs_tab()
+
     def _draw_bm(self):
         if self._data_disp is None:
             return
@@ -215,7 +269,6 @@ class PlotController:
         self._draw_kf_overlay(ax)
         self._draw_ef_label(ax, horizontal=True)
         self._bm_canvas.redraw()
-        self._draw_mdc_energy_map()
 
     def _draw_mdc_energy_map(self):
         """Mini BM visible dans l'onglet MDC Fit pour choisir E,k sans revenir à BM."""
@@ -412,19 +465,37 @@ class PlotController:
 
     def _get_mdc(self):
         if self._raw_data is None: return None
+        edc_norm = self._cmb_view.currentText() == "EDCnorm"
+        raw_data = self._raw_data
+        if edc_norm:
+            if self._data_disp is None or np.shape(self._data_disp) != np.shape(self._raw_data["data"]):
+                self._update_display_data()
+            if self._data_disp is not None and np.shape(self._data_disp) == np.shape(self._raw_data["data"]):
+                raw_data = dict(self._raw_data)
+                raw_data["data"] = self._data_disp
+                edc_norm = False
         return _plot_mdc_curve(
-            self._raw_data,
+            raw_data,
             selected_ev=self._sel_ev,
             int_window=self._params.sp_int_win.value(),
-            edc_norm_enabled=self._cmb_view.currentText() == "EDCnorm",
+            edc_norm_enabled=edc_norm,
         )
 
     def _get_edc(self):
         if self._raw_data is None: return None
+        edc_norm = self._cmb_view.currentText() == "EDCnorm"
+        raw_data = self._raw_data
+        if edc_norm:
+            if self._data_disp is None or np.shape(self._data_disp) != np.shape(self._raw_data["data"]):
+                self._update_display_data()
+            if self._data_disp is not None and np.shape(self._data_disp) == np.shape(self._raw_data["data"]):
+                raw_data = dict(self._raw_data)
+                raw_data["data"] = self._data_disp
+                edc_norm = False
         return _plot_edc_curve(
-            self._raw_data,
+            raw_data,
             selected_k=self._sel_k,
-            edc_norm_enabled=self._cmb_view.currentText() == "EDCnorm",
+            edc_norm_enabled=edc_norm,
         )
 
     def _draw_mdc_edc(self):

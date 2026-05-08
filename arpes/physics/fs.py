@@ -8,6 +8,7 @@ par arpes_io.py pour Solaris/DA30 et CLS/LNLS.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import OrderedDict
 from typing import Any
 
 import numpy as np
@@ -27,7 +28,8 @@ except Exception:  # scipy absent: fallback sans lissage
     gaussian_filter = None
 
 from arpes.physics.norm import apply_fs_flux_factors_to_map, fs_flux_profile_factors
-from arpes.physics.bz import BZ_PRESETS, bz_high_symmetry_points, bz_polygon
+from arpes.physics.bz import bz_high_symmetry_points, bz_polygon, resolve_bz_preset
+from arpes.ui.widgets._qt_helpers import compact_button
 
 
 @dataclass
@@ -44,6 +46,7 @@ class FSParams:
     bz_shape: str = "rectangle"
     bz_half_x: float = 1.0
     bz_half_y: float = 1.0
+    bz_angle_deg: float = 90.0
     normalize_profile: bool = True
     overlay_bz: bool = True
     show_hsym: bool = True
@@ -113,37 +116,41 @@ class FSControlPanel(QScrollArea):
         fl3 = QFormLayout(grp_bz)
         self.chk_bz = QCheckBox("Afficher ZDB"); self.chk_bz.setChecked(True)
         self.chk_hsym = QCheckBox("Points Γ/X/M"); self.chk_hsym.setChecked(True)
-        self.cmb_bz_shape = QComboBox(); self.cmb_bz_shape.addItems(["rectangle", "hexagon"])
+        self.cmb_bz_shape = QComboBox(); self.cmb_bz_shape.addItems(["square", "rectangle", "hexagon", "centered_rect", "oblique"])
         self.sp_bzx = self._dspin(1.0, 0.05, 5.0, 0.05, dec=3)
         self.sp_bzy = self._dspin(1.0, 0.05, 5.0, 0.05, dec=3)
+        self.sp_bz_angle = self._dspin(90.0, 20.0, 160.0, 1.0, dec=1)
         self.sp_klim = self._dspin(1.3, 0.1, 10.0, 0.05, dec=2)
         self.cmb_bz_shape.currentIndexChanged.connect(self.params_changed)
+        self.cmb_bz_shape.currentIndexChanged.connect(self._update_bz_angle_visibility)
         self.chk_bz.stateChanged.connect(self.params_changed)
         self.chk_hsym.stateChanged.connect(self.params_changed)
-        btn_bz = QPushButton("Choisir ZDB...")
-        btn_bz.setToolTip("Ouvre un sélecteur avec schéma pour choisir une ZDB carrée, rectangulaire ou hexagonale.")
+        btn_bz = compact_button(QPushButton("Choisir ZDB..."), max_width=160)
+        btn_bz.setToolTip("Ouvre un sélecteur avec schéma pour choisir une ZDB 2D Bravais.")
         btn_bz.clicked.connect(self.bz_preset_requested)
         fl3.addRow(self.chk_bz)
         fl3.addRow(self.chk_hsym)
         fl3.addRow("Forme:", self.cmb_bz_shape)
         fl3.addRow("demi-ZDB x:", self.sp_bzx)
         fl3.addRow("demi-ZDB y:", self.sp_bzy)
+        fl3.addRow("angle réseau:", self.sp_bz_angle)
         fl3.addRow("limite affichage:", self.sp_klim)
         fl3.addRow(btn_bz)
         lay.addWidget(grp_bz)
+        self._update_bz_angle_visibility()
 
         self.lbl_info = QLabel("Charge un fast map Solaris ou un dossier FS CLS.")
         self.lbl_info.setWordWrap(True)
         self.lbl_info.setStyleSheet("color:#aaa; font-size:10px;")
         lay.addWidget(self.lbl_info)
-        btn = QPushButton("Redessiner FS")
+        btn = compact_button(QPushButton("Redessiner FS"), max_width=160)
         btn.clicked.connect(self.redraw_requested)
         lay.addWidget(btn)
-        btn_g = QPushButton("Détecter Γ FS")
+        btn_g = compact_button(QPushButton("Détecter Γ FS"), max_width=160)
         btn_g.setToolTip("Détecte Γ par milieux de paires MDC sur la FS et recentre la carte.")
         btn_g.clicked.connect(self.gamma_requested)
         lay.addWidget(btn_g)
-        self.btn_pick_center = QPushButton("Viser Γ manuel")
+        self.btn_pick_center = compact_button(QPushButton("Viser Γ manuel"), max_width=160)
         self.btn_pick_center.setCheckable(True)
         self.btn_pick_center.setToolTip(
             "Active un curseur sur la carte FS.\n"
@@ -163,6 +170,7 @@ class FSControlPanel(QScrollArea):
             klim=self.sp_klim.value(), kx_center=self.sp_kx0.value(), ky_center=self.sp_ky0.value(),
             bz_shape=self.cmb_bz_shape.currentText(),
             bz_half_x=self.sp_bzx.value(), bz_half_y=self.sp_bzy.value(),
+            bz_angle_deg=self.sp_bz_angle.value(),
             normalize_profile=self.chk_norm.isChecked(), overlay_bz=self.chk_bz.isChecked(),
             show_hsym=self.chk_hsym.isChecked(), cmap=self.cmb_cmap.currentText())
 
@@ -178,18 +186,29 @@ class FSControlPanel(QScrollArea):
         self.btn_pick_center.blockSignals(False)
 
     def apply_bz_preset(self, key: str) -> None:
-        preset = BZ_PRESETS[key]
+        preset = resolve_bz_preset(key)
         self.cmb_bz_shape.blockSignals(True)
         self.sp_bzx.blockSignals(True)
         self.sp_bzy.blockSignals(True)
+        self.sp_bz_angle.blockSignals(True)
         self.cmb_bz_shape.setCurrentText(preset.shape)
         self.sp_bzx.setValue(preset.half_x)
         self.sp_bzy.setValue(preset.half_y)
+        self.sp_bz_angle.setValue(preset.angle_deg)
         self.cmb_bz_shape.blockSignals(False)
         self.sp_bzx.blockSignals(False)
         self.sp_bzy.blockSignals(False)
+        self.sp_bz_angle.blockSignals(False)
+        self._update_bz_angle_visibility()
         self.chk_bz.setChecked(True)
         self.params_changed.emit()
+
+    def _update_bz_angle_visibility(self) -> None:
+        show = self.cmb_bz_shape.currentText() == "oblique"
+        label = self.sp_bz_angle.parentWidget().layout().labelForField(self.sp_bz_angle)
+        if label is not None:
+            label.setVisible(show)
+        self.sp_bz_angle.setVisible(show)
 
 
 def _robust_norm(img: np.ndarray) -> np.ndarray:
@@ -272,12 +291,59 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
     return kx, ky, fs_n, f"FS {source} — ±{params.ef_window*1000:.0f} meV | {norm_note}"
 
 
+def _axis_signature(axis: Any) -> tuple:
+    arr = np.asarray(axis, dtype=float)
+    if arr.size == 0:
+        return (0,)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return (int(arr.size), "all-nan")
+    return (
+        int(arr.size),
+        float(finite[0]),
+        float(finite[-1]),
+        float(np.nanmin(finite)),
+        float(np.nanmax(finite)),
+    )
+
+
+def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
+    meta = raw_data.get("metadata", {}) or {}
+    fs_data = meta.get("fs_data")
+    if fs_data is None:
+        data = np.asarray(raw_data.get("data"))
+        return (
+            "bm-fallback",
+            id(data),
+            tuple(data.shape),
+            _axis_signature(raw_data.get("kpar")),
+            _axis_signature(raw_data.get("ev_arr")),
+            round(float(params.ef_window), 8),
+        )
+    fs_arr = np.asarray(fs_data)
+    return (
+        "fs-volume",
+        id(fs_arr),
+        tuple(fs_arr.shape),
+        _axis_signature(meta.get("fs_kx")),
+        _axis_signature(meta.get("fs_ky")),
+        _axis_signature(meta.get("fs_energy")),
+        round(float(params.ef_window), 8),
+        round(float(params.norm_ref_lo), 8),
+        round(float(params.norm_ref_hi), 8),
+        round(float(params.smooth_sigma), 8),
+        bool(params.normalize_profile),
+    )
+
+
 class FermiSurfaceCanvas(QWidget):
     def __init__(self):
         super().__init__()
         self.fig = Figure(figsize=(7, 6), tight_layout=True)
         self.canvas = FigureCanvas(self.fig)
         self.ax = self.fig.add_subplot(111)
+        self._fs_map_cache: OrderedDict[tuple, tuple[np.ndarray, np.ndarray, np.ndarray, str]] = OrderedDict()
+        self._fs_map_cache_max = 8
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
         lay.addWidget(NavToolbar(self.canvas, self)); lay.addWidget(self.canvas)
         self._dark()
@@ -292,7 +358,16 @@ class FermiSurfaceCanvas(QWidget):
                          ha="center", va="center", color="w")
             self.canvas.draw_idle(); return "Aucune donnée"
         try:
-            kx, ky, fs, title = extract_fs_map(raw_data, params)
+            key = _fs_cache_key(raw_data, params)
+            cached = self._fs_map_cache.pop(key, None)
+            if cached is None:
+                kx, ky, fs, title = extract_fs_map(raw_data, params)
+                self._fs_map_cache[key] = (kx, ky, fs, title)
+                while len(self._fs_map_cache) > self._fs_map_cache_max:
+                    self._fs_map_cache.popitem(last=False)
+            else:
+                kx, ky, fs, title = cached
+                self._fs_map_cache[key] = cached
             meta = raw_data.get("metadata", {}) or {}
             fs_kind = meta.get("fs_kind", "")
             x = kx - params.kx_center
@@ -367,7 +442,7 @@ class FermiSurfaceCanvas(QWidget):
     def _overlay_bz(self, p: FSParams):
         if not p.overlay_bz: return
         bx, by = p.bz_half_x, p.bz_half_y
-        corners = bz_polygon(p.bz_shape, bx, by)
+        corners = bz_polygon(p.bz_shape, bx, by, p.bz_angle_deg)
         self.ax.plot(corners[:,0], corners[:,1], color="white", lw=1.2, ls="--", alpha=0.85)
         self.ax.axhline(0, color="white", lw=0.5, ls=":", alpha=0.5)
         self.ax.axvline(0, color="white", lw=0.5, ls=":", alpha=0.5)
@@ -375,7 +450,7 @@ class FermiSurfaceCanvas(QWidget):
             def dot(x,y,name,color):
                 self.ax.scatter([x],[y], c=color, s=35, zorder=5, linewidths=0)
                 self.ax.annotate(name, (x,y), xytext=(4,4), textcoords="offset points", color=color, fontsize=9, fontweight="bold")
-            for x, y, name, color in bz_high_symmetry_points(p.bz_shape, bx, by):
+            for x, y, name, color in bz_high_symmetry_points(p.bz_shape, bx, by, p.bz_angle_deg):
                 dot(x, y, name, color)
         self.ax.set_xlim(-p.klim, p.klim)
         if p.klim > 0: self.ax.set_ylim(-p.klim, p.klim)

@@ -16,6 +16,7 @@ est purement orchestration Qt + état parent.
 from __future__ import annotations
 
 import traceback
+import copy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,7 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication
 
 from arpes.core.session import normalize_tags, session_tags
-from arpes.io.loader_orchestrator import LoaderOrchestrator
+from arpes.io.loader_orchestrator import LoaderOrchestrator, LoaderOrchestratorResult
 from arpes.physics.resolution import estimate_resolutions
 
 try:
@@ -35,6 +36,39 @@ except ImportError:
     loader_label = lambda *a, **k: ""  # noqa: E731
 
 from arpes.physics.plot_compute import apply_ef_correction_to_dict
+
+
+def _freeze_cache_value(value: Any) -> Any:
+    """Transforme une valeur de contexte en clé hashable stable."""
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return tuple((str(k), _freeze_cache_value(v)) for k, v in sorted(value.items(), key=lambda item: str(item[0])))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_cache_value(v) for v in value)
+    if isinstance(value, set):
+        return tuple(sorted(_freeze_cache_value(v) for v in value))
+    try:
+        hash(value)
+        return value
+    except TypeError:
+        return repr(value)
+
+
+def _clone_loaded_value(value: Any) -> Any:
+    """Copie metadata/conteneurs, partage les gros tableaux numpy en lecture."""
+    if isinstance(value, np.ndarray):
+        return value
+    if isinstance(value, dict):
+        return {k: _clone_loaded_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_clone_loaded_value(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_clone_loaded_value(v) for v in value)
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return value
 
 
 @dataclass
@@ -157,6 +191,29 @@ class LoadController:
 
     def _dispatch_loader(self, path: str, prepared: _PreparedEntry):
         orchestrator = LoaderOrchestrator(load_arpes_file, loader_label)
+        cache_key = self._load_cache_key(path, prepared)
+        cache = getattr(self._parent, "_raw_load_cache", None)
+        if cache is not None and cache_key in cache:
+            data_cached, offsets_cached = cache.pop(cache_key)
+            cache[cache_key] = (data_cached, offsets_cached)
+            self._parent._last_load_cache_hit = True
+            self._parent._current_raw_load_cache_key = cache_key
+            return (
+                LoaderOrchestratorResult(
+                    data=_clone_loaded_value(data_cached),
+                    angle_offsets=dict(offsets_cached or {}),
+                    context=orchestrator.build_context(
+                        prepared.entry,
+                        hv=prepared.hv_for_load,
+                        angle_offsets=prepared.angle_offsets,
+                        bessy_energy_reference=self._parent._bessy_energy_reference_mode(),
+                    ),
+                ),
+                orchestrator,
+            )
+
+        self._parent._last_load_cache_hit = False
+        self._parent._current_raw_load_cache_key = cache_key
         load_result = orchestrator.load(
             path,
             prepared.entry,
@@ -167,7 +224,59 @@ class LoadController:
             bessy_energy_reference=self._parent._bessy_energy_reference_mode(),
             best_angle_load_func=self._parent._load_with_best_angle_offsets,
         )
+        if cache is not None and load_result.data is not None:
+            cache[cache_key] = (
+                _clone_loaded_value(load_result.data),
+                dict(load_result.angle_offsets or {}),
+            )
+            max_items = int(getattr(self._parent, "_raw_load_cache_max", 6) or 6)
+            while len(cache) > max_items:
+                cache.popitem(last=False)
         return load_result, orchestrator
+
+    def _load_cache_key(self, path: str, prepared: _PreparedEntry) -> tuple:
+        entry = prepared.entry
+        return (
+            "raw-loader-v1",
+            self._path_signature(Path(path)),
+            round(float(self._params.sp_phi.value()), 8),
+            round(float(self._params.sp_ef.value()), 8),
+            round(float(prepared.hv_for_load or 0.0), 8),
+            round(float(getattr(entry.meta, "temperature", 0.0) or 0.0), 8),
+            round(float(getattr(entry.meta, "azi", 0.0) or 0.0), 8),
+            str(getattr(entry.meta, "polarization", "") or ""),
+            _freeze_cache_value(prepared.angle_offsets or {}),
+            self._parent._bessy_energy_reference_mode(),
+        )
+
+    def _path_signature(self, path: Path) -> tuple:
+        try:
+            p = path.resolve()
+        except Exception:
+            p = path
+        if p.is_dir():
+            items = []
+            try:
+                for child in sorted(p.rglob("*")):
+                    if not child.is_file():
+                        continue
+                    rel_parts = child.relative_to(p).parts
+                    if rel_parts and rel_parts[0] in {".arpes_cache", ".arpes_theory_cache"}:
+                        continue
+                    st = child.stat()
+                    items.append(("/".join(rel_parts), int(st.st_size), int(st.st_mtime_ns)))
+            except Exception:
+                try:
+                    st = p.stat()
+                    items.append((".", int(st.st_size), int(st.st_mtime_ns)))
+                except Exception:
+                    items.append((".", -1, -1))
+            return ("dir", str(p), tuple(items))
+        try:
+            st = p.stat()
+            return ("file", str(p), int(st.st_size), int(st.st_mtime_ns))
+        except Exception:
+            return ("missing", str(p))
 
     def _apply_post_load(self, d, prepared, load_result, orchestrator, path):
         entry = prepared.entry
@@ -181,6 +290,8 @@ class LoadController:
         self._parent._raw_data = d
         self._parent._current_path = path
         self._parent._fit_res = None
+        self._parent._data_disp = None
+        self._parent._disp_cache_key = None
 
         hv_src = orchestrator.resolve_hv_after_load(
             d,
@@ -267,6 +378,7 @@ class LoadController:
             gamma_note = f"  |  Γ axe shift={float(md_now.get('bm_gamma_axis_shift', 0.0)):+.4f}"
         loader_note = ""
         loader_warnings = md_now.get("loader_warnings") or []
+        cache_note = "  |  cache RAM" if getattr(self._parent, "_last_load_cache_hit", False) else ""
         if loader_warnings:
             loader_note = f"  |  Attention: loader: {str(loader_warnings[0])[:120]}"
         elif md_now.get("energy_reference"):
@@ -275,10 +387,7 @@ class LoadController:
         self._parent._sel_k = 0.0
         self._parent._sync_ev_spinbox()
 
-        self._parent._draw_bm()
-        self._parent._draw_mdc_edc()
-        if self._parent._tabs.currentIndex() == 3:
-            self._parent._draw_fs_tab()
+        self._parent._draw_current_view()
 
         self._session.save()
         self._parent._browser.select_file(path)
@@ -289,7 +398,7 @@ class LoadController:
             f"Chargé : {Path(path).name}  hν={hv_txt}  |  "
             f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
             f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV"
-            f"{lb_txt}{grid_note}{gamma_note}{loader_note}"
+            f"{lb_txt}{cache_note}{grid_note}{gamma_note}{loader_note}"
         )
         if hasattr(self._params, "mark_action_done"):
             self._params.mark_action_done(f"fichier chargé ({Path(path).name})")

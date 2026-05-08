@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from arpes.ui.widgets.canvas import MplCanvas
+from arpes.ui.widgets._qt_helpers import compact_button
 
 
 @dataclass(frozen=True)
@@ -64,17 +65,17 @@ class KzControlPanel(QScrollArea):
         lay.setContentsMargins(6, 6, 6, 6)
         self.setWidget(root)
 
-        btn_folder = QPushButton("Dossier KZ")
+        btn_folder = compact_button(QPushButton("Dossier KZ"), max_width=150)
         btn_folder.setToolTip("Charge un dossier contenant une série de band maps à hν variable.")
         btn_folder.clicked.connect(self.folder_requested)
         lay.addWidget(btn_folder)
 
-        btn_logbook = QPushButton("Logbook KZ")
+        btn_logbook = compact_button(QPushButton("Logbook KZ"), max_width=150)
         btn_logbook.setToolTip("Charge un logbook dédié à la série KZ. hν fichier reste prioritaire.")
         btn_logbook.clicked.connect(self.kz_logbook_requested)
         lay.addWidget(btn_logbook)
 
-        btn_redraw = QPushButton("Redessiner KZ")
+        btn_redraw = compact_button(QPushButton("Redessiner KZ"), max_width=150)
         btn_redraw.clicked.connect(self.redraw_requested)
         lay.addWidget(btn_redraw)
 

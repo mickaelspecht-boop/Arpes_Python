@@ -133,7 +133,7 @@ class FitParamsPanel(QScrollArea):
     def update_ef_reference_button(self, ref: dict | None):
         """Met à jour le label/état du bouton EF réf selon la session."""
         if not ref:
-            self.btn_ef_ref.setText("Aucune réf EF (calibrer un Au d'abord)")
+            self.btn_ef_ref.setText("Aucune réf EF")
             self.btn_ef_ref.setEnabled(False)
             self.btn_ef_ref.setToolTip(
                 "Aucune référence EF enregistrée dans cette session.\n"
@@ -146,13 +146,13 @@ class FitParamsPanel(QScrollArea):
         src_name = Path(src_path).name if src_path else "(source inconnue)"
         if mode == "scalar":
             shift_meV = float(ref.get("ef_shift", 0.0)) * 1000.0
-            label = f"Appliquer EF réf : {src_name} (delta={shift_meV:+.1f} meV)"
+            label = f"Appliquer EF réf ({shift_meV:+.1f} meV)"
         elif mode == "poly":
             n_valid = int(ref.get("n_valid", 0))
             fwhm = float(ref.get("fwhm_res", 0.0)) * 1000.0
-            label = f"Appliquer EF réf poly : {src_name} (n={n_valid}, FWHM≈{fwhm:.0f} meV)"
+            label = f"Appliquer EF réf poly (n={n_valid})"
         else:
-            label = f"Appliquer EF réf : {src_name}"
+            label = "Appliquer EF réf"
         self.btn_ef_ref.setText(label)
         self.btn_ef_ref.setEnabled(True)
         self.btn_ef_ref.setToolTip(

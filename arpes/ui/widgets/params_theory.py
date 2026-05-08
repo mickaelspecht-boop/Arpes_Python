@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from arpes.ui.widgets._qt_helpers import dspin, ispin
+from arpes.ui.widgets._qt_helpers import compact_button, dspin, ispin
 
 
 def build_theory_section(panel, lay) -> None:
@@ -31,7 +31,7 @@ def build_theory_section(panel, lay) -> None:
     panel.txt_theory_mpid = QLineEdit()
     panel.txt_theory_mpid.setPlaceholderText("mp-149")
     panel.txt_theory_mpid.setToolTip("Materials Project ID. Nécessite mp-api + MP_API_KEY.")
-    panel.btn_theory_search = QPushButton("Chercher MP")
+    panel.btn_theory_search = compact_button(QPushButton("Chercher MP"), max_width=130)
     panel.btn_theory_search.setToolTip(
         "Recherche par formule chimique sur Materials Project (réseau).\n"
         "Ouvre un dialog avec candidats et leur MPID."
@@ -73,35 +73,35 @@ def build_theory_section(panel, lay) -> None:
         "ne couvre que la moitié droite. Valable pour cristaux à symétrie\n"
         "d'inversion (ex BaNi₂As₂ I4/mmm)."
     )
-    btn_theory_import = QPushButton("Importer MP")
+    btn_theory_import = compact_button(QPushButton("Importer MP"), max_width=130)
     btn_theory_import.clicked.connect(panel.theory_import_requested)
-    btn_theory_local_import = QPushButton("Importer local")
+    btn_theory_local_import = compact_button(QPushButton("Importer local"), max_width=140)
     btn_theory_local_import.setToolTip(
         "Importe des bandes DFT locales depuis vasprun.xml, table QE .dat/.txt,\n"
         "ou schema YAML/JSON minimal."
     )
     btn_theory_local_import.clicked.connect(panel.theory_local_import_requested)
-    btn_theory_clear = QPushButton("Vider")
+    btn_theory_clear = compact_button(QPushButton("Vider"), max_width=90)
     btn_theory_clear.clicked.connect(panel.theory_clear_requested)
-    btn_theory_compare = QPushButton("Comparer au fit")
+    btn_theory_compare = compact_button(QPushButton("Comparer au fit"), max_width=150)
     btn_theory_compare.setToolTip(
         "Score les bandes DFT contre les points kF fittés.\n"
         "Diagnostic visuel uniquement, sans modifier le fit."
     )
     btn_theory_compare.clicked.connect(panel.theory_compare_requested)
-    btn_self_energy = QPushButton("Calculer Re Sigma")
+    btn_self_energy = compact_button(QPushButton("Calculer Re Sigma"), max_width=170)
     btn_self_energy.setToolTip(
         "Calcule Re Sigma(E)=E_exp-E_DFT(k_exp) avec la meilleure bande DFT\n"
         "contre le fit MDC courant, puis ouvre un plot diagnostic."
     )
     btn_self_energy.clicked.connect(panel.self_energy_requested)
-    btn_theory_align = QPushButton("Aligner π/a")
+    btn_theory_align = compact_button(QPushButton("Aligner π/a"), max_width=130)
     btn_theory_align.setToolTip(
         "Calcule scale k et Δk pour mapper le segment choisi sur [0, 1] (π/a).\n"
         "Premier label du segment → 0, second → 1."
     )
     btn_theory_align.clicked.connect(panel.theory_align_requested)
-    btn_theory_efalign = QPushButton("Aligner E_F")
+    btn_theory_efalign = compact_button(QPushButton("Aligner E_F"), max_width=130)
     btn_theory_efalign.setToolTip(
         "Force ΔE = 0. Bandes DFT centrées sur E_F = 0 (efermi MP déjà soustrait).\n"
         "Utiliser après calibration EF ARPES pour vérifier le matching d'énergie."
@@ -117,6 +117,7 @@ def build_theory_section(panel, lay) -> None:
     theory_btns_lay.addWidget(btn_theory_compare)
     theory_btns_lay.addWidget(btn_self_energy)
     theory_btns_lay.addWidget(btn_theory_clear)
+    theory_btns_lay.addStretch(1)
     panel.lbl_theory_status = QLabel("Guide visuel uniquement.")
     panel.lbl_theory_status.setWordWrap(True)
     panel.lbl_theory_status.setStyleSheet("color:#aaa;font-size:10px;")

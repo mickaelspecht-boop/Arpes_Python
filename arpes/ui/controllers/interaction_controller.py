@@ -30,6 +30,18 @@ class InteractionController:
     def _status(self, msg: str) -> None:
         self._parent._status(msg)
 
+    def _draw_current_view(self, *, include_curves: bool = True) -> None:
+        p = self._parent
+        draw_current = getattr(p, "_draw_current_view", None)
+        if callable(draw_current):
+            draw_current(include_curves=include_curves)
+            return
+        if hasattr(p, "_draw_bm"):
+            p._draw_bm()
+        tabs = getattr(p, "_tabs", None)
+        if include_curves and tabs is not None and tabs.currentIndex() == 1 and hasattr(p, "_draw_mdc_edc"):
+            p._draw_mdc_edc()
+
     # ---------------------------------------------------------------- callbacks
     def _on_view_changed(self):
         p = self._parent
@@ -43,9 +55,7 @@ class InteractionController:
             entry.view_mode = mode
             entry.edcnorm = mode == "EDCnorm"
         p._update_display_data()
-        p._draw_bm()
-        if p._tabs.currentIndex() == 1:
-            p._draw_mdc_edc()
+        self._draw_current_view()
 
     def _on_view_fit_changed(self):
         p = self._parent
@@ -61,10 +71,7 @@ class InteractionController:
             return
         ev_arr = p._raw_data["ev_arr"]
         p._sel_ev = float(np.clip(val, ev_arr.min(), ev_arr.max()))
-        p._draw_bm()
-        p._draw_mdc_edc()
-        if hasattr(p, "_mdc_fit_tabs") and p._tabs.currentIndex() == 1 and p._mdc_fit_tabs.currentIndex() == 1:
-            p._draw_mdc_waterfall()
+        self._draw_current_view()
 
     def _schedule_model_redraw(self, _=None):
         self._parent._redraw_timer.start(120)
@@ -75,11 +82,7 @@ class InteractionController:
     def _on_model_changed(self, _=None):
         p = self._parent
         p._update_display_data()
-        p._draw_bm()
-        if p._tabs.currentIndex() == 1:
-            p._draw_mdc_edc()
-            if hasattr(p, "_mdc_fit_tabs") and p._mdc_fit_tabs.currentIndex() == 1:
-                p._draw_mdc_waterfall()
+        self._draw_current_view()
 
     def _on_fit_only_changed(self, _=None):
         p = self._parent
@@ -192,8 +195,7 @@ class InteractionController:
         p._sel_ev = float((e0 + e1) * 0.5)
         self._sync_ev_spinbox()
         self._params.params_changed.emit()
-        p._draw_bm()
-        p._draw_mdc_edc()
+        self._draw_current_view()
         self._status(
             f"Zone fit : k={k0:+.3f}→{k1:+.3f} π/a, "
             f"E={e0:+.3f}→{e1:+.3f} eV"
@@ -286,9 +288,7 @@ class InteractionController:
         entry.annotations = annotations
         p._session.save()
         self._status("Annotation enregistrée.")
-        p._draw_bm()
-        if getattr(p, "_tabs", None) is not None and p._tabs.currentIndex() == 1:
-            p._draw_mdc_edc()
+        self._draw_current_view()
 
     def _on_fit_annotation_motion(self, event):
         p = self._parent
@@ -402,7 +402,7 @@ class InteractionController:
             x1, y1 = float(event.xdata), float(event.ydata)
             self._discard_select_rect()
             self._handle_rect_selection(ax, sorted((x0, x1)), sorted((y0, y1)), additive=additive)
-        p._draw_bm()
+        self._draw_current_view(include_curves=False)
 
     def _discard_select_rect(self) -> None:
         p = self._parent
@@ -505,7 +505,7 @@ class InteractionController:
         self._persist_fit_result(fr)
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
         self._status(f"{len(sel)} point(s) supprimé(s). « Annuler » pour restaurer.")
-        p._draw_bm()
+        self._draw_current_view(include_curves=False)
 
     def _undo_fit_delete(self) -> None:
         p = self._parent
@@ -515,7 +515,7 @@ class InteractionController:
         frame = p._undo_stack.undo()
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
         self._status("Suppression annulée." if frame else "Aucune action à annuler.")
-        p._draw_bm()
+        self._draw_current_view(include_curves=False)
 
     def _redo_fit_delete(self) -> None:
         p = self._parent
@@ -524,7 +524,7 @@ class InteractionController:
         frame = p._undo_stack.redo()
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
         self._status("Suppression réappliquée." if frame else "Aucune action à rétablir.")
-        p._draw_bm()
+        self._draw_current_view(include_curves=False)
 
     def _fit_branch_snapshot(self, fr: dict) -> dict:
         return {b: [list(arr) for arr in (fr.get(b) or [])] for b in ("kF_minus", "kF_plus")}
@@ -601,8 +601,7 @@ class InteractionController:
         p._sel_ev = float(np.clip(event.ydata, d["ev_arr"].min(), d["ev_arr"].max()))
         p._sel_k = float(np.clip(event.xdata, d["kpar"].min(), d["kpar"].max()))
         self._sync_ev_spinbox()
-        p._draw_bm()
-        p._draw_mdc_edc()
+        self._draw_current_view()
 
     def _is_click_on_fit_point(self, event) -> bool:
         p = self._parent

@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from arpes.ui.widgets._qt_helpers import dspin
+from arpes.ui.widgets._qt_helpers import compact_button, dspin
 
 
 def build_energy_section(panel, lay) -> None:
@@ -56,14 +56,14 @@ def build_ef_section(panel, lay) -> None:
         "Décalage EF en eV. Ajuste le zéro d'énergie.\n"
         "Utiliser 'Calibrer EF auto' pour le calculer par fit Fermi-Dirac."
     )
-    btn_ef = QPushButton("Calibrer EF auto")
+    btn_ef = compact_button(QPushButton("Calibrer EF auto"))
     btn_ef.clicked.connect(panel.ef_calib_requested)
-    panel.btn_ef_ref = QPushButton("Aucune réf EF (calibrer un Au d'abord)")
+    panel.btn_ef_ref = compact_button(QPushButton("Aucune réf EF"), max_width=240)
     panel.btn_ef_ref.clicked.connect(panel.ef_apply_reference_requested)
     panel.btn_ef_ref.setEnabled(False)
-    btn_log = QPushButton("Charger logbook")
+    btn_log = compact_button(QPushButton("Charger logbook"))
     btn_log.clicked.connect(panel.logbook_requested)
-    panel.btn_copy = QPushButton("Propager fit params (0 cible)")
+    panel.btn_copy = compact_button(QPushButton("Propager fit params (0 cible)"), max_width=240)
     panel.btn_copy.clicked.connect(panel.copy_params_requested)
     panel.btn_copy.setEnabled(False)
     panel.update_ef_reference_button(None)
@@ -118,13 +118,13 @@ def build_utils_section(panel, lay) -> None:
         "Force de suppression de la trame affichée.\n"
         "0 = aucun effet, 1 = correction complète. Valeur conseillée : 0.8-0.9."
     )
-    btn_grid = QPushButton("Retirer effet grille")
+    btn_grid = compact_button(QPushButton("Retirer effet grille"))
     btn_grid.setToolTip(
         "Active un masque Fourier 2D automatique sur la carte BM affichée.\n"
         "La donnée brute reste inchangée."
     )
     btn_grid.clicked.connect(panel.grid_requested)
-    btn_grid_reset = QPushButton("Recharger brut")
+    btn_grid_reset = compact_button(QPushButton("Recharger brut"))
     btn_grid_reset.setToolTip("Désactive la correction grille sauvegardée pour ce fichier.")
     btn_grid_reset.clicked.connect(panel.grid_reset_requested)
     panel.lbl_grid = QLabel("Correction BM : masque Fourier 2D automatique sur l'affichage.")

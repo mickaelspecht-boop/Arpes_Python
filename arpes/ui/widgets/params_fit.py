@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from arpes.ui.widgets._qt_helpers import dspin, hsep, ispin
+from arpes.ui.widgets._qt_helpers import compact_button, dspin, hsep, ispin
 
 
 def build_fit_controls(panel, lay) -> None:
@@ -42,17 +42,17 @@ def _build_roi_group(panel, _fcl) -> None:
     panel.sp_kmax = dspin(0.80, -5.0, 5.0, 0.05)
     for w in (panel.sp_evs, panel.sp_eve, panel.sp_kmin, panel.sp_kmax):
         w.valueChanged.connect(panel.params_changed)
-    panel.btn_fit_roi = QPushButton("Sélectionner sur carte")
+    panel.btn_fit_roi = compact_button(QPushButton("Sélectionner sur carte"), max_width=180)
     panel.btn_fit_roi.setCheckable(True)
     panel.btn_fit_roi.setToolTip(
         "Active une sélection rectangulaire par cliquer-glisser sur la carte BM/MDC Fit.\n"
         "La zone choisie remplit k_min/k_max et ev_start/ev_end."
     )
     panel.btn_fit_roi.toggled.connect(panel.fit_roi_requested)
-    btn_fit_roi_reset = QPushButton("Pleine BM")
+    btn_fit_roi_reset = compact_button(QPushButton("Pleine BM"), max_width=120)
     btn_fit_roi_reset.setToolTip("Remet la plage d'analyse sur toute la carte chargée.")
     btn_fit_roi_reset.clicked.connect(panel.fit_roi_reset_requested)
-    panel.btn_fit_undo = QPushButton("↶ Annuler suppression")
+    panel.btn_fit_undo = compact_button(QPushButton("↶ Annuler suppression"), max_width=180)
     panel.btn_fit_undo.setEnabled(False)
     panel.btn_fit_undo.setToolTip(
         "Restaure les points de fit retirés par la dernière suppression "
@@ -66,6 +66,7 @@ def _build_roi_group(panel, _fcl) -> None:
     roi_lay.addWidget(panel.btn_fit_roi)
     roi_lay.addWidget(btn_fit_roi_reset)
     roi_lay.addWidget(panel.btn_fit_undo)
+    roi_lay.addStretch(1)
     fl2.addRow("ev_start:", panel.sp_evs)
     fl2.addRow("ev_end:", panel.sp_eve)
     fl2.addRow("k_min:", panel.sp_kmin)
@@ -255,7 +256,7 @@ def _build_waterfall_group(panel, _fcl) -> None:
 
 def _build_fit_buttons(panel, _fcl) -> None:
     _fcl.addWidget(hsep())
-    btn_g = QPushButton("Guess  (fit MDC ici)  [Ctrl+G]")
+    btn_g = compact_button(QPushButton("Guess  (fit MDC ici)  [Ctrl+G]"), max_width=260)
     btn_g.setStyleSheet("background:#1a6b3a;color:white;font-weight:bold;padding:6px;")
     btn_g.clicked.connect(panel.guess_requested)
     _fcl.addWidget(btn_g)
@@ -264,23 +265,23 @@ def _build_fit_buttons(panel, _fcl) -> None:
     gamma_lay = QVBoxLayout(panel._gamma_tools_widget)
     gamma_lay.setContentsMargins(0, 0, 0, 0)
     gamma_lay.setSpacing(4)
-    btn_gamma = QPushButton("Auto Γ BM")
+    btn_gamma = compact_button(QPushButton("Auto Γ BM"), max_width=160)
     btn_gamma.setToolTip("Estime le centre Γ par la médiane des milieux de paires MDC.")
     btn_gamma.clicked.connect(panel.gamma_bm_requested)
     gamma_lay.addWidget(btn_gamma)
 
-    btn_ref = QPushButton("Γ FS → BM")
+    btn_ref = compact_button(QPushButton("Γ FS → BM"), max_width=160)
     btn_ref.setToolTip("Applique le Γ de référence mesuré sur une FS à la BM courante.")
     btn_ref.clicked.connect(panel.gamma_ref_requested)
     gamma_lay.addWidget(btn_ref)
     _fcl.addWidget(panel._gamma_tools_widget)
 
-    btn_f = QPushButton("Fit complet  [Ctrl+F]")
+    btn_f = compact_button(QPushButton("Fit complet  [Ctrl+F]"), max_width=220)
     btn_f.setStyleSheet("background:#2a6099;color:white;font-weight:bold;padding:6px;")
     btn_f.clicked.connect(panel.full_fit_requested)
     _fcl.addWidget(btn_f)
 
-    btn_cl = QPushButton("Effacer kF")
+    btn_cl = compact_button(QPushButton("Effacer kF"), max_width=140)
     btn_cl.clicked.connect(panel.clear_kf_requested)
     _fcl.addWidget(btn_cl)
 

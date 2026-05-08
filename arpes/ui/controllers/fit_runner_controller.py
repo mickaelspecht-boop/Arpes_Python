@@ -47,7 +47,14 @@ class FitRunnerController:
         if p._raw_data is None:
             return None, None, None
         d = p._raw_data
-        norm = apply_edcnorm(d["data"]) if p._cmb_view.currentText() == "EDCnorm" else d["data"]
+        if p._cmb_view.currentText() == "EDCnorm":
+            p._update_display_data()
+            if p._data_disp is not None and np.shape(p._data_disp) == np.shape(d["data"]):
+                norm = p._data_disp
+            else:
+                norm = apply_edcnorm(d["data"])
+        else:
+            norm = d["data"]
         return norm, d["kpar"], d["ev_arr"]
 
     # -------------------------------------------------------------------- fit
@@ -150,7 +157,7 @@ class FitRunnerController:
                 "Résolution instrumentale domine, fit non fiable"
                 if summary.resolution_dominates else ""
             )
-            p._draw_bm()
+            p._draw_current_view()
             self._status(summary.status_text)
             if hasattr(self._params, "mark_action_done"):
                 self._params.mark_action_done("fit complet terminé")
@@ -161,7 +168,7 @@ class FitRunnerController:
     def _clear_kf(self):
         p = self._parent
         p._fit_res = None
-        p._draw_bm()
+        p._draw_current_view()
         self._params.lbl_res.setText("kF effacé")
 
     # --------------------------------------------------------- EF calibration

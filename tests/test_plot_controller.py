@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import unittest
+from collections import OrderedDict
+from types import SimpleNamespace
 
 import numpy as np
 
+import arpes.ui.controllers.plot_controller as plot_ctrl_mod
 from arpes.physics.plot_compute import (
     _compute_below_ef_only,
     apply_edcnorm,
@@ -19,6 +22,7 @@ from arpes.physics.plot_compute import (
     prepare_waterfall_data,
     scroll_zoom_limits,
 )
+from arpes.ui.controllers.plot_controller import PlotController
 
 
 class TestPlotController(unittest.TestCase):
@@ -41,6 +45,88 @@ class TestPlotController(unittest.TestCase):
         raw = self._raw()
         out = compute_bandmap_display(raw, mode="Raw", edc_norm_enabled=True)
         self.assertIs(out.data, raw["data"])
+
+    def test_update_display_data_reuses_cross_file_display_cache(self):
+        raw = self._raw()
+        calls = []
+        old_compute = plot_ctrl_mod.compute_bandmap_display
+
+        def fake_compute(*args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace(data=np.asarray(raw["data"]) + 1.0, grid_info={"ok": True})
+
+        class _Combo:
+            def currentText(self):
+                return "Raw"
+
+        parent = SimpleNamespace(
+            _raw_data=raw,
+            _cmb_view=_Combo(),
+            _data_disp=None,
+            _grid_display_info={},
+            _disp_cache_key=None,
+            _current_raw_load_cache_key=("raw", "file"),
+            _display_cache=OrderedDict(),
+            _display_cache_max=4,
+        )
+        parent._current_entry = lambda: SimpleNamespace(grid_correction={})
+        ctrl = PlotController(parent)
+
+        plot_ctrl_mod.compute_bandmap_display = fake_compute
+        try:
+            ctrl._update_display_data()
+            parent._data_disp = None
+            parent._disp_cache_key = None
+            ctrl._update_display_data()
+        finally:
+            plot_ctrl_mod.compute_bandmap_display = old_compute
+
+        self.assertEqual(len(calls), 1)
+        np.testing.assert_allclose(parent._data_disp, raw["data"] + 1.0)
+        self.assertEqual(parent._grid_display_info, {"ok": True})
+
+    def test_mdc_edc_use_cached_edcnorm_display(self):
+        raw = self._raw()
+        norm = apply_edcnorm(raw["data"])
+
+        class _Combo:
+            def currentText(self):
+                return "EDCnorm"
+
+        class _Spin:
+            def value(self):
+                return 0.01
+
+        parent = SimpleNamespace(
+            _raw_data=raw,
+            _data_disp=norm,
+            _sel_ev=0.0,
+            _sel_k=0.1,
+            _cmb_view=_Combo(),
+            _params=SimpleNamespace(sp_int_win=_Spin()),
+        )
+        parent._update_display_data = lambda: None
+        ctrl = PlotController(parent)
+
+        old_apply = plot_ctrl_mod._plot_mdc_curve.__globals__["apply_edcnorm"]
+        calls = []
+
+        def forbidden_apply(data):
+            calls.append(data)
+            raise AssertionError("EDCnorm should come from display cache")
+
+        plot_ctrl_mod._plot_mdc_curve.__globals__["apply_edcnorm"] = forbidden_apply
+        try:
+            kpar, mdc = ctrl._get_mdc()
+            ev, edc = ctrl._get_edc()
+        finally:
+            plot_ctrl_mod._plot_mdc_curve.__globals__["apply_edcnorm"] = old_apply
+
+        self.assertEqual(calls, [])
+        np.testing.assert_allclose(kpar, raw["kpar"])
+        np.testing.assert_allclose(ev, raw["ev_arr"])
+        np.testing.assert_allclose(mdc, norm[:, 1])
+        np.testing.assert_allclose(edc, norm[1, :])
 
     def test_edcnorm_mode_normalizes(self):
         raw = self._raw()

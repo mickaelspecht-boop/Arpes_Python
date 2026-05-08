@@ -90,7 +90,7 @@ class TheoryOverlayController:
         self._save_overlay(overlay)
         self._params.set_theory_overlay_state(overlay)
         self._params.txt_theory_mpid.setText(data.material_id)
-        self._parent._draw_bm()
+        self._parent._draw_current_view(include_curves=False)
         self._parent._status(f"DFT locale importée: {Path(path_s).name} | alignement manuel requis.")
 
     def _apply_mp_id(self, mpid: str, *, source: str = "manuel",
@@ -124,7 +124,7 @@ class TheoryOverlayController:
             self._save_overlay(overlay)
             self._params.set_theory_overlay_state(overlay)
             self._params.txt_theory_mpid.setText(mpid)
-            self._parent._draw_bm()
+            self._parent._draw_current_view(include_curves=False)
             label = "auto (logbook)" if source == "logbook" else "guide visuel, alignement manuel requis"
             self._parent._status(f"DFT MP importée: {mpid}  |  {label}.")
             return True
@@ -151,7 +151,7 @@ class TheoryOverlayController:
     def _clear_theory_overlay(self) -> None:
         self._save_overlay({})
         self._params.set_theory_overlay_state({})
-        self._parent._draw_bm()
+        self._parent._draw_current_view(include_curves=False)
         self._parent._status("Overlay DFT vidé.")
 
     def _on_theory_overlay_changed(self) -> None:
@@ -163,7 +163,7 @@ class TheoryOverlayController:
         overlay["config"] = cfg
         overlay.pop("comparison", None)
         self._save_overlay(overlay)
-        self._parent._draw_bm()
+        self._parent._draw_current_view(include_curves=False)
 
     def _compare_theory_overlay(self) -> None:
         overlay = dict(self._current_overlay() or {})
@@ -186,7 +186,7 @@ class TheoryOverlayController:
         overlay["comparison"] = results
         self._save_overlay(overlay)
         self._params.set_theory_overlay_state(overlay)
-        self._parent._draw_bm()
+        self._parent._draw_current_view(include_curves=False)
         if not results:
             self._parent._status(
                 "Comparaison DFT: aucun recouvrement suffisant. Ajuster segment, dE, dk ou scale k."

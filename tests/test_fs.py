@@ -11,7 +11,7 @@ import numpy as np
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from arpes.physics.fs import FSParams, _robust_norm, extract_fs_map
+    from arpes.physics.fs import FSParams, _fs_cache_key, _robust_norm, extract_fs_map
     HAS_FS = True
 except Exception:  # pragma: no cover
     HAS_FS = False
@@ -123,6 +123,35 @@ class TestExtractFSMap(unittest.TestCase):
         }
         with self.assertRaises(ValueError):
             extract_fs_map(bad, FSParams())
+
+    def test_fs_cache_key_ignores_overlay_only_params(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        p1 = FSParams(ef_window=0.030, smooth_sigma=0.5, normalize_profile=False,
+                      kx_center=0.0, ky_center=0.0, bz_shape="rectangle")
+        p2 = FSParams(ef_window=0.030, smooth_sigma=0.5, normalize_profile=False,
+                      kx_center=0.4, ky_center=-0.2, bz_shape="oblique",
+                      bz_angle_deg=75.0, overlay_bz=False, show_hsym=False)
+        self.assertEqual(_fs_cache_key(raw, p1), _fs_cache_key(raw, p2))
+
+    def test_fs_cache_key_changes_for_image_params(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        p1 = FSParams(ef_window=0.030, smooth_sigma=0.5, normalize_profile=False)
+        p2 = FSParams(ef_window=0.050, smooth_sigma=0.5, normalize_profile=False)
+        self.assertNotEqual(_fs_cache_key(raw, p1), _fs_cache_key(raw, p2))
 
 
 if __name__ == "__main__":

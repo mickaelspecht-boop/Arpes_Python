@@ -328,10 +328,7 @@ class GammaController:
             )
             if hasattr(self._params, "mark_action_done"):
                 self._params.mark_action_done(f"Auto Γ BM appliqué ({gamma:+.4f} π/a)")
-            self._draw_bm()
-            self._draw_mdc_edc()
-            if hasattr(self, "_mdc_fit_tabs") and self._tabs.currentIndex() == 1:
-                self._draw_mdc_waterfall()
+            self._draw_current_view()
             self._status(f"Γ BM estimé : {gamma:+.4f} π/a  n={res['n']}  MAD={res['mad']:.4f}")
         except Exception as exc:
             QMessageBox.warning(self._parent, "Auto Γ BM", str(exc))
@@ -354,8 +351,7 @@ class GammaController:
             self._params.lbl_res.setText("Γ déjà appliqué par offset angulaire loader")
             if hasattr(self._params, "mark_action_done"):
                 self._params.mark_action_done("Γ FS appliqué par offset loader")
-            self._draw_bm()
-            self._draw_mdc_edc()
+            self._draw_current_view()
             self._status("Γ FS appliqué : offset angulaire loader déjà actif")
             return
         gamma_bm, correction = self._gamma_reference_to_bm_center(ref)
@@ -378,8 +374,7 @@ class GammaController:
         if hasattr(self._params, "mark_action_done"):
             self._params.mark_action_done(f"Γ FS appliqué à la BM ({gamma_bm:+.4f} π/a)")
         self._update_display_data()
-        self._draw_bm()
-        self._draw_mdc_edc()
+        self._draw_current_view()
         self._status(
             f"Γ FS appliqué à la BM : {gamma_bm:+.4f} π/a  correction={correction:+.4f}"
             f"  |  {mode_msg}"
