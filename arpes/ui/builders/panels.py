@@ -241,6 +241,7 @@ def wire_ui_signals(window) -> None:
     _connect_map_canvas(window._mdc_map_canvas, window)
     if FermiSurfaceCanvas is not None and hasattr(window._fs_canvas, "canvas"):
         window._fs_canvas.canvas.mpl_connect("button_press_event", window._on_fs_map_click)
+        window._fs_canvas.canvas.mpl_connect("scroll_event", window._on_scroll_zoom)
 
     wire_param_signals(window)
 
@@ -271,6 +272,7 @@ def _connect_map_canvas(canvas_widget, window) -> None:
     canvas_widget.canvas.mpl_connect("motion_notify_event", window._on_fit_select_motion)
     canvas_widget.canvas.mpl_connect("motion_notify_event", window._on_fit_annotation_motion)
     canvas_widget.canvas.mpl_connect("button_release_event", window._on_fit_select_release)
+    canvas_widget.canvas.mpl_connect("scroll_event", window._on_scroll_zoom)
 
 
 def wire_param_signals(window) -> None:
