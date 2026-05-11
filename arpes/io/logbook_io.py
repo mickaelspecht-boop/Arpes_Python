@@ -118,7 +118,7 @@ def excel_table_from_header(raw, row_idx: int):
     df = raw.iloc[row_idx + 1:].copy()
     df.columns = unique_cols
     df = df.dropna(how="all")
-    mapping = _infer_logbook_mapping(list(df.columns))
+    mapping = _infer_logbook_mapping(list(df.columns), df=df)
     return df, mapping
 
 
@@ -190,7 +190,7 @@ def read_logbook(
         if df.empty:
             raise ValueError("Le logbook ne contient aucune ligne exploitable.")
         df.columns = [str(c).strip() for c in df.columns]
-        mapping = _infer_logbook_mapping(list(df.columns))
+        mapping = _infer_logbook_mapping(list(df.columns), df=df)
     else:
         if suffix == ".csv":
             try:
@@ -206,7 +206,7 @@ def read_logbook(
         if df.empty:
             raise ValueError("Le logbook ne contient aucune ligne exploitable.")
         df.columns = [str(c).strip() for c in df.columns]
-        mapping = _infer_logbook_mapping(list(df.columns))
+        mapping = _infer_logbook_mapping(list(df.columns), df=df)
         if len(df.columns) <= 1 or not mapping.get("file") or not mapping.get("hv"):
             raw = read_delimited_logbook_raw(pd, path)
             if raw is not None and not raw.dropna(how="all").empty:

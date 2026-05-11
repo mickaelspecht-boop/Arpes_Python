@@ -281,7 +281,140 @@ def _infer_legacy_measurement_plan_mapping(columns: list[str]) -> dict[str, str]
     }
 
 
-def _infer_logbook_mapping(columns: list[str]) -> dict[str, str]:
+def _sniff_columns_by_content(df, columns: list[str]) -> dict[str, str]:
+    """Devine les colonnes à partir des valeurs quand keyword match échoue.
+
+    Règles :
+      - hv : numérique, médiane dans [4, 200] eV, ≥60% de valeurs finies > 0
+      - temperature : numérique, médiane dans [3, 500] K, ≥60% de valeurs finies > 0
+      - direction : strings contenant Γ/G/M/X/K/Σ avec '-' ou '→'
+      - polarization : strings dans {LH, LV, RC, LC, σ, π, s, p, ...}
+                       ou numérique dans [0, 360]
+      - file : strings avec extension (.ibw/.zip/.txt) OU haute cardinalité
+               (≥80% valeurs uniques)
+
+    La fonction ne retourne que des mappings non vides.
+    """
+    if df is None:
+        return {}
+    try:
+        n_rows = len(df)
+    except TypeError:
+        n_rows = 0
+    if n_rows < 3:
+        # Pas assez de lignes pour deviner avec confiance.
+        return {}
+    out: dict[str, str] = {}
+    POL_TOKENS = {"LH", "LV", "RC", "LC", "σ", "π", "s", "p", "S", "P",
+                  "C+", "C-", "RCP", "LCP", "lin", "circ"}
+    DIR_HINTS = ("Γ", "GAMMA", "M", "X", "K", "Σ", "SIGMA")
+    FILE_EXT = (".ibw", ".zip", ".txt", ".dat", ".h5", ".hdf5", ".nxs", ".pxt")
+
+    def col_values(col):
+        try:
+            return df[col].dropna().tolist()
+        except Exception:
+            return []
+
+    def strict_numeric_value(v):
+        """Retourne float seulement si la cellule est un nombre pur."""
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            try:
+                f = float(v)
+            except Exception:
+                return None
+            return f if np.isfinite(f) else None
+        s = str(v).strip().replace(",", ".")
+        if not s:
+            return None
+        try:
+            f = float(s)
+        except ValueError:
+            return None
+        return f if np.isfinite(f) else None
+
+    def numeric_stats(values):
+        nums = []
+        for v in values:
+            n = strict_numeric_value(v)
+            if n is not None:
+                nums.append(n)
+        if not nums:
+            return None, 0.0
+        finite_pos = [n for n in nums if n > 0]
+        if not finite_pos:
+            return None, 0.0
+        return float(np.median(finite_pos)), len(finite_pos) / max(len(values), 1)
+
+    for col in columns:
+        values = col_values(col)
+        if not values:
+            continue
+        # hv : numérique [4, 200]
+        if "hv" not in out:
+            med, ratio = numeric_stats(values)
+            if med is not None and 4.0 <= med <= 200.0 and ratio >= 0.6:
+                out["hv"] = col
+                continue
+        # temperature : numérique [3, 500] (mais pas hv)
+        if "temperature" not in out and out.get("hv") != col:
+            med, ratio = numeric_stats(values)
+            if med is not None and 3.0 <= med <= 500.0 and ratio >= 0.6:
+                out["temperature"] = col
+                continue
+        # direction : strings avec Γ/M/X
+        if "direction" not in out:
+            txts = [str(v).upper() for v in values if str(v).strip()]
+            if txts:
+                hits = sum(1 for t in txts if any(h in t for h in DIR_HINTS) and ("-" in t or "→" in t))
+                if hits / max(len(txts), 1) >= 0.4:
+                    out["direction"] = col
+                    continue
+        # polarization
+        if "polarization" not in out:
+            txts = [str(v).strip() for v in values if str(v).strip()]
+            if txts:
+                hits = sum(1 for t in txts if t in POL_TOKENS or t.upper() in POL_TOKENS)
+                if hits / max(len(txts), 1) >= 0.5:
+                    out["polarization"] = col
+                    continue
+        # file : strings avec extension fichier (.ibw, .zip, .txt...) requise.
+        # Cardinalité seule ne suffit pas — trop de faux positifs sur codes échantillon.
+        if "file" not in out:
+            txts = [str(v) for v in values if str(v).strip()]
+            if txts:
+                ext_hits = sum(1 for t in txts if any(t.lower().endswith(e) for e in FILE_EXT))
+                if ext_hits / max(len(txts), 1) >= 0.5:
+                    out["file"] = col
+                    continue
+    return out
+
+
+def _coerce_float(value):
+    """Conversion numérique tolérante (utilisée par sniffer + parser)."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            return None
+        return n if np.isfinite(n) else None
+    s = str(value).strip()
+    if not s:
+        return None
+    s = s.replace(",", ".")
+    m = re.search(r"[-+]?\d+(?:\.\d+)?", s)
+    if not m:
+        return None
+    try:
+        n = float(m.group(0))
+    except ValueError:
+        return None
+    return n if np.isfinite(n) else None
+
+
+def _infer_logbook_mapping(columns: list[str], df=None) -> dict[str, str]:
     mapping = {
         "file": _pick_column(columns, [
             ["file"], ["filename"], ["fichier"], ["scan"], ["measurement"],
@@ -340,7 +473,72 @@ def _infer_logbook_mapping(columns: list[str]) -> dict[str, str]:
         legacy_should_override = key == "file" and current_norm in {"measurementtype", "sample"}
         if val and (not mapping.get(key) or legacy_should_override):
             mapping[key] = val
+    if df is not None:
+        # Sniff par contenu uniquement pour les clés où aucun keyword n'a matché.
+        # On ne second-guess pas les keyword matches : un user peut nommer
+        # "Temp" une colonne d'enums ("Low T", "High T") et c'est légitime.
+        sniffed = _sniff_columns_by_content(df, columns)
+        for key, val in sniffed.items():
+            if not mapping.get(key) and val:
+                mapping[key] = val
     return mapping
+
+
+def _drop_implausible_mappings(mapping: dict[str, str], df) -> dict[str, str]:
+    """Rejette les colonnes mappées dont le contenu ne correspond pas au type.
+
+    Évite p.ex. de mapper hv sur une colonne de strings juste parce que le nom
+    contient un mot-clé sémantiquement proche.
+    """
+    try:
+        n_rows = len(df)
+    except TypeError:
+        return mapping
+    if n_rows < 3:
+        return mapping
+    out = dict(mapping)
+
+    def values_of(col):
+        try:
+            return [v for v in df[col].tolist() if v is not None and str(v).strip()]
+        except Exception:
+            return []
+
+    def strict_numeric(v) -> bool:
+        """True si v est un float pur (pas de lettre/code, signes/virgule ok)."""
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            try:
+                return np.isfinite(float(v))
+            except Exception:
+                return False
+        s = str(v).strip().replace(",", ".")
+        if not s:
+            return False
+        try:
+            n = float(s)
+        except ValueError:
+            return False
+        return bool(np.isfinite(n))
+
+    def numeric_ratio(values):
+        if not values:
+            return 0.0
+        n = sum(1 for v in values if strict_numeric(v))
+        return n / len(values)
+
+    NUMERIC_KEYS = {"hv", "temperature", "azi", "polar", "tilt", "crystal_a_angstrom"}
+    for key in list(out.keys()):
+        col = out[key]
+        if not col:
+            continue
+        values = values_of(col)
+        if not values:
+            out[key] = ""
+            continue
+        if key in NUMERIC_KEYS:
+            if numeric_ratio(values) < 0.4:
+                out[key] = ""
+    return out
 
 
 def _path_match_tokens(path: str | Path, session_folder: Path | None) -> list[str]:
