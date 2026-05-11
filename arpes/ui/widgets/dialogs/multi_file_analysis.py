@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSlider,
     QVBoxLayout,
 )
 
@@ -52,6 +53,31 @@ class MultiFileAnalysisDialog(QDialog):
         mid.addWidget(self._canvas, stretch=3)
         root.addLayout(mid, stretch=1)
 
+        anim_row = QHBoxLayout()
+        self._btn_play = QPushButton("▶ Play")
+        self._btn_play.setCheckable(True)
+        self._btn_play.toggled.connect(self._on_play_toggled)
+        anim_row.addWidget(self._btn_play)
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setMinimum(0)
+        self._slider.setMaximum(0)
+        self._slider.setEnabled(False)
+        self._slider.valueChanged.connect(self._on_slider_changed)
+        anim_row.addWidget(self._slider, stretch=1)
+        anim_row.addWidget(QLabel("vitesse (ms):"))
+        self._cmb_speed = QComboBox()
+        self._cmb_speed.addItems(["300", "600", "1000", "2000"])
+        self._cmb_speed.setCurrentText("1000")
+        self._cmb_speed.currentTextChanged.connect(self._on_speed_changed)
+        anim_row.addWidget(self._cmb_speed)
+        root.addLayout(anim_row)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self._step_animation)
+        self._highlight_artists: list = []
+        self._series = None
+
         self._lbl_status = QLabel("")
         self._lbl_status.setStyleSheet("color:#9fc;font-size:10px;")
         root.addWidget(self._lbl_status)
@@ -83,10 +109,72 @@ class MultiFileAnalysisDialog(QDialog):
             x_axis=self._cmb_x.currentText(),
             direction_filter=self._txt_direction.text().strip(),
         )
+        self._series = series
+        self._highlight_artists = []
         self._draw_series(series)
+        n = len(series.points)
+        self._slider.blockSignals(True)
+        self._slider.setMaximum(max(0, n - 1))
+        self._slider.setValue(0)
+        self._slider.setEnabled(n > 1)
+        self._slider.blockSignals(False)
+        self._btn_play.setEnabled(n > 1)
+        if self._btn_play.isChecked():
+            self._btn_play.setChecked(False)
         self._lbl_status.setText(
-            f"{len(series.points)} point(s), {series.skipped} ignoré(s). {series.warning}".strip()
+            f"{n} point(s), {series.skipped} ignoré(s). {series.warning}".strip()
         )
+
+    def _on_play_toggled(self, checked: bool) -> None:
+        if checked and self._series and len(self._series.points) > 1:
+            self._timer.start()
+            self._btn_play.setText("■ Stop")
+        else:
+            self._timer.stop()
+            self._btn_play.setText("▶ Play")
+
+    def _on_speed_changed(self, text: str) -> None:
+        try:
+            self._timer.setInterval(int(text))
+        except (TypeError, ValueError):
+            pass
+
+    def _step_animation(self) -> None:
+        if self._series is None:
+            return
+        n = len(self._series.points)
+        if n == 0:
+            return
+        next_val = (self._slider.value() + 1) % n
+        self._slider.setValue(next_val)
+
+    def _on_slider_changed(self, idx: int) -> None:
+        if self._series is None:
+            return
+        for art in self._highlight_artists:
+            try:
+                art.remove()
+            except Exception:
+                pass
+        self._highlight_artists = []
+        if not (0 <= idx < len(self._series.points)):
+            return
+        point = self._series.points[idx]
+        x = float(point.x_value)
+        ys = (point.kF, point.m_star, point.gamma_zero)
+        for ax, y in zip(self._canvas.axes, ys):
+            try:
+                if y == y:  # not NaN
+                    art = ax.scatter([x], [y], s=120, facecolor="none",
+                                     edgecolor="#fcd34d", lw=2.0, zorder=10)
+                    self._highlight_artists.append(art)
+            except Exception:
+                pass
+        self._lbl_status.setText(
+            f"Animation : point {idx + 1}/{len(self._series.points)} "
+            f"({self._cmb_x.currentText()} = {x:g})"
+        )
+        self._canvas.redraw()
 
     def _draw_series(self, series: MultiFileSeries) -> None:
         axes = self._canvas.axes

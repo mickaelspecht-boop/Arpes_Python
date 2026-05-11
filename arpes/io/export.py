@@ -135,6 +135,57 @@ def physics_rows(session, *, e_window_kF: float = 0.10, e_window_gamma: float = 
     return rows
 
 
+def physics_to_latex(rows: list[dict]) -> str:
+    """Génère une table LaTeX booktabs des résultats physiques par branche.
+
+    Format compact pour publication : `kF (Å⁻¹), v_F (eV·π/a), m*/m_e, Γ₀ (π/a)`
+    avec incertitudes ± σ. Ligne par (fichier, paire, branche).
+    """
+    if not rows:
+        return "% Aucun résultat physique disponible.\n"
+
+    def fmt(value, sigma, dec=4):
+        try:
+            v = float(value); s = float(sigma)
+        except (TypeError, ValueError):
+            return "--"
+        if not (v == v and s == s):  # NaN guard
+            return "--"
+        return f"${v:.{dec}f} \\pm {s:.{dec}f}$"
+
+    lines = [
+        "% Table générée par ARPES Explorer — physics_to_latex",
+        "\\begin{table}[h]",
+        "\\centering",
+        "\\caption{Résultats physiques ARPES par branche.}",
+        "\\label{tab:arpes_physics}",
+        "\\begin{tabular}{llrrrrrr}",
+        "\\toprule",
+        "Fichier & Paire/Branche & $T$ (K) & Dir. & $k_F$ (\\AA$^{-1}$) & "
+        "$v_F$ (eV·$\\pi/a$) & $m^*/m_e$ & $\\Gamma_0$ ($\\pi/a$) \\\\",
+        "\\midrule",
+    ]
+    for r in rows:
+        f_safe = str(r.get("file", "")).replace("_", "\\_")
+        d_safe = str(r.get("direction", "")).replace("_", "\\_")
+        label = f"P{r.get('pair', '?')} {r.get('branch', '')}"
+        try:
+            t = f"{float(r.get('T_K', 0.0)):.0f}"
+        except (TypeError, ValueError):
+            t = "--"
+        lines.append(
+            " & ".join([
+                f_safe, label, t, d_safe,
+                fmt(r.get("kF_inv_A"), r.get("kF_inv_A_sigma"), dec=4),
+                fmt(r.get("vF_eV_pi_a"), r.get("vF_eV_pi_a_sigma"), dec=2),
+                fmt(r.get("m_star_over_me"), r.get("m_star_over_me_sigma"), dec=2),
+                fmt(r.get("gamma_zero"), r.get("gamma_zero_sigma"), dec=4),
+            ]) + " \\\\"
+        )
+    lines.extend(["\\bottomrule", "\\end{tabular}", "\\end{table}", ""])
+    return "\n".join(lines)
+
+
 def write_physics_csv(path: str, rows: list[dict]) -> None:
     if not rows:
         return

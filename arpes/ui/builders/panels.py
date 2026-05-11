@@ -88,6 +88,7 @@ def _build_tabs(window) -> QTabWidget:
     window._tabs.addTab(_build_results_tab(window), "Résultats")
     window._tabs.addTab(_build_fs_tab(window), "FS")
     window._tabs.addTab(_build_kz_tab(window), "KZ")
+    window._tabs.addTab(_build_notes_tab(window), "Notes")
     window._tabs.addTab(_build_help_tab(window), "Aide")
     return window._tabs
 
@@ -220,6 +221,13 @@ def _build_help_tab(window) -> QWidget:
     return window._help_panel
 
 
+def _build_notes_tab(window) -> QWidget:
+    from arpes.ui.widgets.notes_panel import NotesPanel
+    window._notes_panel = NotesPanel(window._session)
+    window._notes_panel.notes_changed.connect(window._on_session_notes_changed)
+    return window._notes_panel
+
+
 def wire_ui_signals(window) -> None:
     """Connect all signals for widgets created by these builders."""
     window._browser.file_selected.connect(window._load_file)
@@ -299,5 +307,6 @@ def wire_param_signals(window) -> None:
     p.fit_section_toggled.connect(window._on_fit_section_toggled)
     p.fit_preset_changed.connect(window._on_fit_preset_changed)
     p.gamma_center_preview.connect(window._on_gamma_center_preview)
+    p.batch_fit_requested.connect(window._batch_fit_folder)
     if hasattr(window, "_browser") and hasattr(window._browser, "session_reloaded"):
         window._browser.session_reloaded.connect(window._on_browser_session_reloaded)

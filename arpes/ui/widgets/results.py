@@ -24,7 +24,13 @@ from PyQt6.QtWidgets import (
 
 from arpes.analysis.results import compute_results
 from arpes.core.session import Session
-from arpes.io.export import physics_rows, result_rows, write_physics_csv, write_results_csv
+from arpes.io.export import (
+    physics_rows,
+    physics_to_latex,
+    result_rows,
+    write_physics_csv,
+    write_results_csv,
+)
 from arpes.io.export_styles import PRESETS, savefig_with_preset
 from arpes.ui.widgets.canvas import MplCanvas
 
@@ -123,6 +129,12 @@ class ResultsPanel(QWidget):
         btn_csv.clicked.connect(self._export_csv)
         btn_csv_phys = QPushButton("Export CSV physique (± σ)")
         btn_csv_phys.clicked.connect(self._export_physics_csv)
+        btn_latex = QPushButton("Export LaTeX (table physique)")
+        btn_latex.setToolTip(
+            "Génère un .tex booktabs avec kF, vF, m*, Γ₀ ± σ par branche.\n"
+            "Copier-coller direct dans papier."
+        )
+        btn_latex.clicked.connect(self._export_latex)
         style_row = QHBoxLayout()
         style_row.addWidget(QLabel("Style export"))
         self._cmb_export_style = QComboBox()
@@ -136,7 +148,7 @@ class ResultsPanel(QWidget):
         right.addLayout(style_row)
         btn_pdf = QPushButton("Export figure")
         btn_pdf.clicked.connect(self._export_fig)
-        for b in (btn_ref, btn_recalc, btn_multi, btn_csv, btn_csv_phys, btn_pdf):
+        for b in (btn_ref, btn_recalc, btn_multi, btn_csv, btn_csv_phys, btn_latex, btn_pdf):
             right.addWidget(b)
 
         rw = QWidget(); rw.setLayout(right)
@@ -468,3 +480,53 @@ class ResultsPanel(QWidget):
                 bbox_inches="tight",
                 facecolor=self._canvas.fig.get_facecolor(),
             )
+            self._write_figure_metadata_sidecar(path)
+
+    def _write_figure_metadata_sidecar(self, fig_path: str) -> None:
+        import json
+        meta_path = Path(fig_path).with_suffix(".meta.json")
+        visible = sorted(self._visible_files())
+        files_meta = []
+        for name in visible:
+            entry = self._session.files.get(name)
+            if entry is None:
+                continue
+            m = entry.meta
+            files_meta.append({
+                "file": name,
+                "hv": float(getattr(m, "hv", 0.0) or 0.0),
+                "T_K": float(getattr(m, "temperature", 0.0) or 0.0),
+                "direction": str(getattr(m, "direction", "") or ""),
+                "polarization": str(getattr(m, "polarization", "") or ""),
+                "formula": str(getattr(m, "formula", "") or ""),
+                "mp_id": str(getattr(m, "mp_id", "") or ""),
+                "crystal_a_angstrom": float(getattr(m, "crystal_a_angstrom", 0.0) or 0.0),
+                "ef_offset": float(getattr(entry, "ef_offset", 0.0) or 0.0),
+                "fitted": bool(entry.fit_result),
+            })
+        payload = {
+            "figure": Path(fig_path).name,
+            "export_style": self._cmb_export_style.currentText(),
+            "session_folder": str(self._session.folder) if self._session.folder else "",
+            "n_files_visible": len(files_meta),
+            "files": files_meta,
+            "session_notes": str(getattr(self._session, "session_notes", "") or "")[:500],
+        }
+        try:
+            meta_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        except Exception:
+            pass
+
+    def _export_latex(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export LaTeX table", str(self._session.folder or Path.home()),
+            "LaTeX (*.tex)")
+        if not path:
+            return
+        rows = physics_rows(self._session)
+        text = physics_to_latex(rows)
+        try:
+            Path(path).write_text(text, encoding="utf-8")
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Export LaTeX", f"Échec écriture : {e}")

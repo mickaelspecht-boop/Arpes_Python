@@ -34,7 +34,7 @@ class TestUiSmoke(unittest.TestCase):
     def test_window_instantiates(self):
         win = self._make_window()
         self.assertIsNotNone(win)
-        self.assertEqual(win._tabs.count(), 6)
+        self.assertEqual(win._tabs.count(), 7)
         self.assertIsNotNone(win.ap, "arpes_plots doit être chargé")
 
     def test_controllers_wired(self):

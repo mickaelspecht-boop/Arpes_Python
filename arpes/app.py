@@ -190,6 +190,8 @@ class ArpesExplorer(QMainWindow):
         self._kz_ctrl = KzController(self)
         self._theory_overlay_ctrl = TheoryOverlayController(self)
         self._session_io_ctrl = SessionIOController(self)
+        from arpes.ui.controllers.batch_controller import BatchController
+        self._batch_ctrl = BatchController(self)
 
         # Debouncers : évitent N redraws quand l'utilisateur clique-clique
         # rapidement sur un spinbox ou tape une valeur.
@@ -317,6 +319,7 @@ class ArpesExplorer(QMainWindow):
         "_open_recent_session": "_session_io_ctrl",
         "_compare_sessions": "_session_io_ctrl",
         "_update_gamma_preview": "_plot_ctrl",
+        "_batch_fit_folder": "_batch_ctrl",
     }
 
     def __getattr__(self, name: str):
@@ -338,13 +341,22 @@ class ArpesExplorer(QMainWindow):
 
     def _on_browser_session_reloaded(self) -> None:
         params = getattr(self, "_params", None)
-        if params is None:
-            return
-        try:
-            params.apply_fit_section_states(self._session.fit_panel_sections)
-            params.set_fit_preset_silent(self._session.fit_panel_preset)
-        except Exception:
-            pass
+        if params is not None:
+            try:
+                params.apply_fit_section_states(self._session.fit_panel_sections)
+                params.set_fit_preset_silent(self._session.fit_panel_preset)
+            except Exception:
+                pass
+        notes = getattr(self, "_notes_panel", None)
+        if notes is not None:
+            try:
+                notes.refresh_from_session()
+            except Exception:
+                pass
+
+    def _on_session_notes_changed(self, text: str) -> None:
+        self._session.session_notes = str(text or "")
+        self._session.save()
 
     def _refresh_recent_sessions_menu(self) -> None:
         menu = getattr(self, "_recent_sessions_menu", None)

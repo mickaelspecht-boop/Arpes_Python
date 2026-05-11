@@ -99,6 +99,7 @@ class FitParamsPanel(QScrollArea):
     fit_section_toggled = pyqtSignal(str, bool)
     fit_preset_changed = pyqtSignal(str)
     gamma_center_preview = pyqtSignal(float)
+    batch_fit_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()

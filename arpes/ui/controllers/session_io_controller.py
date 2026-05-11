@@ -150,6 +150,12 @@ class SessionIOController:
                 params.set_fit_preset_silent(self._session.fit_panel_preset)
             except Exception:
                 pass
+        notes = getattr(self._parent, "_notes_panel", None)
+        if notes is not None:
+            try:
+                notes.refresh_from_session()
+            except Exception:
+                pass
 
     def _refresh_browser_after_load(self, folder: Path, payload: dict[str, Any]) -> None:
         b = self._browser

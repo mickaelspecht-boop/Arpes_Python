@@ -356,6 +356,15 @@ def _build_fit_buttons(panel, _fcl) -> None:
     btn_f.clicked.connect(panel.full_fit_requested)
     _fcl.addWidget(btn_f)
 
+    btn_batch = compact_button(QPushButton("Batch fit dossier"), max_width=200)
+    btn_batch.setToolTip(
+        "Lance Fit complet sur tous les fichiers du dossier qui n'ont pas\n"
+        "encore de fit_result. Utilise les paramètres MDC actuels.\n"
+        "Boîte de progression annulable."
+    )
+    btn_batch.clicked.connect(panel.batch_fit_requested)
+    _fcl.addWidget(btn_batch)
+
     actions_row = QWidget()
     actions_lay = QHBoxLayout(actions_row)
     actions_lay.setContentsMargins(0, 0, 0, 0)

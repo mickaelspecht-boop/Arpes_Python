@@ -155,6 +155,7 @@ class Session:
         self.ef_reference: dict = {}
         self.fit_panel_sections: dict[str, bool] = {}
         self.fit_panel_preset: str = "Custom"
+        self.session_notes: str = ""
 
     @property
     def json_path(self) -> Path | None:
@@ -185,6 +186,7 @@ class Session:
             "ef_reference": _to_serial(self.ef_reference),
             "fit_panel_sections": dict(self.fit_panel_sections),
             "fit_panel_preset": str(self.fit_panel_preset or "Custom"),
+            "session_notes": str(self.session_notes or ""),
             "files": {
                 name: _to_serial(asdict(entry))
                 for name, entry in self.files.items()
@@ -215,6 +217,7 @@ class Session:
         self.ef_reference = raw.get("ef_reference", {}) or {}
         self.fit_panel_sections = dict(raw.get("fit_panel_sections", {}) or {})
         self.fit_panel_preset = str(raw.get("fit_panel_preset", "Custom") or "Custom")
+        self.session_notes = str(raw.get("session_notes", "") or "")
         self.files = {}
         for name, edict in raw.get("files", {}).items():
             fp = FitParams(**_known_kwargs(FitParams, edict.get("fit_params", {})))
