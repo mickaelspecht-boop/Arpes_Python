@@ -188,20 +188,43 @@ class LogbookIngestController:
         return cmb.currentText()
 
     def _choose_excel_table(self, raw, candidates: list[int]):
-        from arpes.io.logbook_io import excel_table_from_header
+        from arpes.io.logbook_io import excel_table_from_header, _looks_like_title
         if not candidates:
             return None
+
+        def score_row(row_idx: int) -> float:
+            try:
+                df, m = excel_table_from_header(raw, row_idx)
+            except Exception:
+                return -10.0
+            s = int(bool(m.get("file"))) * 3 + int(bool(m.get("hv"))) * 3
+            s += int(bool(m.get("temperature"))) + int(bool(m.get("polarization")))
+            s += int(bool(m.get("direction"))) + int(bool(m.get("azi")))
+            s += int(bool(m.get("polar"))) + int(bool(m.get("tilt")))
+            if _looks_like_title(m.get("file", "")):
+                s -= 5
+            if _looks_like_title(m.get("hv", "")):
+                s -= 5
+            s += min(len(df), 30) / 1000
+            return s
+
+        scored = sorted(candidates, key=score_row, reverse=True)
         dlg = QDialog(self._parent)
         dlg.setWindowTitle("Ligne d'en-tête du logbook")
         lay = QVBoxLayout(dlg)
-        label = QLabel("Choisis la ligne qui contient les vrais noms de colonnes.")
+        label = QLabel(
+            "Choisis la ligne qui contient les vrais noms de colonnes "
+            "(triées par pertinence — la meilleure devinée est en haut)."
+        )
         label.setWordWrap(True)
         lay.addWidget(label)
         cmb = QComboBox()
-        for row_idx in candidates:
+        for row_idx in scored:
             values = [_cell_text(v) for v in raw.iloc[row_idx].tolist()]
             preview = " | ".join(v for v in values if v)
-            cmb.addItem(f"Ligne {row_idx + 1}: {preview[:140]}", row_idx)
+            score = score_row(row_idx)
+            tag = "✓" if score >= 6 else ("?" if score >= 3 else "✗")
+            cmb.addItem(f"{tag} Ligne {row_idx + 1}: {preview[:140]}", row_idx)
         lay.addWidget(cmb)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dlg.accept)
