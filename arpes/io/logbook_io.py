@@ -233,6 +233,8 @@ def read_logbook(
             if raw is not None and not raw.dropna(how="all").empty:
                 candidates = excel_header_candidates(raw)
                 guessed = best_excel_table(raw, candidates)
+                if guessed is None and table_selector is not None:
+                    guessed = table_selector(raw, candidates)
                 if guessed is not None:
                     df, mapping = guessed
 
