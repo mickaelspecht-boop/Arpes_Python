@@ -174,7 +174,8 @@ class ArpesExplorer(QMainWindow):
         self._current_raw_load_cache_key: tuple | None = None
         self._raw_load_cache: OrderedDict[tuple, tuple[dict, dict]] = OrderedDict()
         self._raw_load_cache_max = 16
-        self._raw_disk_cache_enabled = False
+        self._raw_disk_cache_enabled = True
+        self._raw_disk_cache_quota_mb = 250.0
         self._last_load_cache_source = ""
         self._path_signature_cache: OrderedDict[str, tuple[tuple, tuple]] = OrderedDict()
         self._path_signature_cache_max = 128
@@ -357,6 +358,43 @@ class ArpesExplorer(QMainWindow):
     def _on_session_notes_changed(self, text: str) -> None:
         self._session.session_notes = str(text or "")
         self._session.save()
+
+    def _clear_disk_cache(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        from arpes.io.artifact_cache import clear_cache_folder, cache_size_mb
+        folder = self._session.folder
+        if folder is None:
+            QMessageBox.information(self, "Cache disque",
+                                    "Aucun dossier de session ouvert.")
+            return
+        size_before = cache_size_mb(folder)
+        confirm = QMessageBox.question(
+            self, "Vider cache disque",
+            f"Supprimer {size_before:.1f} MB d'artefacts dans\n"
+            f"{folder}/.arpes_cache/raw_artifacts/ ?\n\n"
+            "Les fichiers seront rechargés depuis la source au prochain accès.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        n, total = clear_cache_folder(folder)
+        self._raw_load_cache.clear()
+        self._display_cache.clear()
+        self._status(f"Cache vidé : {n} fichier(s), {total / 1024 / 1024:.1f} MB libérés.")
+
+    def _reload_current_no_cache(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        path = getattr(self, "_current_path", None)
+        if not path:
+            QMessageBox.information(self, "Recharger",
+                                    "Aucun fichier courant chargé.")
+            return
+        self._load_ctrl.load(path, force_reload=True)
+
+    def _toggle_disk_cache(self, enabled: bool) -> None:
+        self._raw_disk_cache_enabled = bool(enabled)
+        state = "activé" if enabled else "désactivé"
+        self._status(f"Cache disque {state}.")
 
     def _refresh_recent_sessions_menu(self) -> None:
         menu = getattr(self, "_recent_sessions_menu", None)

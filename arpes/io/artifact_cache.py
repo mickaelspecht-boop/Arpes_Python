@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,7 @@ import numpy as np
 
 
 ARTIFACT_VERSION = 1
+DEFAULT_QUOTA_MB = 250
 
 
 def raw_artifact_root(path: str | Path, session_folder: str | Path | None = None) -> Path:
@@ -128,3 +131,96 @@ def _restore_payload(value: Any, arrays: dict[str, np.ndarray]) -> Any:
     if isinstance(value, list):
         return [_restore_payload(v, arrays) for v in value]
     return value
+
+
+def save_raw_artifact_async(
+    path: str | Path,
+    cache_key: tuple,
+    data: dict,
+    angle_offsets: dict | None = None,
+    session_folder: str | Path | None = None,
+    quota_mb: float = DEFAULT_QUOTA_MB,
+) -> threading.Thread:
+    """Écrit l'artefact en arrière-plan (daemon thread). Ne bloque pas l'UI.
+
+    Effectue aussi un prune éventuel pour rester sous `quota_mb`.
+    """
+    def _worker():
+        try:
+            save_raw_artifact(path, cache_key, data, angle_offsets, session_folder)
+            prune_cache_folder(session_folder if session_folder else Path(path).parent,
+                               max_mb=quota_mb)
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    return t
+
+
+def clear_cache_folder(session_folder: str | Path | None) -> tuple[int, int]:
+    """Supprime `.arpes_cache/raw_artifacts/`. Retourne (n_files, total_bytes)."""
+    root = raw_artifact_root(session_folder or Path.cwd(), session_folder)
+    if not root.exists():
+        return (0, 0)
+    n = 0
+    total = 0
+    for f in root.glob("*.npz"):
+        try:
+            total += f.stat().st_size
+        except OSError:
+            pass
+        n += 1
+    try:
+        shutil.rmtree(root, ignore_errors=True)
+    except Exception:
+        pass
+    return (n, total)
+
+
+def prune_cache_folder(session_folder: str | Path | None, *, max_mb: float = DEFAULT_QUOTA_MB) -> int:
+    """Évince les artefacts les plus anciens si la taille totale > max_mb. Retourne n_evicted."""
+    if session_folder is None:
+        return 0
+    root = raw_artifact_root(session_folder, session_folder)
+    if not root.exists():
+        return 0
+    quota_bytes = int(float(max_mb) * 1024 * 1024)
+    files: list[tuple[float, int, Path]] = []
+    total = 0
+    for f in root.glob("*.npz"):
+        try:
+            st = f.stat()
+            files.append((st.st_mtime, st.st_size, f))
+            total += st.st_size
+        except OSError:
+            continue
+    if total <= quota_bytes:
+        return 0
+    files.sort()  # plus anciens d'abord
+    evicted = 0
+    for mtime, size, f in files:
+        if total <= quota_bytes:
+            break
+        try:
+            f.unlink()
+            total -= size
+            evicted += 1
+        except OSError:
+            continue
+    return evicted
+
+
+def cache_size_mb(session_folder: str | Path | None) -> float:
+    if session_folder is None:
+        return 0.0
+    root = raw_artifact_root(session_folder, session_folder)
+    if not root.exists():
+        return 0.0
+    total = 0
+    for f in root.glob("*.npz"):
+        try:
+            total += f.stat().st_size
+        except OSError:
+            continue
+    return total / (1024 * 1024)

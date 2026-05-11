@@ -29,6 +29,34 @@ def build_menubar(window) -> QMenuBar:
     recent_menu = file_menu.addMenu("Sessions récentes")
     window._recent_sessions_menu = recent_menu
     _populate_recent_menu(window, recent_menu)
+
+    cache_menu = bar.addMenu("&Cache")
+    act_reload = QAction("Recharger fichier courant (sans cache)", window)
+    act_reload.setShortcut(QKeySequence("Ctrl+Shift+R"))
+    act_reload.setToolTip(
+        "Force le re-chargement du fichier courant en bypassant les caches RAM et disque."
+    )
+    act_reload.triggered.connect(window._reload_current_no_cache)
+    cache_menu.addAction(act_reload)
+
+    act_clear = QAction("Vider cache disque (.arpes_cache)", window)
+    act_clear.setToolTip(
+        "Supprime tous les artefacts npz mis en cache dans le dossier de session courant."
+    )
+    act_clear.triggered.connect(window._clear_disk_cache)
+    cache_menu.addAction(act_clear)
+
+    cache_menu.addSeparator()
+    act_toggle = QAction("Activer cache disque", window)
+    act_toggle.setCheckable(True)
+    act_toggle.setChecked(bool(getattr(window, "_raw_disk_cache_enabled", True)))
+    act_toggle.setToolTip(
+        "Quand activé, les fichiers chargés sont sauvés en .arpes_cache/raw_artifacts/\n"
+        "pour rechargement instant (~50 ms). Écriture asynchrone, quota 250 MB par dossier."
+    )
+    act_toggle.toggled.connect(window._toggle_disk_cache)
+    cache_menu.addAction(act_toggle)
+    window._cache_toggle_action = act_toggle
     return bar
 
 

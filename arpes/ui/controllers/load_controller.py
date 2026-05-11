@@ -27,7 +27,11 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication
 
 from arpes.core.session import normalize_tags, session_tags
-from arpes.io.artifact_cache import load_raw_artifact, save_raw_artifact
+from arpes.io.artifact_cache import (
+    load_raw_artifact,
+    save_raw_artifact,
+    save_raw_artifact_async,
+)
 from arpes.io.loader_orchestrator import LoaderOrchestrator, LoaderOrchestratorResult
 from arpes.physics.resolution import estimate_resolutions
 
@@ -105,15 +109,21 @@ class LoadController:
         self._parent._status(msg)
 
     # ------------------------------------------------------------ public
-    def load(self, path: str) -> None:
-        """Pipeline complet - entrée unique appelée par le file browser."""
+    def load(self, path: str, *, force_reload: bool = False) -> None:
+        """Pipeline complet - entrée unique appelée par le file browser.
+
+        Si ``force_reload`` est vrai, bypass les caches RAM + disque pour ce fichier.
+        """
         self._ensure_arpes_plots()
-        self._status(f"Chargement {Path(path).name} ...")
+        suffix = " (sans cache)" if force_reload else ""
+        self._status(f"Chargement {Path(path).name}{suffix} ...")
         QApplication.processEvents()
         try:
             prepared = self._prepare_entry(path)
             entry_state_before_load = self._entry_state_token(prepared.entry)
-            load_result, orchestrator = self._dispatch_loader(path, prepared)
+            load_result, orchestrator = self._dispatch_loader(
+                path, prepared, force_reload=force_reload,
+            )
             d = load_result.data
             if d is None:
                 self._status("Attention: erlab non disponible")
@@ -194,13 +204,15 @@ class LoadController:
             logbook_hit=logbook_hit,
         )
 
-    def _dispatch_loader(self, path: str, prepared: _PreparedEntry):
+    def _dispatch_loader(self, path: str, prepared: _PreparedEntry, *, force_reload: bool = False):
         orchestrator = LoaderOrchestrator(load_arpes_file, loader_label)
         cache_key = self._load_cache_key(path, prepared)
         cache = getattr(self._parent, "_raw_load_cache", None)
         session_folder = getattr(getattr(self._parent, "_session", None), "folder", None)
         disk_cache_enabled = bool(getattr(self._parent, "_raw_disk_cache_enabled", False))
-        if cache is not None and cache_key in cache:
+        if force_reload and cache is not None:
+            cache.pop(cache_key, None)
+        if not force_reload and cache is not None and cache_key in cache:
             data_cached, offsets_cached = cache.pop(cache_key)
             cache[cache_key] = (data_cached, offsets_cached)
             self._parent._last_load_cache_hit = True
@@ -220,7 +232,10 @@ class LoadController:
                 orchestrator,
             )
 
-        disk_cached = load_raw_artifact(path, cache_key, session_folder) if disk_cache_enabled else None
+        disk_cached = (
+            load_raw_artifact(path, cache_key, session_folder)
+            if (disk_cache_enabled and not force_reload) else None
+        )
         if disk_cached is not None:
             data_cached, offsets_cached = disk_cached
             if cache is not None:
@@ -267,13 +282,25 @@ class LoadController:
             while len(cache) > max_items:
                 cache.popitem(last=False)
             if disk_cache_enabled:
-                save_raw_artifact(
-                    path,
-                    cache_key,
-                    load_result.data,
-                    load_result.angle_offsets or {},
-                    session_folder,
-                )
+                quota_mb = float(getattr(self._parent, "_raw_disk_cache_quota_mb", 250) or 250)
+                use_async = bool(getattr(self._parent, "_raw_disk_cache_async", True))
+                if use_async:
+                    save_raw_artifact_async(
+                        path,
+                        cache_key,
+                        load_result.data,
+                        load_result.angle_offsets or {},
+                        session_folder,
+                        quota_mb=quota_mb,
+                    )
+                else:
+                    save_raw_artifact(
+                        path,
+                        cache_key,
+                        load_result.data,
+                        load_result.angle_offsets or {},
+                        session_folder,
+                    )
         return load_result, orchestrator
 
     def _load_cache_key(self, path: str, prepared: _PreparedEntry) -> tuple:

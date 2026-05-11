@@ -43,6 +43,7 @@ class _Parent:
         self._raw_load_cache = OrderedDict()
         self._raw_load_cache_max = 3
         self._raw_disk_cache_enabled = False
+        self._raw_disk_cache_async = False
         self._path_signature_cache = OrderedDict()
         self._path_signature_cache_max = 3
         self._last_load_cache_hit = False
