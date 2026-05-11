@@ -214,3 +214,32 @@ def write_results_csv(path: str, rows: list[dict]) -> None:
         writer = csv.DictWriter(f, fieldnames=result_columns(rows))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _rows_to_aligned_txt(rows: list[dict], columns: list[str]) -> str:
+    """Table texte à colonnes alignées (fixed width). Pour lecture humaine."""
+    if not rows:
+        return "# Aucune donnée.\n"
+    str_rows = [[("" if r.get(c) is None else str(r.get(c))) for c in columns] for r in rows]
+    widths = [
+        max(len(c), max((len(s[i]) for s in str_rows), default=0))
+        for i, c in enumerate(columns)
+    ]
+    lines = ["  ".join(c.ljust(widths[i]) for i, c in enumerate(columns))]
+    lines.append("  ".join("-" * w for w in widths))
+    for s in str_rows:
+        lines.append("  ".join(s[i].ljust(widths[i]) for i in range(len(columns))))
+    return "\n".join(lines) + "\n"
+
+
+def write_physics_txt(path: str, rows: list[dict]) -> None:
+    text = _rows_to_aligned_txt(rows, PHYSICS_RESULT_COLUMNS)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def write_results_txt(path: str, rows: list[dict]) -> None:
+    cols = result_columns(rows)
+    text = _rows_to_aligned_txt(rows, cols)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)

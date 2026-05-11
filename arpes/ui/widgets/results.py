@@ -29,7 +29,9 @@ from arpes.io.export import (
     physics_to_latex,
     result_rows,
     write_physics_csv,
+    write_physics_txt,
     write_results_csv,
+    write_results_txt,
 )
 from arpes.io.export_styles import PRESETS, savefig_with_preset
 from arpes.ui.widgets.canvas import MplCanvas
@@ -125,16 +127,12 @@ class ResultsPanel(QWidget):
         btn_multi = QPushButton("Analyse multi-fichier...")
         btn_multi.setToolTip("Trace kF, m* et Γ0 pour les entrées fittées sélectionnées.")
         btn_multi.clicked.connect(self._open_multi_file_analysis)
-        btn_csv = QPushButton("Export CSV (par slice)")
-        btn_csv.clicked.connect(self._export_csv)
-        btn_csv_phys = QPushButton("Export CSV physique (± σ)")
-        btn_csv_phys.clicked.connect(self._export_physics_csv)
-        btn_latex = QPushButton("Export LaTeX (table physique)")
-        btn_latex.setToolTip(
-            "Génère un .tex booktabs avec kF, vF, m*, Γ₀ ± σ par branche.\n"
-            "Copier-coller direct dans papier."
+        btn_export = QPushButton("Exporter résultats…")
+        btn_export.setToolTip(
+            "Choisir le contenu (par slice ou physique ± σ) et le format\n"
+            "(CSV, TXT aligné, LaTeX booktabs)."
         )
-        btn_latex.clicked.connect(self._export_latex)
+        btn_export.clicked.connect(self._export_results)
         style_row = QHBoxLayout()
         style_row.addWidget(QLabel("Style export"))
         self._cmb_export_style = QComboBox()
@@ -148,7 +146,7 @@ class ResultsPanel(QWidget):
         right.addLayout(style_row)
         btn_pdf = QPushButton("Export figure")
         btn_pdf.clicked.connect(self._export_fig)
-        for b in (btn_ref, btn_recalc, btn_multi, btn_csv, btn_csv_phys, btn_latex, btn_pdf):
+        for b in (btn_ref, btn_recalc, btn_multi, btn_export, btn_pdf):
             right.addWidget(b)
 
         rw = QWidget(); rw.setLayout(right)
@@ -440,28 +438,46 @@ class ResultsPanel(QWidget):
     def _on_file_filter_changed(self, _item) -> None:
         self.refresh()
 
-    def _export_csv(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export CSV", str(self._session.folder or Path.home()),
-            "CSV (*.csv)")
-        if not path:
+    def _export_results(self):
+        from arpes.ui.widgets.dialogs import ExportDialog
+        dlg = ExportDialog(self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
             return
-        rows = result_rows(self._session)
+        rows = (physics_rows(self._session) if dlg.content_key == "physics"
+                else result_rows(self._session))
         if not rows:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Export", "Aucun résultat à exporter.")
             return
-        write_results_csv(path, rows)
-
-    def _export_physics_csv(self):
+        suggested = str(self._session.folder or Path.home())
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export CSV physique (± σ)",
-            str(self._session.folder or Path.home()), "CSV (*.csv)",
+            self, "Exporter résultats", suggested, dlg.file_filter(),
         )
         if not path:
             return
-        rows = physics_rows(self._session)
-        if not rows:
-            return
-        write_physics_csv(path, rows)
+        if not path.lower().endswith(dlg.extension()):
+            path = path + dlg.extension()
+        try:
+            self._dispatch_export(path, rows, dlg.content_key, dlg.format_key)
+        except Exception as exc:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Export", f"Échec écriture : {exc}")
+
+    @staticmethod
+    def _dispatch_export(path: str, rows: list[dict], content: str, fmt: str) -> None:
+        if fmt == "csv":
+            if content == "physics":
+                write_physics_csv(path, rows)
+            else:
+                write_results_csv(path, rows)
+        elif fmt == "txt":
+            if content == "physics":
+                write_physics_txt(path, rows)
+            else:
+                write_results_txt(path, rows)
+        elif fmt == "latex":
+            text = physics_to_latex(rows)
+            Path(path).write_text(text, encoding="utf-8")
 
     def _open_multi_file_analysis(self):
         from arpes.ui.widgets.dialogs import MultiFileAnalysisDialog
@@ -517,16 +533,3 @@ class ResultsPanel(QWidget):
         except Exception:
             pass
 
-    def _export_latex(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export LaTeX table", str(self._session.folder or Path.home()),
-            "LaTeX (*.tex)")
-        if not path:
-            return
-        rows = physics_rows(self._session)
-        text = physics_to_latex(rows)
-        try:
-            Path(path).write_text(text, encoding="utf-8")
-        except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Export LaTeX", f"Échec écriture : {e}")
