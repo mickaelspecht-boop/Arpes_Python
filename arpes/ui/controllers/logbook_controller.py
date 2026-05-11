@@ -52,6 +52,64 @@ class LogbookIngestController:
         self._parent._status(msg)
 
     # ---------------------------------------------------------------- dialogs
+    def add_scoped_logbook(self) -> None:
+        """Charge un logbook attaché à un sous-dossier spécifique.
+
+        Tagge chaque record avec `_subfolder_rel` = chemin relatif du subdir.
+        Les records scopés ne matchent que les fichiers dans ce subdir,
+        permettant de coller deux logbooks distincts (ex: CA041 et CA046)
+        à des sous-dossiers différents dans la même session.
+        """
+        start = str(self._session.folder or Path.home())
+        subfolder = QFileDialog.getExistingDirectory(
+            self._parent, "Sous-dossier visé par ce logbook", start,
+        )
+        if not subfolder:
+            return
+        if self._session.folder is None:
+            QMessageBox.warning(self._parent, "Logbook scopé",
+                                "Ouvre d'abord un dossier de session.")
+            return
+        try:
+            rel = str(Path(subfolder).resolve().relative_to(self._session.folder.resolve()))
+        except Exception:
+            QMessageBox.warning(self._parent, "Logbook scopé",
+                                "Le sous-dossier doit être à l'intérieur du dossier de session.")
+            return
+        if rel == ".":
+            QMessageBox.warning(self._parent, "Logbook scopé",
+                                "Ce sous-dossier est la racine — utiliser 'Charger logbook' à la place.")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self._parent, f"Logbook ARPES pour {rel}", subfolder,
+            "Logbook (*.xlsx *.xls *.csv *.tsv);;Tous les fichiers (*)")
+        if not path:
+            return
+        try:
+            records, mapping, sheet_name = self.read(Path(path))
+            for r in records:
+                if isinstance(r, dict):
+                    r["_subfolder_rel"] = rel
+            existing = [r for r in self._session.logbook_records
+                        if not (isinstance(r, dict) and r.get("_subfolder_rel") == rel)]
+            self._session.logbook_records = existing + list(records)
+            self._session.save()
+            self._status(
+                f"Logbook scopé '{rel}' : {Path(path).name} | {len(records)} lignes"
+            )
+            if hasattr(self._params, "mark_action_done"):
+                self._params.mark_action_done(f"logbook scopé '{rel}' ({len(records)} lignes)")
+            QMessageBox.information(
+                self._parent, "Logbook scopé chargé",
+                f"Subdir : {rel}\nFichier : {Path(path).name}\n{len(records)} lignes."
+            )
+            if self._parent._current_path:
+                self.apply_to_controls(self._parent._current_path)
+            self._browser.refresh()
+        except Exception as exc:
+            QMessageBox.warning(self._parent, "Logbook scopé", str(exc))
+            self._status(f"Attention: Logbook scopé : {exc}")
+
     def open_dialog(self) -> None:
         """Ouvre un QFileDialog pour choisir un logbook puis le charge."""
         start = str(self._session.folder or Path.home())

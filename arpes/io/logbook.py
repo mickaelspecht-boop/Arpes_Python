@@ -58,7 +58,18 @@ class LogbookManager:
         file_col = self.mapping.get("file", "")
         if not file_col:
             return None
+        # 1. Pass : records avec scope subfolder (prioritaire si présents)
         for rec in self.records:
+            if not _record_in_subfolder_scope(rec, path, self.session_folder):
+                continue
+            if not str(rec.get("_subfolder_rel") or "").strip():
+                continue
+            if _record_matches_path(rec.get(file_col), path, self.session_folder):
+                return rec
+        # 2. Pass : records sans scope (global, fallback)
+        for rec in self.records:
+            if str(rec.get("_subfolder_rel") or "").strip():
+                continue
             if _record_matches_path(rec.get(file_col), path, self.session_folder):
                 return rec
         return None
@@ -572,6 +583,31 @@ def _path_measurement_numbers(path: str | Path) -> set[int]:
     for text in (p.name, p.stem):
         out |= _extract_measurement_numbers(text)
     return out
+
+
+def _record_in_subfolder_scope(record: Any, path: str | Path, session_folder: Path | None) -> bool:
+    """Si le record a un champ `_subfolder_rel`, vérifie que `path` y est inclus.
+
+    Permet d'attacher des logbooks à un sous-dossier précis (ex: CA041 vs CA046)
+    sans confusion entre fichiers de même nom dans deux subdirs.
+    """
+    if not isinstance(record, dict):
+        return True
+    subfolder = str(record.get("_subfolder_rel") or "").strip()
+    if not subfolder:
+        return True
+    if session_folder is None:
+        return True
+    try:
+        p_resolved = Path(path).resolve()
+        scope_resolved = (Path(session_folder) / subfolder).resolve()
+    except Exception:
+        return True
+    try:
+        p_resolved.relative_to(scope_resolved)
+        return True
+    except ValueError:
+        return False
 
 
 def _record_matches_path(record_value: Any, path: str | Path, session_folder: Path | None) -> bool:

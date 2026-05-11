@@ -30,6 +30,19 @@ def build_menubar(window) -> QMenuBar:
     window._recent_sessions_menu = recent_menu
     _populate_recent_menu(window, recent_menu)
 
+    logbook_menu = bar.addMenu("&Logbook")
+    act_logbook = QAction("Charger logbook (global)…", window)
+    act_logbook.setToolTip("Logbook appliqué à tout le dossier de session.")
+    act_logbook.triggered.connect(lambda: window._logbook_ctrl.open_dialog())
+    logbook_menu.addAction(act_logbook)
+    act_scoped = QAction("Ajouter logbook scopé sous-dossier…", window)
+    act_scoped.setToolTip(
+        "Attache un logbook à un sous-dossier précis (ex: CA041 vs CA046).\n"
+        "Les records scopés ne matchent que les fichiers du sous-dossier visé."
+    )
+    act_scoped.triggered.connect(lambda: window._logbook_ctrl.add_scoped_logbook())
+    logbook_menu.addAction(act_scoped)
+
     cache_menu = bar.addMenu("&Cache")
     act_reload = QAction("Recharger fichier courant (sans cache)", window)
     act_reload.setShortcut(QKeySequence("Ctrl+Shift+R"))
