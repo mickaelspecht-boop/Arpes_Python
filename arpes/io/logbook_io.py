@@ -122,6 +122,19 @@ def excel_table_from_header(raw, row_idx: int):
     return df, mapping
 
 
+_TITLE_TOKENS = {"plan", "measurement", "for", "title", "page", "sheet", "data"}
+
+
+def _looks_like_title(column: str) -> bool:
+    """True si le nom de colonne ressemble à un titre (plusieurs mots, mots clés)."""
+    if not column:
+        return False
+    words = [w.lower() for w in str(column).split() if w]
+    if len(words) >= 3:
+        return True
+    return bool(_TITLE_TOKENS.intersection(words))
+
+
 def best_excel_table(raw, candidates: list[int]):
     best = None
     best_score = -1
@@ -132,10 +145,18 @@ def best_excel_table(raw, candidates: list[int]):
         score += int(bool(mapping.get("direction"))) + int(bool(mapping.get("azi")))
         score += int(bool(mapping.get("polar"))) + int(bool(mapping.get("tilt")))
         score += min(len(df), 20) / 1000
+        # Pénalité si la colonne file détectée ressemble à un titre de section
+        # ("Measurement Plan for ..." etc) — souvent erreur de header row.
+        if _looks_like_title(mapping.get("file", "")):
+            score -= 3
         if score > best_score:
             best = (df, mapping, row_idx)
             best_score = score
     if best is None or best_score < 6:
+        return None
+    # Garde-fou supplémentaire : si la file/hv colonne ressemble à un titre,
+    # rejette pour laisser le table_selector demander à l'utilisateur.
+    if _looks_like_title(best[1].get("file", "")) or _looks_like_title(best[1].get("hv", "")):
         return None
     return best[0], best[1]
 
