@@ -213,12 +213,22 @@ def read_logbook(
         df.columns = [str(c).strip() for c in df.columns]
         mapping = _infer_logbook_mapping(list(df.columns), df=df)
     else:
-        if suffix == ".csv":
+        # Auto-détection séparateur : essaie plusieurs et garde celui qui
+        # donne le plus de colonnes (≥2). Ordre : TAB, ;, ,, |.
+        df = None
+        best_ncols = 0
+        for sep in ("\t", ";", ",", "|"):
             try:
-                df = pd.read_csv(path, sep=";")
+                candidate = pd.read_csv(path, sep=sep)
             except Exception:
-                df = pd.read_csv(path)
-        else:
+                continue
+            if candidate is None:
+                continue
+            ncols = len(candidate.columns)
+            if ncols > best_ncols:
+                best_ncols = ncols
+                df = candidate
+        if df is None or best_ncols < 2:
             try:
                 df = pd.read_csv(path, sep=None, engine="python")
             except Exception:
