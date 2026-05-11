@@ -7,6 +7,7 @@ import numpy as np
 
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes.physics.plot_compute import (
+    BandmapAxesState,
     compute_bandmap_display,
     draw_bandmap_axes as _plot_draw_bandmap_axes,
     draw_ef_label as _plot_draw_ef_label,
@@ -179,7 +180,7 @@ class PlotController:
         result = compute_bandmap_display(
             d,
             mode=mode,
-            edc_norm_enabled=mode in ("EDCnorm", "SecDev", "2nd deriv E", "Curvature"),
+            edc_norm_enabled=mode in ("EDCnorm", "SecDev", "Curvature"),
             grid_correction=grid_cfg_active,
             grid_artifact_fn=remove_detector_grid_artifact,
         )
@@ -250,10 +251,16 @@ class PlotController:
         kpar = d["kpar"]; ev = d["ev_arr"]
 
         ax = self._bm_canvas.ax
+        self._clear_plot_overlays(ax)
         cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
         int_win = self._params.sp_int_win.value()
         fname = Path(d["path"]).name
-        _plot_draw_bandmap_axes(
+        state = getattr(self._parent, "_bm_plot_state", None)
+        if state is None:
+            state = BandmapAxesState()
+        plot_key = getattr(self._parent, "_disp_cache_key", None)
+        reset_limits = plot_key != getattr(self._parent, "_bm_plot_data_key", None)
+        self._parent._bm_plot_state = _plot_draw_bandmap_axes(
             ax,
             kpar=kpar, ev=ev, disp=disp,
             cmap=cmap, color_kwargs=ckw,
@@ -262,12 +269,18 @@ class PlotController:
             title=f"{fname}  [{mode}]  {self._ef_offset_text()}",
             title_size=9, label_size=10,
             show_k_zero=True,
+            state=state,
+            reset_limits=reset_limits,
         )
+        self._parent._bm_plot_data_key = plot_key
 
+        before = self._axis_artist_snapshot(ax)
         self._draw_fit_roi_overlay(ax)
         self._draw_theory_overlay(ax)
         self._draw_kf_overlay(ax)
+        self._draw_gamma_preview_axvline(ax)
         self._draw_ef_label(ax, horizontal=True)
+        self._tag_new_plot_overlays(ax, before)
         self._bm_canvas.redraw()
 
     def _draw_mdc_energy_map(self):
@@ -280,9 +293,15 @@ class PlotController:
         kpar = d["kpar"]
         ev = d["ev_arr"]
         ax = self._mdc_map_canvas.ax
+        self._clear_plot_overlays(ax)
         cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=True)
         int_win = self._params.sp_int_win.value()
-        _plot_draw_bandmap_axes(
+        state = getattr(self._parent, "_mdc_map_plot_state", None)
+        if state is None:
+            state = BandmapAxesState()
+        plot_key = getattr(self._parent, "_disp_cache_key", None)
+        reset_limits = plot_key != getattr(self._parent, "_mdc_map_plot_data_key", None)
+        self._parent._mdc_map_plot_state = _plot_draw_bandmap_axes(
             ax,
             kpar=kpar, ev=ev, disp=disp,
             cmap=cmap, color_kwargs=ckw,
@@ -291,7 +310,11 @@ class PlotController:
             title=f"Plage d'analyse [{mode}]",
             title_size=8, label_size=8, tick_label_size=8,
             show_k_zero=False,
+            state=state,
+            reset_limits=reset_limits,
         )
+        self._parent._mdc_map_plot_data_key = plot_key
+        before = self._axis_artist_snapshot(ax)
         bounds = self._fit_roi_bounds()
         if bounds is not None:
             k0, k1, e0, e1 = bounds
@@ -312,7 +335,47 @@ class PlotController:
         self._draw_theory_overlay(ax)
         self._draw_kf_overlay(ax)
         self._draw_ef_label(ax, horizontal=True)
+        self._tag_new_plot_overlays(ax, before)
         self._mdc_map_canvas.redraw()
+
+    @staticmethod
+    def _axis_artist_snapshot(ax) -> set:
+        artists = list(ax.lines) + list(ax.collections) + list(ax.patches) + list(ax.texts) + list(ax.images)
+        return {id(artist) for artist in artists}
+
+    def _clear_plot_overlays(self, ax) -> None:
+        active = {
+            id(rect)
+            for rect in (
+                getattr(self._parent, "_fit_roi_rect", None),
+                getattr(self._parent, "_fit_select_rect", None),
+            )
+            if rect is not None
+        }
+        artists = list(ax.lines) + list(ax.collections) + list(ax.patches) + list(ax.texts) + list(ax.images)
+        for artist in artists:
+            if id(artist) in active:
+                continue
+            if getattr(artist, "_arpes_plot_overlay", False) or artist.get_gid() == "arpes_overlay":
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _tag_new_plot_overlays(ax, before: set) -> None:
+        artists = list(ax.lines) + list(ax.collections) + list(ax.patches) + list(ax.texts) + list(ax.images)
+        for artist in artists:
+            if id(artist) in before:
+                continue
+            try:
+                artist.set_gid("arpes_overlay")
+            except Exception:
+                pass
+            try:
+                setattr(artist, "_arpes_plot_overlay", True)
+            except Exception:
+                pass
 
     def _draw_mdc_waterfall(self):
         if not hasattr(self, "_waterfall_canvas") or self._raw_data is None:
@@ -633,3 +696,48 @@ class PlotController:
     # ─────────────────────────────────────────────────────────────────────────
     # Interactions carte
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _draw_gamma_preview_axvline(self, ax) -> None:
+        sp_cx = getattr(self._params, "sp_cx", None)
+        if sp_cx is None:
+            return
+        try:
+            value = float(sp_cx.value())
+        except Exception:
+            return
+        line = ax.axvline(
+            value, color="#67e8f9", lw=1.0, ls="-.", alpha=0.55, zorder=4,
+        )
+        try:
+            line.set_gid("arpes_gamma_preview")
+        except Exception:
+            pass
+
+    def _update_gamma_preview(self, value: float) -> None:
+        canvas = getattr(self._parent, "_bm_canvas", None)
+        if canvas is None or not canvas.fig.axes:
+            return
+        ax = canvas.fig.axes[0]
+        found = None
+        for line in ax.lines:
+            if getattr(line, "get_gid", lambda: None)() == "arpes_gamma_preview":
+                found = line
+                break
+        try:
+            if found is not None:
+                found.set_xdata([float(value), float(value)])
+            else:
+                new = ax.axvline(
+                    float(value), color="#67e8f9", lw=1.0, ls="-.", alpha=0.55, zorder=4,
+                )
+                new.set_gid("arpes_gamma_preview")
+                try:
+                    setattr(new, "_arpes_plot_overlay", True)
+                except Exception:
+                    pass
+        except Exception:
+            return
+        try:
+            canvas.fig.canvas.draw_idle()
+        except Exception:
+            pass

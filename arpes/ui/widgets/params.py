@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QLabel,
@@ -95,6 +96,9 @@ class FitParamsPanel(QScrollArea):
     theory_efalign_requested = pyqtSignal()
     crystal_a_changed = pyqtSignal()
     file_tags_changed = pyqtSignal()
+    fit_section_toggled = pyqtSignal(str, bool)
+    fit_preset_changed = pyqtSignal(str)
+    gamma_center_preview = pyqtSignal(float)
 
     def __init__(self):
         super().__init__()
@@ -108,6 +112,7 @@ class FitParamsPanel(QScrollArea):
         self._resolution_source_lock = False
         self._resolution_source = "default"
         self._resolution_source_detail = "defaut"
+        self._fit_sections: dict = {}
         self._build()
 
     def _build(self):
@@ -459,3 +464,94 @@ class FitParamsPanel(QScrollArea):
         self._save_pair()
         self._current_pair = i
         self._load_pair(i)
+
+    # ── sections collapsibles + presets ──────────────────────────────────────
+    def apply_fit_section_states(self, states: dict | None) -> None:
+        if not states:
+            return
+        for key, grp in self._fit_sections.items():
+            if key not in states:
+                continue
+            expanded = bool(states[key])
+            grp.blockSignals(True)
+            grp.setChecked(expanded)
+            grp.blockSignals(False)
+            for i in range(grp.layout().count()):
+                w = grp.layout().itemAt(i).widget()
+                if w is not None:
+                    w.setVisible(expanded)
+
+    def fit_section_states(self) -> dict[str, bool]:
+        return {k: bool(g.isChecked()) for k, g in self._fit_sections.items()}
+
+    def set_fit_preset_silent(self, name: str) -> None:
+        if not hasattr(self, "cmb_fit_preset"):
+            return
+        self.cmb_fit_preset.blockSignals(True)
+        idx = self.cmb_fit_preset.findText(name or "Custom")
+        if idx >= 0:
+            self.cmb_fit_preset.setCurrentIndex(idx)
+        self.cmb_fit_preset.blockSignals(False)
+
+    def _on_preset_chosen(self, name: str) -> None:
+        from arpes.ui.widgets.params_fit import MATERIAL_PRESETS
+        preset = MATERIAL_PRESETS.get(name)
+        if preset:
+            mapping = [
+                (self.sp_sff, "smooth_fit"),
+                (self.sp_sfd, "smooth_detect"),
+                (self.sp_gi, "gamma_init"),
+                (self.sp_gm, "gamma_max"),
+                (self.sp_ma, "min_amplitude"),
+                (self.sp_mj, "max_jump"),
+            ]
+            for sp, key in mapping:
+                if key in preset:
+                    sp.blockSignals(True)
+                    sp.setValue(float(preset[key]))
+                    sp.blockSignals(False)
+            if "width_mode" in preset:
+                self.cmb_wm.blockSignals(True)
+                self.cmb_wm.setCurrentText(str(preset["width_mode"]))
+                self.cmb_wm.blockSignals(False)
+            self._save_pair()
+            self._pair_params[self._current_pair]["gamma_init"] = float(
+                preset.get("gamma_init", self.sp_gi.value())
+            )
+            self._pair_params[self._current_pair]["gamma_max"] = float(
+                preset.get("gamma_max", self.sp_gm.value())
+            )
+            self.fit_only_changed.emit()
+        self.fit_preset_changed.emit(name)
+
+    def update_fit_quality(self, fit_result: dict | None, chi2_threshold: float) -> None:
+        if not hasattr(self, "lbl_fit_quality"):
+            return
+        if not fit_result:
+            self.lbl_fit_quality.setText("")
+            self.lbl_fit_quality.setStyleSheet(
+                "color:#888;font-family:monospace;font-size:10px;"
+            )
+            return
+        chi2 = fit_result.get("chi2_red") or []
+        arr = np.asarray(chi2, dtype=float)
+        arr = arr[np.isfinite(arr)]
+        n_total = len(fit_result.get("e_fitted") or [])
+        if arr.size == 0:
+            self.lbl_fit_quality.setText(
+                f"{n_total} slices fittées | χ² indisponible"
+            )
+            self.lbl_fit_quality.setStyleSheet(
+                "color:#888;font-family:monospace;font-size:10px;"
+            )
+            return
+        med = float(np.median(arr))
+        bad = int(np.sum(arr > float(chi2_threshold)))
+        ratio = bad / max(arr.size, 1)
+        color = "#8fc" if ratio < 0.3 else "#fc8"
+        self.lbl_fit_quality.setText(
+            f"χ²_red méd: {med:.2f}  |  {arr.size} slices  |  {bad} douteuses"
+        )
+        self.lbl_fit_quality.setStyleSheet(
+            f"color:{color};font-family:monospace;font-size:11px;"
+        )

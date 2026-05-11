@@ -1,6 +1,9 @@
 """Section Fit MDC + Plage analyse + Waterfall + Boutons + Outils Γ.
 
-Builder externe pour les contrôles fit cachés sur l'onglet BM.
+Builder externe pour les contrôles fit cachés sur l'onglet BM. Les sous-groupes
+"Initiaux", "Contraintes", "Détection / scan" et "Résolution" sont des
+QGroupBox checkable (collapsibles). L'état est persisté via le signal
+`fit_section_toggled` du panneau parent.
 """
 from __future__ import annotations
 
@@ -19,14 +22,67 @@ from PyQt6.QtWidgets import (
 from arpes.ui.widgets._qt_helpers import compact_button, dspin, hsep, ispin
 
 
+# Presets matériau : applique un set de paramètres "détection / scan / largeur".
+# "Custom" = aucune modification. La sélection est persistée dans la session.
+MATERIAL_PRESETS: dict[str, dict | None] = {
+    "Custom": None,
+    "Métal léger": {
+        "smooth_fit": 1.5, "smooth_detect": 2.0,
+        "gamma_init": 0.05, "gamma_max": 0.20,
+        "min_amplitude": 0.05, "max_jump": 0.15,
+        "width_mode": "symmetric",
+    },
+    "Métal lourd": {
+        "smooth_fit": 2.5, "smooth_detect": 3.5,
+        "gamma_init": 0.12, "gamma_max": 0.40,
+        "min_amplitude": 0.05, "max_jump": 0.25,
+        "width_mode": "symmetric",
+    },
+    "SC dopé": {
+        "smooth_fit": 2.0, "smooth_detect": 3.0,
+        "gamma_init": 0.08, "gamma_max": 0.30,
+        "min_amplitude": 0.02, "max_jump": 0.20,
+        "width_mode": "asymmetric",
+    },
+    "Bruité (lissage++)": {
+        "smooth_fit": 4.0, "smooth_detect": 5.0,
+        "gamma_init": 0.10, "gamma_max": 0.30,
+        "min_amplitude": 0.08, "max_jump": 0.25,
+        "width_mode": "symmetric",
+    },
+}
+
+
+def _make_collapsible(panel, title: str, key: str) -> tuple[QGroupBox, QFormLayout]:
+    grp = QGroupBox(title)
+    grp.setCheckable(True)
+    grp.setChecked(True)
+    content = QWidget()
+    fl = QFormLayout(content)
+    fl.setContentsMargins(2, 2, 2, 2)
+    outer = QVBoxLayout(grp)
+    outer.setContentsMargins(6, 18, 6, 6)
+    outer.addWidget(content)
+    grp.toggled.connect(content.setVisible)
+    grp.toggled.connect(lambda v, k=key: panel.fit_section_toggled.emit(k, bool(v)))
+    panel._fit_sections[key] = grp
+    return grp, fl
+
+
 def build_fit_controls(panel, lay) -> None:
     panel._fit_controls_widget = QWidget()
     _fcl = QVBoxLayout(panel._fit_controls_widget)
     _fcl.setContentsMargins(0, 0, 0, 0)
     _fcl.setSpacing(4)
 
+    panel._fit_sections = {}
+
     _build_roi_group(panel, _fcl)
-    _build_fit_mdc_group(panel, _fcl)
+    _build_preset_combo(panel, _fcl)
+    _build_init_section(panel, _fcl)
+    _build_constraint_section(panel, _fcl)
+    _build_detect_section(panel, _fcl)
+    _build_resolution_section(panel, _fcl)
     _build_waterfall_group(panel, _fcl)
     _build_fit_buttons(panel, _fcl)
 
@@ -52,20 +108,12 @@ def _build_roi_group(panel, _fcl) -> None:
     btn_fit_roi_reset = compact_button(QPushButton("Pleine BM"), max_width=120)
     btn_fit_roi_reset.setToolTip("Remet la plage d'analyse sur toute la carte chargée.")
     btn_fit_roi_reset.clicked.connect(panel.fit_roi_reset_requested)
-    panel.btn_fit_undo = compact_button(QPushButton("↶ Annuler suppression"), max_width=180)
-    panel.btn_fit_undo.setEnabled(False)
-    panel.btn_fit_undo.setToolTip(
-        "Restaure les points de fit retirés par la dernière suppression "
-        "(touche Suppr/Backspace après sélection)."
-    )
-    panel.btn_fit_undo.clicked.connect(panel.fit_undo_requested)
     roi_row = QWidget()
     roi_lay = QHBoxLayout(roi_row)
     roi_lay.setContentsMargins(0, 0, 0, 0)
     roi_lay.setSpacing(4)
     roi_lay.addWidget(panel.btn_fit_roi)
     roi_lay.addWidget(btn_fit_roi_reset)
-    roi_lay.addWidget(panel.btn_fit_undo)
     roi_lay.addStretch(1)
     fl2.addRow("ev_start:", panel.sp_evs)
     fl2.addRow("ev_end:", panel.sp_eve)
@@ -75,25 +123,28 @@ def _build_roi_group(panel, _fcl) -> None:
     _fcl.addWidget(grp_r)
 
 
-def _build_fit_mdc_group(panel, _fcl) -> None:
-    from arpes.ui.widgets.params import ClickablePairLabel
+def _build_preset_combo(panel, _fcl) -> None:
+    row = QWidget()
+    h = QHBoxLayout(row)
+    h.setContentsMargins(0, 2, 0, 2)
+    h.addWidget(QLabel("Preset :"))
+    panel.cmb_fit_preset = QComboBox()
+    panel.cmb_fit_preset.addItems(list(MATERIAL_PRESETS.keys()))
+    panel.cmb_fit_preset.setToolTip(
+        "Applique un set de paramètres (lissage, γ, ampl., saut, symétrie).\n"
+        "Custom : aucune modification. Le choix est sauvegardé dans la session."
+    )
+    panel.cmb_fit_preset.currentTextChanged.connect(panel._on_preset_chosen)
+    h.addWidget(panel.cmb_fit_preset, 1)
+    _fcl.addWidget(row)
 
-    grp_f = QGroupBox("Fit MDC (Lorentzien)")
-    fl3 = QFormLayout(grp_f)
+
+def _build_init_section(panel, _fcl) -> None:
+    from arpes.ui.widgets.params import ClickablePairLabel
+    grp, fl = _make_collapsible(panel, "Initiaux paire", "init")
     panel.sp_np = ispin(1, 1, 8)
     panel.sp_np.setToolTip("Nombre de paires de Lorentziennes (= nombre de bandes croisées).")
     panel.sp_np.valueChanged.connect(panel._on_n_pairs_changed)
-    panel.sp_sff = dspin(2.0, 0.0, 10.0, 0.5, dec=1)
-    panel.sp_sff.setToolTip(
-        "Sigma du lissage gaussien appliqué à la MDC avant l'optimisation scipy.\n"
-        "Augmenter pour données bruitées. Voir la courbe orange dans le graphique MDC."
-    )
-    panel.sp_sfd = dspin(3.0, 0.0, 10.0, 0.5, dec=1)
-    panel.sp_sfd.setToolTip(
-        "Sigma du lissage gaussien utilisé pour détecter les pics initiaux.\n"
-        "Voir la courbe grise dans le graphique MDC."
-    )
-
     panel._pair_lbl = ClickablePairLabel()
     panel._pair_lbl.pair_changed.connect(panel._on_pair_changed)
     panel.sp_kfi = dspin(0.30, 0.0, 3.0, 0.01)
@@ -111,7 +162,18 @@ def _build_fit_mdc_group(panel, _fcl) -> None:
         "Demi-largeur maximale autorisée (π/a) — contrainte de l'optimiseur scipy.\n"
         "Voir les zones colorées translucides autour des pics dans le graphique MDC."
     )
+    for w in (panel.sp_kfi, panel.sp_gi, panel.sp_gm):
+        w.valueChanged.connect(panel.fit_only_changed)
+    fl.addRow("Nb paires:", panel.sp_np)
+    fl.addRow(panel._pair_lbl)
+    fl.addRow("kF init (π/a):", panel.sp_kfi)
+    fl.addRow("γ init (π/a):", panel.sp_gi)
+    fl.addRow("γ max (π/a):", panel.sp_gm)
+    _fcl.addWidget(grp)
 
+
+def _build_constraint_section(panel, _fcl) -> None:
+    grp, fl = _make_collapsible(panel, "Contraintes optimiseur", "constraints")
     panel.sp_xg = dspin(0.10, 0.0, 0.5, 0.01)
     panel.sp_xg.setToolTip(
         "Demi-largeur de la zone de contrainte autour du centre Γ (π/a).\n"
@@ -121,7 +183,7 @@ def _build_fit_mdc_group(panel, _fcl) -> None:
     panel.sp_cx = dspin(0.0, -1.0, 1.0, 0.01)
     panel.sp_cx.setToolTip(
         "Centre de symétrie des paires (position Γ, en π/a).\n"
-        "Voir la ligne cyan pointillée dans le graphique MDC.\n"
+        "Halo cyan tireté sur la carte BM en temps réel pendant l'édition.\n"
         "Utiliser 'Auto Γ BM' ou 'Γ FS → BM' pour le calculer automatiquement."
     )
     panel.sp_k0m = dspin(0.0, 0.0, 2.0, 0.05)
@@ -143,37 +205,72 @@ def _build_fit_mdc_group(panel, _fcl) -> None:
         "symmetric : les deux pics de la paire ont le même γ.\n"
         "asymmetric : γ gauche et droit peuvent différer (pics asymétriques)."
     )
+    for w in (panel.sp_xg, panel.sp_cx, panel.sp_k0m):
+        w.valueChanged.connect(panel.fit_only_changed)
+    panel.cmb_wm.currentIndexChanged.connect(panel.fit_only_changed)
+    panel.sp_cx.valueChanged.connect(
+        lambda v: panel.gamma_center_preview.emit(float(v))
+    )
+    k0w = QWidget()
+    k0l = QHBoxLayout(k0w)
+    k0l.setContentsMargins(0, 0, 0, 0)
+    k0l.addWidget(panel.sp_k0m)
+    k0l.addWidget(panel.chk_k0a)
+    fl.addRow("Fenêtre Γ (π/a):", panel.sp_xg)
+    fl.addRow("Centre Γ (π/a):", panel.sp_cx)
+    fl.addRow("kF max (π/a):", k0w)
+    fl.addRow("Symétrie paire:", panel.cmb_wm)
+    _fcl.addWidget(grp)
+
+
+def _build_detect_section(panel, _fcl) -> None:
+    grp, fl = _make_collapsible(panel, "Détection / scan", "detect")
+    panel.sp_sff = dspin(2.0, 0.0, 10.0, 0.5, dec=1)
+    panel.sp_sff.setToolTip(
+        "Sigma du lissage gaussien appliqué à la MDC avant l'optimisation scipy.\n"
+        "Augmenter pour données bruitées. Voir la courbe orange dans le graphique MDC."
+    )
+    panel.sp_sfd = dspin(3.0, 0.0, 10.0, 0.5, dec=1)
+    panel.sp_sfd.setToolTip(
+        "Sigma du lissage gaussien utilisé pour détecter les pics initiaux.\n"
+        "Voir la courbe grise dans le graphique MDC."
+    )
     panel.sp_ma = dspin(0.01, 0.0, 1.0, 0.01)
     panel.sp_ma.setToolTip(
         "Amplitude minimale relative d'un pic pour être accepté (0–1).\n"
-        "Rejette les pics dont l'amplitude est < ampl_min × max(MDC).\n"
-        "Augmenter pour éliminer les faux pics dus au bruit."
+        "Rejette les pics dont l'amplitude est < ampl_min × max(MDC)."
     )
     panel.sp_mj = dspin(0.20, 0.0, 1.0, 0.05)
     panel.sp_mj.setToolTip(
         "Saut maximal autorisé entre positions kF consécutives (π/a).\n"
-        "Contrôle la continuité de la dispersion lors du fit complet.\n"
-        "Réduire si la dispersion saute d'un point à l'autre."
-    )
-    panel.cmb_sd = QComboBox()
-    panel.cmb_sd.addItems(["up", "down"])
-    panel.cmb_sd.setFixedWidth(80)
-    panel.cmb_sd.setToolTip(
-        "up : parcourt la BM de ev_start (bas) vers ev_end (proche EF).\n"
-        "down : sens inverse. Choisir le sens où les pics sont les plus nets en départ."
+        "Contrôle la continuité de la dispersion lors du fit complet."
     )
     panel.sp_chi2_threshold = dspin(5.0, 0.1, 1_000.0, 0.5, dec=1)
     panel.sp_chi2_threshold.setToolTip(
         "Seuil chi2_red pour marquer les slices de fit douteuses en orange.\n"
         "N'agit que sur l'affichage si le fit_result contient chi2_red."
     )
-
-    for w in (panel.sp_sff, panel.sp_sfd, panel.sp_kfi, panel.sp_gi, panel.sp_gm,
-              panel.sp_xg, panel.sp_cx, panel.sp_k0m, panel.sp_ma, panel.sp_mj,
-              panel.sp_chi2_threshold):
+    panel.cmb_sd = QComboBox()
+    panel.cmb_sd.addItems(["up", "down"])
+    panel.cmb_sd.setFixedWidth(80)
+    panel.cmb_sd.setToolTip(
+        "up : parcourt la BM de ev_start (bas) vers ev_end (proche EF).\n"
+        "down : sens inverse."
+    )
+    for w in (panel.sp_sff, panel.sp_sfd, panel.sp_ma, panel.sp_mj, panel.sp_chi2_threshold):
         w.valueChanged.connect(panel.fit_only_changed)
-    panel.cmb_wm.currentIndexChanged.connect(panel.fit_only_changed)
+    panel.cmb_sd.currentIndexChanged.connect(panel.fit_only_changed)
+    fl.addRow("Lissage fit σ:", panel.sp_sff)
+    fl.addRow("Lissage détect σ:", panel.sp_sfd)
+    fl.addRow("Ampl. min:", panel.sp_ma)
+    fl.addRow("Saut max (π/a):", panel.sp_mj)
+    fl.addRow("Seuil chi2_red:", panel.sp_chi2_threshold)
+    fl.addRow("Sens scan:", panel.cmb_sd)
+    _fcl.addWidget(grp)
 
+
+def _build_resolution_section(panel, _fcl) -> None:
+    grp, fl = _make_collapsible(panel, "Résolution instrumentale", "resolution")
     panel.sp_dE_meV = dspin(15.0, 1.0, 200.0, 1.0, dec=1)
     panel.sp_dE_meV.setToolTip(
         "FWHM énergie instrumentale estimée ou saisie manuellement (meV).\n"
@@ -192,32 +289,6 @@ def _build_fit_mdc_group(panel, _fcl) -> None:
     panel.sp_dk_inv_a.valueChanged.connect(panel._mark_resolution_manual_if_user_edit)
     panel.sp_dE_meV.valueChanged.connect(panel.fit_only_changed)
     panel.sp_dk_inv_a.valueChanged.connect(panel.fit_only_changed)
-
-    k0w = QWidget()
-    k0l = QHBoxLayout(k0w)
-    k0l.setContentsMargins(0, 0, 0, 0)
-    k0l.addWidget(panel.sp_k0m)
-    k0l.addWidget(panel.chk_k0a)
-
-    fl3.addRow("Nb paires:", panel.sp_np)
-    fl3.addRow("Lissage fit σ:", panel.sp_sff)
-    fl3.addRow("Lissage détect σ:", panel.sp_sfd)
-    fl3.addRow(hsep())
-    fl3.addRow(panel._pair_lbl)
-    fl3.addRow("kF init (π/a):", panel.sp_kfi)
-    fl3.addRow("γ init (π/a):", panel.sp_gi)
-    fl3.addRow("γ max (π/a):", panel.sp_gm)
-    fl3.addRow(hsep())
-    fl3.addRow("Fenêtre Γ (π/a):", panel.sp_xg)
-    fl3.addRow("Centre Γ (π/a):", panel.sp_cx)
-    fl3.addRow("kF max (π/a):", k0w)
-    fl3.addRow("Symétrie paire:", panel.cmb_wm)
-    fl3.addRow(hsep())
-    fl3.addRow("Ampl. min:", panel.sp_ma)
-    fl3.addRow("Saut max (π/a):", panel.sp_mj)
-    fl3.addRow("Seuil chi2_red:", panel.sp_chi2_threshold)
-    fl3.addRow("Sens scan:", panel.cmb_sd)
-    fl3.addRow(hsep())
     de_row = QWidget()
     de_lay = QHBoxLayout(de_row)
     de_lay.setContentsMargins(0, 0, 0, 0)
@@ -228,9 +299,9 @@ def _build_fit_mdc_group(panel, _fcl) -> None:
     dk_lay.setContentsMargins(0, 0, 0, 0)
     dk_lay.addWidget(panel.sp_dk_inv_a, 1)
     dk_lay.addWidget(panel.lbl_dk_src)
-    fl3.addRow("ΔE FWHM (meV):", de_row)
-    fl3.addRow("Δk FWHM (π/a):", dk_row)
-    _fcl.addWidget(grp_f)
+    fl.addRow("ΔE FWHM (meV):", de_row)
+    fl.addRow("Δk FWHM (π/a):", dk_row)
+    _fcl.addWidget(grp)
 
 
 def _build_waterfall_group(panel, _fcl) -> None:
@@ -256,8 +327,12 @@ def _build_waterfall_group(panel, _fcl) -> None:
 
 def _build_fit_buttons(panel, _fcl) -> None:
     _fcl.addWidget(hsep())
-    btn_g = compact_button(QPushButton("Guess  (fit MDC ici)  [Ctrl+G]"), max_width=260)
+    btn_g = compact_button(QPushButton("Fit slice (E courante)  [Ctrl+G]"), max_width=260)
     btn_g.setStyleSheet("background:#1a6b3a;color:white;font-weight:bold;padding:6px;")
+    btn_g.setToolTip(
+        "Fit MDC à l'énergie courante (E sélectionnée) avec les paramètres actuels.\n"
+        "Sert à calibrer les initiaux avant un fit complet."
+    )
     btn_g.clicked.connect(panel.guess_requested)
     _fcl.addWidget(btn_g)
 
@@ -281,9 +356,27 @@ def _build_fit_buttons(panel, _fcl) -> None:
     btn_f.clicked.connect(panel.full_fit_requested)
     _fcl.addWidget(btn_f)
 
-    btn_cl = compact_button(QPushButton("Effacer kF"), max_width=140)
+    actions_row = QWidget()
+    actions_lay = QHBoxLayout(actions_row)
+    actions_lay.setContentsMargins(0, 0, 0, 0)
+    btn_cl = compact_button(QPushButton("Effacer kF"), max_width=120)
     btn_cl.clicked.connect(panel.clear_kf_requested)
-    _fcl.addWidget(btn_cl)
+    panel.btn_fit_undo = compact_button(QPushButton("↶ Annuler suppression"), max_width=180)
+    panel.btn_fit_undo.setEnabled(False)
+    panel.btn_fit_undo.setToolTip(
+        "Restaure les points de fit retirés par la dernière suppression "
+        "(touche Suppr/Backspace après sélection)."
+    )
+    panel.btn_fit_undo.clicked.connect(panel.fit_undo_requested)
+    actions_lay.addWidget(btn_cl)
+    actions_lay.addWidget(panel.btn_fit_undo)
+    actions_lay.addStretch(1)
+    _fcl.addWidget(actions_row)
+
+    panel.lbl_fit_quality = QLabel("")
+    panel.lbl_fit_quality.setWordWrap(True)
+    panel.lbl_fit_quality.setStyleSheet("color:#888;font-family:monospace;font-size:10px;")
+    _fcl.addWidget(panel.lbl_fit_quality)
 
     panel.lbl_res = QLabel("")
     panel.lbl_res.setWordWrap(True)

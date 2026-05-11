@@ -5,6 +5,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -12,6 +13,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -48,8 +51,29 @@ class ResultsPanel(QWidget):
 
         # droite : table + boutons
         right = QVBoxLayout()
-        right.addWidget(QLabel("Résultats fittés"))
+        right.addWidget(QLabel("Afficher fichiers fittés"))
+        filter_btn_row = QHBoxLayout()
+        btn_filter_all = QPushButton("Tout")
+        btn_filter_all.setMaximumWidth(60)
+        btn_filter_all.clicked.connect(lambda: self._set_all_filter(True))
+        btn_filter_none = QPushButton("Aucun")
+        btn_filter_none.setMaximumWidth(60)
+        btn_filter_none.clicked.connect(lambda: self._set_all_filter(False))
+        filter_btn_row.addWidget(btn_filter_all)
+        filter_btn_row.addWidget(btn_filter_none)
+        filter_btn_row.addStretch(1)
+        right.addLayout(filter_btn_row)
+        self._file_filter = QListWidget()
+        self._file_filter.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self._file_filter.setMaximumHeight(110)
+        self._file_filter.setStyleSheet(
+            "QListWidget{background:#222;color:#ddd;font-size:10px;}"
+        )
+        self._file_filter.itemChanged.connect(self._on_file_filter_changed)
+        self._file_filter_unchecked: set[str] = set()
+        right.addWidget(self._file_filter)
 
+        right.addWidget(QLabel("Résultats fittés"))
         self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
             ["Fichier", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)",
@@ -120,6 +144,8 @@ class ResultsPanel(QWidget):
         lay.addWidget(rw, stretch=1)
 
     def refresh(self):
+        self._sync_file_filter()
+        visible = self._visible_files()
         self._table.setRowCount(0)
         self._table_phys.setRowCount(0)
         ax = self._canvas.ax
@@ -131,6 +157,8 @@ class ResultsPanel(QWidget):
         row = 0
         for ci, (name, entry) in enumerate(self._session.files.items()):
             if entry.fit_result is None:
+                continue
+            if name not in visible:
                 continue
             fr   = entry.fit_result
             meta = entry.meta
@@ -145,6 +173,8 @@ class ResultsPanel(QWidget):
                 ax.scatter(km, ev_f, s=8, color=c, marker="o", alpha=0.8,
                            label=label if i == 0 else "_")
                 ax.scatter(kp, ev_f, s=8, color=c, marker="^", alpha=0.8)
+                self._plot_branch_segments(ax, km, ev_f, color=c, alpha=0.60)
+                self._plot_branch_segments(ax, kp, ev_f, color=c, alpha=0.60)
 
             # Table row
             kf_ef = np.nan
@@ -184,10 +214,57 @@ class ResultsPanel(QWidget):
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
         if row > 0:
-            ax.legend(fontsize=8, facecolor="#333", labelcolor="w",
-                      loc="upper right", markerscale=2)
+            leg = ax.legend(
+                fontsize=8, facecolor="#333", labelcolor="w",
+                loc="upper left", bbox_to_anchor=(1.02, 1.0),
+                borderaxespad=0.0, markerscale=2, frameon=True,
+            )
+            leg.set_draggable(True)
+            self._canvas.fig.subplots_adjust(right=0.74)
+        else:
+            self._canvas.fig.subplots_adjust(right=0.97)
         self._canvas.redraw()
         self._draw_gamma_panel(colors)
+
+    @staticmethod
+    def _plot_branch_segments(ax, k_values, e_values, *, color, alpha=0.6) -> None:
+        """Relie une branche kF(E) sans franchir NaN ni saut manifeste."""
+        k = np.asarray(k_values, dtype=float)
+        e = np.asarray(e_values, dtype=float)
+        n = min(k.size, e.size)
+        if n < 2:
+            return
+        k = k[:n]
+        e = e[:n]
+        finite = np.isfinite(k) & np.isfinite(e)
+        if int(finite.sum()) < 2:
+            return
+
+        start = None
+        prev = None
+        for idx, ok in enumerate(finite):
+            if not ok:
+                if start is not None and prev is not None and prev - start + 1 >= 2:
+                    ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
+                            color=color, alpha=alpha, zorder=2)
+                start = None
+                prev = None
+                continue
+            if start is None:
+                start = idx
+            elif prev is not None:
+                # Garde les ruptures visibles: typiquement changement de branche,
+                # mauvais accrochage ou trou dans la fenêtre fit.
+                if abs(k[idx] - k[prev]) > 0.10 or abs(e[idx] - e[prev]) > 0.08:
+                    if prev - start + 1 >= 2:
+                        ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
+                                color=color, alpha=alpha, zorder=2)
+                    start = idx
+            prev = idx
+
+        if start is not None and prev is not None and prev - start + 1 >= 2:
+            ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
+                    color=color, alpha=alpha, zorder=2)
 
     def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
         a_val = float(getattr(meta, "crystal_a_angstrom", 0.0) or 0.0)
@@ -224,9 +301,13 @@ class ResultsPanel(QWidget):
     def refresh_physics_only(self) -> None:
         """Re-popule table physique + redessine Γ(E) sans toucher à la dispersion."""
         import matplotlib.pyplot as _plt
+        self._sync_file_filter()
+        visible = self._visible_files()
         self._table_phys.setRowCount(0)
         for name, entry in self._session.files.items():
             if entry.fit_result is None:
+                continue
+            if name not in visible:
                 continue
             n = entry.fit_params.n_pairs
             self._populate_physics_rows(name, entry.fit_result, n, entry.meta)
@@ -235,12 +316,15 @@ class ResultsPanel(QWidget):
 
     def _draw_gamma_panel(self, colors) -> None:
         from arpes.analysis.results import fit_gamma_fermi_liquid
+        visible = self._visible_files()
         ax = self._canvas_gamma.ax
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas_gamma.fig.set_facecolor("#2b2b2b")
         plotted = 0
         for ci, (name, entry) in enumerate(self._session.files.items()):
             if entry.fit_result is None:
+                continue
+            if name not in visible:
                 continue
             fr = entry.fit_result
             ev = np.asarray(fr.get("e_fitted", []), dtype=float)
@@ -280,9 +364,15 @@ class ResultsPanel(QWidget):
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
         if plotted > 0:
-            ax.legend(fontsize=7, facecolor="#333", labelcolor="w",
-                      loc="upper right", ncol=1)
-        self._canvas_gamma.fig.tight_layout(pad=0.6)
+            leg = ax.legend(
+                fontsize=7, facecolor="#333", labelcolor="w",
+                loc="upper left", bbox_to_anchor=(1.02, 1.0),
+                borderaxespad=0.0, ncol=1, frameon=True,
+            )
+            leg.set_draggable(True)
+            self._canvas_gamma.fig.subplots_adjust(right=0.74)
+        else:
+            self._canvas_gamma.fig.subplots_adjust(right=0.97)
         self._canvas_gamma.redraw()
 
     @staticmethod
@@ -290,6 +380,53 @@ class ResultsPanel(QWidget):
         if not (np.isfinite(value) and np.isfinite(sigma)):
             return "—"
         return f"{value:.{dec}f} ± {sigma:.{dec}f}"
+
+    # ── filtre fichiers ──────────────────────────────────────────────────────
+    def _sync_file_filter(self) -> None:
+        """Synchronise QListWidget avec session.files (que les fittés)."""
+        self._file_filter.blockSignals(True)
+        # Mémorise l'état courant avant rebuild
+        current_unchecked = set(self._file_filter_unchecked)
+        for i in range(self._file_filter.count()):
+            it = self._file_filter.item(i)
+            if it.checkState() == Qt.CheckState.Checked:
+                current_unchecked.discard(it.text())
+            else:
+                current_unchecked.add(it.text())
+        self._file_filter.clear()
+        for name, entry in self._session.files.items():
+            if entry.fit_result is None:
+                continue
+            it = QListWidgetItem(name)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(
+                Qt.CheckState.Unchecked if name in current_unchecked
+                else Qt.CheckState.Checked
+            )
+            self._file_filter.addItem(it)
+        self._file_filter_unchecked = current_unchecked
+        self._file_filter.blockSignals(False)
+
+    def _visible_files(self) -> set[str]:
+        out: set[str] = set()
+        for i in range(self._file_filter.count()):
+            it = self._file_filter.item(i)
+            if it.checkState() == Qt.CheckState.Checked:
+                out.add(it.text())
+        return out
+
+    def _set_all_filter(self, checked: bool) -> None:
+        if self._file_filter.count() == 0:
+            return
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        self._file_filter.blockSignals(True)
+        for i in range(self._file_filter.count()):
+            self._file_filter.item(i).setCheckState(state)
+        self._file_filter.blockSignals(False)
+        self.refresh()
+
+    def _on_file_filter_changed(self, _item) -> None:
+        self.refresh()
 
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(

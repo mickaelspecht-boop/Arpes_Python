@@ -270,7 +270,9 @@ class EFCalibrationDialog(QDialog):
     def _draw_scalar_preview(self, fit_result, win):
         self._ax_edc.clear()
         edc = np.nanmean(self._data, axis=0)
-        self._ax_edc.plot(self._ev, edc / max(np.nanmax(edc), 1e-9), "k-", lw=1.0,
+        win_mask = (self._ev >= win[0]) & (self._ev <= win[1])
+        norm = max(float(np.nanmax(edc[win_mask])) if np.any(win_mask) else float(np.nanmax(edc)), 1e-9)
+        self._ax_edc.plot(self._ev, edc / norm, "k-", lw=1.0,
                           label="EDC normée")
         self._ax_edc.plot(fit_result["model_ev"], fit_result["model_I"], "r-", lw=2.0,
                           label=f"FD fit  EF={fit_result['EF']*1000:+.0f} meV")
@@ -293,9 +295,11 @@ class EFCalibrationDialog(QDialog):
     def _draw_poly_preview(self, r):
         self._ax_edc.clear()
         edc = np.nanmean(self._data, axis=0)
-        self._ax_edc.plot(self._ev, edc / max(np.nanmax(edc), 1e-9), "k-", lw=1.0,
-                          label="EDC moyenne")
         win = r["window"]
+        win_mask = (self._ev >= win[0]) & (self._ev <= win[1])
+        norm = max(float(np.nanmax(edc[win_mask])) if np.any(win_mask) else float(np.nanmax(edc)), 1e-9)
+        self._ax_edc.plot(self._ev, edc / norm, "k-", lw=1.0,
+                          label="EDC moyenne")
         self._ax_edc.axvspan(win[0], win[1], color="orange", alpha=0.10, label="fenêtre")
         self._ax_edc.axvline(r["mean_ef"], color="red", lw=1.0,
                              label=f"<EF>={r['mean_ef']*1000:+.0f} meV")

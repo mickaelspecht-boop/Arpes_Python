@@ -157,6 +157,12 @@ class FitRunnerController:
                 "Résolution instrumentale domine, fit non fiable"
                 if summary.resolution_dominates else ""
             )
+            try:
+                threshold = float(self._params.sp_chi2_threshold.value())
+            except Exception:
+                threshold = 5.0
+            if hasattr(self._params, "update_fit_quality"):
+                self._params.update_fit_quality(fr, threshold)
             p._draw_current_view()
             self._status(summary.status_text)
             if hasattr(self._params, "mark_action_done"):
@@ -168,8 +174,22 @@ class FitRunnerController:
     def _clear_kf(self):
         p = self._parent
         p._fit_res = None
+        if p._current_path:
+            key = self._session.key_for_path(p._current_path)
+            entry = self._session.get_or_create(key)
+            entry.fit_result = None
+            entry.annotations = {}
+            self._session.save()
+            if hasattr(p, "_browser"):
+                p._browser.refresh_item(key)
+        p._fit_selected = []
+        if hasattr(self._params, "update_fit_quality"):
+            self._params.update_fit_quality(None, 5.0)
         p._draw_current_view()
         self._params.lbl_res.setText("kF effacé")
+        results = getattr(p, "_results", None)
+        if results is not None and hasattr(results, "refresh"):
+            results.refresh()
 
     # --------------------------------------------------------- EF calibration
     def _ef_calibrate(self):

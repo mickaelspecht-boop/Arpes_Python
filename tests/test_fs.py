@@ -7,11 +7,17 @@ import os
 import unittest
 
 import numpy as np
+from matplotlib.collections import QuadMesh
+
+try:
+    from PyQt6.QtWidgets import QApplication
+except Exception:  # pragma: no cover
+    QApplication = None
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from arpes.physics.fs import FSParams, _fs_cache_key, _robust_norm, extract_fs_map
+    from arpes.physics.fs import FermiSurfaceCanvas, FSParams, _fs_cache_key, _robust_norm, extract_fs_map
     HAS_FS = True
 except Exception:  # pragma: no cover
     HAS_FS = False
@@ -152,6 +158,112 @@ class TestExtractFSMap(unittest.TestCase):
         p1 = FSParams(ef_window=0.030, smooth_sigma=0.5, normalize_profile=False)
         p2 = FSParams(ef_window=0.050, smooth_sigma=0.5, normalize_profile=False)
         self.assertNotEqual(_fs_cache_key(raw, p1), _fs_cache_key(raw, p2))
+
+
+@unittest.skipUnless(HAS_FS and QApplication is not None, "FS Qt indisponible")
+class TestFermiSurfaceCanvas(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._app = QApplication.instance() or QApplication([])
+
+    def test_draw_fs_reuses_quadmesh_for_overlay_only_changes(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        canvas = FermiSurfaceCanvas()
+        p1 = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False,
+                      kx_center=0.0, ky_center=0.0, overlay_bz=True)
+        p2 = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False,
+                      kx_center=0.0, ky_center=0.0, overlay_bz=True,
+                      show_hsym=False, bz_half_x=1.2)
+
+        canvas.draw_fs(raw, p1)
+        first_mesh = canvas._mesh
+        canvas.draw_fs(raw, p2)
+
+        meshes = [c for c in canvas.ax.collections if isinstance(c, QuadMesh)]
+        self.assertEqual(len(meshes), 1)
+        self.assertIs(canvas._mesh, first_mesh)
+
+    def test_draw_fs_rebuilds_quadmesh_for_new_shape(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw1 = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        kx2, ky2, ev2, vol2 = _make_kxky_volume(n_kx=24, n_ky=18)
+        raw2 = {
+            "data": np.zeros((24, 12)), "kpar": kx2, "ev_arr": ev2,
+            "metadata": {
+                "fs_data": vol2, "fs_kx": kx2, "fs_ky": ky2, "fs_energy": ev2,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        canvas = FermiSurfaceCanvas()
+        params = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False)
+
+        canvas.draw_fs(raw1, params)
+        first_mesh = canvas._mesh
+        canvas.draw_fs(raw2, params)
+
+        meshes = [c for c in canvas.ax.collections if isinstance(c, QuadMesh)]
+        self.assertEqual(len(meshes), 1)
+        self.assertIsNot(canvas._mesh, first_mesh)
+
+    def test_draw_fs_rebuilds_quadmesh_for_internal_axis_change(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw1 = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        kx2 = np.array(kx, copy=True)
+        kx2[len(kx2) // 2] += 0.01
+        raw2 = {
+            "data": np.zeros((20, 12)), "kpar": kx2, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx2, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        canvas = FermiSurfaceCanvas()
+        params = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False)
+
+        canvas.draw_fs(raw1, params)
+        first_mesh = canvas._mesh
+        canvas.draw_fs(raw2, params)
+
+        self.assertIsNot(canvas._mesh, first_mesh)
+
+    def test_draw_fs_resets_limits_when_overlay_disabled(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        canvas = FermiSurfaceCanvas()
+        p1 = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False,
+                      overlay_bz=True, klim=3.0)
+        p2 = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False,
+                      overlay_bz=False, klim=3.0)
+
+        canvas.draw_fs(raw, p1)
+        canvas.draw_fs(raw, p2)
+
+        self.assertLess(max(abs(v) for v in canvas.ax.get_xlim()), 3.0)
 
 
 if __name__ == "__main__":

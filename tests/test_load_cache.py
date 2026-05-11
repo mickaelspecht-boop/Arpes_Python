@@ -42,7 +42,12 @@ class _Parent:
         self._params = _Params()
         self._raw_load_cache = OrderedDict()
         self._raw_load_cache_max = 3
+        self._raw_disk_cache_enabled = False
+        self._path_signature_cache = OrderedDict()
+        self._path_signature_cache_max = 3
         self._last_load_cache_hit = False
+        self._last_load_cache_source = ""
+        self._last_path_signature_cache_hit = False
 
     def _bessy_energy_reference_mode(self) -> str:
         return "auto"
@@ -131,6 +136,105 @@ class TestLoadControllerCache(unittest.TestCase):
 
                 self.assertEqual(len(calls), 2)
                 self.assertFalse(parent._last_load_cache_hit)
+        finally:
+            load_mod.load_arpes_file = old_load
+
+    def test_dispatch_loader_misses_when_cls_param_sidecar_changes(self):
+        calls = []
+        old_load = load_mod.load_arpes_file
+
+        def fake_load(path, work_func, ef_offset, **kwargs):
+            calls.append((path, work_func, ef_offset, kwargs))
+            return {
+                "path": path,
+                "data": np.ones((1, 1), dtype=np.float32) * len(calls),
+                "kpar": np.array([0.0]),
+                "ev_arr": np.array([0.0]),
+                "hv": kwargs.get("hv"),
+                "metadata": {},
+            }
+
+        load_mod.load_arpes_file = fake_load
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "BM.txt"
+                sidecar = Path(tmp) / "BM.txt_param.txt"
+                path.write_text("dummy")
+                sidecar.write_text("param v1")
+                parent = _Parent()
+                ctrl = LoadController(parent)
+                prep = _prepared(path)
+
+                ctrl._dispatch_loader(str(path), prep)
+                sidecar.write_text("param v2 changed")
+                ctrl._dispatch_loader(str(path), prep)
+
+                self.assertEqual(len(calls), 2)
+                self.assertFalse(parent._last_load_cache_hit)
+        finally:
+            load_mod.load_arpes_file = old_load
+
+    def test_path_signature_cache_reuses_file_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "BM.txt"
+            path.write_text("dummy")
+            parent = _Parent()
+            ctrl = LoadController(parent)
+
+            first = ctrl._path_signature(path)
+            self.assertFalse(parent._last_path_signature_cache_hit)
+            second = ctrl._path_signature(path)
+
+            self.assertTrue(parent._last_path_signature_cache_hit)
+            self.assertEqual(second, first)
+
+    def test_path_signature_does_not_reuse_directory_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Cycle1").mkdir()
+            (root / "Cycle1" / "Step1.txt").write_text("dummy")
+            parent = _Parent()
+            ctrl = LoadController(parent)
+
+            ctrl._path_signature(root)
+            self.assertFalse(parent._last_path_signature_cache_hit)
+            ctrl._path_signature(root)
+
+            self.assertFalse(parent._last_path_signature_cache_hit)
+
+    def test_dispatch_loader_reuses_disk_artifact_after_new_parent(self):
+        calls = []
+        old_load = load_mod.load_arpes_file
+
+        def fake_load(path, work_func, ef_offset, **kwargs):
+            calls.append((path, work_func, ef_offset, kwargs))
+            return {
+                "path": path,
+                "data": np.arange(6, dtype=np.float32).reshape(2, 3),
+                "kpar": np.array([0.0, 1.0]),
+                "ev_arr": np.array([-0.1, 0.0, 0.1]),
+                "hv": kwargs.get("hv"),
+                "source_format": "cls_txt",
+                "metadata": {"loader_label": "CLS", "fs_data": np.ones((2, 2, 3), dtype=np.float32)},
+            }
+
+        load_mod.load_arpes_file = fake_load
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "BM.txt"
+                path.write_text("dummy")
+
+                first_parent = _Parent()
+                first_parent._raw_disk_cache_enabled = True
+                second_parent = _Parent()
+                second_parent._raw_disk_cache_enabled = True
+                LoadController(first_parent)._dispatch_loader(str(path), _prepared(path))
+                second, _ = LoadController(second_parent)._dispatch_loader(str(path), _prepared(path))
+
+                self.assertEqual(len(calls), 1)
+                self.assertTrue(second_parent._last_load_cache_hit)
+                self.assertEqual(second_parent._last_load_cache_source, "disque")
+                np.testing.assert_allclose(second.data["metadata"]["fs_data"], np.ones((2, 2, 3)))
         finally:
             load_mod.load_arpes_file = old_load
 

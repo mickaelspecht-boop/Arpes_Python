@@ -33,6 +33,7 @@ from arpes.io.logbook import (
 
 class FileBrowserPanel(QWidget):
     file_selected = pyqtSignal(str)   # émet le chemin complet
+    session_reloaded = pyqtSignal()   # émet après chargement .arpes_session.json depuis disque
 
     STATUS_ICONS = {"unloaded": "[ ]", "loaded": "[L]", "fitted": "[F]"}
     STATUS_COLORS = {"unloaded": "#888", "loaded": "#f0c040", "fitted": "#60e080"}
@@ -158,13 +159,17 @@ class FileBrowserPanel(QWidget):
         self._loader_label_cache.clear()
         self._scan_kind_cache.clear()
         self._logbook_record_cache.clear()
+        loaded = False
         if self._session.json_path and self._session.json_path.exists():
             try:
                 self._session.load(self._session.json_path)
+                loaded = True
             except Exception:
                 pass
         self.refresh_tag_completions()
         self._populate()
+        if loaded and hasattr(self, "session_reloaded"):
+            self.session_reloaded.emit()
 
     def refresh(self):
         self._items_cache = None

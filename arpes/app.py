@@ -170,10 +170,14 @@ class ArpesExplorer(QMainWindow):
         # influence le résultat affiché.
         self._disp_cache_key: tuple | None = None
         self._display_cache: OrderedDict[tuple, tuple[np.ndarray, dict]] = OrderedDict()
-        self._display_cache_max = 12
+        self._display_cache_max = 24
         self._current_raw_load_cache_key: tuple | None = None
         self._raw_load_cache: OrderedDict[tuple, tuple[dict, dict]] = OrderedDict()
-        self._raw_load_cache_max = 6
+        self._raw_load_cache_max = 16
+        self._raw_disk_cache_enabled = False
+        self._last_load_cache_source = ""
+        self._path_signature_cache: OrderedDict[str, tuple[tuple, tuple]] = OrderedDict()
+        self._path_signature_cache_max = 128
 
         self._logbook_ctrl = LogbookIngestController(self)
         self._load_ctrl = LoadController(self)
@@ -312,6 +316,7 @@ class ArpesExplorer(QMainWindow):
         "_open_session_file": "_session_io_ctrl",
         "_open_recent_session": "_session_io_ctrl",
         "_compare_sessions": "_session_io_ctrl",
+        "_update_gamma_preview": "_plot_ctrl",
     }
 
     def __getattr__(self, name: str):
@@ -319,6 +324,27 @@ class ArpesExplorer(QMainWindow):
             ctrl = object.__getattribute__(self, self._PROXY_MAP[name])
             return getattr(ctrl, name)
         raise AttributeError(name)
+
+    def _on_fit_section_toggled(self, key: str, expanded: bool) -> None:
+        self._session.fit_panel_sections[str(key)] = bool(expanded)
+        self._session.save()
+
+    def _on_fit_preset_changed(self, name: str) -> None:
+        self._session.fit_panel_preset = str(name or "Custom")
+        self._session.save()
+
+    def _on_gamma_center_preview(self, value: float) -> None:
+        self._update_gamma_preview(float(value))
+
+    def _on_browser_session_reloaded(self) -> None:
+        params = getattr(self, "_params", None)
+        if params is None:
+            return
+        try:
+            params.apply_fit_section_states(self._session.fit_panel_sections)
+            params.set_fit_preset_silent(self._session.fit_panel_preset)
+        except Exception:
+            pass
 
     def _refresh_recent_sessions_menu(self) -> None:
         menu = getattr(self, "_recent_sessions_menu", None)

@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections import OrderedDict
 from typing import Any
+import hashlib
 
 import numpy as np
 
@@ -295,16 +296,9 @@ def _axis_signature(axis: Any) -> tuple:
     arr = np.asarray(axis, dtype=float)
     if arr.size == 0:
         return (0,)
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return (int(arr.size), "all-nan")
-    return (
-        int(arr.size),
-        float(finite[0]),
-        float(finite[-1]),
-        float(np.nanmin(finite)),
-        float(np.nanmax(finite)),
-    )
+    payload = np.ascontiguousarray(arr, dtype=np.float64)
+    digest = hashlib.sha256(payload.tobytes()).hexdigest()
+    return (tuple(payload.shape), digest)
 
 
 def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
@@ -344,6 +338,9 @@ class FermiSurfaceCanvas(QWidget):
         self.ax = self.fig.add_subplot(111)
         self._fs_map_cache: OrderedDict[tuple, tuple[np.ndarray, np.ndarray, np.ndarray, str]] = OrderedDict()
         self._fs_map_cache_max = 8
+        self._mesh = None
+        self._mesh_signature = None
+        self._overlay_artists: list = []
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
         lay.addWidget(NavToolbar(self.canvas, self)); lay.addWidget(self.canvas)
         self._dark()
@@ -352,8 +349,11 @@ class FermiSurfaceCanvas(QWidget):
         self.fig.set_facecolor("#2b2b2b"); self.ax.set_facecolor("#1a1a1a")
 
     def draw_fs(self, raw_data: dict[str, Any] | None, params: FSParams):
-        self.ax.cla(); self._dark()
         if raw_data is None:
+            self.ax.cla(); self._dark()
+            self._mesh = None
+            self._mesh_signature = None
+            self._overlay_artists = []
             self.ax.text(0.5, 0.5, "Charge une FS", transform=self.ax.transAxes,
                          ha="center", va="center", color="w")
             self.canvas.draw_idle(); return "Aucune donnée"
@@ -372,7 +372,31 @@ class FermiSurfaceCanvas(QWidget):
             fs_kind = meta.get("fs_kind", "")
             x = kx - params.kx_center
             y = ky - params.ky_center
-            self.ax.pcolormesh(x, y, fs, cmap=params.cmap, shading="auto", vmin=0, vmax=1)
+            signature = (
+                tuple(np.asarray(fs).shape),
+                _axis_signature(x),
+                _axis_signature(y),
+            )
+            for artist in list(self._overlay_artists):
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+            self._overlay_artists = []
+            if self._mesh is not None and self._mesh_signature != signature:
+                try:
+                    self._mesh.remove()
+                except Exception:
+                    pass
+                self._mesh = None
+            if self._mesh is None:
+                self.ax.cla(); self._dark()
+                self._mesh = self.ax.pcolormesh(x, y, fs, cmap=params.cmap, shading="auto", vmin=0, vmax=1)
+                self._mesh_signature = signature
+            else:
+                self._mesh.set_array(np.asarray(fs).ravel())
+                self._mesh.set_cmap(params.cmap)
+                self._mesh.set_clim(0, 1)
             has_kxky_axes = fs_kind == "kxky"
             self.ax.set_aspect("equal" if has_kxky_axes else "auto")
             self.ax.set_xlabel("kx (π/a)", color="w")
@@ -381,11 +405,21 @@ class FermiSurfaceCanvas(QWidget):
             self.ax.set_title(title, color="w", fontsize=10)
             if has_kxky_axes:
                 self._overlay_bz(params)
+            else:
+                self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
+                self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
+            if has_kxky_axes and not params.overlay_bz:
+                self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
+                self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
             self.ax.tick_params(colors="w")
             for sp in self.ax.spines.values(): sp.set_edgecolor("#555")
             self.canvas.draw_idle()
             return f"{title} | shape={fs.shape}"
         except Exception as exc:
+            self.ax.cla(); self._dark()
+            self._mesh = None
+            self._mesh_signature = None
+            self._overlay_artists = []
             self.ax.text(0.5, 0.5, str(exc), transform=self.ax.transAxes,
                          ha="center", va="center", color="tomato", wrap=True)
             self.canvas.draw_idle(); return f"Erreur FS: {exc}"
@@ -443,13 +477,15 @@ class FermiSurfaceCanvas(QWidget):
         if not p.overlay_bz: return
         bx, by = p.bz_half_x, p.bz_half_y
         corners = bz_polygon(p.bz_shape, bx, by, p.bz_angle_deg)
-        self.ax.plot(corners[:,0], corners[:,1], color="white", lw=1.2, ls="--", alpha=0.85)
-        self.ax.axhline(0, color="white", lw=0.5, ls=":", alpha=0.5)
-        self.ax.axvline(0, color="white", lw=0.5, ls=":", alpha=0.5)
+        line, = self.ax.plot(corners[:,0], corners[:,1], color="white", lw=1.2, ls="--", alpha=0.85)
+        self._overlay_artists.append(line)
+        self._overlay_artists.append(self.ax.axhline(0, color="white", lw=0.5, ls=":", alpha=0.5))
+        self._overlay_artists.append(self.ax.axvline(0, color="white", lw=0.5, ls=":", alpha=0.5))
         if p.show_hsym:
             def dot(x,y,name,color):
-                self.ax.scatter([x],[y], c=color, s=35, zorder=5, linewidths=0)
-                self.ax.annotate(name, (x,y), xytext=(4,4), textcoords="offset points", color=color, fontsize=9, fontweight="bold")
+                scat = self.ax.scatter([x],[y], c=color, s=35, zorder=5, linewidths=0)
+                ann = self.ax.annotate(name, (x,y), xytext=(4,4), textcoords="offset points", color=color, fontsize=9, fontweight="bold")
+                self._overlay_artists.extend([scat, ann])
             for x, y, name, color in bz_high_symmetry_points(p.bz_shape, bx, by, p.bz_angle_deg):
                 dot(x, y, name, color)
         self.ax.set_xlim(-p.klim, p.klim)

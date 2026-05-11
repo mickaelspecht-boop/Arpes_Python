@@ -153,6 +153,8 @@ class Session:
         self.gamma_reference: dict = {}
         self.angle_offsets: dict = {}
         self.ef_reference: dict = {}
+        self.fit_panel_sections: dict[str, bool] = {}
+        self.fit_panel_preset: str = "Custom"
 
     @property
     def json_path(self) -> Path | None:
@@ -181,6 +183,8 @@ class Session:
             "gamma_reference": _to_serial(self.gamma_reference),
             "angle_offsets": _to_serial(self.angle_offsets),
             "ef_reference": _to_serial(self.ef_reference),
+            "fit_panel_sections": dict(self.fit_panel_sections),
+            "fit_panel_preset": str(self.fit_panel_preset or "Custom"),
             "files": {
                 name: _to_serial(asdict(entry))
                 for name, entry in self.files.items()
@@ -209,6 +213,8 @@ class Session:
         self.gamma_reference = raw.get("gamma_reference", {})
         self.angle_offsets = raw.get("angle_offsets", {}) or {}
         self.ef_reference = raw.get("ef_reference", {}) or {}
+        self.fit_panel_sections = dict(raw.get("fit_panel_sections", {}) or {})
+        self.fit_panel_preset = str(raw.get("fit_panel_preset", "Custom") or "Custom")
         self.files = {}
         for name, edict in raw.get("files", {}).items():
             fp = FitParams(**_known_kwargs(FitParams, edict.get("fit_params", {})))

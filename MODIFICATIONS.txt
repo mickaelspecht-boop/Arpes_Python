@@ -426,3 +426,74 @@ Modifications effectuees
 - 2026-05-06 : verifications lancees.
   Commande : python3 -m unittest tests.test_session tests.test_ui_smoke tests.test_plot_controller tests.test_fit_controller
   Resultat : OK, 23 tests, 4 skips.
+- 2026-05-08 : optimisation EF, resultats, graphes et cache de chargement.
+  Contexte : donnees Solaris avec signal bulk fort, EDC faible proche EF et
+  navigation fichier encore lente apres fit. Travail fait avec revue par agents.
+
+  EF / fit bord de Fermi :
+  Fichiers modifies : arpes/ui/widgets/dialogs/ef_calibration.py,
+  arpes/ui/widgets/plots/common.py, tests/test_ef_edge_fit.py.
+  Detail : normalisation robuste de l'EDC de preview dans la fenetre de fit ;
+  fit EF(k) rendu plus robuste par ponderation 1/erreur avec plancher et
+  clipping des outliers. Objectif : ne pas dependre du cristal, ameliorer les
+  cas ou l'intensite proche EF est faible.
+
+  Suppression kF / resultats :
+  Fichiers modifies : arpes/ui/controllers/fit_runner_controller.py,
+  arpes/ui/widgets/results.py.
+  Detail : quand kF/fit est supprime pour un fichier, entry.fit_result est bien
+  vide, les annotations sont nettoyees, la session est sauvegardee, le browser
+  et l'onglet resultats sont rafraichis. Ajout de lignes segmentées dans
+  l'onglet resultats pour relier les branches kF(E) sans franchir NaN ni gros
+  sauts.
+
+  Optimisation graphes Matplotlib :
+  Fichiers modifies : arpes/physics/plot_compute.py,
+  arpes/ui/controllers/plot_controller.py, arpes/physics/fs.py,
+  tests/test_plot_controller.py, tests/test_fs.py.
+  Detail : ajout de BandmapAxesState et reutilisation du QuadMesh pour la
+  bandmap principale et la mini-map MDC. Les overlays (ROI, theorie, kF, EF,
+  annotations) sont tagges puis nettoyes separement, sans supprimer les
+  rectangles interactifs actifs. Meme logique ajoutee sur la FS : reuse mesh,
+  nettoyage overlay ZDB, rebuild si shape/axes changent.
+  Correctifs de revue : signature complete des axes via hash des coordonnees,
+  autoscale Matplotlib pour eviter de rogner les pixels de bord, reset des
+  limites FS quand overlay ZDB est desactive.
+
+  Cache chargement :
+  Fichiers modifies : arpes/app.py, arpes/ui/controllers/load_controller.py,
+  arpes/io/artifact_cache.py, tests/test_load_cache.py.
+  Detail : cache RAM brut augmente (16 entrees) et display cache augmente
+  (24 entrees). Signature fichier enrichie avec sidecar CLS *_param.txt pour
+  eviter un cache obsolete si les parametres changent. La session n'est plus
+  sauvegardee inutilement sur simple cache hit, sauf si l'entree session a
+  vraiment change. Un module de cache disque d'artefacts existe, mais il est
+  DESACTIVE PAR DEFAUT via _raw_disk_cache_enabled=False, car l'ecriture
+  npz compressee de gros tableaux ajoutait du temps d'attente en usage reel.
+  Ordre actif par defaut : cache RAM puis loader. Le cache disque ne doit etre
+  reactive qu'apres benchmark et politique quota/invalidation.
+
+  Points importants pour reprise :
+  - Ne pas reactiver le cache disque par defaut sans mesurer : c'est la cause
+    probable du ralentissement signale apres l'update.
+  - Les signatures de dossiers ne sont volontairement plus reutilisees via un
+    simple mtime racine : trop risque pour des donnees scientifiques.
+  - Les tests attendent maintenant que pcolormesh autoscale aux bords des
+    cellules, pas aux centres.
+  - Si la navigation reste lente, profiler d'abord LoadController._dispatch_loader,
+    _path_signature, compute_bandmap_display et FermiSurfaceCanvas.draw_fs avant
+    d'ajouter un nouveau cache.
+
+  Verifications lancees :
+  Commande : python3 -m py_compile arpes/io/artifact_cache.py
+             arpes/ui/controllers/load_controller.py arpes/physics/plot_compute.py
+             arpes/physics/fs.py tests/test_load_cache.py tests/test_plot_controller.py
+             tests/test_fs.py
+  Resultat : OK.
+  Commande : python3 -m unittest tests.test_load_cache tests.test_plot_controller
+             tests.test_fs tests.test_ui_smoke
+  Resultat : OK, 44 tests.
+  Commande : python3 -m unittest discover -s tests
+  Resultat avant desactivation cache disque par defaut : OK, 220 tests, 1 skip.
+  Apres desactivation cache disque par defaut : tests cibles OK ; relancer la
+  suite globale si d'autres fichiers changent.

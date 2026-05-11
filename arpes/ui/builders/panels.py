@@ -136,13 +136,13 @@ def _build_carte_tab(window) -> QWidget:
 
 def _new_view_combo() -> QComboBox:
     combo = QComboBox()
-    combo.addItems(["Raw", "EDCnorm", "SecDev", "2nd deriv E", "Curvature"])
+    combo.addItems(["Raw", "EDCnorm", "SecDev", "Curvature"])
     combo.setCurrentText("Raw")
     combo.setFixedWidth(120)
     combo.setToolTip(
         "Raw : intensite brute.\n"
         "EDCnorm : normalisation par EDC moyenne.\n"
-        "SecDev/2nd deriv E/Curvature : derivees pour faire ressortir les dispersions."
+        "SecDev/Curvature : derivees pour faire ressortir les dispersions."
     )
     return combo
 
@@ -296,3 +296,8 @@ def wire_param_signals(window) -> None:
     p.theory_align_requested.connect(window._align_theory_to_arpes)
     p.theory_efalign_requested.connect(window._align_theory_efermi)
     p.crystal_a_changed.connect(window._on_crystal_a_changed)
+    p.fit_section_toggled.connect(window._on_fit_section_toggled)
+    p.fit_preset_changed.connect(window._on_fit_preset_changed)
+    p.gamma_center_preview.connect(window._on_gamma_center_preview)
+    if hasattr(window, "_browser") and hasattr(window._browser, "session_reloaded"):
+        window._browser.session_reloaded.connect(window._on_browser_session_reloaded)

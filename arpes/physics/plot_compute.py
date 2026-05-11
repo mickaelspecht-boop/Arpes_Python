@@ -7,6 +7,7 @@ BM sans déplacer les canvases Matplotlib ni les callbacks souris.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 
 import numpy as np
 
@@ -26,33 +27,50 @@ def compute_secdev(data: np.ndarray, kpar, ev_arr, sigma_k=2.0, sigma_e=2.0) -> 
     return -de
 
 
-def compute_second_deriv_e(data: np.ndarray, kpar, ev_arr, sigma_smooth=2.0) -> np.ndarray:
-    """-d²I/dE² lissée uniquement le long de l'axe énergie."""
-    from scipy.ndimage import gaussian_filter1d
-
-    ev_arr = np.asarray(ev_arr, dtype=float)
-    arr = data.astype(float)
-    if float(sigma_smooth) > 0:
-        d = gaussian_filter1d(arr, sigma=float(sigma_smooth), axis=1)
-    else:
-        d = arr
-    d2 = np.gradient(np.gradient(d, ev_arr, axis=1), ev_arr, axis=1)
-    return -d2
-
-
-def compute_curvature(data: np.ndarray, kpar, ev_arr, sigma_k=2.0, sigma_e=2.0) -> np.ndarray:
-    """Courbure 2D -∇²I / (1+|∇I|²)^(3/2)."""
+def compute_curvature(
+    data: np.ndarray,
+    kpar,
+    ev_arr,
+    sigma_k=2.0,
+    sigma_e=2.0,
+    c0_fraction=0.05,
+    border_clip=3,
+) -> np.ndarray:
+    """Courbure 2D ARPES type Zhang et al. (RSI 2011)."""
     from scipy.ndimage import gaussian_filter
 
-    d = gaussian_filter(data.astype(float), sigma=[sigma_k, sigma_e])
-    gk = np.gradient(d, kpar, axis=0)
-    ge = np.gradient(d, ev_arr, axis=1)
-    denom = (1.0 + gk**2 + ge**2) ** 1.5
-    lap = (
-        np.gradient(np.gradient(d, kpar, axis=0), kpar, axis=0)
-        + np.gradient(np.gradient(d, ev_arr, axis=1), ev_arr, axis=1)
-    )
-    return -lap / (denom + 1e-30)
+    arr = data.astype(float)
+    nan_mask = ~np.isfinite(arr)
+    if nan_mask.any():
+        arr = arr.copy()
+        finite = arr[np.isfinite(arr)]
+        arr[nan_mask] = float(np.nanmedian(finite)) if finite.size else 0.0
+
+    d = gaussian_filter(arr, sigma=[sigma_k, sigma_e])
+    dI_dE = np.gradient(d, ev_arr, axis=1)
+    dI_dk = np.gradient(d, kpar, axis=0)
+    d2I_dk2 = np.gradient(dI_dk, kpar, axis=0)
+    d2I_dkdE = np.gradient(dI_dk, ev_arr, axis=1)
+
+    bc = max(0, int(border_clip))
+    interior = (slice(bc, -bc or None), slice(bc, -bc or None))
+    gk_ref = np.abs(dI_dk[interior])
+    ge_ref = np.abs(dI_dE[interior])
+    if gk_ref.size == 0 or ge_ref.size == 0:
+        gk_ref = np.abs(dI_dk)
+        ge_ref = np.abs(dI_dE)
+    C0 = float(c0_fraction) * (np.nanmax(gk_ref) ** 2 + np.nanmax(ge_ref) ** 2)
+
+    numer = (C0 + dI_dE**2) * d2I_dk2 - dI_dk * dI_dE * d2I_dkdE
+    denom = (C0 + dI_dk**2 + dI_dE**2) ** 1.5
+    curv = -numer / (denom + 1e-30)
+
+    if bc > 0 and min(curv.shape) > 2 * bc:
+        curv[:bc, :] = np.nan
+        curv[-bc:, :] = np.nan
+        curv[:, :bc] = np.nan
+        curv[:, -bc:] = np.nan
+    return curv
 
 
 def _compute_below_ef_only(compute_fn, data: np.ndarray, kpar, ev_arr) -> np.ndarray:
@@ -92,6 +110,23 @@ class BandmapDisplayResult:
     grid_info: dict = field(default_factory=dict)
 
 
+@dataclass
+class BandmapAxesState:
+    """Matplotlib handles for a reusable band-map axis."""
+    mesh: object | None = None
+    signature: tuple = field(default_factory=tuple)
+    base_artists: list = field(default_factory=list)
+
+
+def _axis_signature(axis) -> tuple:
+    arr = np.asarray(axis, dtype=float)
+    if arr.size == 0:
+        return (0,)
+    payload = np.ascontiguousarray(arr, dtype=np.float64)
+    digest = hashlib.sha256(payload.tobytes()).hexdigest()
+    return (tuple(payload.shape), digest)
+
+
 def compute_bandmap_display(
     raw_data: dict,
     *,
@@ -109,9 +144,6 @@ def compute_bandmap_display(
     elif mode == "SecDev":
         norm = apply_edcnorm(raw) if edc_norm_enabled else raw
         disp = _compute_below_ef_only(compute_secdev, norm, raw_data["kpar"], raw_data["ev_arr"])
-    elif mode == "2nd deriv E":
-        norm = apply_edcnorm(raw) if edc_norm_enabled else raw
-        disp = _compute_below_ef_only(compute_second_deriv_e, norm, raw_data["kpar"], raw_data["ev_arr"])
     elif mode == "Curvature":
         norm = apply_edcnorm(raw) if edc_norm_enabled else raw
         disp = _compute_below_ef_only(compute_curvature, norm, raw_data["kpar"], raw_data["ev_arr"])
@@ -460,9 +492,32 @@ def draw_bandmap_axes(
     label_size: int = 10,
     tick_label_size: int | None = None,
     show_k_zero: bool = True,
+    state: BandmapAxesState | None = None,
+    reset_limits: bool = False,
 ):
     """Dessine le fond commun d'une carte BM sur un axe Matplotlib."""
-    ax.cla()
+    c_arr = np.asarray(disp).T
+    signature = (tuple(c_arr.shape), _axis_signature(kpar), _axis_signature(ev))
+    if state is None:
+        ax.cla()
+        state_out = None
+    else:
+        state_out = state
+        needs_limit_reset = bool(reset_limits) or state_out.mesh is None
+        for artist in list(state_out.base_artists):
+            try:
+                artist.remove()
+            except Exception:
+                pass
+        state_out.base_artists = []
+        if state_out.mesh is not None and state_out.signature != signature:
+            try:
+                state_out.mesh.remove()
+            except Exception:
+                pass
+            state_out.mesh = None
+            needs_limit_reset = True
+
     ax.set_facecolor("#1a1a1a")
     if getattr(ax, "figure", None) is not None:
         ax.figure.set_facecolor("#2b2b2b")
@@ -472,15 +527,33 @@ def draw_bandmap_axes(
         from matplotlib.colors import PowerNorm
 
         kw = {"norm": PowerNorm(gamma=float(gamma), vmin=kw["vmin"], vmax=kw["vmax"])}
-    ax.pcolormesh(kpar, ev, np.asarray(disp).T, cmap=cmap, shading="auto", **kw)
+    if state_out is None or state_out.mesh is None:
+        mesh = ax.pcolormesh(kpar, ev, c_arr, cmap=cmap, shading="auto", **kw)
+        if state_out is not None:
+            state_out.mesh = mesh
+            state_out.signature = signature
+    else:
+        mesh = state_out.mesh
+        mesh.set_array(c_arr.ravel())
+        mesh.set_cmap(cmap)
+        if "norm" in kw:
+            mesh.set_norm(kw["norm"])
+        else:
+            mesh.set_norm(None)
+            mesh.set_clim(kw.get("vmin"), kw.get("vmax"))
+    if state_out is not None and needs_limit_reset:
+        ax.autoscale(enable=True, axis="both", tight=True)
 
-    ax.axhline(0, color="cyan", lw=0.8, ls="--", alpha=0.6)
+    base_artists = []
+    base_artists.append(ax.axhline(0, color="cyan", lw=0.8, ls="--", alpha=0.6))
     if show_k_zero:
-        ax.axvline(0, color="w", lw=0.5, ls="--", alpha=0.4)
-    ax.axhspan(float(sel_ev) - float(int_win), float(sel_ev) + float(int_win),
-               alpha=0.14, color="lime", zorder=2, lw=0)
-    ax.axhline(float(sel_ev), color="lime", lw=0.8, ls="--", zorder=3)
-    ax.axvline(float(sel_k), color="lime", lw=1.0, ls=":", zorder=3)
+        base_artists.append(ax.axvline(0, color="w", lw=0.5, ls="--", alpha=0.4))
+    base_artists.append(ax.axhspan(float(sel_ev) - float(int_win), float(sel_ev) + float(int_win),
+                                   alpha=0.14, color="lime", zorder=2, lw=0))
+    base_artists.append(ax.axhline(float(sel_ev), color="lime", lw=0.8, ls="--", zorder=3))
+    base_artists.append(ax.axvline(float(sel_k), color="lime", lw=1.0, ls=":", zorder=3))
+    if state_out is not None:
+        state_out.base_artists = base_artists
 
     ax.set_xlabel("k// (π/a)", fontsize=label_size, color="w")
     ax.set_ylabel("E − EF (eV)", fontsize=label_size, color="w")
@@ -491,6 +564,7 @@ def draw_bandmap_axes(
         ax.tick_params(colors="w", labelsize=tick_label_size)
     for sp in ax.spines.values():
         sp.set_edgecolor("#555")
+    return state_out
 
 
 def mdc_curve(

@@ -6,10 +6,15 @@ import unittest
 from collections import OrderedDict
 from types import SimpleNamespace
 
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib.figure import Figure
+from matplotlib.collections import QuadMesh
 import numpy as np
 
 import arpes.ui.controllers.plot_controller as plot_ctrl_mod
 from arpes.physics.plot_compute import (
+    BandmapAxesState,
     _compute_below_ef_only,
     apply_edcnorm,
     compute_bandmap_display,
@@ -20,6 +25,7 @@ from arpes.physics.plot_compute import (
     map_color_kwargs,
     mdc_curve,
     prepare_waterfall_data,
+    draw_bandmap_axes,
     scroll_zoom_limits,
 )
 from arpes.ui.controllers.plot_controller import PlotController
@@ -210,6 +216,114 @@ class TestPlotController(unittest.TestCase):
         cmap2, kwargs2 = map_color_kwargs(np.asarray([[-1.0, 0.0], [2.0, 4.0]]), mode="SecDev")
         self.assertEqual(cmap2, "hot_r")
         self.assertEqual(kwargs2["vmin"], 0)
+
+    def test_draw_bandmap_axes_reuses_quadmesh_with_state(self):
+        fig = Figure()
+        ax = fig.add_subplot(111)
+        kpar = np.linspace(-1.0, 1.0, 5)
+        ev = np.linspace(-0.3, 0.1, 4)
+        disp = np.arange(20, dtype=float).reshape(5, 4)
+        state = BandmapAxesState()
+
+        state = draw_bandmap_axes(
+            ax, kpar=kpar, ev=ev, disp=disp, cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 20.0},
+            sel_ev=0.0, sel_k=0.0, int_win=0.01, title="one",
+            state=state,
+        )
+        first_mesh = state.mesh
+        state = draw_bandmap_axes(
+            ax, kpar=kpar, ev=ev, disp=disp + 1.0, cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 21.0},
+            sel_ev=-0.1, sel_k=0.2, int_win=0.02, title="two",
+            state=state,
+        )
+
+        meshes = [c for c in ax.collections if isinstance(c, QuadMesh)]
+        self.assertEqual(len(meshes), 1)
+        self.assertIs(state.mesh, first_mesh)
+        self.assertEqual(len(state.base_artists), 5)
+
+    def test_draw_bandmap_axes_preserves_limits_when_reusing_mesh(self):
+        fig = Figure()
+        ax = fig.add_subplot(111)
+        kpar = np.linspace(-1.0, 1.0, 5)
+        ev = np.linspace(-0.3, 0.1, 4)
+        state = BandmapAxesState()
+        state = draw_bandmap_axes(
+            ax, kpar=kpar, ev=ev, disp=np.ones((5, 4)), cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 1.0},
+            sel_ev=0.0, sel_k=0.0, int_win=0.01, title="one", state=state,
+        )
+        ax.set_xlim(-0.2, 0.2)
+        ax.set_ylim(-0.1, 0.0)
+        draw_bandmap_axes(
+            ax, kpar=kpar, ev=ev, disp=np.ones((5, 4)) * 2.0, cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 2.0},
+            sel_ev=0.0, sel_k=0.0, int_win=0.01, title="two", state=state,
+        )
+
+        self.assertEqual(ax.get_xlim(), (-0.2, 0.2))
+        self.assertEqual(ax.get_ylim(), (-0.1, 0.0))
+
+    def test_draw_bandmap_axes_rebuilds_on_shape_change(self):
+        fig = Figure()
+        ax = fig.add_subplot(111)
+        state = BandmapAxesState()
+        state = draw_bandmap_axes(
+            ax, kpar=np.linspace(-1.0, 1.0, 5), ev=np.linspace(-0.3, 0.1, 4),
+            disp=np.ones((5, 4)), cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 1.0},
+            sel_ev=0.0, sel_k=0.0, int_win=0.01, title="one", state=state,
+        )
+        first_mesh = state.mesh
+        state = draw_bandmap_axes(
+            ax, kpar=np.linspace(-1.0, 1.0, 6), ev=np.linspace(-0.3, 0.1, 4),
+            disp=np.ones((6, 4)), cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 1.0},
+            sel_ev=0.0, sel_k=0.0, int_win=0.01, title="two", state=state,
+        )
+
+        meshes = [c for c in ax.collections if isinstance(c, QuadMesh)]
+        self.assertEqual(len(meshes), 1)
+        self.assertIsNot(state.mesh, first_mesh)
+        self.assertEqual(ax.get_xlim(), (-1.25, 1.25))
+
+    def test_draw_bandmap_axes_rebuilds_on_internal_axis_change(self):
+        fig = Figure()
+        ax = fig.add_subplot(111)
+        state = BandmapAxesState()
+        ev = np.linspace(-0.3, 0.1, 4)
+        state = draw_bandmap_axes(
+            ax, kpar=np.asarray([-1.0, -0.5, 0.0, 0.5, 1.0]), ev=ev,
+            disp=np.ones((5, 4)), cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 1.0},
+            sel_ev=0.0, sel_k=0.0, int_win=0.01, title="one", state=state,
+        )
+        first_mesh = state.mesh
+        state = draw_bandmap_axes(
+            ax, kpar=np.asarray([-1.0, -0.4, 0.0, 0.4, 1.0]), ev=ev,
+            disp=np.ones((5, 4)), cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 1.0},
+            sel_ev=0.0, sel_k=0.0, int_win=0.01, title="two", state=state,
+        )
+
+        self.assertIsNot(state.mesh, first_mesh)
+
+    def test_draw_bandmap_axes_without_state_keeps_clear_fallback(self):
+        fig = Figure()
+        ax = fig.add_subplot(111)
+        ax.plot([0, 1], [0, 1], color="white")
+        result = draw_bandmap_axes(
+            ax, kpar=np.linspace(-1.0, 1.0, 5), ev=np.linspace(-0.3, 0.1, 4),
+            disp=np.ones((5, 4)), cmap="inferno",
+            color_kwargs={"vmin": 0.0, "vmax": 1.0},
+            sel_ev=0.0, sel_k=0.0, int_win=0.01, title="fallback",
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(len([c for c in ax.collections if isinstance(c, QuadMesh)]), 1)
+        self.assertEqual(len(ax.lines), 4)
 
     def test_prepare_waterfall_data_empty_or_valid(self):
         raw = self._raw()

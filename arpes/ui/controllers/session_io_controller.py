@@ -143,6 +143,13 @@ class SessionIOController:
     def _apply_payload_to_session(self, folder: Path, payload: dict[str, Any]) -> None:
         self._session.folder = folder
         self._session.load_from_payload(payload)
+        params = getattr(self._parent, "_params", None)
+        if params is not None:
+            try:
+                params.apply_fit_section_states(self._session.fit_panel_sections)
+                params.set_fit_preset_silent(self._session.fit_panel_preset)
+            except Exception:
+                pass
 
     def _refresh_browser_after_load(self, folder: Path, payload: dict[str, Any]) -> None:
         b = self._browser

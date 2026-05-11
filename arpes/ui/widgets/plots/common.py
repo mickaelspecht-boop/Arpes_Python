@@ -239,6 +239,45 @@ def auto_ef_window(ev_arr, edc, half_width=0.15, search=(-0.5, 0.2)):
     return (ec - half_width, ec + half_width)
 
 
+def _robust_ef_polyfit(kpar, ef_per_col, err_per_col, poly_deg):
+    """Lissage EF(k) robuste, avec poids compatibles `np.polyfit`.
+
+    `np.polyfit(..., w=...)` attend des poids de type 1/sigma. Un poids
+    1/sigma^2 amplifie trop les colonnes à incertitude sous-estimée et peut
+    produire une parabole sans rapport avec le nuage EF(k).
+    """
+    kpar = np.asarray(kpar, dtype=float)
+    ef_per_col = np.asarray(ef_per_col, dtype=float)
+    err_per_col = np.asarray(err_per_col, dtype=float)
+    valid = np.isfinite(kpar) & np.isfinite(ef_per_col)
+    n_valid = int(valid.sum())
+    if n_valid < max(3, poly_deg + 2):
+        value = float(np.nanmedian(ef_per_col[valid])) if n_valid else 0.0
+        coefs = np.array([value])
+        return coefs, np.full_like(kpar, value, dtype=float)
+
+    fit_mask = valid.copy()
+    coefs = None
+    for _ in range(4):
+        err = np.clip(err_per_col[fit_mask], 0.005, 0.050)
+        err = np.where(np.isfinite(err), err, 0.050)
+        w_fit = 1.0 / err
+        deg_fit = min(poly_deg, int(fit_mask.sum()) - 1)
+        coefs = np.polyfit(kpar[fit_mask], ef_per_col[fit_mask], deg=deg_fit, w=w_fit)
+        resid = ef_per_col[fit_mask] - np.polyval(coefs, kpar[fit_mask])
+        mad = np.nanmedian(np.abs(resid - np.nanmedian(resid)))
+        sigma = max(1.4826 * mad, 0.003)
+        keep_local = np.abs(resid) <= max(4.0 * sigma, 0.015)
+        if keep_local.all() or keep_local.sum() < max(3, poly_deg + 2):
+            break
+        idx = np.where(fit_mask)[0]
+        fit_mask[idx[~keep_local]] = False
+
+    if coefs is None:
+        coefs = np.array([float(np.nanmedian(ef_per_col[valid]))])
+    return np.asarray(coefs, dtype=float), np.polyval(coefs, kpar)
+
+
 def fit_fermi_edge_per_column(
     data, kpar, ev_arr,
     temperature_K=28.0,
@@ -320,10 +359,7 @@ def fit_fermi_edge_per_column(
         coefs = np.array([np.nanmedian(ef_per_col) if n_valid else 0.0])
         rms = float(np.nanstd(ef_per_col)) if n_valid else 0.0
     else:
-        # Pondération par 1/err²
-        w = np.zeros(n_k)
-        w[valid] = 1.0 / np.clip(err_per_col[valid], 1e-4, np.inf) ** 2
-        coefs = np.polyfit(kpar[valid], ef_per_col[valid], deg=poly_deg, w=w[valid])
+        coefs, ef_smooth = _robust_ef_polyfit(kpar, ef_per_col, err_per_col, poly_deg)
         ef_smooth = np.polyval(coefs, kpar)
         rms = float(np.sqrt(np.mean((ef_per_col[valid] - ef_smooth[valid]) ** 2)))
 

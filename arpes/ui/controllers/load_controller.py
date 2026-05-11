@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import traceback
 import copy
+import json
+from dataclasses import asdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,7 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication
 
 from arpes.core.session import normalize_tags, session_tags
+from arpes.io.artifact_cache import load_raw_artifact, save_raw_artifact
 from arpes.io.loader_orchestrator import LoaderOrchestrator, LoaderOrchestratorResult
 from arpes.physics.resolution import estimate_resolutions
 
@@ -109,6 +112,7 @@ class LoadController:
         QApplication.processEvents()
         try:
             prepared = self._prepare_entry(path)
+            entry_state_before_load = self._entry_state_token(prepared.entry)
             load_result, orchestrator = self._dispatch_loader(path, prepared)
             d = load_result.data
             if d is None:
@@ -117,7 +121,8 @@ class LoadController:
             md = orchestrator.apply_loaded_metadata(d, prepared.entry)
             self._apply_post_load(d, prepared, load_result, orchestrator, path)
             self._restore_session(d, prepared.entry, md)
-            self._refresh_ui(d, prepared, path)
+            entry_dirty = self._entry_state_token(prepared.entry) != entry_state_before_load
+            self._refresh_ui(d, prepared, path, entry_dirty=entry_dirty)
         except Exception as e:
             self._status(f"Attention: {e}")
             traceback.print_exc()
@@ -193,10 +198,38 @@ class LoadController:
         orchestrator = LoaderOrchestrator(load_arpes_file, loader_label)
         cache_key = self._load_cache_key(path, prepared)
         cache = getattr(self._parent, "_raw_load_cache", None)
+        session_folder = getattr(getattr(self._parent, "_session", None), "folder", None)
+        disk_cache_enabled = bool(getattr(self._parent, "_raw_disk_cache_enabled", False))
         if cache is not None and cache_key in cache:
             data_cached, offsets_cached = cache.pop(cache_key)
             cache[cache_key] = (data_cached, offsets_cached)
             self._parent._last_load_cache_hit = True
+            self._parent._last_load_cache_source = "ram"
+            self._parent._current_raw_load_cache_key = cache_key
+            return (
+                LoaderOrchestratorResult(
+                    data=_clone_loaded_value(data_cached),
+                    angle_offsets=dict(offsets_cached or {}),
+                    context=orchestrator.build_context(
+                        prepared.entry,
+                        hv=prepared.hv_for_load,
+                        angle_offsets=prepared.angle_offsets,
+                        bessy_energy_reference=self._parent._bessy_energy_reference_mode(),
+                    ),
+                ),
+                orchestrator,
+            )
+
+        disk_cached = load_raw_artifact(path, cache_key, session_folder) if disk_cache_enabled else None
+        if disk_cached is not None:
+            data_cached, offsets_cached = disk_cached
+            if cache is not None:
+                cache[cache_key] = (_clone_loaded_value(data_cached), dict(offsets_cached or {}))
+                max_items = int(getattr(self._parent, "_raw_load_cache_max", 6) or 6)
+                while len(cache) > max_items:
+                    cache.popitem(last=False)
+            self._parent._last_load_cache_hit = True
+            self._parent._last_load_cache_source = "disque"
             self._parent._current_raw_load_cache_key = cache_key
             return (
                 LoaderOrchestratorResult(
@@ -213,6 +246,7 @@ class LoadController:
             )
 
         self._parent._last_load_cache_hit = False
+        self._parent._last_load_cache_source = ""
         self._parent._current_raw_load_cache_key = cache_key
         load_result = orchestrator.load(
             path,
@@ -232,6 +266,14 @@ class LoadController:
             max_items = int(getattr(self._parent, "_raw_load_cache_max", 6) or 6)
             while len(cache) > max_items:
                 cache.popitem(last=False)
+            if disk_cache_enabled:
+                save_raw_artifact(
+                    path,
+                    cache_key,
+                    load_result.data,
+                    load_result.angle_offsets or {},
+                    session_folder,
+                )
         return load_result, orchestrator
 
     def _load_cache_key(self, path: str, prepared: _PreparedEntry) -> tuple:
@@ -254,6 +296,17 @@ class LoadController:
             p = path.resolve()
         except Exception:
             p = path
+        cache = getattr(self._parent, "_path_signature_cache", None)
+        cache_key = str(p)
+        quick_sig = self._quick_path_signature(p)
+        if cache is not None and not p.is_dir():
+            cached = cache.get(cache_key)
+            if cached is not None and cached[0] == quick_sig:
+                cache.move_to_end(cache_key)
+                self._parent._last_path_signature_cache_hit = True
+                return cached[1]
+        self._parent._last_path_signature_cache_hit = False
+
         if p.is_dir():
             items = []
             try:
@@ -272,11 +325,41 @@ class LoadController:
                 except Exception:
                     items.append((".", -1, -1))
             return ("dir", str(p), tuple(items))
+        signature = self._file_signature_with_sidecars(p)
+        if cache is not None:
+            cache[cache_key] = (quick_sig, signature)
+            max_items = int(getattr(self._parent, "_path_signature_cache_max", 128) or 128)
+            while len(cache) > max_items:
+                cache.popitem(last=False)
+        return signature
+
+    def _quick_path_signature(self, path: Path) -> tuple:
+        if path.is_file():
+            return self._file_signature_with_sidecars(path)
         try:
-            st = p.stat()
-            return ("file", str(p), int(st.st_size), int(st.st_mtime_ns))
+            st = path.stat()
+            return (
+                "dir" if path.is_dir() else "file",
+                str(path),
+                int(st.st_size),
+                int(st.st_mtime_ns),
+            )
         except Exception:
-            return ("missing", str(p))
+            return ("missing", str(path))
+
+    def _file_signature_with_sidecars(self, path: Path) -> tuple:
+        files = [path]
+        cls_param = path.parent / f"{path.name}_param.txt"
+        if cls_param.exists():
+            files.append(cls_param)
+        items = []
+        for item in files:
+            try:
+                st = item.stat()
+                items.append((item.name, int(st.st_size), int(st.st_mtime_ns)))
+            except Exception:
+                items.append((item.name, -1, -1))
+        return ("file", str(path), tuple(items))
 
     def _apply_post_load(self, d, prepared, load_result, orchestrator, path):
         entry = prepared.entry
@@ -348,6 +431,13 @@ class LoadController:
         if entry.fit_result:
             self._parent._fit_res = entry.fit_result
 
+        if hasattr(self._params, "update_fit_quality"):
+            try:
+                threshold = float(self._params.sp_chi2_threshold.value())
+            except Exception:
+                threshold = 5.0
+            self._params.update_fit_quality(entry.fit_result, threshold)
+
         a_val = float(getattr(entry.meta, "crystal_a_angstrom", 0.0) or 0.0)
         if a_val <= 0.0:
             a_val = 4.143
@@ -357,7 +447,7 @@ class LoadController:
         self._parent._restore_theory_overlay_for_entry()
         self._parent._apply_stored_gamma_to_current_file(save_entry=True)
 
-    def _refresh_ui(self, d, prepared, path):
+    def _refresh_ui(self, d, prepared, path, *, entry_dirty: bool = False):
         entry = prepared.entry
         self._parent._update_display_data()
         grid_note = ""
@@ -378,7 +468,8 @@ class LoadController:
             gamma_note = f"  |  Γ axe shift={float(md_now.get('bm_gamma_axis_shift', 0.0)):+.4f}"
         loader_note = ""
         loader_warnings = md_now.get("loader_warnings") or []
-        cache_note = "  |  cache RAM" if getattr(self._parent, "_last_load_cache_hit", False) else ""
+        cache_source = getattr(self._parent, "_last_load_cache_source", "")
+        cache_note = f"  |  cache {cache_source}" if getattr(self._parent, "_last_load_cache_hit", False) else ""
         if loader_warnings:
             loader_note = f"  |  Attention: loader: {str(loader_warnings[0])[:120]}"
         elif md_now.get("energy_reference"):
@@ -389,9 +480,14 @@ class LoadController:
 
         self._parent._draw_current_view()
 
-        self._session.save()
+        if entry_dirty or prepared.is_new or not getattr(self._parent, "_last_load_cache_hit", False):
+            self._session.save()
         self._parent._browser.select_file(path)
         self._parent._browser.refresh_item(self._session.key_for_path(path))
+        if getattr(self._parent, "_tabs", None) is not None and self._parent._tabs.currentIndex() == 2:
+            results = getattr(self._parent, "_results", None)
+            if results is not None and hasattr(results, "refresh"):
+                results.refresh()
         hv_txt = f"{d['hv']:.0f} eV" if d.get("hv") is not None else "—"
         lb_txt = "  |  logbook" if prepared.logbook_hit else ""
         self._status(
@@ -404,3 +500,14 @@ class LoadController:
             self._params.mark_action_done(f"fichier chargé ({Path(path).name})")
         self._parent._refresh_helper_buttons()
         self._parent._auto_fetch_theory_overlay_from_logbook()
+
+    @staticmethod
+    def _entry_state_token(entry) -> str:
+        try:
+            payload = asdict(entry)
+        except Exception:
+            payload = getattr(entry, "__dict__", {})
+        try:
+            return json.dumps(_freeze_cache_value(payload), sort_keys=True)
+        except Exception:
+            return repr(payload)
