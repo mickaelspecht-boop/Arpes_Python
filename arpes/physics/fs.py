@@ -342,8 +342,22 @@ class FermiSurfaceCanvas(QWidget):
         self._mesh_signature = None
         self._overlay_artists: list = []
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
-        lay.addWidget(NavToolbar(self.canvas, self)); lay.addWidget(self.canvas)
+        self.toolbar = NavToolbar(self.canvas, self)
+        act = self.toolbar.addAction("⤢ Vue init")
+        act.setToolTip("Réinitialise les axes aux limites des données "
+                       "(le graphe garde sa taille).")
+        act.triggered.connect(self.reset_view)
+        lay.addWidget(self.toolbar); lay.addWidget(self.canvas)
         self._dark()
+
+    def reset_view(self):
+        try:
+            self.ax.set_aspect("auto")
+            self.ax.relim()
+            self.ax.autoscale(enable=True, axis="both", tight=False)
+        except Exception:
+            pass
+        self.canvas.draw_idle()
 
     def _dark(self):
         self.fig.set_facecolor("#2b2b2b"); self.ax.set_facecolor("#1a1a1a")

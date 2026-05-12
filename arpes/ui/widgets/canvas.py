@@ -17,8 +17,14 @@ class MplCanvas(QWidget):
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding,
                                   QSizePolicy.Policy.Expanding)
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
+        self.toolbar = None
         if toolbar:
-            lay.addWidget(NavToolbar(self.canvas, self))
+            self.toolbar = NavToolbar(self.canvas, self)
+            act = self.toolbar.addAction("⤢ Vue init")
+            act.setToolTip("Réinitialise les axes aux limites des données "
+                           "(le graphe garde sa taille, seules les valeurs d'axes changent).")
+            act.triggered.connect(self.reset_view)
+            lay.addWidget(self.toolbar)
         lay.addWidget(self.canvas)
         if nrows == 1:
             self.ax  = self.fig.add_subplot(111)
@@ -27,6 +33,17 @@ class MplCanvas(QWidget):
             self.axes = list(self.fig.subplots(nrows, 1))
             self.ax   = self.axes[0]
         self._dark()
+
+    def reset_view(self):
+        """Axes -> limites des données, aspect 'auto'. Pas de rétrécissement du cadre."""
+        for ax in self.axes:
+            try:
+                ax.set_aspect("auto")
+                ax.relim()
+                ax.autoscale(enable=True, axis="both", tight=False)
+            except Exception:
+                pass
+        self.canvas.draw_idle()
 
     def _dark(self):
         self.fig.set_facecolor("#2b2b2b")

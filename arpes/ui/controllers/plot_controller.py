@@ -136,6 +136,9 @@ class PlotController:
             )
             ax.set_xlim(*xlim)
             ax.set_ylim(*ylim)
+            # aspect 'auto' : sinon (FS en aspect 'equal') le cadre rétrécit au
+            # lieu de simplement adapter les bornes d'axes.
+            ax.set_aspect("auto")
             event.canvas.draw_idle()
         except Exception:
             return
