@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -24,10 +25,10 @@ from PyQt6.QtWidgets import (
 from arpes.core.session import Session, normalize_tags, session_tags
 from arpes.io.loaders import detect_format, detect_scan_kind, loader_label
 from arpes.io.logbook import (
+    LogbookManager,
     _cell_float,
     _cell_text,
     _format_direction_label,
-    _record_matches_path,
 )
 
 
@@ -148,10 +149,35 @@ class FileBrowserPanel(QWidget):
     def _open_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Dossier données ARPES",
                                                    str(Path.home()))
-        if folder:
-            self.set_folder(Path(folder))
+        if not folder:
+            return
+        fresh = False
+        existing = Path(folder) / ".arpes_session.json"
+        if existing.exists():
+            box = QMessageBox(self)
+            box.setWindowTitle("Session existante")
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setText(
+                f"Ce dossier contient déjà une session enregistrée "
+                f"(.arpes_session.json — fits, calibrations EF, logbook, tags…)."
+            )
+            box.setInformativeText("Reprendre cette session, ou repartir de zéro ?")
+            b_resume = box.addButton("Reprendre", QMessageBox.ButtonRole.AcceptRole)
+            b_fresh = box.addButton("Nouvelle session", QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(b_resume)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is b_fresh:
+                fresh = True
+            elif clicked is not b_resume:
+                return
+        self.set_folder(Path(folder), fresh=fresh)
 
-    def set_folder(self, folder: Path):
+    def set_folder(self, folder: Path, *, fresh: bool = False):
+        if fresh:
+            # purge l'état en mémoire (fits/logbook/calibs d'un dossier précédent)
+            self._session.reset(keep_folder=False)
         self._folder = folder
         self._session.folder = folder
         self._lbl_folder.setText(folder.name)
@@ -160,15 +186,26 @@ class FileBrowserPanel(QWidget):
         self._scan_kind_cache.clear()
         self._logbook_record_cache.clear()
         loaded = False
-        if self._session.json_path and self._session.json_path.exists():
+        json_path = self._session.json_path
+        if fresh and json_path and json_path.exists():
+            # archive l'ancienne session plutôt que la perdre
+            from datetime import datetime
+            bak = json_path.with_suffix(f".json.bak-{datetime.now():%Y%m%d-%H%M%S}")
             try:
-                self._session.load(self._session.json_path)
+                json_path.rename(bak)
+            except OSError:
+                pass
+        if not fresh and json_path and json_path.exists():
+            try:
+                self._session.load(json_path)
                 loaded = True
             except Exception:
                 pass
         self.refresh_tag_completions()
         self._populate()
-        if loaded and hasattr(self, "session_reloaded"):
+        # émet aussi en mode 'fresh' pour que les widgets (hν, EF, notes, sections
+        # de fit…) soient remis aux valeurs par défaut de la session vide.
+        if (loaded or fresh) and hasattr(self, "session_reloaded"):
             self.session_reloaded.emit()
 
     def refresh(self):
@@ -307,21 +344,30 @@ class FileBrowserPanel(QWidget):
         have = {tag.casefold() for tag in self._tags_for_path(path)}
         return all(tag in have for tag in wanted)
 
+    def _scoped_mappings(self) -> dict[str, dict]:
+        return {
+            rel: meta.get("mapping", {})
+            for rel, meta in (self._session.scoped_logbooks or {}).items()
+            if isinstance(meta, dict) and meta.get("mapping")
+        }
+
+    def _logbook_manager(self) -> LogbookManager:
+        return LogbookManager(
+            self._session.logbook_records or [],
+            self._session.logbook_mapping or {},
+            self._session.folder,
+            scoped_mappings=self._scoped_mappings(),
+        )
+
     def _logbook_record_for_path(self, path: str | Path) -> dict | None:
-        mapping = self._session.logbook_mapping or {}
         records = self._session.logbook_records or []
-        file_col = mapping.get("file", "")
-        if not file_col or not records:
+        if not records:
             return None
         p = Path(path)
         cache_key = str(p)
         if cache_key in self._logbook_record_cache:
             return self._logbook_record_cache[cache_key]
-        rec_out = None
-        for rec in records:
-            if _record_matches_path(rec.get(file_col), p, self._session.folder):
-                rec_out = rec
-                break
+        rec_out = self._logbook_manager().find_record_for_path(p)
         self._logbook_record_cache[cache_key] = rec_out
         return rec_out
 
@@ -347,9 +393,9 @@ class FileBrowserPanel(QWidget):
                 return float(meta.tilt), "session"
 
         rec = self._logbook_record_for_path(p)
-        mapping = self._session.logbook_mapping or {}
         if rec is None:
             return None, ""
+        mapping = self._logbook_manager()._mapping_for_record(rec)
         col = mapping.get(field, "")
         if not col:
             return None, ""

@@ -146,6 +146,9 @@ class Session:
         self.logbook_sheet: str = ""
         self.logbook_mapping: dict[str, str] = {}
         self.logbook_records: list[dict] = []
+        # rel_subdir -> {"path": str, "sheet": str, "n": int} ; records eux-mêmes
+        # restent dans logbook_records taggés "_subfolder_rel".
+        self.scoped_logbooks: dict[str, dict] = {}
         self.kz_logbook_path: str = ""
         self.kz_logbook_sheet: str = ""
         self.kz_logbook_mapping: dict[str, str] = {}
@@ -156,6 +159,12 @@ class Session:
         self.fit_panel_sections: dict[str, bool] = {}
         self.fit_panel_preset: str = "Custom"
         self.session_notes: str = ""
+
+    def reset(self, *, keep_folder: bool = True) -> None:
+        """Remet la session à zéro (fits, logbook, calibs…). Garde le dossier."""
+        folder = self.folder if keep_folder else None
+        wf = self.work_func
+        self.__init__(folder=folder, work_func=wf)
 
     @property
     def json_path(self) -> Path | None:
@@ -177,6 +186,7 @@ class Session:
             "logbook_sheet": self.logbook_sheet,
             "logbook_mapping": _to_serial(self.logbook_mapping),
             "logbook_records": _to_serial(self.logbook_records),
+            "scoped_logbooks": _to_serial(self.scoped_logbooks),
             "kz_logbook_path": self.kz_logbook_path,
             "kz_logbook_sheet": self.kz_logbook_sheet,
             "kz_logbook_mapping": _to_serial(self.kz_logbook_mapping),
@@ -208,6 +218,7 @@ class Session:
         self.logbook_sheet = raw.get("logbook_sheet", "")
         self.logbook_mapping = raw.get("logbook_mapping", {})
         self.logbook_records = raw.get("logbook_records", [])
+        self.scoped_logbooks = raw.get("scoped_logbooks", {}) or {}
         self.kz_logbook_path = raw.get("kz_logbook_path", "")
         self.kz_logbook_sheet = raw.get("kz_logbook_sheet", "")
         self.kz_logbook_mapping = raw.get("kz_logbook_mapping", {})

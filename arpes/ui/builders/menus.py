@@ -43,6 +43,12 @@ def build_menubar(window) -> QMenuBar:
     act_scoped.triggered.connect(lambda: window._logbook_ctrl.add_scoped_logbook())
     logbook_menu.addAction(act_scoped)
 
+    logbook_menu.addSeparator()
+    attached_menu = logbook_menu.addMenu("Logbooks attachés")
+    logbook_menu.aboutToShow.connect(
+        lambda: _populate_attached_logbooks(window, attached_menu)
+    )
+
     cache_menu = bar.addMenu("&Cache")
     act_reload = QAction("Recharger fichier courant (sans cache)", window)
     act_reload.setShortcut(QKeySequence("Ctrl+Shift+R"))
@@ -71,6 +77,23 @@ def build_menubar(window) -> QMenuBar:
     cache_menu.addAction(act_toggle)
     window._cache_toggle_action = act_toggle
     return bar
+
+
+def _populate_attached_logbooks(window, menu: QMenu) -> None:
+    menu.clear()
+    try:
+        items = window._logbook_ctrl.attached_logbooks()
+    except Exception:
+        items = []
+    if not items:
+        empty = menu.addAction("(aucun)")
+        empty.setEnabled(False)
+        return
+    for scope_label, filename, key in items:
+        sub = menu.addMenu(f"{scope_label} — {filename}")
+        act_detach = QAction("Détacher", window)
+        act_detach.triggered.connect(lambda _c=False, k=key: window._logbook_ctrl.detach_logbook(k))
+        sub.addAction(act_detach)
 
 
 def _populate_recent_menu(window, menu: QMenu) -> None:

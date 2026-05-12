@@ -49,24 +49,38 @@ class LogbookManager:
         records: list[dict] | None = None,
         mapping: dict[str, str] | None = None,
         session_folder: str | Path | None = None,
+        scoped_mappings: dict[str, dict] | None = None,
     ):
         self.records = list(records or [])
         self.mapping = dict(mapping or {})
+        # rel_subdir -> mapping propre à ce logbook scopé (noms de colonnes
+        # potentiellement différents de ceux du logbook global).
+        self.scoped_mappings = {str(k): dict(v) for k, v in (scoped_mappings or {}).items() if v}
         self.session_folder = Path(session_folder) if session_folder is not None else None
 
+    def _mapping_for_record(self, record: dict | None) -> dict[str, str]:
+        if record:
+            rel = str(record.get("_subfolder_rel") or "").strip()
+            if rel and rel in self.scoped_mappings:
+                return self.scoped_mappings[rel]
+        return self.mapping
+
     def find_record_for_path(self, path: str | Path) -> dict | None:
+        # 1. Pass : records avec scope subfolder (prioritaire si présents),
+        #    matchés avec le mapping 'file' propre à leur logbook scopé.
+        for rec in self.records:
+            rel = str(rec.get("_subfolder_rel") or "").strip()
+            if not rel:
+                continue
+            if not _record_in_subfolder_scope(rec, path, self.session_folder):
+                continue
+            file_col = self._mapping_for_record(rec).get("file", "")
+            if file_col and _record_matches_path(rec.get(file_col), path, self.session_folder):
+                return rec
+        # 2. Pass : records sans scope (global, fallback)
         file_col = self.mapping.get("file", "")
         if not file_col:
             return None
-        # 1. Pass : records avec scope subfolder (prioritaire si présents)
-        for rec in self.records:
-            if not _record_in_subfolder_scope(rec, path, self.session_folder):
-                continue
-            if not str(rec.get("_subfolder_rel") or "").strip():
-                continue
-            if _record_matches_path(rec.get(file_col), path, self.session_folder):
-                return rec
-        # 2. Pass : records sans scope (global, fallback)
         for rec in self.records:
             if str(rec.get("_subfolder_rel") or "").strip():
                 continue
@@ -77,7 +91,7 @@ class LogbookManager:
     def values_from_record(self, record: dict | None) -> LogbookAppliedValues:
         if not record:
             return LogbookAppliedValues()
-        m = self.mapping
+        m = self._mapping_for_record(record)
         out = LogbookAppliedValues()
 
         hv = _cell_float(record.get(m.get("hv", "")))
@@ -610,6 +624,24 @@ def _record_in_subfolder_scope(record: Any, path: str | Path, session_folder: Pa
         return False
 
 
+_ALNUM_KEY_RE = re.compile(r"^\s*([A-Za-z]+)\s*0*(\d+)\s*$")
+
+
+def _alnum_label_key(text: Any) -> tuple[str, int] | None:
+    """('BM3' | 'BM03' | 'bm 3') -> ('bm', 3). Sinon None.
+
+    Permet de matcher un nom de scan logbook ('BM3') avec un fichier disque
+    zéro-paddé ('BM03') ou inversement — convention fréquente côté beamline.
+    """
+    m = _ALNUM_KEY_RE.match(str(text or ""))
+    if not m:
+        return None
+    try:
+        return m.group(1).lower(), int(m.group(2))
+    except ValueError:
+        return None
+
+
 def _record_matches_path(record_value: Any, path: str | Path, session_folder: Path | None) -> bool:
     value = _cell_text(record_value)
     if not value:
@@ -623,9 +655,12 @@ def _record_matches_path(record_value: Any, path: str | Path, session_folder: Pa
     if cell_nums and path_nums and (cell_nums & path_nums):
         return True
     value_norm = value.lower()
+    value_key = _alnum_label_key(value)
     for token in _path_match_tokens(path, session_folder):
         token_norm = token.lower()
         if value_norm == token_norm:
+            return True
+        if value_key is not None and _alnum_label_key(token) == value_key:
             return True
         pat = r"(?<![A-Za-z0-9])" + re.escape(token_norm) + r"(?![A-Za-z0-9])"
         if re.search(pat, value_norm):

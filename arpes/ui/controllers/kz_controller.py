@@ -56,7 +56,7 @@ class KzController:
             self._parent,
             "Logbook KZ",
             start,
-            "Logbook (*.xlsx *.xls *.csv *.tsv);;Tous les fichiers (*)",
+            "Tous les fichiers (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)",
         )
         if not path:
             return

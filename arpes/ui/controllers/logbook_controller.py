@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -16,6 +17,8 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QVBoxLayout,
 )
@@ -52,70 +55,164 @@ class LogbookIngestController:
         self._parent._status(msg)
 
     # ---------------------------------------------------------------- dialogs
-    def add_scoped_logbook(self) -> None:
-        """Charge un logbook attaché à un sous-dossier spécifique.
+    # ----------------------------------------------------- subfolder helpers
+    def _session_subfolders(self) -> list[str]:
+        """Sous-dossiers (relatifs) de la session contenant au moins un fichier.
 
-        Tagge chaque record avec `_subfolder_rel` = chemin relatif du subdir.
-        Les records scopés ne matchent que les fichiers dans ce subdir,
-        permettant de coller deux logbooks distincts (ex: CA041 et CA046)
-        à des sous-dossiers différents dans la même session.
+        Récursif, ignore les répertoires cachés et `.arpes_cache`.
         """
-        start = str(self._session.folder or Path.home())
-        subfolder = QFileDialog.getExistingDirectory(
-            self._parent, "Sous-dossier visé par ce logbook", start,
+        root = self._session.folder
+        if root is None or not root.exists():
+            return []
+        out: list[str] = []
+        for d in sorted(p for p in root.rglob("*") if p.is_dir()):
+            name = d.name
+            if name.startswith(".") or name == ".arpes_cache":
+                continue
+            if any(part.startswith(".") or part == ".arpes_cache" for part in d.relative_to(root).parts):
+                continue
+            try:
+                has_file = any(f.is_file() for f in d.iterdir())
+            except OSError:
+                has_file = False
+            if has_file:
+                out.append(str(d.relative_to(root)))
+        return out
+
+    def _pick_subfolders_dialog(self, rels: list[str], logbook_name: str) -> list[str]:
+        """Liste à cases des sous-dossiers ; pré-coche ceux qui matchent le nom."""
+        from arpes.io.logbook import _norm_text
+        dlg = QDialog(self._parent)
+        dlg.setWindowTitle("Sous-dossiers visés par ce logbook")
+        lay = QVBoxLayout(dlg)
+        lbl = QLabel(
+            f"Logbook : <b>{logbook_name}</b><br>"
+            "Coche les sous-dossiers auxquels l'appliquer (les fichiers hors de "
+            "ces dossiers ne seront pas touchés)."
         )
-        if not subfolder:
-            return
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+        lst = QListWidget()
+        name_norm = _norm_text(Path(logbook_name).stem)
+        for rel in rels:
+            it = QListWidgetItem(rel)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            rel_norm = _norm_text(Path(rel).name)
+            pre = bool(rel_norm) and (rel_norm in name_norm or name_norm in rel_norm)
+            it.setCheckState(Qt.CheckState.Checked if pre else Qt.CheckState.Unchecked)
+            lst.addItem(it)
+        lay.addWidget(lst)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return []
+        return [lst.item(i).text() for i in range(lst.count())
+                if lst.item(i).checkState() == Qt.CheckState.Checked]
+
+    # ---------------------------------------------------------------- dialogs
+    def add_scoped_logbook(self) -> None:
+        """Charge un logbook et l'attache à un ou plusieurs sous-dossiers.
+
+        Flux : on choisit d'abord le FICHIER logbook, puis on coche les
+        sous-dossiers visés. Chaque record est tagué `_subfolder_rel` et ne
+        matche que les fichiers de ce sous-dossier — permet de coller deux
+        logbooks distincts (ex: CA041 et CA046) dans la même session.
+        """
         if self._session.folder is None:
             QMessageBox.warning(self._parent, "Logbook scopé",
                                 "Ouvre d'abord un dossier de session.")
             return
-        try:
-            rel = str(Path(subfolder).resolve().relative_to(self._session.folder.resolve()))
-        except Exception:
-            QMessageBox.warning(self._parent, "Logbook scopé",
-                                "Le sous-dossier doit être à l'intérieur du dossier de session.")
-            return
-        if rel == ".":
-            QMessageBox.warning(self._parent, "Logbook scopé",
-                                "Ce sous-dossier est la racine — utiliser 'Charger logbook' à la place.")
-            return
+        start = str(self._session.folder)
         path, _ = QFileDialog.getOpenFileName(
-            self._parent, f"Logbook ARPES pour {rel}", subfolder,
-            "Logbook (*.xlsx *.xls *.csv *.tsv);;Tous les fichiers (*)")
+            self._parent, "Fichier logbook à attacher", start,
+            "Tous les fichiers (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)")
         if not path:
+            return
+        rels = self._session_subfolders()
+        if not rels:
+            QMessageBox.warning(self._parent, "Logbook scopé",
+                                "Aucun sous-dossier détecté dans la session.\n"
+                                "Utilise 'Charger logbook (global)' à la place.")
+            return
+        chosen = self._pick_subfolders_dialog(rels, Path(path).name)
+        if not chosen:
             return
         try:
             records, mapping, sheet_name = self.read(Path(path))
-            for r in records:
-                if isinstance(r, dict):
-                    r["_subfolder_rel"] = rel
-            existing = [r for r in self._session.logbook_records
-                        if not (isinstance(r, dict) and r.get("_subfolder_rel") == rel)]
-            self._session.logbook_records = existing + list(records)
-            self._session.save()
-            self._status(
-                f"Logbook scopé '{rel}' : {Path(path).name} | {len(records)} lignes"
-            )
-            if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done(f"logbook scopé '{rel}' ({len(records)} lignes)")
-            QMessageBox.information(
-                self._parent, "Logbook scopé chargé",
-                f"Subdir : {rel}\nFichier : {Path(path).name}\n{len(records)} lignes."
-            )
-            if self._parent._current_path:
-                self.apply_to_controls(self._parent._current_path)
-            self._browser.refresh()
         except Exception as exc:
             QMessageBox.warning(self._parent, "Logbook scopé", str(exc))
             self._status(f"Attention: Logbook scopé : {exc}")
+            return
+        # vire les anciens records de ces scopes, puis ré-ajoute une copie taguée
+        keep = [r for r in self._session.logbook_records
+                if not (isinstance(r, dict) and r.get("_subfolder_rel") in chosen)]
+        added = []
+        for rel in chosen:
+            for r in records:
+                if isinstance(r, dict):
+                    rc = dict(r)
+                    rc["_subfolder_rel"] = rel
+                    added.append(rc)
+            self._session.scoped_logbooks[rel] = {
+                "path": path, "sheet": sheet_name, "n": len(records),
+                "mapping": dict(mapping),
+            }
+        self._session.logbook_records = keep + added
+        self._session.save()
+        scope_txt = ", ".join(chosen)
+        self._status(f"Logbook scopé '{Path(path).name}' → {scope_txt} | {len(records)} lignes ×{len(chosen)}")
+        if hasattr(self._params, "mark_action_done"):
+            self._params.mark_action_done(f"logbook scopé → {len(chosen)} sous-dossier(s)")
+        QMessageBox.information(
+            self._parent, "Logbook scopé chargé",
+            f"Fichier : {Path(path).name}\nSous-dossiers : {scope_txt}\n{len(records)} lignes chacun."
+        )
+        if self._parent._current_path:
+            self.apply_to_controls(self._parent._current_path)
+        self._browser.refresh()
+
+    # --------------------------------------------------------- detach / état
+    def attached_logbooks(self) -> list[tuple[str, str, str]]:
+        """Retourne [(scope_label, filename, key)] pour menu/affichage.
+
+        key = "" pour le global, sinon le rel du sous-dossier.
+        """
+        out: list[tuple[str, str, str]] = []
+        if self._session.logbook_path:
+            out.append(("(global)", Path(self._session.logbook_path).name, ""))
+        for rel, meta in sorted(self._session.scoped_logbooks.items()):
+            out.append((rel, Path(meta.get("path", "")).name or "?", rel))
+        return out
+
+    def detach_logbook(self, key: str) -> None:
+        """Détache le logbook global (key='') ou scopé (key=rel)."""
+        if key == "":
+            self._session.logbook_path = ""
+            self._session.logbook_sheet = ""
+            self._session.logbook_records = [
+                r for r in self._session.logbook_records
+                if isinstance(r, dict) and r.get("_subfolder_rel")
+            ]
+            label = "global"
+        else:
+            self._session.scoped_logbooks.pop(key, None)
+            self._session.logbook_records = [
+                r for r in self._session.logbook_records
+                if not (isinstance(r, dict) and r.get("_subfolder_rel") == key)
+            ]
+            label = f"scopé '{key}'"
+        self._session.save()
+        self._status(f"Logbook {label} détaché.")
+        self._browser.refresh()
 
     def open_dialog(self) -> None:
         """Ouvre un QFileDialog pour choisir un logbook puis le charge."""
         start = str(self._session.folder or Path.home())
         path, _ = QFileDialog.getOpenFileName(
             self._parent, "Logbook ARPES", start,
-            "Logbook (*.xlsx *.xls *.csv *.tsv);;Tous les fichiers (*)")
+            "Tous les fichiers (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)")
         if not path:
             return
         try:
@@ -123,7 +220,9 @@ class LogbookIngestController:
             self._session.logbook_path = path
             self._session.logbook_sheet = sheet_name
             self._session.logbook_mapping = mapping
-            self._session.logbook_records = records
+            scoped = [r for r in self._session.logbook_records
+                      if isinstance(r, dict) and r.get("_subfolder_rel")]
+            self._session.logbook_records = scoped + list(records)
             self._session.save()
             used = ", ".join(f"{k}={v or '—'}" for k, v in mapping.items())
             sheet_txt = f" [{sheet_name}]" if sheet_name else ""
@@ -267,20 +366,24 @@ class LogbookIngestController:
         return {key: cmb.currentText() for key, cmb in combos.items()}
 
     # ---------------------------------------------------------------- session
-    def find_record_for_path(self, path) -> dict | None:
-        manager = LogbookManager(
+    def _manager(self) -> LogbookManager:
+        scoped = {
+            rel: meta.get("mapping", {})
+            for rel, meta in (self._session.scoped_logbooks or {}).items()
+            if isinstance(meta, dict) and meta.get("mapping")
+        }
+        return LogbookManager(
             self._session.logbook_records,
             self._session.logbook_mapping,
             self._session.folder,
+            scoped_mappings=scoped,
         )
-        return manager.find_record_for_path(path)
+
+    def find_record_for_path(self, path) -> dict | None:
+        return self._manager().find_record_for_path(path)
 
     def apply_to_controls(self, path) -> bool:
-        manager = LogbookManager(
-            self._session.logbook_records,
-            self._session.logbook_mapping,
-            self._session.folder,
-        )
+        manager = self._manager()
         entry = self._session.get_or_create(self._session.key_for_path(path))
         values = manager.apply_to_entry(entry, path)
         if values.hv is not None:
