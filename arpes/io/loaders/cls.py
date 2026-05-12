@@ -218,7 +218,41 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
         scan_kind, n_steps = "FS", len(step_ids)
     n_e, n_theta = raw.shape
     energy_raw = p["energy_min"] + np.arange(n_e) * p["energy_delta"]
-    ef_kin_nominal = hv_val - float(work_func)
+    ef_kin_from_hv = hv_val - float(work_func)
+    # --- garde-fou cohérence hν ----------------------------------------------
+    # L'échelle d'énergie CLS est cinétique (~ Central Energy). Pour une carte
+    # BM, la fenêtre est ~centrée sur EF, donc EF_kin ≈ hν - φ ≈ centre fenêtre.
+    # Si le hν fourni place EF_kin très loin de la fenêtre du fichier, hν est
+    # presque sûrement faux (mauvaise colonne/ligne du logbook). On bascule
+    # alors sur Central Energy comme référence EF et on prévient bruyamment.
+    central = p.get("central_energy")
+    win_lo, win_hi = float(energy_raw[0]), float(energy_raw[-1])
+    win_mid = 0.5 * (win_lo + win_hi)
+    hv_gap = abs(ef_kin_from_hv - win_mid)
+    hv_warning = None
+    energy_reference = "hv_minus_work_function"
+    ef_kin_nominal = ef_kin_from_hv
+    if hv_gap > 15.0 and central is not None and np.isfinite(float(central)):
+        ef_kin_nominal = float(central)
+        energy_reference = "central_energy_assumed_EF"
+        hv_implied = float(central) + float(work_func)
+        hv_warning = (
+            f"hν={hv_val:g} eV ⇒ EF_kin={ef_kin_from_hv:g} eV, incohérent avec la "
+            f"fenêtre d'énergie du fichier [{win_lo:g}, {win_hi:g}] eV (Central Energy "
+            f"{float(central):g}). Référencement basé sur Central Energy (fenêtre supposée "
+            f"centrée sur EF). hν réelle probablement ≈ {hv_implied:g} eV — corrige le logbook."
+        )
+    elif hv_gap > 15.0:
+        hv_warning = (
+            f"hν={hv_val:g} eV semble incohérent avec la fenêtre d'énergie du fichier "
+            f"[{win_lo:g}, {win_hi:g}] eV — vérifie le logbook (carte probablement hors EF)."
+        )
+    elif hv_gap > 3.0:
+        hv_warning = (
+            f"hν={hv_val:g} eV ⇒ EF_kin={ef_kin_from_hv:g} eV, à {hv_gap:.1f} eV du centre "
+            f"de la fenêtre [{win_lo:g}, {win_hi:g}] eV — fenêtre pas centrée sur EF "
+            f"(offset volontaire ou hν imprécis ?). E−EF affiché tel quel."
+        )
     energy = energy_raw - ef_kin_nominal + float(ef_offset)
     theta = p["angle_min"] + np.arange(n_theta) * p["angle_delta"]
     angle_offsets = angle_offsets or {}
@@ -230,7 +264,8 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
     meta: dict[str, Any] = {"lab": "CLS/LNLS", "scan_kind": scan_kind, "fs_source": "cls_txt",
         "loader_label": "CLS",
         "energy_axis_original": "kinetic", "energy_axis": "E-EF",
-        "energy_reference": "hv_minus_work_function",
+        "energy_reference": energy_reference,
+        "hv_warning": hv_warning,
         "energy_raw": energy_raw,
         "energy_raw_min": float(energy_raw[0]), "energy_raw_max": float(energy_raw[-1]),
         "ef_kinetic_nominal_from_hv": float(ef_kin_nominal) if np.isfinite(ef_kin_nominal) else None,
@@ -264,9 +299,11 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
             "kx uses theta - polar - theta0",
             "FS ky uses tilt/phi values from param file when present, otherwise step ids",
         ],
-        warnings_=[] if p.get("phi_values") is not None or volume is None else [
-            "FS tilt/phi values absent in *_param.txt; ky built from step ids"
-        ],
+        warnings_=(
+            ([] if p.get("phi_values") is not None or volume is None else [
+                "FS tilt/phi values absent in *_param.txt; ky built from step ids"])
+            + ([hv_warning] if hv_warning else [])
+        ),
         geometry_confidence="medium",
         axis_sources={
             "energy": "CLS text energy scale shifted by hν - work_function",
