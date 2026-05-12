@@ -9,11 +9,13 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QWidget,
 )
 
@@ -73,51 +75,60 @@ def build_theory_section(panel, lay) -> None:
         "ne couvre que la moitié droite. Valable pour cristaux à symétrie\n"
         "d'inversion (ex BaNi₂As₂ I4/mmm)."
     )
-    btn_theory_import = compact_button(QPushButton("Importer MP"), max_width=130)
+    btn_theory_import = QPushButton("Importer MP")
+    btn_theory_import.setToolTip("Importe les bandes DFT depuis le MP-ID saisi (réseau).")
     btn_theory_import.clicked.connect(panel.theory_import_requested)
-    btn_theory_local_import = compact_button(QPushButton("Importer local"), max_width=140)
+    btn_theory_local_import = QPushButton("Importer local")
     btn_theory_local_import.setToolTip(
         "Importe des bandes DFT locales depuis vasprun.xml, table QE .dat/.txt,\n"
         "ou schema YAML/JSON minimal."
     )
     btn_theory_local_import.clicked.connect(panel.theory_local_import_requested)
-    btn_theory_clear = compact_button(QPushButton("Vider"), max_width=90)
+    btn_theory_clear = QPushButton("Vider")
+    btn_theory_clear.setToolTip("Retire l'overlay DFT courant.")
     btn_theory_clear.clicked.connect(panel.theory_clear_requested)
-    btn_theory_compare = compact_button(QPushButton("Comparer au fit"), max_width=150)
+    btn_theory_compare = QPushButton("Comparer au fit")
     btn_theory_compare.setToolTip(
         "Score les bandes DFT contre les points kF fittés.\n"
         "Diagnostic visuel uniquement, sans modifier le fit."
     )
     btn_theory_compare.clicked.connect(panel.theory_compare_requested)
-    btn_self_energy = compact_button(QPushButton("Calculer Re Sigma"), max_width=170)
+    btn_self_energy = QPushButton("Re Σ(E)")
     btn_self_energy.setToolTip(
-        "Calcule Re Sigma(E)=E_exp-E_DFT(k_exp) avec la meilleure bande DFT\n"
+        "Calcule Re Σ(E) = E_exp − E_DFT(k_exp) avec la meilleure bande DFT\n"
         "contre le fit MDC courant, puis ouvre un plot diagnostic."
     )
     btn_self_energy.clicked.connect(panel.self_energy_requested)
-    btn_theory_align = compact_button(QPushButton("Aligner π/a"), max_width=130)
+    btn_theory_align = QPushButton("Aligner π/a")
     btn_theory_align.setToolTip(
         "Calcule scale k et Δk pour mapper le segment choisi sur [0, 1] (π/a).\n"
         "Premier label du segment → 0, second → 1."
     )
     btn_theory_align.clicked.connect(panel.theory_align_requested)
-    btn_theory_efalign = compact_button(QPushButton("Aligner E_F"), max_width=130)
+    btn_theory_efalign = QPushButton("Aligner E_F")
     btn_theory_efalign.setToolTip(
         "Force ΔE = 0. Bandes DFT centrées sur E_F = 0 (efermi MP déjà soustrait).\n"
         "Utiliser après calibration EF ARPES pour vérifier le matching d'énergie."
     )
     btn_theory_efalign.clicked.connect(panel.theory_efalign_requested)
     theory_btns = QWidget()
-    theory_btns_lay = QHBoxLayout(theory_btns)
+    theory_btns_lay = QGridLayout(theory_btns)
     theory_btns_lay.setContentsMargins(0, 0, 0, 0)
-    theory_btns_lay.addWidget(btn_theory_import)
-    theory_btns_lay.addWidget(btn_theory_local_import)
-    theory_btns_lay.addWidget(btn_theory_align)
-    theory_btns_lay.addWidget(btn_theory_efalign)
-    theory_btns_lay.addWidget(btn_theory_compare)
-    theory_btns_lay.addWidget(btn_self_energy)
-    theory_btns_lay.addWidget(btn_theory_clear)
-    theory_btns_lay.addStretch(1)
+    theory_btns_lay.setHorizontalSpacing(4)
+    theory_btns_lay.setVerticalSpacing(3)
+    # grille 3 colonnes : largeur min ≈ 3 boutons au lieu de 7 → la colonne de
+    # paramètres ne déborde plus l'écran.
+    _grid_btns = [
+        btn_theory_import, btn_theory_local_import, btn_theory_clear,
+        btn_theory_align, btn_theory_efalign, btn_theory_compare,
+        btn_self_energy,
+    ]
+    for i, b in enumerate(_grid_btns):
+        b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        b.setMaximumWidth(170)
+        theory_btns_lay.addWidget(b, i // 3, i % 3)
+    for c in range(3):
+        theory_btns_lay.setColumnStretch(c, 1)
     panel.lbl_theory_status = QLabel("Guide visuel uniquement.")
     panel.lbl_theory_status.setWordWrap(True)
     panel.lbl_theory_status.setStyleSheet("color:#aaa;font-size:10px;")
