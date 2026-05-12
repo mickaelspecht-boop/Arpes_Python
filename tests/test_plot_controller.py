@@ -287,7 +287,11 @@ class TestPlotController(unittest.TestCase):
         meshes = [c for c in ax.collections if isinstance(c, QuadMesh)]
         self.assertEqual(len(meshes), 1)
         self.assertIsNot(state.mesh, first_mesh)
-        self.assertEqual(ax.get_xlim(), (-1.25, 1.25))
+        # bornes recalées tight sur l'étendue des données du nouveau fichier,
+        # autoscale coupé (les overlays ne doivent plus dilater le cadre)
+        self.assertEqual(ax.get_xlim(), (-1.0, 1.0))
+        self.assertEqual(ax.get_ylim(), (-0.3, 0.1))
+        self.assertFalse(ax.get_autoscale_on())
 
     def test_draw_bandmap_axes_rebuilds_on_internal_axis_change(self):
         fig = Figure()

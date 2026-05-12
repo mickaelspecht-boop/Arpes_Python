@@ -501,6 +501,7 @@ def draw_bandmap_axes(
     if state is None:
         ax.cla()
         state_out = None
+        needs_limit_reset = True
     else:
         state_out = state
         needs_limit_reset = bool(reset_limits) or state_out.mesh is None
@@ -541,8 +542,23 @@ def draw_bandmap_axes(
         else:
             mesh.set_norm(None)
             mesh.set_clim(kw.get("vmin"), kw.get("vmax"))
-    if state_out is not None and needs_limit_reset:
-        ax.autoscale(enable=True, axis="both", tight=True)
+    if needs_limit_reset:
+        # Recale les bornes sur l'étendue des données du fichier courant, PUIS
+        # coupe l'autoscale : sinon (a) un mesh réutilisé garde les anciennes
+        # bornes, (b) les overlays ajoutés ensuite (axhline EF, théorie DFT,
+        # halo Γ, kf…) peuvent dilater les axes. Garantit que charger un nouveau
+        # fichier remet le graphe au bon cadre, sans toucher un zoom en cours
+        # quand seuls des paramètres changent (reset_limits=False → bloc sauté).
+        kp = np.asarray(kpar, dtype=float)
+        ee = np.asarray(ev, dtype=float)
+        try:
+            if np.isfinite(kp).any():
+                ax.set_xlim(float(np.nanmin(kp)), float(np.nanmax(kp)))
+            if np.isfinite(ee).any():
+                ax.set_ylim(float(np.nanmin(ee)), float(np.nanmax(ee)))
+        except (ValueError, TypeError):
+            pass
+        ax.set_autoscale_on(False)
 
     base_artists = []
     base_artists.append(ax.axhline(0, color="cyan", lw=0.8, ls="--", alpha=0.6))
