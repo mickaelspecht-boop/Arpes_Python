@@ -357,6 +357,10 @@ class FermiSurfaceCanvas(QWidget):
             self.ax.autoscale(enable=True, axis="both", tight=False)
         except Exception:
             pass
+        try:
+            self.fig.set_layout_engine("tight")
+        except Exception:
+            pass
         self.canvas.draw_idle()
 
     def _dark(self):

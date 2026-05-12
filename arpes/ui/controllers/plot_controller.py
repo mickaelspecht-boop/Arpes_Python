@@ -136,9 +136,14 @@ class PlotController:
             )
             ax.set_xlim(*xlim)
             ax.set_ylim(*ylim)
-            # aspect 'auto' : sinon (FS en aspect 'equal') le cadre rétrécit au
-            # lieu de simplement adapter les bornes d'axes.
+            # aspect 'auto' : sinon (FS en aspect 'equal') le cadre rétrécit.
             ax.set_aspect("auto")
+            # fige la mise en page : sinon tight_layout se relance à chaque
+            # draw et redimensionne le cadre (longueur des labels qui change).
+            try:
+                event.canvas.figure.set_layout_engine("none")
+            except Exception:
+                pass
             event.canvas.draw_idle()
         except Exception:
             return

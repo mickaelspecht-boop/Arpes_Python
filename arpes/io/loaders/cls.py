@@ -248,10 +248,12 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
             f"[{win_lo:g}, {win_hi:g}] eV — vérifie le logbook (carte probablement hors EF)."
         )
     elif hv_gap > 3.0:
+        hv_guess = win_mid + float(work_func)
         hv_warning = (
             f"hν={hv_val:g} eV ⇒ EF_kin={ef_kin_from_hv:g} eV, à {hv_gap:.1f} eV du centre "
-            f"de la fenêtre [{win_lo:g}, {win_hi:g}] eV — fenêtre pas centrée sur EF "
-            f"(offset volontaire ou hν imprécis ?). E−EF affiché tel quel."
+            f"de la fenêtre [{win_lo:g}, {win_hi:g}] eV — fenêtre pas centrée sur EF. "
+            f"Si la carte semble décalée (bande loin de EF), hν est probablement ≈ {hv_guess:.1f} eV "
+            f"(corrige le champ hν et recharge). Sinon c'est un offset volontaire."
         )
     energy = energy_raw - ef_kin_nominal + float(ef_offset)
     theta = p["angle_min"] + np.arange(n_theta) * p["angle_delta"]

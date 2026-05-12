@@ -43,6 +43,10 @@ class MplCanvas(QWidget):
                 ax.autoscale(enable=True, axis="both", tight=False)
             except Exception:
                 pass
+        try:  # ré-applique une mise en page propre une fois
+            self.fig.set_layout_engine("tight")
+        except Exception:
+            pass
         self.canvas.draw_idle()
 
     def _dark(self):

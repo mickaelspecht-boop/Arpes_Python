@@ -169,7 +169,7 @@ class LoadController:
             fmt_guess = detect_format(path) if detect_format is not None else ""
         except Exception:
             fmt_guess = ""
-        if fmt_guess == "bessy_ses_ibw" and (
+        if fmt_guess in ("bessy_ses_ibw", "cls_txt") and (
             is_new_entry
             or (
                 abs(float(entry.ef_offset) - 0.052) < 1e-9
@@ -177,6 +177,8 @@ class LoadController:
                 and not entry.fit_result
             )
         ):
+            # 0.052 eV : défaut historique sans sens pour ces formats — l'échelle
+            # d'énergie vient déjà du fichier (Center/Central Energy).
             entry.ef_offset = 0.0
         self._params.sp_ef.blockSignals(True)
         self._params.sp_ef.setValue(entry.ef_offset)
