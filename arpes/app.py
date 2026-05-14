@@ -267,6 +267,8 @@ class ArpesExplorer(QMainWindow):
         "_import_calib_to_current": "_distortion_ctrl",
         "_check_distortion_consistency_on_load": "_distortion_ctrl",
         "_apply_calib_for_current_if_any": "_distortion_ctrl",
+        "_on_distortion_preview_changed": "_distortion_ctrl",
+        "_draw_distortion_preview_overlay": "_distortion_ctrl",
         # InteractionController
         "_on_view_changed": "_interaction_ctrl",
         "_on_view_fit_changed": "_interaction_ctrl",

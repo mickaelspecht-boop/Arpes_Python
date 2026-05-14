@@ -228,8 +228,40 @@ def apply_distortion(
         "pivot_ev": float(pivot_ev),
         "clamped_trapezoid": list(trap.get("clamped", [])),
         "clamped_parabola": list(para.get("clamped", [])),
+        "kpar_axis": kpar_axis,
+        "ev_axis": ev_axis,
     }
-    return out.astype(np.float32, copy=False), info
+    out = out.astype(np.float32, copy=False)
+    if cfg_clamped.get("crop_to_signal") or (cfg or {}).get("crop_to_signal"):
+        out, info["kpar_axis"], info["ev_axis"], info["crop_slices"] = _crop_to_signal(
+            out, kpar_axis, ev_axis,
+        )
+    return out, info
+
+
+def _crop_to_signal(
+    data: np.ndarray, kpar: np.ndarray, ev: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """Supprime les colonnes/lignes complètement NaN sur les bords.
+
+    Garde la plus grande sous-fenêtre rectangulaire dont *au moins une*
+    valeur est finie. Retourne (data_crop, kpar_crop, ev_crop, slices).
+    """
+    finite = np.isfinite(data)
+    if not finite.any():
+        return data, kpar, ev, {"k": (0, kpar.size), "e": (0, ev.size)}
+    rows_ok = finite.any(axis=1)
+    cols_ok = finite.any(axis=0)
+    k_lo, k_hi = int(np.argmax(rows_ok)), int(rows_ok.size - np.argmax(rows_ok[::-1]))
+    e_lo, e_hi = int(np.argmax(cols_ok)), int(cols_ok.size - np.argmax(cols_ok[::-1]))
+    if k_hi - k_lo < 2 or e_hi - e_lo < 2:
+        return data, kpar, ev, {"k": (0, kpar.size), "e": (0, ev.size)}
+    return (
+        data[k_lo:k_hi, e_lo:e_hi],
+        kpar[k_lo:k_hi],
+        ev[e_lo:e_hi],
+        {"k": (k_lo, k_hi), "e": (e_lo, e_hi)},
+    )
 
 
 def cache_signature(cfg: dict | None) -> tuple:

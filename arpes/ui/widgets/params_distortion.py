@@ -109,6 +109,16 @@ def build_bm_distortion_section(panel, lay) -> None:
     panel.sp_distortion_slope_l.valueChanged.connect(_sync_symmetric)
     panel.chk_distortion_trap_sym.toggled.connect(_sync_symmetric)
 
+    # Live preview : tout changement déclenche l'apparition de l'overlay
+    # pointillé sur la BM (caché à nouveau après Apply / Reset).
+    for w in (panel.chk_distortion_trap, panel.chk_distortion_trap_sym,
+              panel.sp_distortion_slope_l, panel.sp_distortion_slope_r,
+              panel.sp_distortion_pivot):
+        if hasattr(w, "valueChanged"):
+            w.valueChanged.connect(panel.distortion_preview_changed)
+        else:
+            w.toggled.connect(panel.distortion_preview_changed)
+
     outer.addWidget(_hline())
 
     # ── bloc parabole ───────────────────────────────────────────────────────
@@ -128,11 +138,26 @@ def build_bm_distortion_section(panel, lay) -> None:
     )
     panel.sp_distortion_k0 = dspin(0.0, -5.0, 5.0, 0.01, dec=3)
     panel.sp_distortion_k0.setToolTip("Position k0 (π/a) du sommet de la parabole.")
+    for w in (panel.chk_distortion_para, panel.sp_distortion_a, panel.sp_distortion_k0):
+        if hasattr(w, "valueChanged"):
+            w.valueChanged.connect(panel.distortion_preview_changed)
+        else:
+            w.toggled.connect(panel.distortion_preview_changed)
     fl_para.addRow("Courbure a (eV·(π/a)⁻²):", panel.sp_distortion_a)
     fl_para.addRow("Sommet k0 (π/a):", panel.sp_distortion_k0)
     outer.addLayout(fl_para)
 
     outer.addWidget(_hline())
+
+    # ── option recadrage ────────────────────────────────────────────────────
+    panel.chk_distortion_crop = QCheckBox("Recadrer strictement sur le signal (k//)")
+    panel.chk_distortion_crop.setChecked(True)
+    panel.chk_distortion_crop.setToolTip(
+        "Après warp, supprime les colonnes/lignes complètement NaN aux bords\n"
+        "(zones extérieures au signal). Ajuste les axes pour ne garder que la\n"
+        "région utile en kpar."
+    )
+    outer.addWidget(panel.chk_distortion_crop)
 
     # ── boutons d'action ────────────────────────────────────────────────────
     btn_apply = compact_button(QPushButton("Appliquer"))
@@ -196,6 +221,7 @@ def bm_distortion_params(panel) -> dict:
             "a": float(panel.sp_distortion_a.value()),
             "k0": float(panel.sp_distortion_k0.value()),
         },
+        "crop_to_signal": bool(panel.chk_distortion_crop.isChecked()),
     }
 
 
@@ -206,7 +232,8 @@ def set_bm_distortion_state(panel, cfg: dict | None) -> None:
     widgets = (panel.chk_distortion_trap, panel.chk_distortion_trap_sym,
                panel.sp_distortion_slope_l, panel.sp_distortion_slope_r,
                panel.sp_distortion_pivot, panel.chk_distortion_para,
-               panel.sp_distortion_a, panel.sp_distortion_k0)
+               panel.sp_distortion_a, panel.sp_distortion_k0,
+               panel.chk_distortion_crop)
     for w in widgets:
         w.blockSignals(True)
     panel.chk_distortion_trap.setChecked(bool(trap.get("enabled", False)))
@@ -218,5 +245,6 @@ def set_bm_distortion_state(panel, cfg: dict | None) -> None:
     panel.chk_distortion_para.setChecked(bool(para.get("enabled", False)))
     panel.sp_distortion_a.setValue(float(para.get("a", 0.0) or 0.0))
     panel.sp_distortion_k0.setValue(float(para.get("k0", 0.0) or 0.0))
+    panel.chk_distortion_crop.setChecked(bool(cfg.get("crop_to_signal", True)))
     for w in widgets:
         w.blockSignals(False)

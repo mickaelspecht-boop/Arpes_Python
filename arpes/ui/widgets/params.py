@@ -86,6 +86,7 @@ class FitParamsPanel(QScrollArea):
     distortion_reset_requested = pyqtSignal()
     distortion_auto_requested = pyqtSignal()
     distortion_import_calib_requested = pyqtSignal()
+    distortion_preview_changed = pyqtSignal()
     fit_roi_requested = pyqtSignal(bool)
     fit_roi_reset_requested = pyqtSignal()
     fit_undo_requested = pyqtSignal()

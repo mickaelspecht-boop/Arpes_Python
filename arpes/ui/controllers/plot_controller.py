@@ -204,6 +204,10 @@ class PlotController:
         self._data_disp = result.data
         self._grid_display_info = result.grid_info
         self._distortion_display_info = getattr(result, "distortion_info", {})
+        rk = getattr(result, "kpar", None)
+        re_ = getattr(result, "ev", None)
+        self._data_disp_kpar = np.asarray(rk) if rk is not None else None
+        self._data_disp_ev = np.asarray(re_) if re_ is not None else None
         self._disp_cache_key = cache_key
         if display_cache is not None:
             display_cache[cache_key] = (result.data, dict(result.grid_info or {}))
@@ -266,7 +270,10 @@ class PlotController:
         d    = self._raw_data
         disp = self._data_disp
         mode = self._cmb_view.currentText()
-        kpar = d["kpar"]; ev = d["ev_arr"]
+        kpar = getattr(self, "_data_disp_kpar", None)
+        ev = getattr(self, "_data_disp_ev", None)
+        if kpar is None or ev is None or kpar.size != disp.shape[0] or ev.size != disp.shape[1]:
+            kpar = d["kpar"]; ev = d["ev_arr"]
 
         ax = self._bm_canvas.ax
         self._clear_plot_overlays(ax)
@@ -297,6 +304,7 @@ class PlotController:
         self._draw_theory_overlay(ax)
         self._draw_kf_overlay(ax)
         self._draw_gamma_preview_axvline(ax)
+        self._draw_distortion_preview_overlay(ax)
         self._draw_ef_label(ax, horizontal=True)
         self._tag_new_plot_overlays(ax, before)
         self._bm_canvas.redraw()

@@ -122,6 +122,7 @@ class DistortionController:
             entry.bm_distortion = cfg_clamped
             self._session.save()
             self._save_to_calib_store(cfg_clamped, meta)
+            self._parent._distortion_preview_visible = False
             self._update_display_data()
             self._draw_current_view()
             msg = get_cfg_summary(cfg_clamped)
@@ -141,12 +142,87 @@ class DistortionController:
         entry.bm_distortion = {}
         self._session.save()
         self._params.set_bm_distortion_state({})
+        self._parent._distortion_preview_visible = False
         self._update_display_data()
         self._draw_current_view()
         self._params.lbl_distortion.setText("Distorsion BM : désactivée pour ce fichier.")
         self._status("Distorsion BM désactivée pour ce fichier.")
         if hasattr(self._params, "mark_action_done"):
             self._params.mark_action_done("distorsion BM désactivée")
+
+    # ── live preview overlay ────────────────────────────────────────────────
+    def _on_distortion_preview_changed(self):
+        """Active l'overlay pointillé sur la BM (caché à nouveau après Apply)."""
+        if self._raw_data is None:
+            return
+        meta = self._current_meta()
+        if is_fs_data(meta):
+            return
+        cfg = self._params.bm_distortion_params()
+        active = (
+            (cfg["trapezoid"]["enabled"] and (
+                abs(cfg["trapezoid"]["slope_left"]) > 0
+                or abs(cfg["trapezoid"]["slope_right"]) > 0))
+            or (cfg["parabola"]["enabled"] and abs(cfg["parabola"]["a"]) > 0)
+        )
+        self._parent._distortion_preview_visible = bool(active)
+        try:
+            self._draw_current_view()
+        except Exception:
+            pass
+
+    def _draw_distortion_preview_overlay(self, ax):
+        """Trace en pointillé les contours du trapèze + de l'iso-énergie
+        parabolique tels qu'ils apparaîtront avant correction. Caché si
+        ``_distortion_preview_visible`` est False ou si une calibration
+        a déjà été appliquée à la donnée affichée."""
+        if not getattr(self._parent, "_distortion_preview_visible", False):
+            return
+        if self._raw_data is None:
+            return
+        cfg = self._params.bm_distortion_params()
+        kpar = np.asarray(self._raw_data["kpar"], dtype=float)
+        ev = np.asarray(self._raw_data["ev_arr"], dtype=float)
+        if kpar.size < 2 or ev.size < 2:
+            return
+        k_min, k_max = float(np.nanmin(kpar)), float(np.nanmax(kpar))
+        ev_min, ev_max = float(np.nanmin(ev)), float(np.nanmax(ev))
+
+        trap = cfg.get("trapezoid") or {}
+        para = cfg.get("parabola") or {}
+
+        if trap.get("enabled") and (abs(float(trap.get("slope_left", 0.0) or 0.0)) > 0
+                                    or abs(float(trap.get("slope_right", 0.0) or 0.0)) > 0):
+            slope_l = float(trap["slope_left"])
+            slope_r = float(trap["slope_right"])
+            pivot = float(trap.get("pivot_ev")
+                          if trap.get("pivot_ev") is not None
+                          else 0.5 * (ev_min + ev_max))
+            alpha = 0.5 * (slope_l + slope_r)
+            beta = 0.5 * (slope_r - slope_l)
+            e_samples = np.linspace(ev_min, ev_max, 60)
+            d_e = e_samples - pivot
+            w = 1.0 + alpha * d_e
+            w = np.where(np.abs(w) < 1e-3, 1.0, w)
+            left_src = (k_min - beta * d_e) / w
+            right_src = (k_max - beta * d_e) / w
+            ax.plot(left_src, e_samples, "--", color="cyan", lw=1.3, alpha=0.85,
+                    zorder=8, label="trap L (preview)")
+            ax.plot(right_src, e_samples, "--", color="cyan", lw=1.3, alpha=0.85,
+                    zorder=8)
+
+        if para.get("enabled") and abs(float(para.get("a", 0.0) or 0.0)) > 0:
+            a = float(para["a"])
+            k0 = float(para["k0"])
+            pivot_e = float(trap.get("pivot_ev")
+                            if (trap and trap.get("pivot_ev") is not None)
+                            else 0.5 * (ev_min + ev_max))
+            k_samples = np.linspace(k_min, k_max, 200)
+            e_curve = pivot_e - a * (k_samples - k0) ** 2
+            mask = (e_curve >= ev_min) & (e_curve <= ev_max)
+            if mask.any():
+                ax.plot(k_samples[mask], e_curve[mask], ":", color="magenta",
+                        lw=1.6, alpha=0.9, zorder=8, label="parabole (preview)")
 
     # ── auto-detect ──────────────────────────────────────────────────────────
     def _auto_bm_distortion(self):

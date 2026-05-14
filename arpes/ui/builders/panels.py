@@ -295,6 +295,7 @@ def wire_param_signals(window) -> None:
     p.distortion_reset_requested.connect(window._reset_bm_distortion)
     p.distortion_auto_requested.connect(window._auto_bm_distortion)
     p.distortion_import_calib_requested.connect(window._import_calib_to_current)
+    p.distortion_preview_changed.connect(window._on_distortion_preview_changed)
     p.fit_roi_requested.connect(window._set_fit_roi_pick_mode)
     p.fit_roi_reset_requested.connect(window._reset_fit_roi_range)
     p.fit_undo_requested.connect(window._undo_fit_delete)
