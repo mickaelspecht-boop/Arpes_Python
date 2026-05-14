@@ -176,11 +176,20 @@ def gamma_reference_to_bm_center(
 
     p_ref = float(ref.get("polar", 0.0) or 0.0)
     p_bm = float(meta.get("polar", 0.0) or 0.0)
-    if abs(p_bm - p_ref) > polar_tolerance_deg:
+    ref_polar_applied = bool(ref.get("polar_already_applied_to_kx", False))
+    bm_polar_applied = bool(meta.get("polar_already_applied_to_kx", False))
+    polar_baked_both_sides = ref_polar_applied and bm_polar_applied
+
+    # Tolerance guard only meaningful when polar is NOT baked into kpar on both
+    # sides. When both loaders apply polar in the angle→k conversion (e.g. CLS
+    # `kx = scale·sin(θ−polar−θ0)`), the polar offset is already absorbed into
+    # the kpar axis, so kx_FS at Γ equals kx_BM at Γ regardless of polar diff.
+    if not polar_baked_both_sides and abs(p_bm - p_ref) > polar_tolerance_deg:
         if on_warn is not None:
             on_warn(
                 f"Attention: Γ FS→BM ignoré : polar diffère de {p_bm - p_ref:+.1f}° "
-                f"(>±{polar_tolerance_deg:.0f}°). Utilise 'Auto Γ BM'."
+                f"(>±{polar_tolerance_deg:.0f}°) et polar non absorbé dans k. "
+                f"Utilise 'Auto Γ BM'."
             )
         return float("nan"), 0.0
 
@@ -189,9 +198,7 @@ def gamma_reference_to_bm_center(
         return float("nan"), 0.0
 
     correction = 0.0
-    ref_polar_applied = bool(ref.get("polar_already_applied_to_kx", False))
-    bm_polar_applied = bool(meta.get("polar_already_applied_to_kx", False))
-    if not (ref_polar_applied and bm_polar_applied):
+    if not polar_baked_both_sides:
         hv = bm_hv if bm_hv is not None else ref.get("hv")
         if hv is not None and float(hv) > work_func:
             ek = float(hv) - float(work_func)
@@ -208,20 +215,29 @@ def apply_bm_gamma_axis_shift(
     gamma_bm: float,
     *,
     ref: dict | None = None,
+    allow_fs: bool = False,
+    gamma_ky: float = 0.0,
 ) -> bool:
     """Recentre l'axe k// d'une BM pour que Γ soit affiché à k//=0.
 
     Mute ``raw_data["kpar"]`` et ``raw_data["metadata"]`` en place.
-    Retourne ``True`` si le shift a été appliqué, ``False`` sinon (FS, déjà
-    centré, offsets déjà appliqués, ``gamma_bm`` non fini, kpar vide).
+    Retourne ``True`` si le shift a été appliqué, ``False`` sinon (FS sans
+    `allow_fs`, déjà centré, offsets déjà appliqués, ``gamma_bm`` non fini,
+    kpar vide).
 
-    NOTE : la mise à jour de l'état UI (sélection MDC `_sel_k`) reste à la
-    charge de l'appelant — cette fonction est pure côté `raw_data`.
+    Si ``allow_fs`` et ``raw_data`` est une FS, décale aussi ``fs_kx`` /
+    ``fs_ky`` pour que le panel FS et la vue BM (qui lit ``kpar`` issu d'une
+    coupe FS) montrent tous deux Γ à 0.
+
+    NOTE : la mise à jour de l'état UI (sélection MDC `_sel_k`, marker FS)
+    reste à la charge de l'appelant — cette fonction est pure côté
+    ``raw_data``.
     """
     if not raw_data:
         return False
     meta = raw_data.get("metadata", {}) or {}
-    if meta.get("fs_data") is not None:
+    is_fs = meta.get("fs_data") is not None
+    if is_fs and not allow_fs:
         return False
     if meta.get("angle_offsets_applied"):
         return False
@@ -239,6 +255,17 @@ def apply_bm_gamma_axis_shift(
     meta["bm_gamma_axis_centered"] = True
     meta["bm_gamma_axis_shift"] = shift
     meta["bm_gamma_axis_note"] = "kpar_display = kpar_raw - gamma_bm"
+    if is_fs:
+        ky_shift = float(gamma_ky) if np.isfinite(gamma_ky) else 0.0
+        fs_kx = meta.get("fs_kx")
+        if fs_kx is not None:
+            meta["fs_kx"] = np.asarray(fs_kx, dtype=float) - shift
+        fs_ky = meta.get("fs_ky")
+        if fs_ky is not None and ky_shift != 0.0:
+            meta["fs_ky"] = np.asarray(fs_ky, dtype=float) - ky_shift
+        meta["fs_gamma_axis_centered"] = True
+        meta["fs_gamma_axis_shift_kx"] = shift
+        meta["fs_gamma_axis_shift_ky"] = ky_shift
     if ref:
         meta["bm_gamma_reference_source"] = ref.get("source", "")
         meta["bm_gamma_reference_path"] = ref.get("path", "")

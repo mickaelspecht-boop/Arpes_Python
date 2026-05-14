@@ -137,6 +137,7 @@ class GammaController:
         ky = float(params.ky_center + event.ydata)
         self._fs_controls.set_center(kx, ky)
         self._store_fs_center_reference(kx, ky, source="fs_manual")
+        self._apply_stored_gamma_to_current_file(save_entry=True)
         self._set_fs_center_pick_mode(False)
         self._draw_fs_tab()
         msg = f"Gamma FS manuel : kx={kx:+.4f}, ky={ky:+.4f} π/a"
@@ -156,6 +157,7 @@ class GammaController:
             res = self._fs_canvas.detect_gamma(self._raw_data, params)
             self._fs_controls.set_center(res["kx"], res["ky"])
             self._store_fs_center_reference(res["kx"], res["ky"], source="fs_auto")
+            self._apply_stored_gamma_to_current_file(save_entry=True)
             self._draw_fs_tab()
             msg = (f"Gamma FS détecté : kx={res['kx']:+.4f}, ky={res['ky']:+.4f} π/a "
                    f"| {len(res.get('gamma_kx_list', []))} coupes kx, "
@@ -208,6 +210,7 @@ class GammaController:
 
         if is_fs and FSControlPanel is not None and hasattr(self, "_fs_controls"):
             entry = self._current_entry()
+            ref = self._stored_gamma_reference()
             if meta.get("angle_offsets_applied"):
                 self._fs_controls.set_center(0.0, 0.0)
                 if save_entry and entry is not None:
@@ -215,33 +218,45 @@ class GammaController:
                     entry.fs_center_ky = 0.0
                     self._session.save()
                 return
+            if ref:
+                same = self._same_path(ref.get("path"), self._raw_data.get("path"))
+                if same:
+                    kx_fs = float(ref["kx"])
+                    ky_fs = float(ref.get("ky", 0.0) or 0.0)
+                else:
+                    azi_fs = entry.meta.azi if (entry and entry.meta.azi is not None) else None
+                    kx_fs, ky_fs = self._project_gamma_by_azi(
+                        ref, azi_fs, warn_label="Γ référence → FS"
+                    )
+                    if not np.isfinite(kx_fs) or not np.isfinite(ky_fs):
+                        return
+                shifted = _gamma_apply_bm_axis_shift(
+                    self._raw_data, float(kx_fs), ref=ref,
+                    allow_fs=True, gamma_ky=float(ky_fs),
+                )
+                if shifted:
+                    self._fs_controls.set_center(0.0, 0.0)
+                    if hasattr(self, "_sel_k"):
+                        self._sel_k = float(self._sel_k - float(kx_fs))
+                    if save_entry and entry is not None:
+                        entry.fs_center_kx = 0.0
+                        entry.fs_center_ky = 0.0
+                        self._session.save()
+                else:
+                    self._fs_controls.set_center(float(kx_fs), float(ky_fs))
+                    if save_entry and entry is not None:
+                        entry.fs_center_kx = float(kx_fs)
+                        entry.fs_center_ky = float(ky_fs)
+                        self._session.save()
+                if not same:
+                    self._status(f"Γ FS propagé par azimut : kx={kx_fs:+.4f}, ky={ky_fs:+.4f} π/a")
+                return
             if entry is not None and entry.fs_center_kx is not None and entry.fs_center_ky is not None:
                 self._fs_controls.set_center(float(entry.fs_center_kx), float(entry.fs_center_ky))
                 return
 
         ref = self._stored_gamma_reference()
         if not ref:
-            return
-
-        if is_fs and FSControlPanel is not None and hasattr(self, "_fs_controls"):
-            entry = self._current_entry()
-            if self._same_path(ref.get("path"), self._raw_data.get("path")):
-                kx_fs = float(ref["kx"])
-                ky_fs = float(ref.get("ky", 0.0) or 0.0)
-            else:
-                azi_fs = entry.meta.azi if (entry and entry.meta.azi is not None) else None
-                kx_fs, ky_fs = self._project_gamma_by_azi(
-                    ref, azi_fs, warn_label="Γ référence → FS"
-                )
-                if not np.isfinite(kx_fs) or not np.isfinite(ky_fs):
-                    return
-            self._fs_controls.set_center(float(kx_fs), float(ky_fs))
-            if save_entry and entry is not None:
-                entry.fs_center_kx = float(kx_fs)
-                entry.fs_center_ky = float(ky_fs)
-                self._session.save()
-            if not self._same_path(ref.get("path"), self._raw_data.get("path")):
-                self._status(f"Γ FS propagé par azimut : kx={kx_fs:+.4f}, ky={ky_fs:+.4f} π/a")
             return
 
         if meta.get("angle_offsets_applied"):

@@ -168,17 +168,32 @@ class TestGammaReferenceToBmCenter(unittest.TestCase):
         )
         self.assertTrue(math.isnan(gamma))
 
-    def test_polar_above_tolerance_refused(self):
+    def test_polar_above_tolerance_refused_when_polar_not_baked(self):
         warns = []
-        ref = {"kx": 0.10, "ky": 0.0, "polar": 0.0, "polar_already_applied_to_kx": True}
+        ref = {"kx": 0.10, "ky": 0.0, "polar": 0.0, "polar_already_applied_to_kx": False}
         gamma, _ = gamma_reference_to_bm_center(
             ref,
-            bm_metadata={"polar": 5.0, "polar_already_applied_to_kx": True},
+            bm_metadata={"polar": 5.0, "polar_already_applied_to_kx": False},
             bm_hv=80.0, work_func=4.5, bm_azi=0.0, on_warn=warns.append,
         )
         self.assertTrue(math.isnan(gamma))
         self.assertEqual(len(warns), 1)
         self.assertIn("Γ FS→BM", warns[0])
+
+    def test_polar_above_tolerance_accepted_when_polar_baked_both_sides(self):
+        # CLS case : polar absorbed into kpar conversion on both sides → polar
+        # diff is irrelevant, tolerance must NOT block the transfer.
+        ref = {
+            "kx": -1.81, "ky": 0.0, "polar": 0.0,
+            "azi": 0.0, "polar_already_applied_to_kx": True,
+        }
+        gamma, corr = gamma_reference_to_bm_center(
+            ref,
+            bm_metadata={"polar": 40.0, "polar_already_applied_to_kx": True},
+            bm_hv=78.0, work_func=4.5, bm_azi=0.0,
+        )
+        self.assertAlmostEqual(corr, 0.0)
+        self.assertAlmostEqual(gamma, -1.81, places=10)
 
     def test_within_tolerance_no_polar_correction_when_already_applied(self):
         ref = {
