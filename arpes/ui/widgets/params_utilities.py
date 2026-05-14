@@ -1,16 +1,46 @@
-"""Section 'Utilitaires' regroupée en accordéon (QToolBox).
+"""Section 'Utilitaires' regroupée en sections collapsables indépendantes.
 
-Contient trois sous-sections collapsables (une seule visible à la fois) :
-- Filtre grille (effet trame détecteur)
-- DFT / Théorie (overlay bandes calculées)
-- Distorsion BM (correction trapèze θ + parabole E)
-
-Chaque sous-section délègue à son builder existant pour le contenu, mais
-remet le titre de QGroupBox interne à vide pour éviter la double-bordure.
+Trois sous-sections : Filtre grille, DFT/Théorie, Distorsion BM. Chaque
+section a un bouton-titre cliquable qui l'ouvre / la ferme. Aucune
+contrainte d'exclusivité (contrairement à QToolBox), donc on peut tout
+fermer ou tout ouvrir.
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QToolBox, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QPushButton, QVBoxLayout, QWidget
+
+
+class _CollapsibleSection(QWidget):
+    """En-tête cliquable + widget contenu repliable."""
+
+    def __init__(self, title: str, content: QWidget, *, open_default: bool = False):
+        super().__init__()
+        self._title = title
+        self._content = content
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        self.btn = QPushButton()
+        self.btn.setCheckable(True)
+        self.btn.setStyleSheet(
+            "QPushButton { background:#3a3a4a; color:#cde; padding:6px 8px;"
+            " border-radius:3px; font-weight:bold; text-align:left; }"
+            "QPushButton:checked { background:#4a4a6a; color:#fff; }"
+            "QPushButton:hover { background:#454560; }"
+        )
+        self.btn.clicked.connect(self._on_toggle)
+        lay.addWidget(self.btn)
+        lay.addWidget(content)
+        self.set_open(open_default)
+
+    def _on_toggle(self, checked: bool) -> None:
+        self._content.setVisible(checked)
+        arrow = "▼" if checked else "▶"
+        self.btn.setText(f"{arrow}  {self._title}")
+
+    def set_open(self, opened: bool) -> None:
+        self.btn.setChecked(bool(opened))
+        self._on_toggle(bool(opened))
 
 
 def build_utilities_section(panel, lay) -> None:
@@ -18,42 +48,33 @@ def build_utilities_section(panel, lay) -> None:
     from arpes.ui.widgets.params_ef import build_utils_section
     from arpes.ui.widgets.params_theory import build_theory_section
 
-    panel._utilities_toolbox = QToolBox()
-    panel._utilities_toolbox.setStyleSheet(
-        "QToolBox::tab { background:#3a3a4a; color:#cde; padding:5px;"
-        " border-radius:3px; font-weight:bold; }"
-        "QToolBox::tab:selected { background:#4a4a6a; color:#fff; }"
-    )
+    panel._utilities_container = QWidget()
+    cv = QVBoxLayout(panel._utilities_container)
+    cv.setContentsMargins(0, 0, 0, 0)
+    cv.setSpacing(4)
 
-    # ── page 1 : filtre grille ──────────────────────────────────────────────
-    page_grid = QWidget()
-    page_grid_lay = QVBoxLayout(page_grid)
-    page_grid_lay.setContentsMargins(2, 2, 2, 2)
-    build_utils_section(panel, page_grid_lay)
-    if hasattr(panel, "_utils_widget"):
-        panel._utils_widget.setTitle("")
-        panel._utils_widget.setFlat(True)
-    panel._utilities_toolbox.addItem(page_grid, "Filtre grille (FFT)")
+    def _wrap(builder, title, *, open_default=False) -> _CollapsibleSection:
+        page = QWidget()
+        page_lay = QVBoxLayout(page)
+        page_lay.setContentsMargins(2, 2, 2, 2)
+        builder(panel, page_lay)
+        # vide le titre du QGroupBox interne pour éviter une double bordure
+        for attr in ("_utils_widget", "_theory_widget", "_distortion_widget"):
+            w = getattr(panel, attr, None)
+            if w is not None and w.parent() is page:
+                w.setTitle("")
+                w.setFlat(True)
+        sec = _CollapsibleSection(title, page, open_default=open_default)
+        cv.addWidget(sec)
+        return sec
 
-    # ── page 2 : DFT/Théorie ────────────────────────────────────────────────
-    page_theory = QWidget()
-    page_theory_lay = QVBoxLayout(page_theory)
-    page_theory_lay.setContentsMargins(2, 2, 2, 2)
-    build_theory_section(panel, page_theory_lay)
-    if hasattr(panel, "_theory_widget"):
-        panel._theory_widget.setTitle("")
-        panel._theory_widget.setFlat(True)
-    panel._utilities_toolbox.addItem(page_theory, "DFT / Théorie")
+    panel._sec_grid = _wrap(build_utils_section, "Filtre grille (FFT)",
+                             open_default=False)
+    panel._sec_theory = _wrap(build_theory_section, "DFT / Théorie",
+                               open_default=False)
+    panel._sec_distortion = _wrap(build_bm_distortion_section, "Distorsion BM",
+                                   open_default=False)
 
-    # ── page 3 : distorsion BM ──────────────────────────────────────────────
-    page_dist = QWidget()
-    page_dist_lay = QVBoxLayout(page_dist)
-    page_dist_lay.setContentsMargins(2, 2, 2, 2)
-    build_bm_distortion_section(panel, page_dist_lay)
-    if hasattr(panel, "_distortion_widget"):
-        panel._distortion_widget.setTitle("")
-        panel._distortion_widget.setFlat(True)
-    panel._utilities_toolbox.addItem(page_dist, "Distorsion BM")
-
-    panel._utilities_toolbox.setCurrentIndex(0)
-    lay.addWidget(panel._utilities_toolbox)
+    lay.addWidget(panel._utilities_container)
+    # alias rétrocompat avec ancien attribut (set_context lit _utilities_toolbox)
+    panel._utilities_toolbox = panel._utilities_container
