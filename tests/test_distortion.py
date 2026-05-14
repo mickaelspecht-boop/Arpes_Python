@@ -16,6 +16,7 @@ from arpes.physics.distortion import (
     gamma_shift_signature,
     is_distortion_active,
     is_fs_data,
+    signal_bbox,
 )
 
 
@@ -251,6 +252,31 @@ class TestRoundtripReversibility(unittest.TestCase):
         # Reset → identity must restore original from raw
         restored, _ = apply_distortion(data, kpar, ev, {})
         self.assertTrue(np.array_equal(restored, data))
+
+
+class TestSignalBbox(unittest.TestCase):
+    def test_bbox_finds_centered_blob(self):
+        kpar = np.linspace(-1.0, 1.0, 100)
+        ev = np.linspace(-0.5, 0.0, 80)
+        K, E = np.meshgrid(kpar, ev, indexing="ij")
+        # blob signal entre k∈[-0.3, 0.3], E∈[-0.3, -0.1]
+        data = np.exp(-((K / 0.15) ** 2) - (((E + 0.2) / 0.05) ** 2))
+        # ajoute zone vide (basse intensité) ailleurs
+        bbox = signal_bbox(data, kpar, ev, intensity_percentile=80.0)
+        self.assertTrue(bbox["valid"])
+        self.assertGreater(bbox["k_min"], -0.6)
+        self.assertLess(bbox["k_max"], 0.6)
+        self.assertGreater(bbox["ev_min"], -0.4)
+        self.assertLess(bbox["ev_max"], -0.05)
+
+    def test_bbox_fallback_on_all_nan(self):
+        kpar = np.linspace(-1.0, 1.0, 50)
+        ev = np.linspace(-0.5, 0.0, 40)
+        data = np.full((50, 40), np.nan)
+        bbox = signal_bbox(data, kpar, ev)
+        self.assertFalse(bbox["valid"])
+        self.assertAlmostEqual(bbox["k_min"], -1.0)
+        self.assertAlmostEqual(bbox["k_max"], 1.0)
 
 
 if __name__ == "__main__":

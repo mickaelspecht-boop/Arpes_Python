@@ -239,6 +239,62 @@ def apply_distortion(
     return out, info
 
 
+def signal_bbox(
+    data: np.ndarray, kpar, ev,
+    *, intensity_percentile: float = 50.0, finite_only: bool = True,
+) -> dict:
+    """Détecte la boîte englobante du signal (intensité > seuil).
+
+    Retourne ``{"k_min", "k_max", "ev_min", "ev_max", "valid": bool}``.
+    Le seuil est défini comme le percentile de l'intensité finie ; les
+    colonnes/lignes dont aucun pixel ne dépasse ce seuil sont considérées
+    comme bords vides et exclues. Si toute la BM est sous le seuil ou
+    NaN, ``valid=False`` et la bbox couvre la fenêtre complète.
+
+    Utilisé par l'overlay live pour ancrer les courbes de distorsion sur
+    le signal effectif (pas sur les bordures noires).
+    """
+    arr = np.asarray(data, dtype=float)
+    kpar_axis = np.asarray(kpar, dtype=float)
+    ev_axis = np.asarray(ev, dtype=float)
+    fallback = {
+        "k_min": float(np.nanmin(kpar_axis)) if kpar_axis.size else 0.0,
+        "k_max": float(np.nanmax(kpar_axis)) if kpar_axis.size else 0.0,
+        "ev_min": float(np.nanmin(ev_axis)) if ev_axis.size else 0.0,
+        "ev_max": float(np.nanmax(ev_axis)) if ev_axis.size else 0.0,
+        "valid": False,
+    }
+    if arr.ndim != 2 or arr.shape != (kpar_axis.size, ev_axis.size):
+        return fallback
+    finite = np.isfinite(arr)
+    if not finite.any():
+        return fallback
+    base = arr[finite] if finite_only else arr.ravel()
+    try:
+        threshold = float(np.nanpercentile(base, intensity_percentile))
+    except Exception:
+        return fallback
+    above = (arr > threshold) & finite
+    if not above.any():
+        return fallback
+    rows_ok = above.any(axis=1)
+    cols_ok = above.any(axis=0)
+    k_lo = int(np.argmax(rows_ok))
+    k_hi = int(rows_ok.size - np.argmax(rows_ok[::-1]) - 1)
+    e_lo = int(np.argmax(cols_ok))
+    e_hi = int(cols_ok.size - np.argmax(cols_ok[::-1]) - 1)
+    if k_hi <= k_lo or e_hi <= e_lo:
+        return fallback
+    return {
+        "k_min": float(kpar_axis[k_lo]),
+        "k_max": float(kpar_axis[k_hi]),
+        "ev_min": float(ev_axis[e_lo]),
+        "ev_max": float(ev_axis[e_hi]),
+        "valid": True,
+        "threshold": threshold,
+    }
+
+
 def _crop_to_signal(
     data: np.ndarray, kpar: np.ndarray, ev: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
@@ -450,6 +506,7 @@ __all__: list[str] = [
     "gamma_shift_signature",
     "calib_key_for_meta",
     "is_fs_data",
+    "signal_bbox",
 ]
 
 

@@ -28,6 +28,7 @@ from arpes.physics.distortion import (
     get_cfg_summary,
     is_distortion_active,
     is_fs_data,
+    signal_bbox,
 )
 
 
@@ -185,8 +186,11 @@ class DistortionController:
         ev = np.asarray(self._raw_data["ev_arr"], dtype=float)
         if kpar.size < 2 or ev.size < 2:
             return
-        k_min, k_max = float(np.nanmin(kpar)), float(np.nanmax(kpar))
-        ev_min, ev_max = float(np.nanmin(ev)), float(np.nanmax(ev))
+        # Bbox du signal effectif (intensité > p50). Sinon fallback fenêtre.
+        bbox = signal_bbox(np.asarray(self._raw_data["data"], dtype=float),
+                            kpar, ev, intensity_percentile=50.0)
+        k_min, k_max = bbox["k_min"], bbox["k_max"]
+        ev_min, ev_max = bbox["ev_min"], bbox["ev_max"]
 
         trap = cfg.get("trapezoid") or {}
         para = cfg.get("parabola") or {}
