@@ -126,18 +126,14 @@ class FitParamsPanel(QScrollArea):
         from arpes.ui.widgets.params_ef import (
             build_ef_section,
             build_energy_section,
-            build_utils_section,
         )
-        from arpes.ui.widgets.params_distortion import build_bm_distortion_section
         from arpes.ui.widgets.params_fit import build_fit_controls
-        from arpes.ui.widgets.params_theory import build_theory_section
+        from arpes.ui.widgets.params_utilities import build_utilities_section
 
         lay = self._lay
         build_energy_section(self, lay)
         build_ef_section(self, lay)
-        build_utils_section(self, lay)
-        build_bm_distortion_section(self, lay)
-        build_theory_section(self, lay)
+        build_utilities_section(self, lay)
         build_fit_controls(self, lay)
         lay.addStretch()
 
