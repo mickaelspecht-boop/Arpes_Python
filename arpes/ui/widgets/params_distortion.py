@@ -9,6 +9,7 @@ chacun, libellés en mots simples, et boutons d'action en bas.
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QFormLayout,
     QFrame,
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -70,15 +72,32 @@ def build_bm_distortion_section(panel, lay) -> None:
     trap_row1 = QHBoxLayout()
     panel.chk_distortion_trap = QCheckBox("Activer trapèze")
     panel.chk_distortion_trap.setToolTip("Active la correction trapézoïdale en kpar.")
-    panel.chk_distortion_trap_sym = QCheckBox("Symétrique")
-    panel.chk_distortion_trap_sym.setChecked(True)
-    panel.chk_distortion_trap_sym.setToolTip(
-        "Couple les deux bords (slope_R = -slope_L). Décocher pour bords inégaux."
-    )
     trap_row1.addWidget(panel.chk_distortion_trap)
-    trap_row1.addWidget(panel.chk_distortion_trap_sym)
     trap_row1.addStretch()
     outer.addLayout(trap_row1)
+
+    mode_row = QHBoxLayout()
+    panel.rb_distortion_trap_sym = QRadioButton("Symétrique")
+    panel.rb_distortion_trap_sym.setChecked(True)
+    panel.rb_distortion_trap_sym.setToolTip(
+        "slope_R = -slope_L : trapèze qui s'élargit/rétrécit (artefact lentille)."
+    )
+    panel.rb_distortion_trap_anti = QRadioButton("Antisymétrique")
+    panel.rb_distortion_trap_anti.setToolTip(
+        "slope_R = +slope_L : parallélogramme (cisaillement, désalignement détecteur)."
+    )
+    panel.rb_distortion_trap_free = QRadioButton("Libre")
+    panel.rb_distortion_trap_free.setToolTip("Bords gauche/droit indépendants.")
+    panel._rb_distortion_trap_group = QButtonGroup(panel._distortion_widget)
+    panel._rb_distortion_trap_group.setExclusive(True)
+    for rb in (panel.rb_distortion_trap_sym, panel.rb_distortion_trap_anti,
+               panel.rb_distortion_trap_free):
+        panel._rb_distortion_trap_group.addButton(rb)
+        mode_row.addWidget(rb)
+    mode_row.addStretch()
+    outer.addLayout(mode_row)
+    # Compat avec ancien nom (utilisé par bm_distortion_params).
+    panel.chk_distortion_trap_sym = panel.rb_distortion_trap_sym
 
     fl_trap = QFormLayout()
     fl_trap.setHorizontalSpacing(6)
@@ -100,18 +119,26 @@ def build_bm_distortion_section(panel, lay) -> None:
     fl_trap.addRow("Pivot E (eV):", panel.sp_distortion_pivot)
     outer.addLayout(fl_trap)
 
-    def _sync_symmetric(_=None):
-        if panel.chk_distortion_trap_sym.isChecked():
-            panel.sp_distortion_slope_r.blockSignals(True)
-            panel.sp_distortion_slope_r.setValue(-panel.sp_distortion_slope_l.value())
-            panel.sp_distortion_slope_r.blockSignals(False)
+    def _sync_coupled(_=None):
+        sl = panel.sp_distortion_slope_l.value()
+        if panel.rb_distortion_trap_sym.isChecked():
+            target = -sl
+        elif panel.rb_distortion_trap_anti.isChecked():
+            target = sl
+        else:
+            return
+        panel.sp_distortion_slope_r.blockSignals(True)
+        panel.sp_distortion_slope_r.setValue(target)
+        panel.sp_distortion_slope_r.blockSignals(False)
 
-    panel.sp_distortion_slope_l.valueChanged.connect(_sync_symmetric)
-    panel.chk_distortion_trap_sym.toggled.connect(_sync_symmetric)
+    panel.sp_distortion_slope_l.valueChanged.connect(_sync_coupled)
+    panel.rb_distortion_trap_sym.toggled.connect(_sync_coupled)
+    panel.rb_distortion_trap_anti.toggled.connect(_sync_coupled)
 
     # Live preview : tout changement déclenche l'apparition de l'overlay
     # pointillé sur la BM (caché à nouveau après Apply / Reset).
-    for w in (panel.chk_distortion_trap, panel.chk_distortion_trap_sym,
+    for w in (panel.chk_distortion_trap, panel.rb_distortion_trap_sym,
+              panel.rb_distortion_trap_anti, panel.rb_distortion_trap_free,
               panel.sp_distortion_slope_l, panel.sp_distortion_slope_r,
               panel.sp_distortion_pivot):
         if hasattr(w, "valueChanged"):
@@ -204,6 +231,14 @@ def build_bm_distortion_section(panel, lay) -> None:
     lay.addWidget(panel._distortion_widget)
 
 
+def _trap_mode(panel) -> str:
+    if panel.rb_distortion_trap_anti.isChecked():
+        return "antisymmetric"
+    if panel.rb_distortion_trap_free.isChecked():
+        return "free"
+    return "symmetric"
+
+
 def bm_distortion_params(panel) -> dict:
     return {
         "enabled": bool(
@@ -214,7 +249,9 @@ def bm_distortion_params(panel) -> dict:
             "slope_left": float(panel.sp_distortion_slope_l.value()),
             "slope_right": float(panel.sp_distortion_slope_r.value()),
             "pivot_ev": float(panel.sp_distortion_pivot.value()),
-            "symmetric": bool(panel.chk_distortion_trap_sym.isChecked()),
+            "mode": _trap_mode(panel),
+            # legacy alias pour anciennes sessions
+            "symmetric": bool(panel.rb_distortion_trap_sym.isChecked()),
         },
         "parabola": {
             "enabled": bool(panel.chk_distortion_para.isChecked()),
@@ -229,7 +266,9 @@ def set_bm_distortion_state(panel, cfg: dict | None) -> None:
     cfg = cfg or {}
     trap = cfg.get("trapezoid") or {}
     para = cfg.get("parabola") or {}
-    widgets = (panel.chk_distortion_trap, panel.chk_distortion_trap_sym,
+    widgets = (panel.chk_distortion_trap,
+               panel.rb_distortion_trap_sym, panel.rb_distortion_trap_anti,
+               panel.rb_distortion_trap_free,
                panel.sp_distortion_slope_l, panel.sp_distortion_slope_r,
                panel.sp_distortion_pivot, panel.chk_distortion_para,
                panel.sp_distortion_a, panel.sp_distortion_k0,
@@ -237,7 +276,13 @@ def set_bm_distortion_state(panel, cfg: dict | None) -> None:
     for w in widgets:
         w.blockSignals(True)
     panel.chk_distortion_trap.setChecked(bool(trap.get("enabled", False)))
-    panel.chk_distortion_trap_sym.setChecked(bool(trap.get("symmetric", True)))
+    mode = trap.get("mode")
+    if mode is None:
+        # legacy : `symmetric` bool seul
+        mode = "symmetric" if trap.get("symmetric", True) else "free"
+    panel.rb_distortion_trap_sym.setChecked(mode == "symmetric")
+    panel.rb_distortion_trap_anti.setChecked(mode == "antisymmetric")
+    panel.rb_distortion_trap_free.setChecked(mode == "free")
     panel.sp_distortion_slope_l.setValue(float(trap.get("slope_left", 0.0) or 0.0))
     panel.sp_distortion_slope_r.setValue(float(trap.get("slope_right", 0.0) or 0.0))
     pivot = trap.get("pivot_ev")
