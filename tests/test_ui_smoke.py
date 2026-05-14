@@ -43,7 +43,7 @@ class TestUiSmoke(unittest.TestCase):
             "_logbook_ctrl", "_load_ctrl", "_plot_ctrl",
             "_gamma_ctrl", "_norm_ctrl", "_fs_ctrl",
             "_interaction_ctrl", "_fit_runner_ctrl", "_kz_ctrl",
-            "_theory_overlay_ctrl",
+            "_theory_overlay_ctrl", "_distortion_ctrl",
         ):
             self.assertTrue(
                 hasattr(win, attr),
@@ -75,6 +75,11 @@ class TestUiSmoke(unittest.TestCase):
                      "_help_panel"):
             self.assertTrue(hasattr(win, attr), f"widget {attr} non construit")
         self.assertTrue(hasattr(win._params, "_theory_widget"))
+        self.assertTrue(hasattr(win._params, "_distortion_widget"))
+        self.assertTrue(callable(getattr(win._params, "bm_distortion_params")))
+        cfg = win._params.bm_distortion_params()
+        self.assertIn("trapezoid", cfg)
+        self.assertIn("parabola", cfg)
 
 
 if __name__ == "__main__":

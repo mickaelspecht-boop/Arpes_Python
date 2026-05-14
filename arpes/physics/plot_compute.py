@@ -108,6 +108,7 @@ def display_grid_config(cfg: dict | None) -> dict:
 class BandmapDisplayResult:
     data: np.ndarray
     grid_info: dict = field(default_factory=dict)
+    distortion_info: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -134,9 +135,29 @@ def compute_bandmap_display(
     edc_norm_enabled: bool,
     grid_correction: dict | None = None,
     grid_artifact_fn=None,
+    distortion_correction: dict | None = None,
 ) -> BandmapDisplayResult:
-    """Prépare la carte BM affichée pour le mode demandé."""
+    """Prépare la carte BM affichée pour le mode demandé.
+
+    Pipeline : raw → distortion (trapèze + parabole) → EDC norm/secdev/curv
+    → grid (FFT). La distorsion est appliquée *en premier* pour que toutes
+    les corrections aval travaillent sur la BM redressée.
+    """
     raw = np.asarray(raw_data["data"])
+    distortion_info: dict = {}
+    if distortion_correction:
+        from arpes.physics.distortion import apply_distortion, is_fs_data
+
+        meta = raw_data.get("metadata", {}) or {}
+        if is_fs_data(meta):
+            distortion_info = {"applied": False, "reason": "fs_data_unsupported"}
+        else:
+            try:
+                raw, distortion_info = apply_distortion(
+                    raw, raw_data["kpar"], raw_data["ev_arr"], distortion_correction,
+                )
+            except Exception as exc:
+                distortion_info = {"applied": False, "error": str(exc)}
     if mode == "Raw":
         disp = raw
     elif mode == "EDCnorm":
@@ -172,7 +193,7 @@ def compute_bandmap_display(
                     "strength": grid_cfg["strength"],
                 }
 
-    return BandmapDisplayResult(data=disp, grid_info=grid_info)
+    return BandmapDisplayResult(data=disp, grid_info=grid_info, distortion_info=distortion_info)
 
 
 def fit_roi_bounds(

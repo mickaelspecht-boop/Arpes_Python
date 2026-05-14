@@ -163,6 +163,13 @@ class PlotController:
             grid_cfg_active.get("peak_sensitivity"),
             grid_cfg_active.get("notch_width"),
         ) if grid_cfg_active else None
+        from arpes.physics.distortion import (
+            cache_signature as _distortion_cache_sig,
+            is_distortion_active as _distortion_active,
+        )
+        bm_dist = getattr(entry, "bm_distortion", None) if entry else None
+        distortion_cfg_active = bm_dist if (bm_dist and _distortion_active(bm_dist)) else None
+        distortion_key = _distortion_cache_sig(distortion_cfg_active)
         raw_key = getattr(self, "_current_raw_load_cache_key", None)
         cache_key = (
             raw_key,
@@ -170,6 +177,7 @@ class PlotController:
             tuple(np.asarray(raw).shape),
             mode,
             grid_key,
+            distortion_key,
             _axis_cache_signature(d["kpar"]),
             _axis_cache_signature(d["ev_arr"]),
         )
@@ -191,9 +199,11 @@ class PlotController:
             edc_norm_enabled=mode in ("EDCnorm", "SecDev", "Curvature"),
             grid_correction=grid_cfg_active,
             grid_artifact_fn=remove_detector_grid_artifact,
+            distortion_correction=distortion_cfg_active,
         )
         self._data_disp = result.data
         self._grid_display_info = result.grid_info
+        self._distortion_display_info = getattr(result, "distortion_info", {})
         self._disp_cache_key = cache_key
         if display_cache is not None:
             display_cache[cache_key] = (result.data, dict(result.grid_info or {}))

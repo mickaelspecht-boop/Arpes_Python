@@ -82,6 +82,10 @@ class FitParamsPanel(QScrollArea):
     gamma_ref_requested = pyqtSignal()
     grid_requested = pyqtSignal()
     grid_reset_requested = pyqtSignal()
+    distortion_apply_requested = pyqtSignal()
+    distortion_reset_requested = pyqtSignal()
+    distortion_auto_requested = pyqtSignal()
+    distortion_import_calib_requested = pyqtSignal()
     fit_roi_requested = pyqtSignal(bool)
     fit_roi_reset_requested = pyqtSignal()
     fit_undo_requested = pyqtSignal()
@@ -124,6 +128,7 @@ class FitParamsPanel(QScrollArea):
             build_energy_section,
             build_utils_section,
         )
+        from arpes.ui.widgets.params_distortion import build_bm_distortion_section
         from arpes.ui.widgets.params_fit import build_fit_controls
         from arpes.ui.widgets.params_theory import build_theory_section
 
@@ -131,6 +136,7 @@ class FitParamsPanel(QScrollArea):
         build_energy_section(self, lay)
         build_ef_section(self, lay)
         build_utils_section(self, lay)
+        build_bm_distortion_section(self, lay)
         build_theory_section(self, lay)
         build_fit_controls(self, lay)
         lay.addStretch()
@@ -170,7 +176,7 @@ class FitParamsPanel(QScrollArea):
 
     def update_hv_source(self, source: str | None):
         """Affiche la provenance de hν : 'file', 'logbook', 'manual', None."""
-        labels = {"file": "Fichier", "logbook": "Logbook", "manual": "Manuel"}
+        labels = {"file": "Fichier", "logbook": "Logbook", "manual": "Manuel", "session": "Session"}
         self.lbl_hv_src.setText(labels.get(source or "", "Inconnu"))
 
     def _mark_hv_manual_if_user_edit(self):
@@ -305,6 +311,14 @@ class FitParamsPanel(QScrollArea):
 
     def set_waterfall_controls_visible(self, visible: bool):
         self._waterfall_controls_widget.setVisible(bool(visible))
+
+    def bm_distortion_params(self) -> dict:
+        from arpes.ui.widgets.params_distortion import bm_distortion_params as _f
+        return _f(self)
+
+    def set_bm_distortion_state(self, cfg: dict | None) -> None:
+        from arpes.ui.widgets.params_distortion import set_bm_distortion_state as _f
+        _f(self, cfg)
 
     def grid_params(self) -> dict:
         return {

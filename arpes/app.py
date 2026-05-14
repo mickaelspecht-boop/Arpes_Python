@@ -60,6 +60,7 @@ from arpes.io.logbook import (
 from arpes.ui.controllers.logbook_controller import LogbookIngestController
 from arpes.ui.controllers.load_controller import LoadController
 from arpes.ui.controllers.plot_controller import PlotController
+from arpes.ui.controllers.distortion_controller import DistortionController
 from arpes.ui.controllers.gamma_controller import GammaController
 from arpes.ui.controllers.norm_controller import NormController
 from arpes.ui.controllers.fs_controller import FSController
@@ -185,6 +186,7 @@ class ArpesExplorer(QMainWindow):
         self._plot_ctrl = PlotController(self)
         self._gamma_ctrl = GammaController(self)
         self._norm_ctrl = NormController(self)
+        self._distortion_ctrl = DistortionController(self)
         self._fs_ctrl = FSController(self)
         self._interaction_ctrl = InteractionController(self)
         self._fit_runner_ctrl = FitRunnerController(self)
@@ -258,6 +260,13 @@ class ArpesExplorer(QMainWindow):
         "_grid_status_text": "_norm_ctrl",
         "_apply_grid_correction": "_norm_ctrl",
         "_reset_grid_correction": "_norm_ctrl",
+        # DistortionController
+        "_apply_bm_distortion": "_distortion_ctrl",
+        "_reset_bm_distortion": "_distortion_ctrl",
+        "_auto_bm_distortion": "_distortion_ctrl",
+        "_import_calib_to_current": "_distortion_ctrl",
+        "_check_distortion_consistency_on_load": "_distortion_ctrl",
+        "_apply_calib_for_current_if_any": "_distortion_ctrl",
         # InteractionController
         "_on_view_changed": "_interaction_ctrl",
         "_on_view_fit_changed": "_interaction_ctrl",

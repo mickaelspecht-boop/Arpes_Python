@@ -184,15 +184,23 @@ class LoadController:
         self._params.sp_ef.setValue(entry.ef_offset)
         self._params.sp_ef.blockSignals(False)
 
-        hv_before_load = float(self._params.sp_hv.value())
         logbook_hit = self._parent._logbook_ctrl.apply_to_controls(path)
+        logbook_values = getattr(self._parent._logbook_ctrl, "_last_applied_values", None)
         hv_from_logbook = (
             logbook_hit
-            and float(self._params.sp_hv.value()) != hv_before_load
+            and getattr(logbook_values, "hv", None) is not None
             and float(self._params.sp_hv.value()) > 0
         )
-        if entry.meta.hv and entry.meta.hv > 0 and self._params.sp_hv.value() <= 0:
-            self._params.set_hv_value_with_source(entry.meta.hv, "file")
+        if not logbook_hit and entry.meta.hv and entry.meta.hv > 0:
+            same_path = False
+            current_path = getattr(self._parent, "_current_path", None)
+            if current_path:
+                try:
+                    same_path = Path(current_path).resolve() == Path(path).resolve()
+                except Exception:
+                    same_path = str(current_path) == str(path)
+            if (not same_path) or self._params.sp_hv.value() <= 0:
+                self._params.set_hv_value_with_source(entry.meta.hv, "session")
         hv_for_load = float(self._params.sp_hv.value())
         angle_offsets = self._parent._angle_offsets_for_load(path, entry, hv_for_load)
         return _PreparedEntry(
@@ -475,6 +483,11 @@ class LoadController:
         self._params.sp_crystal_a.blockSignals(False)
         self._parent._restore_theory_overlay_for_entry()
         self._parent._apply_stored_gamma_to_current_file(save_entry=True)
+        try:
+            self._parent._check_distortion_consistency_on_load()
+            self._parent._apply_calib_for_current_if_any()
+        except Exception:
+            pass
 
     def _refresh_ui(self, d, prepared, path, *, entry_dirty: bool = False):
         entry = prepared.entry
