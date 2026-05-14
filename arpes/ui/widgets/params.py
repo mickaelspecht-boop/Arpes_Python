@@ -301,6 +301,10 @@ class FitParamsPanel(QScrollArea):
         self._ef_widget.setVisible(is_bm)
         self._utils_widget.setVisible(is_bm)
         self._theory_widget.setVisible(is_bm)
+        if hasattr(self, "_distortion_widget"):
+            self._distortion_widget.setVisible(is_bm)
+        if hasattr(self, "_utilities_toolbox"):
+            self._utilities_toolbox.setVisible(is_bm)
         self._fit_controls_widget.setVisible(is_mdc)
         self._gamma_tools_widget.setVisible(False)
         if not is_mdc:
