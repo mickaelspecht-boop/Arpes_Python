@@ -103,7 +103,10 @@ class TheoryOverlayController:
         cfg["material_id"] = mpid
         try:
             cache_root = self._cache_root()
-            data = load_materials_project_band_data(mpid, cache_dir=cache_root)
+            data = load_materials_project_band_data(
+                mpid, cache_dir=cache_root,
+                with_projections=bool(cfg.get("with_projections", False)),
+            )
             entry = self._parent._current_entry()
             direction = entry.meta.direction if entry is not None else ""
             segment = segment_from_direction(direction, data.labels)

@@ -5,17 +5,21 @@ manuel, boutons import/comparer/vider, recherche par formule).
 """
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QTableWidget,
     QWidget,
 )
 
@@ -67,7 +71,57 @@ def build_theory_section(panel, lay) -> None:
         "Indices bandes DFT à afficher (0-based). Ranges OK : `1,3,5-8`.\n"
         "Vide → sélection automatique top-N par overlap fenêtre Y."
     )
-    panel.txt_theory_bands.editingFinished.connect(panel.theory_overlay_changed)
+    panel.txt_theory_bands.editingFinished.connect(panel._on_theory_bands_text_edited)
+    # --- filtre fenêtre E_F (B+A) ---
+    panel.sp_theory_efwin = dspin(0.0, 0.0, 10.0, 0.05, dec=3)
+    panel.sp_theory_efwin.setToolTip(
+        "Fenêtre ±ΔE autour de E_F (eV). 0 = désactivé.\n"
+        "Filtre l'overlay et la liste : seules les bandes traversant\n"
+        "±ΔE de E_F (E=0) sont gardées."
+    )
+    panel.chk_theory_ef_only = QCheckBox("Seulement bandes croisant E_F")
+    panel.chk_theory_ef_only.setToolTip(
+        "Pré-coche uniquement les bandes traversant la fenêtre E_F\n"
+        "ci-dessus et restreint l'overlay à celles-ci."
+    )
+    panel.chk_theory_color = QCheckBox("Couleur par bande + légende")
+    panel.chk_theory_color.setChecked(True)
+    panel.chk_theory_color.setToolTip(
+        "Une couleur stable par index de bande + légende.\n"
+        "Décoché → toutes les bandes en blanc (ancien rendu)."
+    )
+    panel.chk_theory_projections = QCheckBox("Récupérer projections orbitales (réseau)")
+    panel.chk_theory_projections.setToolTip(
+        "À l'import MP : tente de récupérer les projections orbitales\n"
+        "pour afficher le caractère (ex Ti-d) par bande. Plus lent.\n"
+        "Sans effet si Materials Project ne fournit pas les projections."
+    )
+    # --- table bandes cochable (remplace la saisie aveugle) ---
+    panel.tbl_theory_bands = QTableWidget(0, 5)
+    panel.tbl_theory_bands.setHorizontalHeaderLabels(
+        ["#", "E min", "E max", "E_F", "caractère"]
+    )
+    panel.tbl_theory_bands.verticalHeader().setVisible(False)
+    panel.tbl_theory_bands.setEditTriggers(
+        QAbstractItemView.EditTrigger.NoEditTriggers
+    )
+    panel.tbl_theory_bands.setSelectionMode(
+        QAbstractItemView.SelectionMode.NoSelection
+    )
+    panel.tbl_theory_bands.setAlternatingRowColors(True)
+    panel.tbl_theory_bands.setMaximumHeight(190)
+    _hdr = panel.tbl_theory_bands.horizontalHeader()
+    _hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+    _hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+    panel.tbl_theory_bands.setToolTip(
+        "Coche les bandes DFT à afficher. Vide = sélection auto top-N.\n"
+        "Se synchronise avec le champ « Bandes idx » (format 1,3,5-8)."
+    )
+    panel.tbl_theory_bands.itemChanged.connect(panel._on_theory_band_table_toggled)
+    for w in (panel.sp_theory_efwin, panel.chk_theory_ef_only,
+              panel.chk_theory_color):
+        sig = w.stateChanged if isinstance(w, QCheckBox) else w.valueChanged
+        sig.connect(panel.theory_overlay_changed)
     panel.chk_theory_mirror = QCheckBox("Miroir Γ (k → -k)")
     panel.chk_theory_mirror.setToolTip(
         "Duplique les bandes DFT en miroir autour de Γ (k → -k).\n"
@@ -149,7 +203,12 @@ def build_theory_section(panel, lay) -> None:
     fl_th.addRow("Scale k:", panel.sp_theory_kscale)
     fl_th.addRow("Opacité:", panel.sp_theory_alpha)
     fl_th.addRow("Max bandes:", panel.sp_theory_max)
+    fl_th.addRow("Fenêtre E_F (eV):", panel.sp_theory_efwin)
+    fl_th.addRow(panel.chk_theory_ef_only)
+    fl_th.addRow(panel.tbl_theory_bands)
     fl_th.addRow("Bandes idx:", panel.txt_theory_bands)
+    fl_th.addRow(panel.chk_theory_color)
+    fl_th.addRow(panel.chk_theory_projections)
     fl_th.addRow("a cristal (Å):", panel.sp_crystal_a)
     fl_th.addRow(panel.chk_theory_mirror)
     fl_th.addRow(theory_btns)

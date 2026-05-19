@@ -19,12 +19,20 @@ def load_materials_project_band_data(
     cache_dir: str | Path | None = None,
     path_type: str = "setyawan_curtarolo",
     force_refresh: bool = False,
+    with_projections: bool = False,
 ) -> TheoryBandData:
-    """Fetch and cache a Materials Project band structure as overlay data."""
+    """Fetch and cache a Materials Project band structure as overlay data.
+
+    ``with_projections`` (opt-in) : tente de récupérer les projections
+    orbitales et d'en déduire le caractère par bande. Cache SÉPARÉ
+    (suffixe ``_proj``) pour ne jamais polluer/écraser le cache legacy
+    sans projections.
+    """
     mpid = str(material_id or "").strip()
     if not mpid:
         raise ValueError("Materials Project ID vide.")
-    cache_path = _cache_path(cache_dir, mpid, path_type)
+    cache_path = _cache_path(cache_dir, mpid, path_type,
+                             with_projections=with_projections)
     if cache_path.exists() and not force_refresh:
         return TheoryBandData.from_dict(json.loads(cache_path.read_text()))
 
@@ -49,6 +57,7 @@ def load_materials_project_band_data(
         formula=formula,
         source="materials_project",
         path_type=path_type,
+        with_projections=with_projections,
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(data.to_dict(), indent=2))
@@ -100,10 +109,17 @@ def search_by_formula(
     return out
 
 
-def _cache_path(cache_dir: str | Path | None, material_id: str, path_type: str) -> Path:
+def _cache_path(
+    cache_dir: str | Path | None,
+    material_id: str,
+    path_type: str,
+    *,
+    with_projections: bool = False,
+) -> Path:
     root = Path(cache_dir) if cache_dir is not None else Path(".arpes_theory_cache")
     safe = material_id.replace("/", "_")
-    return root / f"{safe}_{path_type}.json"
+    suffix = "_proj" if with_projections else ""
+    return root / f"{safe}_{path_type}{suffix}.json"
 
 
 def _get_bandstructure(mpr, material_id: str, *, path_type: str):

@@ -14,6 +14,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QLabel,
     QScrollArea,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -347,6 +348,12 @@ class FitParamsPanel(QScrollArea):
             "max_bands": int(self.sp_theory_max.value()),
             "mirror_gamma": bool(self.chk_theory_mirror.isChecked()),
             "band_indices": self.txt_theory_bands.text().strip(),
+            "ef_window": (
+                float(self.sp_theory_efwin.value())
+                if self.chk_theory_ef_only.isChecked() else 0.0
+            ),
+            "color_by_band": bool(self.chk_theory_color.isChecked()),
+            "with_projections": bool(self.chk_theory_projections.isChecked()),
         }
 
     def set_theory_overlay_state(self, overlay: dict):
@@ -381,6 +388,24 @@ class FitParamsPanel(QScrollArea):
         self.txt_theory_bands.blockSignals(True)
         self.txt_theory_bands.setText(str(config.get("band_indices", "") or ""))
         self.txt_theory_bands.blockSignals(False)
+        win = float(config.get("ef_window", 0.0) or 0.0)
+        self.sp_theory_efwin.blockSignals(True)
+        self.sp_theory_efwin.setValue(win if win > 0 else 0.0)
+        self.sp_theory_efwin.blockSignals(False)
+        self.chk_theory_ef_only.blockSignals(True)
+        self.chk_theory_ef_only.setChecked(win > 0.0)
+        self.chk_theory_ef_only.blockSignals(False)
+        self.chk_theory_color.blockSignals(True)
+        self.chk_theory_color.setChecked(bool(config.get("color_by_band", True)))
+        self.chk_theory_color.blockSignals(False)
+        self.chk_theory_projections.blockSignals(True)
+        self.chk_theory_projections.setChecked(bool(config.get("with_projections", False)))
+        self.chk_theory_projections.blockSignals(False)
+        self._populate_theory_band_table(
+            data.get("band_meta") or [],
+            data.get("band_character") or [],
+            str(config.get("band_indices", "") or ""),
+        )
         warning = overlay.get("warning") or ""
         mpid = data.get("material_id") or ""
         if mpid:
@@ -406,6 +431,87 @@ class FitParamsPanel(QScrollArea):
         else:
             txt = "Guide visuel uniquement."
         self.lbl_theory_status.setText(txt)
+
+    # ----- liste cochable des bandes DFT (P1) -----
+    def _populate_theory_band_table(self, band_meta, band_character, band_indices):
+        """Remplit la table depuis band_meta + caractère. Coche selon le
+        champ legacy band_indices (source de vérité commune)."""
+        from arpes.theory.models import parse_band_indices
+
+        tbl = self.tbl_theory_bands
+        tbl.blockSignals(True)
+        tbl.setRowCount(0)
+        meta = list(band_meta or [])
+        chars = list(band_character or [])
+        checked = set(parse_band_indices(str(band_indices or ""), len(meta) or 10**9))
+        tbl.setRowCount(len(meta))
+        for row, m in enumerate(meta):
+            idx = int(m.get("idx", row))
+            e_min = m.get("e_min")
+            e_max = m.get("e_max")
+
+            def _fmt(v):
+                try:
+                    return f"{float(v):+.3f}"
+                except (TypeError, ValueError):
+                    return "—"
+
+            it_idx = QTableWidgetItem(str(idx))
+            it_idx.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
+            )
+            it_idx.setCheckState(
+                Qt.CheckState.Checked if idx in checked else Qt.CheckState.Unchecked
+            )
+            it_idx.setData(Qt.ItemDataRole.UserRole, idx)
+            crosses = "✓" if m.get("crosses_ef") else ""
+            char = chars[idx] if 0 <= idx < len(chars) else ""
+            cells = [
+                it_idx,
+                QTableWidgetItem(_fmt(e_min)),
+                QTableWidgetItem(_fmt(e_max)),
+                QTableWidgetItem(crosses),
+                QTableWidgetItem(char),
+            ]
+            for col, cell in enumerate(cells):
+                if col:
+                    cell.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                tbl.setItem(row, col, cell)
+        tbl.blockSignals(False)
+
+    def _on_theory_band_table_toggled(self, _item):
+        """Une case cochée/décochée → reconstruit band_indices (1,3,5-8)."""
+        from arpes.theory.band_select import format_band_indices
+
+        tbl = self.tbl_theory_bands
+        sel = []
+        for row in range(tbl.rowCount()):
+            it = tbl.item(row, 0)
+            if it is not None and it.checkState() == Qt.CheckState.Checked:
+                sel.append(int(it.data(Qt.ItemDataRole.UserRole)))
+        self.txt_theory_bands.blockSignals(True)
+        self.txt_theory_bands.setText(format_band_indices(sel))
+        self.txt_theory_bands.blockSignals(False)
+        self.theory_overlay_changed.emit()
+
+    def _on_theory_bands_text_edited(self):
+        """Champ texte édité à la main → re-coche les lignes en miroir."""
+        from arpes.theory.models import parse_band_indices
+
+        tbl = self.tbl_theory_bands
+        spec = self.txt_theory_bands.text().strip()
+        wanted = set(parse_band_indices(spec, tbl.rowCount() or 10**9))
+        tbl.blockSignals(True)
+        for row in range(tbl.rowCount()):
+            it = tbl.item(row, 0)
+            if it is None:
+                continue
+            idx = int(it.data(Qt.ItemDataRole.UserRole))
+            it.setCheckState(
+                Qt.CheckState.Checked if idx in wanted else Qt.CheckState.Unchecked
+            )
+        tbl.blockSignals(False)
+        self.theory_overlay_changed.emit()
 
     def load_fit_params(self, fp: FitParams):
         for sp, val in [

@@ -20,6 +20,12 @@ class TheoryBandData:
     labels: list[dict[str, Any]] = field(default_factory=list)
     path_type: str = "setyawan_curtarolo"
     warning: str = ""
+    # Schéma v2 : métadonnées par bande pour la liste cochable + caractère
+    # orbital agrégé (projections MP opt-in). Champs OPTIONNELS : un cache
+    # legacy (sans ces clés) reste chargeable, from_dict comble par défaut.
+    schema_version: int = 2
+    band_meta: list[dict[str, Any]] = field(default_factory=list)
+    band_character: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +38,9 @@ class TheoryBandData:
             "labels": self.labels,
             "path_type": self.path_type,
             "warning": self.warning,
+            "schema_version": self.schema_version,
+            "band_meta": self.band_meta,
+            "band_character": self.band_character,
         }
 
     @classmethod
@@ -47,6 +56,9 @@ class TheoryBandData:
             labels=[{**dict(x), "label": _clean_label(x.get("label", ""))} for x in data.get("labels", [])],
             path_type=str(data.get("path_type") or "setyawan_curtarolo"),
             warning=str(data.get("warning") or ""),
+            schema_version=int(_finite_float(data.get("schema_version"), 1)),
+            band_meta=[dict(x) for x in (data.get("band_meta") or [])],
+            band_character=[str(x) for x in (data.get("band_character") or [])],
         )
 
 
@@ -61,6 +73,10 @@ class TheoryOverlayConfig:
     max_bands: int = 10
     mirror_gamma: bool = False
     band_indices: str = ""
+    # ef_window > 0 : ne garder/pré-cocher que les bandes croisant ±ef_window
+    # autour de E_F (E=0, efermi déjà soustrait). 0 = désactivé.
+    ef_window: float = 0.0
+    color_by_band: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +89,8 @@ class TheoryOverlayConfig:
             "max_bands": int(self.max_bands),
             "mirror_gamma": bool(self.mirror_gamma),
             "band_indices": str(self.band_indices),
+            "ef_window": float(self.ef_window),
+            "color_by_band": bool(self.color_by_band),
         }
 
     @classmethod
@@ -88,6 +106,8 @@ class TheoryOverlayConfig:
             max_bands=max(1, int(_finite_float(data.get("max_bands"), 10))),
             mirror_gamma=bool(data.get("mirror_gamma", False)),
             band_indices=str(data.get("band_indices") or ""),
+            ef_window=max(0.0, _finite_float(data.get("ef_window"), 0.0)),
+            color_by_band=bool(data.get("color_by_band", True)),
         )
 
 
@@ -202,14 +222,19 @@ def parse_band_indices(spec: str, n_bands: int) -> list[int]:
     return out
 
 
-def filter_bands_for_view(
+def select_bands_for_view(
     data: TheoryBandData | dict[str, Any],
     config: TheoryOverlayConfig | dict[str, Any],
     *,
     xlim: tuple[float, float],
     ylim: tuple[float, float],
-) -> list[tuple[np.ndarray, np.ndarray]]:
-    """Transform and select the most relevant bands for the current view."""
+) -> list[tuple[int, np.ndarray, np.ndarray]]:
+    """Comme filter_bands_for_view mais expose l'index de bande source.
+
+    Retourne ``[(band_index, k, band_energies), ...]``. L'index permet une
+    couleur stable et une légende. Le miroir Γ réutilise l'index de la
+    bande originale.
+    """
     data = TheoryBandData.from_dict(data) if isinstance(data, dict) else data
     config = TheoryOverlayConfig.from_dict(config) if isinstance(config, dict) else config
     if not config.enabled or not data.k_distance or not data.bands:
@@ -240,14 +265,37 @@ def filter_bands_for_view(
         selected = explicit
     else:
         selected = [idx for *_rest, idx in scored[: int(config.max_bands)]]
-    curves: list[tuple[np.ndarray, np.ndarray]] = []
+    # Filtre fenêtre E_F : ne garder que les bandes traversant ±ef_window
+    # autour de E=0 (efermi déjà soustrait, energy_shift inclus dans bands).
+    win = float(config.ef_window)
+    if win > 0.0:
+        kept: list[int] = []
+        for idx in selected:
+            finite = bands[idx][np.isfinite(bands[idx])]
+            if finite.size and float(np.nanmin(finite)) <= win and float(np.nanmax(finite)) >= -win:
+                kept.append(idx)
+        selected = kept
+    # Sélection appliquée AVANT le miroir Γ (cf. arpes-redteam).
+    curves: list[tuple[int, np.ndarray, np.ndarray]] = []
     for idx in selected:
         band = bands[idx].copy()
         band[~segment_mask] = np.nan
-        curves.append((k, band))
+        curves.append((idx, k, band))
         if config.mirror_gamma:
-            curves.append((-k, band.copy()))
+            curves.append((idx, -k, band.copy()))
     return curves
+
+
+def filter_bands_for_view(
+    data: TheoryBandData | dict[str, Any],
+    config: TheoryOverlayConfig | dict[str, Any],
+    *,
+    xlim: tuple[float, float],
+    ylim: tuple[float, float],
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Compat : ``[(k, band), ...]`` sans index (anciens appelants/tests)."""
+    return [(k, band) for _idx, k, band in select_bands_for_view(
+        data, config, xlim=xlim, ylim=ylim)]
 
 
 def compare_fit_to_theory(
@@ -348,6 +396,7 @@ def bandstructure_to_theory_data(
     formula: str = "",
     source: str = "materials_project",
     path_type: str = "setyawan_curtarolo",
+    with_projections: bool = False,
 ) -> TheoryBandData:
     """Convert a pymatgen-like band structure object to JSON-safe arrays."""
     efermi = _finite_float(getattr(bandstructure, "efermi", 0.0), 0.0)
@@ -362,16 +411,46 @@ def bandstructure_to_theory_data(
 
     k_distance = _k_distance_from_bandstructure(bandstructure, bands.shape[1])
     labels = _labels_from_bandstructure(bandstructure, k_distance)
+    bands_list = bands.astype(float).tolist()
+    from .band_select import aggregate_projection_character, compute_band_meta
+    band_meta = compute_band_meta(bands_list)
+    band_character: list[str] = []
+    if with_projections:
+        try:
+            band_character = aggregate_projection_character(
+                getattr(bandstructure, "projections", None),
+                _structure_elements(bandstructure),
+            )
+        except Exception:
+            band_character = []  # dégradation gracieuse (arpes-redteam)
     return TheoryBandData(
         source=source,
         material_id=material_id,
         formula=formula,
         efermi=efermi,
         k_distance=[float(x) for x in k_distance],
-        bands=bands.astype(float).tolist(),
+        bands=bands_list,
         labels=labels,
         path_type=path_type,
+        band_meta=band_meta,
+        band_character=band_character,
     )
+
+
+def _structure_elements(bandstructure: Any) -> list[str]:
+    """Symbole chimique par ion depuis bs.structure (ordre des sites)."""
+    struct = getattr(bandstructure, "structure", None)
+    if struct is None:
+        return []
+    out: list[str] = []
+    try:
+        for site in struct:
+            sp = getattr(site, "specie", None) or getattr(site, "species", None)
+            sym = getattr(sp, "symbol", None)
+            out.append(str(sym) if sym else str(sp))
+    except Exception:
+        return []
+    return out
 
 
 def _k_distance_from_bandstructure(bandstructure: Any, n_k: int) -> np.ndarray:
