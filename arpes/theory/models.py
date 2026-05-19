@@ -34,6 +34,10 @@ class TheoryBandData:
     # chemin MP est la ZB BULK 3D (Setyawan : Γ,X,P,N,Z…), distincte de
     # la ZB SURFACE 2D de l'overlay FS (Γ,X,M,Y,S). Optionnel/rétrocompat.
     crystal_system: str = ""
+    # Distance réciproque cumulée ABSOLUE (Å⁻¹, bs.distance pymatgen non
+    # rescalé). Permet l'alignement k physique : k[π/a]=k[Å⁻¹]·a/π.
+    # Vide (legacy/local) → fallback échelle normalisée [0,1].
+    k_distance_abs: list[float] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +55,7 @@ class TheoryBandData:
             "band_character": self.band_character,
             "branches": self.branches,
             "crystal_system": self.crystal_system,
+            "k_distance_abs": self.k_distance_abs,
         }
 
     @classmethod
@@ -71,6 +76,7 @@ class TheoryBandData:
             band_character=[str(x) for x in (data.get("band_character") or [])],
             branches=[dict(x) for x in (data.get("branches") or [])],
             crystal_system=str(data.get("crystal_system") or ""),
+            k_distance_abs=[float(x) for x in (data.get("k_distance_abs") or [])],
         )
 
 
@@ -89,6 +95,9 @@ class TheoryOverlayConfig:
     # autour de E_F (E=0, efermi déjà soustrait). 0 = désactivé.
     ef_window: float = 0.0
     color_by_band: bool = True
+    # Paramètre de maille a (Å) pour convertir la distance DFT Å⁻¹ → π/a
+    # (k[π/a]=k[Å⁻¹]·a/π). 0 → fallback échelle normalisée [0,1].
+    crystal_a: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -103,6 +112,7 @@ class TheoryOverlayConfig:
             "band_indices": str(self.band_indices),
             "ef_window": float(self.ef_window),
             "color_by_band": bool(self.color_by_band),
+            "crystal_a": float(self.crystal_a),
         }
 
     @classmethod
@@ -120,6 +130,7 @@ class TheoryOverlayConfig:
             band_indices=str(data.get("band_indices") or ""),
             ef_window=max(0.0, _finite_float(data.get("ef_window"), 0.0)),
             color_by_band=bool(data.get("color_by_band", True)),
+            crystal_a=max(0.0, _finite_float(data.get("crystal_a"), 0.0)),
         )
 
 
@@ -471,13 +482,28 @@ def _branch_local_k(
     except (TypeError, ValueError):
         return k_raw
     s, e = max(0, min(s, e)), min(k_raw.size - 1, max(s, e))
-    span = max(e - s, 1)
     loc = np.full(k_raw.size, np.nan, dtype=float)
-    frac = (np.arange(s, e + 1, dtype=float) - s) / span  # 0..1
     name = _clean_segment_name(str(br.get("name", "")))
     left, _, right = name.partition("-")
-    # Γ placé à 0 : si Γ est l'extrémité finale de la branche, on inverse.
-    if right.strip() == "Γ" and left.strip() != "Γ":
+    gamma_at_end = right.strip() == "Γ" and left.strip() != "Γ"
+
+    abs_dist = np.asarray(data.k_distance_abs, dtype=float)
+    a_cryst = float(getattr(config, "crystal_a", 0.0) or 0.0)
+    if abs_dist.size == k_raw.size and a_cryst > 0.0:
+        # Échelle PHYSIQUE : distance réciproque réelle (Å⁻¹) de la
+        # branche, Γ→0, convertie en π/a via k[π/a]=k[Å⁻¹]·a/π.
+        # X→1, M→√2, etc. (correct toutes branches, plus de [0,1] forcé).
+        seg = abs_dist[s:e + 1] - abs_dist[s]
+        kpa = seg * (a_cryst / np.pi)
+        if gamma_at_end:
+            kpa = kpa[-1] - kpa  # Γ ramené à 0
+        loc[s:e + 1] = kpa
+        return loc
+
+    # Fallback (pas de distance absolue ou a inconnu) : ancien [0,1].
+    span = max(e - s, 1)
+    frac = (np.arange(s, e + 1, dtype=float) - s) / span
+    if gamma_at_end:
         frac = 1.0 - frac
     loc[s:e + 1] = frac
     return loc
@@ -559,6 +585,7 @@ def bandstructure_to_theory_data(
         except Exception:
             band_character = []  # dégradation gracieuse (arpes-redteam)
     branches = _branches_from_bandstructure(bandstructure, bands.shape[1])
+    k_abs = _k_distance_abs_from_bandstructure(bandstructure, bands.shape[1])
     return TheoryBandData(
         source=source,
         material_id=material_id,
@@ -572,6 +599,7 @@ def bandstructure_to_theory_data(
         band_character=band_character,
         branches=branches,
         crystal_system=str(crystal_system or ""),
+        k_distance_abs=[float(x) for x in k_abs],
     )
 
 
@@ -633,6 +661,23 @@ def _k_distance_from_bandstructure(bandstructure: Any, n_k: int) -> np.ndarray:
             out.append(out[-1] + float(np.linalg.norm(cur - prev)))
         return _scaled_k_axis(np.asarray(out, dtype=float))
     return np.linspace(-1.0, 1.0, n_k)
+
+
+def _k_distance_abs_from_bandstructure(bandstructure: Any, n_k: int) -> np.ndarray:
+    """Distance réciproque cumulée ABSOLUE (Å⁻¹), non rescalée.
+
+    pymatgen ``bs.distance`` = distance cartésienne cumulée le long du
+    chemin, en 1/Å. On la garde brute pour l'alignement physique
+    (≠ ``_k_distance_from_bandstructure`` qui normalise sur [-1,1]).
+    Vide si indisponible → fallback échelle normalisée.
+    """
+    dist = getattr(bandstructure, "distance", None)
+    if dist is None:
+        return np.empty(0, dtype=float)
+    arr = np.asarray(dist, dtype=float)
+    if arr.size == n_k and np.all(np.isfinite(arr)):
+        return arr
+    return np.empty(0, dtype=float)
 
 
 def _scaled_k_axis(values: np.ndarray) -> np.ndarray:

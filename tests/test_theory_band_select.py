@@ -219,6 +219,53 @@ class TestBranchLocalK:
         assert np.allclose(k, [0.0, 1.0, 2.0, 3.0])
 
 
+class TestPhysicalKAlignment:
+    def test_abs_distance_converted_a_over_pi(self):
+        # branche Γ-X, distances absolues Å⁻¹ = 0,0.5,1.0,1.5 ; a=4.0
+        n = 4
+        data = TheoryBandData(
+            source="materials_project", material_id="mp-x",
+            k_distance=[-1.0, -0.33, 0.33, 1.0],  # normalisé (ignoré)
+            k_distance_abs=[0.0, 0.5, 1.0, 1.5],
+            bands=[[1.0] * n],
+            branches=[{"name": "\\Gamma-X", "start": 0, "end": 3}],
+        )
+        cfg = TheoryOverlayConfig(enabled=True, segment="Γ-X",
+                                  band_indices="0", crystal_a=4.0)
+        _i, k, band = select_bands_for_view(
+            data, cfg, xlim=(-9, 9), ylim=(-9, 9))[0]
+        kk = np.asarray(k)[np.isfinite(band)]
+        # k[π/a] = dist · a/π : Γ=0, X = 1.5·4/π
+        assert kk[0] == pytest.approx(0.0)
+        assert kk[-1] == pytest.approx(1.5 * 4.0 / np.pi)
+
+    def test_fallback_normalized_when_no_a(self):
+        n = 4
+        data = TheoryBandData(
+            source="materials_project", material_id="mp-x",
+            k_distance=[0, 1, 2, 3],
+            k_distance_abs=[0.0, 0.5, 1.0, 1.5],
+            bands=[[1.0] * n],
+            branches=[{"name": "\\Gamma-X", "start": 0, "end": 3}],
+        )
+        cfg = TheoryOverlayConfig(enabled=True, segment="Γ-X",
+                                  band_indices="0", crystal_a=0.0)
+        _i, k, band = select_bands_for_view(
+            data, cfg, xlim=(-9, 9), ylim=(-9, 9))[0]
+        kk = np.asarray(k)[np.isfinite(band)]
+        assert kk.min() == pytest.approx(0.0)
+        assert kk.max() == pytest.approx(1.0)  # [0,1] legacy
+
+    def test_roundtrip_abs_and_crystal_a(self):
+        d = TheoryBandData(source="x", material_id="m",
+                            bands=[[0.0]], k_distance=[0.0],
+                            k_distance_abs=[0.0, 1.0])
+        assert TheoryBandData.from_dict(d.to_dict()).k_distance_abs == [0.0, 1.0]
+        c = TheoryOverlayConfig.from_dict({"crystal_a": 4.143})
+        assert c.crystal_a == pytest.approx(4.143)
+        assert TheoryOverlayConfig.from_dict({}).crystal_a == 0.0
+
+
 class TestSchemaRetrocompat:
     def test_legacy_dict_without_new_keys(self):
         legacy = {

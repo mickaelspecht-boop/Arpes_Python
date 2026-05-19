@@ -355,6 +355,7 @@ class FitParamsPanel(QScrollArea):
             ),
             "color_by_band": bool(self.chk_theory_color.isChecked()),
             "with_projections": bool(self.chk_theory_projections.isChecked()),
+            "crystal_a": float(self.sp_crystal_a.value()),
         }
 
     def set_theory_overlay_state(self, overlay: dict):

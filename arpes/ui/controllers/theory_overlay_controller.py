@@ -300,11 +300,22 @@ class TheoryOverlayController:
                 self._params.sp_theory_kscale.blockSignals(False)
                 self._params.sp_theory_dk.blockSignals(False)
                 self._on_theory_overlay_changed()
-                self._parent._status(
-                    f"Aligné {segment} (chemin MP réel) : Γ→0, bord de "
-                    f"zone→1 (π/a). scale=1, Δk=0. Active « Miroir Γ » "
-                    f"si scan symétrique. ΔE encore manuel."
-                )
+                has_abs = bool(data_d.get("k_distance_abs"))
+                a_val = float(self._params.sp_crystal_a.value())
+                if has_abs and a_val > 0:
+                    msg = (
+                        f"Aligné {segment} : échelle PHYSIQUE "
+                        f"(Å⁻¹·a/π, a={a_val:.4f} Å). Γ→0, X→1, M→√2. "
+                        f"scale=1, Δk=0. Miroir Γ si scan symétrique. "
+                        f"ΔE encore manuel."
+                    )
+                else:
+                    msg = (
+                        f"Aligné {segment} (chemin MP) : Γ→0, bord→1 "
+                        f"(échelle normalisée — renseigne « a cristal » "
+                        f"pour l'échelle physique exacte). scale=1, Δk=0."
+                    )
+                self._parent._status(msg)
                 return
         if "-" not in segment:
             self._parent._status("Attention: segment sans extrémités, aligner impossible.")
