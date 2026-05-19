@@ -33,6 +33,30 @@ class TestBZPresets(unittest.TestCase):
                 self.assertEqual(poly.shape[1], 2)
                 np.testing.assert_allclose(poly[0], poly[-1])
 
+    def test_rectangle_labels_xys(self):
+        pts = bz_high_symmetry_points("rectangle", 1.0, 0.75)
+        by_lbl = {}
+        for x, y, lbl, _c in pts:
+            by_lbl.setdefault(lbl, []).append((round(x, 6), round(y, 6)))
+        self.assertIn((1.0, 0.0), by_lbl["X"])
+        self.assertIn((0.0, 0.75), by_lbl["Y"])
+        self.assertIn((1.0, 0.75), by_lbl["S"])
+        self.assertNotIn("M", by_lbl)  # M réservé carré/hexagonal
+
+    def test_centered_rect_no_m(self):
+        labels = {p[2] for p in bz_high_symmetry_points("centered_rect", 1.0, 0.75)}
+        self.assertEqual(labels, {"Γ", "X", "S"})
+
+    def test_oblique_only_gamma_named(self):
+        named = [p[2] for p in bz_high_symmetry_points("oblique", 1.0, 0.8, 75.0)
+                 if p[2]]
+        self.assertEqual(named, ["Γ"])
+
+    def test_square_m_corner_preserved(self):
+        pts = bz_high_symmetry_points("square", 1.0, 1.0)
+        m = [(round(x, 6), round(y, 6)) for x, y, lbl, _c in pts if lbl == "M"]
+        self.assertIn((1.0, 1.0), m)
+
     def test_oblique_angle_changes_polygon(self):
         poly_60 = bz_polygon("oblique", 1.0, 0.8, angle_deg=60.0)
         poly_110 = bz_polygon("oblique", 1.0, 0.8, angle_deg=110.0)

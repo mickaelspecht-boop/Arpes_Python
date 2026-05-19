@@ -332,7 +332,7 @@ def _sniff_columns_by_content(df, columns: list[str]) -> dict[str, str]:
     out: dict[str, str] = {}
     POL_TOKENS = {"LH", "LV", "RC", "LC", "σ", "π", "s", "p", "S", "P",
                   "C+", "C-", "RCP", "LCP", "lin", "circ"}
-    DIR_HINTS = ("Γ", "GAMMA", "M", "X", "K", "Σ", "SIGMA")
+    DIR_HINTS = ("Γ", "GAMMA", "M", "X", "Y", "K", "S", "Σ", "SIGMA")
     FILE_EXT = (".ibw", ".zip", ".txt", ".dat", ".h5", ".hdf5", ".nxs", ".pxt")
 
     def col_values(col):

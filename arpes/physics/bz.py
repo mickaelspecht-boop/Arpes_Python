@@ -141,7 +141,16 @@ def bz_high_symmetry_points(
     half_y: float,
     angle_deg: float = 90.0,
 ) -> list[tuple[float, float, str, str]]:
-    """Points d'aide visuelle: (x, y, label, color)."""
+    """Points d'aide visuelle: (x, y, label, color).
+
+    Labels = conventions cristallo 2D utilisées par les physiciens :
+    - carré (tétragonal)      : Γ, X (centre d'arête), M (coin)
+    - hexagonal               : Γ, K (sommet), M (centre d'arête)
+    - rectangle (orthorhombique) : Γ, X=(π/a,0), Y=(0,π/b), S (coin)
+    - rectangle centré        : Γ, X (centre d'arête), S (sommet ZDB)
+    - oblique                 : Γ seul ; sommets marqués sans label
+      (aucun point haute-symétrie standard au-delà de Γ).
+    """
     bx = max(float(half_x), 1e-9)
     by = max(float(half_y), 1e-9)
     points = [(0.0, 0.0, "Γ", "white")]
@@ -155,16 +164,33 @@ def bz_high_symmetry_points(
             mid = 0.5 * (a + b)
             points.append((float(mid[0]), float(mid[1]), "M", "cyan"))
         return points
-    if shape in {"square", "rectangle"}:
+    if shape == "square":
         for x, y in [(bx, 0), (-bx, 0), (0, by), (0, -by)]:
             points.append((x, y, "X", "cyan"))
         for x, y in [(bx, by), (bx, -by), (-bx, by), (-bx, -by)]:
             points.append((x, y, "M", "lime"))
         return points
+    if shape == "rectangle":
+        # Orthorhombique : arêtes inéquivalentes X≠Y, coin = S (≠ M).
+        for x, y in [(bx, 0), (-bx, 0)]:
+            points.append((x, y, "X", "cyan"))
+        for x, y in [(0, by), (0, -by)]:
+            points.append((x, y, "Y", "deepskyblue"))
+        for x, y in [(bx, by), (bx, -by), (-bx, by), (-bx, -by)]:
+            points.append((x, y, "S", "lime"))
+        return points
     poly = bz_polygon(shape, bx, by, angle_deg)[:-1]
-    for a, b in zip(poly, np.roll(poly, -1, axis=0)):
-        mid = 0.5 * (a + b)
-        points.append((float(mid[0]), float(mid[1]), "X", "cyan"))
+    if shape == "centered_rect":
+        # ZDB hexagonale du réseau centré : centres d'arête → X,
+        # sommets → S. Pas de M (réservé carré/hexagonal).
+        for a, b in zip(poly, np.roll(poly, -1, axis=0)):
+            mid = 0.5 * (a + b)
+            points.append((float(mid[0]), float(mid[1]), "X", "cyan"))
+        for x, y in poly:
+            points.append((float(x), float(y), "S", "lime"))
+        return points
+    # oblique : aucun label haute-symétrie standard hors Γ. On marque les
+    # sommets sans nom (repère visuel, pas de label trompeur X/M).
     for x, y in poly:
-        points.append((float(x), float(y), "M", "lime"))
+        points.append((float(x), float(y), "", "#9ca3af"))
     return points
