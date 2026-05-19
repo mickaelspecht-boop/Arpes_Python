@@ -418,6 +418,14 @@ class FitParamsPanel(QScrollArea):
             except (TypeError, ValueError):
                 ef_txt = ""
             txt = f"{prefix} {mpid}.{ef_txt} Guide visuel, alignement manuel requis."
+            cs = str(data.get("crystal_system") or "")
+            if source == "materials_project":
+                cs_txt = f" {cs}" if cs else ""
+                txt += (
+                    f"\nChemin = ZB BULK 3D{cs_txt} (Setyawan : Γ,X,P,N,Z…). "
+                    "L'overlay FS utilise la ZB SURFACE 2D (Γ,X,M,Y,S) : "
+                    "noms différents normaux (3D bulk ≠ 2D surface)."
+                )
             if warning:
                 txt += f" Attention: {warning}"
             comparison = overlay.get("comparison") or []

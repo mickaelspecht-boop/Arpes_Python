@@ -30,6 +30,10 @@ class TheoryBandData:
     # {name, start, end} (indices dans k_distance). Vide pour DFT local
     # legacy → fallback ancien comportement par position de label.
     branches: list[dict[str, Any]] = field(default_factory=list)
+    # Système cristallin MP (ex "tetragonal") : sert à clarifier que le
+    # chemin MP est la ZB BULK 3D (Setyawan : Γ,X,P,N,Z…), distincte de
+    # la ZB SURFACE 2D de l'overlay FS (Γ,X,M,Y,S). Optionnel/rétrocompat.
+    crystal_system: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +50,7 @@ class TheoryBandData:
             "band_meta": self.band_meta,
             "band_character": self.band_character,
             "branches": self.branches,
+            "crystal_system": self.crystal_system,
         }
 
     @classmethod
@@ -65,6 +70,7 @@ class TheoryBandData:
             band_meta=[dict(x) for x in (data.get("band_meta") or [])],
             band_character=[str(x) for x in (data.get("band_character") or [])],
             branches=[dict(x) for x in (data.get("branches") or [])],
+            crystal_system=str(data.get("crystal_system") or ""),
         )
 
 
@@ -525,6 +531,7 @@ def bandstructure_to_theory_data(
     source: str = "materials_project",
     path_type: str = "setyawan_curtarolo",
     with_projections: bool = False,
+    crystal_system: str = "",
 ) -> TheoryBandData:
     """Convert a pymatgen-like band structure object to JSON-safe arrays."""
     efermi = _finite_float(getattr(bandstructure, "efermi", 0.0), 0.0)
@@ -564,6 +571,7 @@ def bandstructure_to_theory_data(
         band_meta=band_meta,
         band_character=band_character,
         branches=branches,
+        crystal_system=str(crystal_system or ""),
     )
 
 

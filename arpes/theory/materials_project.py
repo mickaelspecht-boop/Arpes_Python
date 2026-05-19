@@ -48,6 +48,7 @@ def load_materials_project_band_data(
         with MPRester(api_key) as mpr:
             bs = _get_bandstructure(mpr, mpid, path_type=path_type)
             formula = _get_formula(mpr, mpid)
+            crystal_system = _get_crystal_system(mpr, mpid)
     except Exception as exc:
         raise RuntimeError(f"Import Materials Project échoué pour {mpid}: {exc}") from exc
 
@@ -55,6 +56,7 @@ def load_materials_project_band_data(
         bs,
         material_id=mpid,
         formula=formula,
+        crystal_system=crystal_system,
         source="materials_project",
         path_type=path_type,
         with_projections=with_projections,
@@ -140,5 +142,21 @@ def _get_formula(mpr, material_id: str) -> str:
             fields=["formula_pretty"],
         )
         return str(docs[0].formula_pretty) if docs else ""
+    except Exception:
+        return ""
+
+
+def _get_crystal_system(mpr, material_id: str) -> str:
+    """Système cristallin MP (ex 'Tetragonal'). "" si indispo/offline."""
+    try:
+        docs = mpr.materials.summary.search(
+            material_ids=[material_id],
+            fields=["symmetry"],
+        )
+        if not docs:
+            return ""
+        sym = getattr(docs[0], "symmetry", None)
+        cs = getattr(sym, "crystal_system", "") if sym else ""
+        return str(cs or "")
     except Exception:
         return ""

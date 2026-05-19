@@ -280,8 +280,32 @@ class TheoryOverlayController:
             self._parent._status("Attention: importer une DFT avant alignement.")
             return
         segment = self._params.cmb_theory_segment.currentText().strip()
-        if not segment or "-" not in segment:
-            self._parent._status("Attention: choisir un segment Γ-X (ou autre) avant aligner.")
+        if not segment:
+            self._parent._status("Attention: choisir un segment avant aligner.")
+            return
+        # Chemin MP réel : _branch_local_k mappe déjà la branche sur
+        # [0,1] (Γ→0, bord de zone→1 en π/a). Recalculer depuis les
+        # positions de label sur l'axe global double-transformerait
+        # l'overlay (cause du hors-cadre). → scale=1, Δk=0.
+        branches = data_d.get("branches") or []
+        if branches:
+            from arpes.theory.models import _branch_index_for_segment
+            if _branch_index_for_segment(branches, segment) is not None:
+                self._params.sp_theory_kscale.blockSignals(True)
+                self._params.sp_theory_dk.blockSignals(True)
+                self._params.sp_theory_kscale.setValue(1.0)
+                self._params.sp_theory_dk.setValue(0.0)
+                self._params.sp_theory_kscale.blockSignals(False)
+                self._params.sp_theory_dk.blockSignals(False)
+                self._on_theory_overlay_changed()
+                self._parent._status(
+                    f"Aligné {segment} (chemin MP réel) : Γ→0, bord de "
+                    f"zone→1 (π/a). scale=1, Δk=0. Active « Miroir Γ » "
+                    f"si scan symétrique. ΔE encore manuel."
+                )
+                return
+        if "-" not in segment:
+            self._parent._status("Attention: segment sans extrémités, aligner impossible.")
             return
         a, b = [s.strip() for s in segment.split("-", 1)]
         pos = {

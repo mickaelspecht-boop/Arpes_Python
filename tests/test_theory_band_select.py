@@ -245,6 +245,12 @@ class TestSchemaRetrocompat:
         assert again.band_meta[0]["crosses_ef"] is True
         assert again.schema_version == 2
 
+    def test_crystal_system_legacy_default_and_roundtrip(self):
+        assert TheoryBandData.from_dict({"material_id": "mp-1"}).crystal_system == ""
+        d = TheoryBandData(source="materials_project", material_id="mp-1",
+                            crystal_system="Tetragonal")
+        assert TheoryBandData.from_dict(d.to_dict()).crystal_system == "Tetragonal"
+
     def test_config_new_keys_default(self):
         c = TheoryOverlayConfig.from_dict({})
         assert c.ef_window == 0.0
