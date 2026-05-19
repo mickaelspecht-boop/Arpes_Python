@@ -131,6 +131,7 @@ def _build_carte_tab(window) -> QWidget:
     carte_lay.addLayout(vbar)
 
     window._bm_canvas = MplCanvas(figsize=(7, 6), toolbar=True)
+    window._bm_canvas.reset_callback = window._reset_bm_view
     carte_lay.addWidget(window._bm_canvas, stretch=1)
     return carte_widget
 

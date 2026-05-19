@@ -249,11 +249,12 @@ class PlotController:
     # Band map
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _draw_current_view(self, *, include_curves: bool = True):
+    def _draw_current_view(self, *, include_curves: bool = True,
+                           overlays_only: bool = False):
         tabs = getattr(self, "_tabs", None)
         index = tabs.currentIndex() if tabs is not None else 0
         if index == 0:
-            self._draw_bm()
+            self._draw_bm(overlays_only=overlays_only)
         elif index == 1:
             self._draw_mdc_energy_map()
             if include_curves:
@@ -264,7 +265,35 @@ class PlotController:
         elif index == 3:
             self._draw_fs_tab()
 
-    def _draw_bm(self):
+    def _reset_bm_view(self):
+        """Recale la BM sur l'étendue des données (kpar/ev courant).
+
+        pcolormesh + autoscale_on(False) → relim/autoscale matplotlib ne
+        restaure PAS le cadre data (cause du « dur de revenir au graphe
+        initial après zoom »). On fixe les limites explicitement.
+        """
+        if self._data_disp is None:
+            return
+        d = self._raw_data
+        disp = self._data_disp
+        kpar = getattr(self, "_data_disp_kpar", None)
+        ev = getattr(self, "_data_disp_ev", None)
+        if (kpar is None or ev is None
+                or kpar.size != disp.shape[0] or ev.size != disp.shape[1]):
+            kpar = d["kpar"]; ev = d["ev_arr"]
+        ax = self._bm_canvas.ax
+        kp = np.asarray(kpar, dtype=float)
+        ee = np.asarray(ev, dtype=float)
+        try:
+            if np.isfinite(kp).any():
+                ax.set_xlim(float(np.nanmin(kp)), float(np.nanmax(kp)))
+            if np.isfinite(ee).any():
+                ax.set_ylim(float(np.nanmin(ee)), float(np.nanmax(ee)))
+        except (ValueError, TypeError):
+            return
+        self._bm_canvas.redraw()
+
+    def _draw_bm(self, *, overlays_only: bool = False):
         if self._data_disp is None:
             return
         d    = self._raw_data
@@ -276,6 +305,32 @@ class PlotController:
             kpar = d["kpar"]; ev = d["ev_arr"]
 
         ax = self._bm_canvas.ax
+        # FAST PATH (C) : changement purement cosmétique (théorie, distorsion
+        # preview, marqueur Γ…). Le mesh + les couleurs sont déjà à l'écran
+        # et inchangés → on ne recalcule NI les color kwargs (percentile sur
+        # tout le tableau) NI le pcolormesh ; on ne rafraîchit que les
+        # overlays. Limites intouchées → zoom préservé.
+        state = getattr(self._parent, "_bm_plot_state", None)
+        plot_key = getattr(self._parent, "_disp_cache_key", None)
+        data_key = getattr(self._parent, "_bm_plot_data_key", None)
+        if (
+            overlays_only
+            and state is not None
+            and getattr(state, "mesh", None) is not None
+            and plot_key == data_key
+        ):
+            self._clear_plot_overlays(ax)
+            before = self._axis_artist_snapshot(ax)
+            self._draw_fit_roi_overlay(ax)
+            self._draw_theory_overlay(ax)
+            self._draw_kf_overlay(ax)
+            self._draw_gamma_preview_axvline(ax)
+            self._draw_distortion_preview_overlay(ax)
+            self._draw_ef_label(ax, horizontal=True)
+            self._tag_new_plot_overlays(ax, before)
+            self._bm_canvas.redraw()
+            return
+
         self._clear_plot_overlays(ax)
         cmap, ckw = self._map_color_kwargs(disp, mode, roi_scale=False)
         int_win = self._params.sp_int_win.value()

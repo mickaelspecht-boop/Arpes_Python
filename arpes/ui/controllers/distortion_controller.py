@@ -168,7 +168,9 @@ class DistortionController:
         )
         self._parent._distortion_preview_visible = bool(active)
         try:
-            self._draw_current_view()
+            # preview = overlay pointillé seul : fast path (pas de
+            # recompute mesh/couleur, zoom préservé).
+            self._draw_current_view(overlays_only=True)
         except Exception:
             pass
 

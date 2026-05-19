@@ -12,6 +12,9 @@ from matplotlib.figure import Figure
 class MplCanvas(QWidget):
     def __init__(self, figsize=(5, 4), toolbar=False, nrows=1):
         super().__init__()
+        # Optionnel : recalage de vue spécifique (ex BM pcolormesh dont
+        # relim/autoscale matplotlib ne restaure pas l'étendue data).
+        self.reset_callback = None
         self.fig = Figure(figsize=figsize, tight_layout=True)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding,
@@ -36,6 +39,13 @@ class MplCanvas(QWidget):
 
     def reset_view(self):
         """Axes -> limites des données, aspect 'auto'. Pas de rétrécissement du cadre."""
+        cb = self.reset_callback
+        if callable(cb):
+            try:
+                cb()
+                return
+            except Exception:
+                pass  # repli sur le reset générique ci-dessous
         for ax in self.axes:
             try:
                 ax.set_aspect("auto")

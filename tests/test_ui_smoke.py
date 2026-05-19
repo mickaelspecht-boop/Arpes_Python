@@ -81,6 +81,17 @@ class TestUiSmoke(unittest.TestCase):
         self.assertIn("trapezoid", cfg)
         self.assertIn("parabola", cfg)
 
+    def test_reset_view_and_fast_path_wired(self):
+        win = self._make_window()
+        # A : reset BM branché sur le canvas + proxy résout
+        self.assertTrue(callable(getattr(win, "_reset_bm_view")))
+        self.assertEqual(win._bm_canvas.reset_callback, win._reset_bm_view)
+        # _reset_bm_view sans données : no-op sûr
+        win._reset_bm_view()
+        # C : fast path overlays-only sans données : no-op sûr
+        win._draw_bm(overlays_only=True)
+        win._draw_current_view(overlays_only=True)
+
 
 if __name__ == "__main__":
     unittest.main()

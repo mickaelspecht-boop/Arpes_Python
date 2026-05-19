@@ -189,7 +189,9 @@ class TheoryOverlayController:
         overlay["config"] = cfg
         overlay.pop("comparison", None)
         self._save_overlay(overlay)
-        self._parent._draw_current_view(include_curves=False)
+        # Overlay DFT = cosmétique : fast path (skip recompute mesh/couleur,
+        # zoom préservé).
+        self._parent._draw_current_view(include_curves=False, overlays_only=True)
 
     def _compare_theory_overlay(self) -> None:
         overlay = dict(self._current_overlay() or {})
