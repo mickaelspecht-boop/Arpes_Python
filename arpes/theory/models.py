@@ -6,7 +6,7 @@ Existing imports from ``arpes.theory.models`` stay valid.
 """
 from __future__ import annotations
 
-from arpes.theory.comparison import compare_fit_to_theory
+from arpes.theory.comparison import compare_fit_to_theory, fit_mu_shift
 from arpes.theory.conversion import (
     _branches_from_bandstructure,
     _k_distance_abs_from_bandstructure,
@@ -44,6 +44,7 @@ __all__ = [
     "bandstructure_to_theory_data",
     "branch_display_names",
     "compare_fit_to_theory",
+    "fit_mu_shift",
     "displayed_k_axis",
     "filter_bands_for_view",
     "normalize_direction_label",

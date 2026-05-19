@@ -15,7 +15,7 @@ from arpes.theory.band_picker import validate_picker_data
 from arpes.theory.band_select import format_band_indices
 from arpes.theory.local_loaders import load_local_band_data
 from arpes.theory.materials_project import load_materials_project_band_data
-from arpes.theory.models import available_segments, compare_fit_to_theory, parse_band_indices, segment_from_direction
+from arpes.theory.models import available_segments, compare_fit_to_theory, fit_mu_shift, parse_band_indices, segment_from_direction
 from arpes.theory.plot import draw_theory_overlay
 
 
@@ -297,6 +297,32 @@ class TheoryOverlayController:
             "Comparaison DFT guide visuel: "
             f"bande {best['band_index']} {best['branch']} paire {best['pair_index'] + 1} "
             f"RMS={best['rms_e'] * 1000:.0f} meV sur {best['n_points']} points."
+        )
+
+    def _fit_theory_mu_auto(self) -> None:
+        overlay = dict(self._current_overlay() or {})
+        if not overlay.get("data"):
+            self._parent._status("Attention: importer une DFT avant l'ajustement μ.")
+            return
+        if not self._parent._fit_res:
+            self._parent._status("Attention: faire un fit MDC avant l'ajustement μ.")
+            return
+        cfg = self._params.theory_overlay_config()
+        res = fit_mu_shift(overlay.get("data") or {}, cfg, self._parent._fit_res)
+        if res is None:
+            self._parent._status(
+                "Ajustement μ: aucun recouvrement suffisant. Ajuster segment, Z, Δk ou scale k."
+            )
+            return
+        self._params.sp_theory_mu.blockSignals(True)
+        self._params.sp_theory_mu.setValue(float(res["mu"]))
+        self._params.sp_theory_mu.blockSignals(False)
+        self._params._schedule_theory_overlay_changed()
+        self._parent._status(
+            f"μ ajusté: {res['mu_before'] * 1000:+.0f} → {res['mu'] * 1000:+.0f} meV "
+            f"(bande {res['band_index']} {res['branch']} P{res['pair_index'] + 1}, "
+            f"RMS {res['rms_before'] * 1000:.0f} → {res['rms_after'] * 1000:.0f} meV, "
+            f"{res['n_points']} pts)"
         )
 
     def _calculate_self_energy(self) -> None:

@@ -106,6 +106,7 @@ PROXY_MAP = {
     "_clear_theory_overlay": "_theory_overlay_ctrl",
     "_on_theory_overlay_changed": "_theory_overlay_ctrl",
     "_compare_theory_overlay": "_theory_overlay_ctrl",
+    "_fit_theory_mu_auto": "_theory_overlay_ctrl",
     "_calculate_self_energy": "_theory_overlay_ctrl",
     "_draw_theory_overlay": "_theory_overlay_ctrl",
     "_restore_theory_overlay_for_entry": "_theory_overlay_ctrl",

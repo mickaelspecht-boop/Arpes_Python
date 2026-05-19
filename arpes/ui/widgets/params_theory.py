@@ -165,6 +165,13 @@ def build_theory_section(panel, lay) -> None:
         "contre le fit MDC courant, puis ouvre un plot diagnostic."
     )
     btn_self_energy.clicked.connect(panel.self_energy_requested)
+    btn_theory_mu_fit = QPushButton("Ajuster μ auto")
+    btn_theory_mu_fit.setToolTip(
+        "Calcule le μ qui aligne au mieux la bande DFT sélectionnée sur les\n"
+        "points kF fittés (moindres carrés, médiane robuste). Écrit Shift μ.\n"
+        "Nécessite un fit MDC et une DFT importée."
+    )
+    btn_theory_mu_fit.clicked.connect(panel.theory_mu_fit_requested)
     btn_theory_align = QPushButton("Aligner π/a")
     btn_theory_align.setToolTip(
         "Calcule scale k et Δk pour mapper le segment choisi sur [0, 1] (π/a).\n"
@@ -205,7 +212,7 @@ def build_theory_section(panel, lay) -> None:
     source_btns = _btn_grid([
         btn_theory_refresh, btn_theory_local_import, btn_theory_clear,
     ])
-    align_btns = _btn_grid([btn_theory_align, btn_theory_efalign])
+    align_btns = _btn_grid([btn_theory_mu_fit, btn_theory_align, btn_theory_efalign])
     diag_btns = _btn_grid([btn_theory_compare, btn_self_energy])
 
     panel.lbl_theory_status = QLabel("Guide visuel uniquement.")
