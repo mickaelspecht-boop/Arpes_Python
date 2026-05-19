@@ -121,6 +121,15 @@ class TheoryOverlayController:
                 with_projections=bool(cfg.get("with_projections", False)),
                 force_refresh=force_refresh,
             )
+            # Cache legacy (pré-branches) : re-fetch auto une seule fois
+            # pour récupérer le vrai chemin MP au lieu d'afficher tout
+            # le path tassé. Évite d'exiger le clic « Rafraîchir ».
+            if not force_refresh and not data.branches:
+                data = load_materials_project_band_data(
+                    mpid, cache_dir=cache_root,
+                    with_projections=bool(cfg.get("with_projections", False)),
+                    force_refresh=True,
+                )
             entry = self._parent._current_entry()
             direction = entry.meta.direction if entry is not None else ""
             segment = segment_from_direction(direction, data.labels, data.branches)

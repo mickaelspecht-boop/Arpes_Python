@@ -314,7 +314,9 @@ def select_bands_for_view(
     config = TheoryOverlayConfig.from_dict(config) if isinstance(config, dict) else config
     if not config.enabled or not data.k_distance or not data.bands:
         return []
-    k = np.asarray(data.k_distance, dtype=float) * float(config.k_scale) + float(config.k_shift)
+    k_raw = np.asarray(data.k_distance, dtype=float)
+    k = _branch_local_k(data, config, k_raw)
+    k = k * float(config.k_scale) + float(config.k_shift)
     bands = np.asarray(data.bands, dtype=float) + float(config.energy_shift)
     if bands.ndim != 2 or bands.shape[1] != k.size:
         return []
@@ -440,6 +442,39 @@ def compare_fit_to_theory(
                 })
     out.sort(key=lambda item: (item["rms_e"], -item["n_points"]))
     return out[: int(max_results)]
+
+
+def _branch_local_k(
+    data: TheoryBandData, config: TheoryOverlayConfig, k_raw: np.ndarray
+) -> np.ndarray:
+    """Coordonnée k LOCALE à la branche choisie : Γ→0, bord de zone→1
+    (en π/a, l'utilisateur applique k_scale). Évite que tout le chemin
+    multi-branches reste tassé sur [-1,1] (overlay illisible).
+
+    Sans branches MP ou sans segment : renvoie l'axe global inchangé
+    (comportement legacy préservé).
+    """
+    if not data.branches or not config.segment:
+        return k_raw
+    br = _branch_index_for_segment(data.branches, config.segment)
+    if br is None:
+        return k_raw
+    try:
+        s = int(br.get("start", 0))
+        e = int(br.get("end", k_raw.size - 1))
+    except (TypeError, ValueError):
+        return k_raw
+    s, e = max(0, min(s, e)), min(k_raw.size - 1, max(s, e))
+    span = max(e - s, 1)
+    loc = np.full(k_raw.size, np.nan, dtype=float)
+    frac = (np.arange(s, e + 1, dtype=float) - s) / span  # 0..1
+    name = _clean_segment_name(str(br.get("name", "")))
+    left, _, right = name.partition("-")
+    # Γ placé à 0 : si Γ est l'extrémité finale de la branche, on inverse.
+    if right.strip() == "Γ" and left.strip() != "Γ":
+        frac = 1.0 - frac
+    loc[s:e + 1] = frac
+    return loc
 
 
 def _segment_mask(data: TheoryBandData, config: TheoryOverlayConfig, n_k: int) -> np.ndarray:

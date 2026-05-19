@@ -177,6 +177,48 @@ class TestRealMpBranches:
         assert finite.min() == 9 and finite.max() == 11
 
 
+class TestBranchLocalK:
+    def _data(self, branches):
+        n = 12
+        return TheoryBandData(
+            source="materials_project", material_id="mp-x",
+            k_distance=[float(i) for i in range(n)],  # 0..11 global
+            bands=[[1.0] * n], branches=branches,
+        )
+
+    def test_gamma_x_local_0_to_1(self):
+        data = self._data([{"name": "\\Gamma-X", "start": 0, "end": 5}])
+        cfg = TheoryOverlayConfig(enabled=True, segment="Γ-X",
+                                  band_indices="0")
+        _i, k, band = select_bands_for_view(
+            data, cfg, xlim=(-9, 9), ylim=(-9, 9))[0]
+        kk = np.asarray(k)[np.isfinite(band)]
+        assert kk.min() == pytest.approx(0.0)  # Γ
+        assert kk.max() == pytest.approx(1.0)  # bord zone
+
+    def test_x_gamma_inverted_gamma_at_zero(self):
+        data = self._data([{"name": "X-\\Gamma", "start": 0, "end": 5}])
+        cfg = TheoryOverlayConfig(enabled=True, segment="X-Γ",
+                                  band_indices="0")
+        _i, k, band = select_bands_for_view(
+            data, cfg, xlim=(-9, 9), ylim=(-9, 9))[0]
+        kk = np.asarray(k)
+        # Γ (extrémité finale start..end) doit être ramené à k=0
+        assert kk[5] == pytest.approx(0.0)
+        assert kk[0] == pytest.approx(1.0)
+
+    def test_no_branches_keeps_global_axis(self):
+        n = 4
+        data = TheoryBandData(
+            source="local", material_id="x",
+            k_distance=[0.0, 1.0, 2.0, 3.0], bands=[[1.0] * n],
+        )
+        cfg = TheoryOverlayConfig(enabled=True, band_indices="0")
+        _i, k, _b = select_bands_for_view(
+            data, cfg, xlim=(-9, 9), ylim=(-9, 9))[0]
+        assert np.allclose(k, [0.0, 1.0, 2.0, 3.0])
+
+
 class TestSchemaRetrocompat:
     def test_legacy_dict_without_new_keys(self):
         legacy = {
