@@ -132,6 +132,13 @@ def build_theory_section(panel, lay) -> None:
     btn_theory_import = QPushButton("Importer MP")
     btn_theory_import.setToolTip("Importe les bandes DFT depuis le MP-ID saisi (réseau).")
     btn_theory_import.clicked.connect(panel.theory_import_requested)
+    btn_theory_refresh = QPushButton("Rafraîchir MP")
+    btn_theory_refresh.setToolTip(
+        "Ré-importe le MP-ID en ignorant le cache disque.\n"
+        "Nécessaire pour récupérer le vrai chemin de bandes MP\n"
+        "(branches) si l'import a été mis en cache avant cette version."
+    )
+    btn_theory_refresh.clicked.connect(panel.theory_refresh_requested)
     btn_theory_local_import = QPushButton("Importer local")
     btn_theory_local_import.setToolTip(
         "Importe des bandes DFT locales depuis vasprun.xml, table QE .dat/.txt,\n"
@@ -173,9 +180,9 @@ def build_theory_section(panel, lay) -> None:
     # grille 3 colonnes : largeur min ≈ 3 boutons au lieu de 7 → la colonne de
     # paramètres ne déborde plus l'écran.
     _grid_btns = [
-        btn_theory_import, btn_theory_local_import, btn_theory_clear,
-        btn_theory_align, btn_theory_efalign, btn_theory_compare,
-        btn_self_energy,
+        btn_theory_import, btn_theory_refresh, btn_theory_local_import,
+        btn_theory_clear, btn_theory_align, btn_theory_efalign,
+        btn_theory_compare, btn_self_energy,
     ]
     for i, b in enumerate(_grid_btns):
         b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)

@@ -314,6 +314,7 @@ class ArpesExplorer(QMainWindow):
         "_save_kz_session": "_kz_ctrl",
         # THEORY_OVERLAY
         "_import_theory_overlay": "_theory_overlay_ctrl",
+        "_refresh_theory_overlay": "_theory_overlay_ctrl",
         "_import_local_theory_overlay": "_theory_overlay_ctrl",
         "_clear_theory_overlay": "_theory_overlay_ctrl",
         "_on_theory_overlay_changed": "_theory_overlay_ctrl",

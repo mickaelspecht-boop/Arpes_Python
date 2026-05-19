@@ -11,7 +11,10 @@ from arpes.theory.band_select import (
 from arpes.theory.models import (
     TheoryBandData,
     TheoryOverlayConfig,
+    available_segments,
+    branch_display_names,
     parse_band_indices,
+    segment_from_direction,
     select_bands_for_view,
 )
 
@@ -113,6 +116,65 @@ class TestSelectBandsForView:
         assert [c[0] for c in curves] == [1, 1]
         # second = miroir k -> -k
         assert np.allclose(curves[1][1], -np.asarray(curves[0][1]))
+
+
+class TestRealMpBranches:
+    BR = [
+        {"name": "\\Gamma-X", "start": 0, "end": 2},
+        {"name": "X-M", "start": 3, "end": 5},
+        {"name": "M-\\Gamma", "start": 6, "end": 8},
+        {"name": "\\Gamma-X", "start": 9, "end": 11},  # repasse
+    ]
+
+    def test_display_names_disambiguate(self):
+        assert branch_display_names(self.BR) == [
+            "Γ-X", "X-M", "M-Γ", "Γ-X (2)",
+        ]
+
+    def test_available_segments_only_real_path(self):
+        # branches présentes → on ne propose QUE le chemin réel
+        segs = available_segments([{"label": "Γ", "k": 0.0}], self.BR)
+        assert segs == ["Γ-X", "X-M", "M-Γ", "Γ-X (2)"]
+
+    def test_available_segments_fallback_without_branches(self):
+        labels = [{"label": "Γ", "k": 0.0}, {"label": "X", "k": 1.0}]
+        assert "Γ-X" in available_segments(labels, None)
+
+    def test_segment_from_direction_prefers_branches(self):
+        assert segment_from_direction("Gamma-X", [], self.BR) == "Γ-X"
+        assert segment_from_direction("M-Gamma", [], self.BR) == "M-Γ"
+        assert segment_from_direction("K-W", [], self.BR) == ""
+
+    def test_segment_mask_uses_branch_indices(self):
+        n = 12
+        bands = [[float(i) - 6 for i in range(n)]]  # rampe -6..5
+        data = TheoryBandData(
+            source="materials_project", material_id="mp-x",
+            k_distance=[float(i) for i in range(n)],
+            bands=bands, branches=self.BR,
+        )
+        cfg = TheoryOverlayConfig(enabled=True, segment="X-M",
+                                  band_indices="0")
+        curves = select_bands_for_view(data, cfg, xlim=(-99, 99),
+                                       ylim=(-99, 99))
+        _idx, _k, band = curves[0]
+        finite = np.where(np.isfinite(band))[0]
+        # X-M = indices 3..5 uniquement
+        assert finite.min() == 3 and finite.max() == 5
+
+    def test_second_occurrence_distinct_window(self):
+        n = 12
+        data = TheoryBandData(
+            source="materials_project", material_id="mp-x",
+            k_distance=[float(i) for i in range(n)],
+            bands=[[1.0] * n], branches=self.BR,
+        )
+        cfg = TheoryOverlayConfig(enabled=True, segment="Γ-X (2)",
+                                  band_indices="0")
+        _i, _k, band = select_bands_for_view(
+            data, cfg, xlim=(-99, 99), ylim=(-99, 99))[0]
+        finite = np.where(np.isfinite(band))[0]
+        assert finite.min() == 9 and finite.max() == 11
 
 
 class TestSchemaRetrocompat:

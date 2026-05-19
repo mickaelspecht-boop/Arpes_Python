@@ -26,6 +26,10 @@ class TheoryBandData:
     schema_version: int = 2
     band_meta: list[dict[str, Any]] = field(default_factory=list)
     band_character: list[str] = field(default_factory=list)
+    # Vrai chemin k parcouru par MP : liste ordonnée
+    # {name, start, end} (indices dans k_distance). Vide pour DFT local
+    # legacy → fallback ancien comportement par position de label.
+    branches: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +45,7 @@ class TheoryBandData:
             "schema_version": self.schema_version,
             "band_meta": self.band_meta,
             "band_character": self.band_character,
+            "branches": self.branches,
         }
 
     @classmethod
@@ -59,6 +64,7 @@ class TheoryBandData:
             schema_version=int(_finite_float(data.get("schema_version"), 1)),
             band_meta=[dict(x) for x in (data.get("band_meta") or [])],
             band_character=[str(x) for x in (data.get("band_character") or [])],
+            branches=[dict(x) for x in (data.get("branches") or [])],
         )
 
 
@@ -136,13 +142,74 @@ def normalize_direction_label(value: Any) -> str:
     return text.upper().replace("Γ", "Γ")
 
 
-def segment_from_direction(direction: str, labels: list[dict[str, Any]]) -> str:
-    """Return a matching label segment like ``Γ-X`` if present, else ``""``."""
+def branch_display_names(branches: list[dict[str, Any]] | None) -> list[str]:
+    """Noms affichables des branches MP, ordre du chemin réel.
+
+    Désambiguïse les répétitions (chemin repassant par Γ) en suffixant
+    ``(2)``, ``(3)``… à partir de la 2ᵉ occurrence d'un même nom. Le
+    résultat reste alignable 1:1 avec ``branches`` (même ordre/longueur).
+    """
+    out: list[str] = []
+    counts: dict[str, int] = {}
+    for br in branches or []:
+        name = _clean_segment_name(str(br.get("name") or ""))
+        if not name:
+            name = "?"
+        counts[name] = counts.get(name, 0) + 1
+        out.append(name if counts[name] == 1 else f"{name} ({counts[name]})")
+    return out
+
+
+def _clean_segment_name(name: str) -> str:
+    """`\\Gamma-X` / `GAMMA-X` → `Γ-X` (nettoie chaque extrémité)."""
+    if "-" not in name:
+        return _clean_label(name)
+    a, _, b = name.partition("-")
+    return f"{_clean_label(a)}-{_clean_label(b)}"
+
+
+def _branch_index_for_segment(
+    branches: list[dict[str, Any]], segment: str
+) -> dict[str, Any] | None:
+    """Retrouve la branche dont le nom affiché == segment choisi."""
+    names = branch_display_names(branches)
+    for disp, br in zip(names, branches):
+        if disp == segment:
+            return br
+    # tolérance : segment sans suffixe → 1ʳᵉ occurrence du nom
+    for disp, br in zip(names, branches):
+        if disp.split(" (")[0] == segment:
+            return br
+    return None
+
+
+def segment_from_direction(
+    direction: str,
+    labels: list[dict[str, Any]],
+    branches: list[dict[str, Any]] | None = None,
+) -> str:
+    """Return a matching segment name, else ``""``.
+
+    Si ``branches`` (vrai chemin MP) fourni, on cherche d'abord parmi
+    elles (orientation indifférente) : c'est le chemin physiquement
+    parcouru. Sinon repli sur les paires de labels consécutifs.
+    """
     norm = normalize_direction_label(direction)
     if not norm or "-" not in norm:
         return ""
     a, b = [part.strip() for part in norm.split("-", 1)]
     if not a or not b:
+        return ""
+    if branches:
+        disp_names = branch_display_names(branches)
+        for disp in disp_names:
+            base = disp.split(" (")[0]
+            if "-" not in base:
+                continue
+            la, _, lb = base.partition("-")
+            up = lambda s: s.upper().replace("GAMMA", "Γ")
+            if (up(la), up(lb)) == (a, b) or (up(lb), up(la)) == (a, b):
+                return disp
         return ""
     names = [str(item.get("label") or "") for item in labels]
     pairs = set()
@@ -156,14 +223,22 @@ def segment_from_direction(direction: str, labels: list[dict[str, Any]]) -> str:
     return ""
 
 
-def available_segments(labels: list[dict[str, Any]]) -> list[str]:
-    """Liste tous les segments DFT exploitables.
+def available_segments(
+    labels: list[dict[str, Any]],
+    branches: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """Segments DFT proposables dans le menu.
 
-    Priorité 1 : paires Γ-X (les plus utiles pour ARPES).
-    Priorité 2 : paires consécutives sur le chemin Setyawan-Curtarolo.
-    Priorité 3 : autres paires non-consécutives (utile si scan diagonal).
-    Doublons éliminés en préservant l'ordre.
+    Si ``branches`` (vrai chemin MP) présent : on ne propose QUE les
+    branches réellement parcourues, dans l'ordre du chemin (doublons
+    désambiguïsés). On ne fabrique plus de paires arbitraires non
+    parcourues — qui produisaient un overlay incohérent avec MP.
+
+    Fallback (DFT local sans branches) : ancienne énumération par
+    paires de labels.
     """
+    if branches:
+        return branch_display_names(branches)
     names = [str(item.get("label") or "") for item in labels if item.get("label")]
     out: list[str] = []
     seen: set[str] = set()
@@ -368,7 +443,25 @@ def compare_fit_to_theory(
 
 
 def _segment_mask(data: TheoryBandData, config: TheoryOverlayConfig, n_k: int) -> np.ndarray:
-    if not config.segment or "-" not in config.segment:
+    if not config.segment:
+        return np.ones(n_k, dtype=bool)
+    # Chemin MP réel : masque = plage d'indices [start, end] de la branche
+    # choisie. Exact, indépendant du rescale de l'axe k (corrige
+    # l'incohérence avec les graphes MP en ligne).
+    if data.branches:
+        br = _branch_index_for_segment(data.branches, config.segment)
+        if br is not None:
+            try:
+                s = int(br.get("start", 0))
+                e = int(br.get("end", n_k - 1))
+            except (TypeError, ValueError):
+                s, e = 0, n_k - 1
+            s, e = max(0, min(s, e)), min(n_k - 1, max(s, e))
+            mask = np.zeros(n_k, dtype=bool)
+            mask[s:e + 1] = True
+            return mask
+        return np.ones(n_k, dtype=bool)
+    if "-" not in config.segment:
         return np.ones(n_k, dtype=bool)
     left, right = [
         x.strip().upper().replace("GAMMA", "Γ")
@@ -423,6 +516,7 @@ def bandstructure_to_theory_data(
             )
         except Exception:
             band_character = []  # dégradation gracieuse (arpes-redteam)
+    branches = _branches_from_bandstructure(bandstructure, bands.shape[1])
     return TheoryBandData(
         source=source,
         material_id=material_id,
@@ -434,7 +528,33 @@ def bandstructure_to_theory_data(
         path_type=path_type,
         band_meta=band_meta,
         band_character=band_character,
+        branches=branches,
     )
+
+
+def _branches_from_bandstructure(bandstructure: Any, n_k: int) -> list[dict[str, Any]]:
+    """Vrai chemin MP : pymatgen .branches = [{name,start_index,end_index}].
+
+    Renvoie [{name, start, end}] borné à n_k. Vide si absent (DFT local)
+    → fallback ancien comportement (arpes-redteam : cache legacy OK).
+    """
+    raw = getattr(bandstructure, "branches", None)
+    if not raw:
+        return []
+    out: list[dict[str, Any]] = []
+    for br in raw:
+        try:
+            name = str(br.get("name", "") if isinstance(br, dict) else getattr(br, "name", ""))
+            s = int(br.get("start_index") if isinstance(br, dict) else getattr(br, "start_index"))
+            e = int(br.get("end_index") if isinstance(br, dict) else getattr(br, "end_index"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        s = max(0, min(s, n_k - 1))
+        e = max(0, min(e, n_k - 1))
+        if e < s:
+            s, e = e, s
+        out.append({"name": name, "start": s, "end": e})
+    return out
 
 
 def _structure_elements(bandstructure: Any) -> list[str]:

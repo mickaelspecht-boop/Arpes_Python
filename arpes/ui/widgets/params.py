@@ -92,6 +92,7 @@ class FitParamsPanel(QScrollArea):
     fit_roi_reset_requested = pyqtSignal()
     fit_undo_requested = pyqtSignal()
     theory_import_requested = pyqtSignal()
+    theory_refresh_requested = pyqtSignal()
     theory_local_import_requested = pyqtSignal()
     theory_clear_requested = pyqtSignal()
     theory_overlay_changed = pyqtSignal()

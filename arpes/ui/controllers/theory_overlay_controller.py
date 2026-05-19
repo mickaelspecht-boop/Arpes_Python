@@ -45,6 +45,18 @@ class TheoryOverlayController:
             return
         self._apply_mp_id(mpid, source="manuel", show_dialog_on_error=True)
 
+    def _refresh_theory_overlay(self) -> None:
+        """Ré-importe le MP-ID en ignorant le cache disque (récupère le
+        vrai chemin de bandes MP même si import mis en cache avant)."""
+        cfg = self._params.theory_overlay_config()
+        mpid = cfg.get("material_id", "").strip()
+        if not mpid:
+            self._parent._status("Attention: MP-ID vide pour rafraîchir DFT.")
+            return
+        self._parent._status(f"Rafraîchissement MP {mpid} (cache ignoré)…")
+        self._apply_mp_id(mpid, source="manuel", show_dialog_on_error=True,
+                          force_refresh=True)
+
     def _import_local_theory_overlay(self) -> None:
         start_dir = ""
         current = getattr(self._parent, "_current_path", None)
@@ -69,8 +81,8 @@ class TheoryOverlayController:
         cfg["material_id"] = data.material_id
         entry = self._parent._current_entry()
         direction = entry.meta.direction if entry is not None else ""
-        segment = segment_from_direction(direction, data.labels)
-        segments = available_segments(data.labels)
+        segment = segment_from_direction(direction, data.labels, data.branches)
+        segments = available_segments(data.labels, data.branches)
         if segment and not cfg.get("segment"):
             cfg["segment"] = segment
         overlay = {
@@ -94,7 +106,8 @@ class TheoryOverlayController:
         self._parent._status(f"DFT locale importée: {Path(path_s).name} | alignement manuel requis.")
 
     def _apply_mp_id(self, mpid: str, *, source: str = "manuel",
-                     show_dialog_on_error: bool = False) -> bool:
+                     show_dialog_on_error: bool = False,
+                     force_refresh: bool = False) -> bool:
         """Fetch MP + applique overlay. source ∈ {manuel, logbook}.
 
         Retourne True si succès, False sinon.
@@ -106,11 +119,12 @@ class TheoryOverlayController:
             data = load_materials_project_band_data(
                 mpid, cache_dir=cache_root,
                 with_projections=bool(cfg.get("with_projections", False)),
+                force_refresh=force_refresh,
             )
             entry = self._parent._current_entry()
             direction = entry.meta.direction if entry is not None else ""
-            segment = segment_from_direction(direction, data.labels)
-            segments = available_segments(data.labels)
+            segment = segment_from_direction(direction, data.labels, data.branches)
+            segments = available_segments(data.labels, data.branches)
             if segment and not cfg.get("segment"):
                 cfg["segment"] = segment
             overlay = {

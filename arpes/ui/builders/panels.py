@@ -302,6 +302,7 @@ def wire_param_signals(window) -> None:
     p.file_tags_changed.connect(window._on_file_tags_changed)
     # THEORY_OVERLAY: optional/removable DFT guide wiring.
     p.theory_import_requested.connect(window._import_theory_overlay)
+    p.theory_refresh_requested.connect(window._refresh_theory_overlay)
     p.theory_local_import_requested.connect(window._import_local_theory_overlay)
     p.theory_clear_requested.connect(window._clear_theory_overlay)
     p.theory_overlay_changed.connect(window._on_theory_overlay_changed)
