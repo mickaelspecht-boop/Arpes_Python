@@ -286,6 +286,7 @@ def fit_fermi_edge_per_column(
     poly_deg=2,
     auto_window=True,
     ef_search=(-0.5, 0.2),
+    fit_range=None,
     min_amplitude_ratio=0.15,
     max_ef_err_ev=0.020,
     verbose=False,
@@ -311,7 +312,9 @@ def fit_fermi_edge_per_column(
     n_k   = data.shape[0]
 
     edc_avg = np.nanmean(data, axis=0)
-    if auto_window:
+    if fit_range is not None:
+        win = tuple(sorted((float(fit_range[0]), float(fit_range[1]))))
+    elif auto_window:
         win = auto_ef_window(ev, edc_avg, half_width=half_width, search=ef_search)
     else:
         win = (-half_width, half_width)

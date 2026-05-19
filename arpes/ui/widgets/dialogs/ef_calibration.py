@@ -57,6 +57,9 @@ class EFCalibrationDialog(QDialog):
         self._current_offset = float(current_offset)
         self._metadata = metadata or {}
         self._ef_search = self._default_ef_search_range()
+        self._manual_window: tuple[float, float] | None = None
+        self._window_span = None
+        self._window_drag: dict | None = None
 
         # ── widgets ────────────────────────────────────────────────────────────
         lay = QHBoxLayout(self)
@@ -91,6 +94,7 @@ class EFCalibrationDialog(QDialog):
             "Centre la fenêtre sur le gradient max de l'EDC moyenne.\n"
             f"Recherche actuelle : {self._ef_search[0]:+.2f} à {self._ef_search[1]:+.2f} eV."
         )
+        self.chk_auto.stateChanged.connect(self._on_auto_window_toggled)
         fl.addRow(self.chk_auto)
 
         self.sp_deg = QSpinBox(); self.sp_deg.setRange(0, 4); self.sp_deg.setValue(2)
@@ -137,6 +141,9 @@ class EFCalibrationDialog(QDialog):
         right = QWidget(); rl = QVBoxLayout(right); rl.addWidget(self._canvas)
         lay.addWidget(right, 1)
 
+        self._canvas.mpl_connect("button_press_event", self._on_window_press)
+        self._canvas.mpl_connect("motion_notify_event", self._on_window_motion)
+        self._canvas.mpl_connect("button_release_event", self._on_window_release)
         self._draw_initial_preview()
 
     # ── helpers ────────────────────────────────────────────────────────────────
@@ -165,15 +172,118 @@ class EFCalibrationDialog(QDialog):
                 return (-0.5, 0.5)
         return (-0.5, 0.2)
 
+    def _edc_mean(self) -> np.ndarray:
+        return np.nanmean(self._data, axis=0)
+
+    def _fit_window(self) -> tuple[float, float]:
+        hw = float(self.sp_hw.value())
+        if self.chk_auto.isChecked():
+            return auto_ef_window(self._ev, self._edc_mean(), half_width=hw, search=self._ef_search)
+        if self._manual_window is not None:
+            return self._manual_window
+        return (-hw, hw)
+
+    def _clamp_window(self, lo: float, hi: float) -> tuple[float, float]:
+        ev_min = float(np.nanmin(self._ev))
+        ev_max = float(np.nanmax(self._ev))
+        lo, hi = sorted((float(lo), float(hi)))
+        min_width = max(0.01, float(np.nanmedian(np.abs(np.diff(np.sort(self._ev))))) * 4.0)
+        width = max(hi - lo, min_width)
+        if lo < ev_min:
+            lo = ev_min
+            hi = lo + width
+        if hi > ev_max:
+            hi = ev_max
+            lo = hi - width
+        lo = max(ev_min, lo)
+        hi = min(ev_max, hi)
+        if hi - lo < min_width:
+            mid = 0.5 * (lo + hi)
+            lo = max(ev_min, mid - min_width / 2.0)
+            hi = min(ev_max, mid + min_width / 2.0)
+        return (float(lo), float(hi))
+
+    def _set_manual_window(self, lo: float, hi: float, *, redraw: bool = True) -> None:
+        win = self._clamp_window(lo, hi)
+        self._manual_window = win
+        self.chk_auto.blockSignals(True)
+        self.chk_auto.setChecked(False)
+        self.chk_auto.blockSignals(False)
+        half = max((win[1] - win[0]) / 2.0, self.sp_hw.minimum())
+        self.sp_hw.blockSignals(True)
+        self.sp_hw.setValue(min(half, self.sp_hw.maximum()))
+        self.sp_hw.blockSignals(False)
+        if redraw:
+            self._draw_window_span(win, label="fenêtre manuelle")
+            self._canvas.draw_idle()
+
+    def _draw_window_span(self, win: tuple[float, float] | None = None, *, label: str = "fenêtre"):
+        if self._window_span is not None:
+            try:
+                self._window_span.remove()
+            except Exception:
+                pass
+            self._window_span = None
+        win = win or self._fit_window()
+        self._window_span = self._ax_edc.axvspan(
+            win[0], win[1], color="gold", alpha=0.18, label=label, zorder=0
+        )
+        return self._window_span
+
+    def _on_auto_window_toggled(self):
+        if self.chk_auto.isChecked():
+            self._manual_window = None
+        if self._ax_edc.has_data():
+            self._draw_initial_preview()
+
+    def _on_window_press(self, event):
+        if event.inaxes is not self._ax_edc or event.xdata is None or event.button != 1:
+            return
+        lo, hi = self._fit_window()
+        x = float(event.xdata)
+        width = max(hi - lo, 1e-12)
+        edge_tol = max(width * 0.18, 0.015)
+        if lo - edge_tol <= x <= hi + edge_tol:
+            if abs(x - lo) <= edge_tol:
+                mode = "left"
+            elif abs(x - hi) <= edge_tol:
+                mode = "right"
+            else:
+                mode = "move"
+        else:
+            mode = "move"
+            lo, hi = x - width / 2.0, x + width / 2.0
+            lo, hi = self._clamp_window(lo, hi)
+            self._set_manual_window(lo, hi, redraw=True)
+        self._window_drag = {"mode": mode, "x0": x, "lo": float(lo), "hi": float(hi)}
+
+    def _on_window_motion(self, event):
+        if not self._window_drag or event.inaxes is not self._ax_edc or event.xdata is None:
+            return
+        x = float(event.xdata)
+        d = self._window_drag
+        lo = float(d["lo"])
+        hi = float(d["hi"])
+        if d["mode"] == "left":
+            lo = min(x, hi - 0.01)
+        elif d["mode"] == "right":
+            hi = max(x, lo + 0.01)
+        else:
+            dx = x - float(d["x0"])
+            lo, hi = lo + dx, hi + dx
+        self._set_manual_window(lo, hi, redraw=True)
+
+    def _on_window_release(self, _event):
+        self._window_drag = None
+
     def _draw_initial_preview(self):
-        edc = np.nanmean(self._data, axis=0)
+        edc = self._edc_mean()
         self._ax_edc.clear()
         self._ax_edc.plot(self._ev, edc, "k-", lw=1.2, label="EDC moyenne")
         self._ax_edc.axvline(0.0, color="gray", ls="--", lw=0.7)
-        self._ax_edc.axvspan(self._ef_search[0], self._ef_search[1], color="orange", alpha=0.08,
-                             label="recherche EF")
+        self._draw_window_span(label="fenêtre fit")
         self._ax_edc.set_xlabel("E − EF (eV)"); self._ax_edc.set_ylabel("Intensité")
-        self._ax_edc.set_title("EDC moyennée sur k")
+        self._ax_edc.set_title("EDC moyennée sur k — glisse la zone jaune pour choisir le fit")
         self._ax_edc.legend(fontsize=8)
         self._ax_poly.clear()
         self._ax_poly.text(0.5, 0.5, "Cliquer 'Fitter' pour lancer la calibration",
@@ -184,13 +294,11 @@ class EFCalibrationDialog(QDialog):
 
     def _do_fit(self):
         T  = self.sp_T.value()
-        hw = self.sp_hw.value()
         sig = self.sp_sigma.value()
-        auto = self.chk_auto.isChecked()
-        edc = np.nanmean(self._data, axis=0)
+        edc = self._edc_mean()
 
         if self.rb_scalar.isChecked():
-            win = auto_ef_window(self._ev, edc, half_width=hw, search=self._ef_search) if auto else (-hw, hw)
+            win = self._fit_window()
             try:
                 _ax = Figure().add_subplot(111)
                 r = fit_fermi_edge(
@@ -232,11 +340,12 @@ class EFCalibrationDialog(QDialog):
             try:
                 r = fit_fermi_edge_per_column(
                     self._data, self._kpar, self._ev,
-                    temperature_K=T, half_width=hw,
+                    temperature_K=T, half_width=self.sp_hw.value(),
                     sigma_resolution_init=sig,
                     poly_deg=self.sp_deg.value(),
-                    auto_window=auto,
+                    auto_window=self.chk_auto.isChecked(),
                     ef_search=self._ef_search,
+                    fit_range=None if self.chk_auto.isChecked() else self._fit_window(),
                     verbose=False,
                 )
             except Exception as e:
@@ -269,7 +378,7 @@ class EFCalibrationDialog(QDialog):
 
     def _draw_scalar_preview(self, fit_result, win):
         self._ax_edc.clear()
-        edc = np.nanmean(self._data, axis=0)
+        edc = self._edc_mean()
         win_mask = (self._ev >= win[0]) & (self._ev <= win[1])
         norm = max(float(np.nanmax(edc[win_mask])) if np.any(win_mask) else float(np.nanmax(edc)), 1e-9)
         self._ax_edc.plot(self._ev, edc / norm, "k-", lw=1.0,
@@ -277,7 +386,7 @@ class EFCalibrationDialog(QDialog):
         self._ax_edc.plot(fit_result["model_ev"], fit_result["model_I"], "r-", lw=2.0,
                           label=f"FD fit  EF={fit_result['EF']*1000:+.0f} meV")
         self._ax_edc.axvline(fit_result["EF"], color="red", lw=1.0)
-        self._ax_edc.axvspan(win[0], win[1], color="orange", alpha=0.10, label="fenêtre")
+        self._draw_window_span(win, label="fenêtre")
         self._ax_edc.axvline(0.0, color="gray", ls="--", lw=0.7)
         self._ax_edc.set_xlim(min(win[0]-0.05, -0.4), max(win[1]+0.05, 0.1))
         self._ax_edc.set_xlabel("E − EF (eV)"); self._ax_edc.set_ylabel("I norm.")
@@ -294,13 +403,13 @@ class EFCalibrationDialog(QDialog):
 
     def _draw_poly_preview(self, r):
         self._ax_edc.clear()
-        edc = np.nanmean(self._data, axis=0)
+        edc = self._edc_mean()
         win = r["window"]
         win_mask = (self._ev >= win[0]) & (self._ev <= win[1])
         norm = max(float(np.nanmax(edc[win_mask])) if np.any(win_mask) else float(np.nanmax(edc)), 1e-9)
         self._ax_edc.plot(self._ev, edc / norm, "k-", lw=1.0,
                           label="EDC moyenne")
-        self._ax_edc.axvspan(win[0], win[1], color="orange", alpha=0.10, label="fenêtre")
+        self._draw_window_span(win, label="fenêtre")
         self._ax_edc.axvline(r["mean_ef"], color="red", lw=1.0,
                              label=f"<EF>={r['mean_ef']*1000:+.0f} meV")
         self._ax_edc.axvline(0.0, color="gray", ls="--", lw=0.7)
