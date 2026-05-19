@@ -134,6 +134,33 @@ class TestKzDataset(unittest.TestCase):
         self.assertEqual({s.metadata["hv_source"] for s in dataset.scans}, {"file"})
         self.assertTrue(any("remplace" in warning for warning in dataset.warnings))
 
+    def test_cls_photon_scan_folder_loads_steps_with_hv_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "PE_Scan_param.txt").write_text(
+                "Pass energy: 10\n"
+                "Lens mode: Angular30\n"
+                "Central Energy: 50.0\n"
+                "Energy min:  49.900000; Energy delta:  0.100000\n"
+                "Angle min:  -1.000000; Angle delta:  1.000000\n"
+            )
+            (root / "PE_Scan_log.txt").write_text(
+                "Scan Started\n"
+                "Step: 0 Mono PE: 55.000 Ring Current: 200\n"
+                "Step: 1 Mono PE: 56.500 Ring Current: 200\n"
+            )
+            np.savetxt(root / "PE_Scan_Cycle_0_Step_0.txt", np.arange(6).reshape(2, 3))
+            np.savetxt(root / "PE_Scan_Cycle_0_Step_1.txt", np.arange(6, 12).reshape(2, 3))
+
+            dataset = load_kz_stack(root, work_func=4.0, ef_offset=0.0)
+
+        self.assertEqual(dataset.hv_values.tolist(), [55.0, 56.5])
+        self.assertEqual(len(dataset.scans), 2)
+        self.assertEqual(dataset.scans[0].data.shape, (3, 2))
+        self.assertEqual(dataset.scans[0].metadata["kz_source"], "cls_photon_scan")
+        self.assertEqual(dataset.scans[0].metadata["hv_source"], "PE_Scan_log")
+        np.testing.assert_allclose(dataset.scans[0].energy, [-0.1, 0.0])
+
 
 if __name__ == "__main__":
     unittest.main()

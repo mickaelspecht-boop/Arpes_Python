@@ -7,7 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from arpes.core.session import FileEntry
+from arpes.core.session import FileEntry, Session
+from arpes.io.logbook import LogbookAppliedValues
 
 try:
     import arpes.ui.controllers.load_controller as load_mod
@@ -30,11 +31,32 @@ class _Spin:
     def setValue(self, value: float) -> None:
         self._value = float(value)
 
+    def blockSignals(self, _blocked: bool) -> None:
+        return None
+
 
 class _Params:
     def __init__(self):
         self.sp_phi = _Spin(4.031)
         self.sp_ef = _Spin(0.052)
+        self.sp_hv = _Spin(0.0)
+        self.hv_source = ""
+
+    def set_hv_value_with_source(self, value: float, source: str) -> None:
+        self.sp_hv.setValue(value)
+        self.hv_source = source
+
+    def update_hv_source(self, source: str | None) -> None:
+        self.hv_source = source or ""
+
+
+class _LogbookCtrl:
+    def __init__(self, *, hit: bool = False, hv: float | None = None):
+        self.hit = hit
+        self._last_applied_values = LogbookAppliedValues(hv=hv)
+
+    def apply_to_controls(self, _path: str) -> bool:
+        return self.hit
 
 
 class _Parent:
@@ -49,12 +71,18 @@ class _Parent:
         self._last_load_cache_hit = False
         self._last_load_cache_source = ""
         self._last_path_signature_cache_hit = False
+        self._current_path = None
+        self._session = Session()
+        self._logbook_ctrl = _LogbookCtrl()
 
     def _bessy_energy_reference_mode(self) -> str:
         return "auto"
 
     def _load_with_best_angle_offsets(self, *args, **kwargs):  # pragma: no cover
         raise AssertionError("best-angle path not used in this test")
+
+    def _angle_offsets_for_load(self, *_args, **_kwargs):
+        return {}
 
 
 def _prepared(path: Path):
@@ -139,6 +167,73 @@ class TestLoadControllerCache(unittest.TestCase):
                 self.assertFalse(parent._last_load_cache_hit)
         finally:
             load_mod.load_arpes_file = old_load
+
+    def test_dispatch_loader_misses_when_hv_changes(self):
+        calls = []
+        old_load = load_mod.load_arpes_file
+
+        def fake_load(path, work_func, ef_offset, **kwargs):
+            calls.append(kwargs.get("hv"))
+            return {
+                "path": path,
+                "data": np.ones((1, 1), dtype=np.float32),
+                "kpar": np.array([0.0]),
+                "ev_arr": np.array([0.0]),
+                "hv": kwargs.get("hv"),
+                "metadata": {},
+            }
+
+        load_mod.load_arpes_file = fake_load
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "BM.txt"
+                path.write_text("dummy")
+                parent = _Parent()
+                ctrl = LoadController(parent)
+                prep = _prepared(path)
+
+                ctrl._dispatch_loader(str(path), prep)
+                prep.hv_for_load = 51.25
+                ctrl._dispatch_loader(str(path), prep)
+
+                self.assertEqual(calls, [50.0, 51.25])
+                self.assertFalse(parent._last_load_cache_hit)
+        finally:
+            load_mod.load_arpes_file = old_load
+
+    def test_prepare_entry_marks_logbook_hv_even_when_value_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "BM.txt"
+            path.write_text("dummy")
+            parent = _Parent()
+            parent._session = Session(root)
+            parent._params.sp_hv.setValue(78.0)
+            parent._logbook_ctrl = _LogbookCtrl(hit=True, hv=78.0)
+
+            prepared = LoadController(parent)._prepare_entry(str(path))
+
+            self.assertTrue(prepared.hv_from_logbook)
+            self.assertEqual(prepared.hv_for_load, 78.0)
+
+    def test_prepare_entry_uses_session_hv_when_switching_files_without_logbook(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_path = root / "BM_old.txt"
+            path = root / "BM_new.txt"
+            old_path.write_text("dummy")
+            path.write_text("dummy")
+            parent = _Parent()
+            parent._session = Session(root)
+            parent._current_path = str(old_path)
+            parent._params.sp_hv.setValue(80.0)
+            parent._session.get_or_create(parent._session.key_for_path(path)).meta.hv = 66.0
+            parent._logbook_ctrl = _LogbookCtrl(hit=False, hv=None)
+
+            prepared = LoadController(parent)._prepare_entry(str(path))
+
+            self.assertEqual(prepared.hv_for_load, 66.0)
+            self.assertEqual(parent._params.hv_source, "session")
 
     def test_dispatch_loader_misses_when_cls_param_sidecar_changes(self):
         calls = []

@@ -44,14 +44,15 @@ def build_ef_section(panel, lay) -> None:
     fl_ef = QFormLayout(panel._ef_widget)
     panel.sp_phi = dspin(4.031, 3.0, 6.0, 0.01)
     panel.sp_phi.setToolTip("Fonction de travail φ (eV). Utilisée pour calculer E_kin → E−EF.")
-    panel.sp_hv = dspin(0.0, 0.0, 500.0, 1.0)
+    panel.sp_hv = dspin(0.0, 0.0, 500.0, 0.01, dec=4)
+    panel.sp_hv.setFixedWidth(96)
     panel.sp_hv.setToolTip(
         "Énergie du photon incident (eV).\n"
         "→ CLS/LNLS : entrer manuellement AVANT de charger (obligatoire).\n"
         "→ Solaris/DA30 : lu automatiquement depuis le fichier.\n"
         "→ BESSY/SES : gardé pour diagnostic/kz; E−EF utilise automatiquement Center Energy."
     )
-    panel.sp_ef = dspin(0.052, -0.3, 0.3, 0.005)
+    panel.sp_ef = dspin(0.052, -5.0, 5.0, 0.005)
     panel.sp_ef.setToolTip(
         "Décalage EF en eV. Ajuste le zéro d'énergie.\n"
         "Utiliser 'Calibrer EF auto' pour le calculer par fit Fermi-Dirac."

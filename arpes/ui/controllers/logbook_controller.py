@@ -37,6 +37,7 @@ class LogbookIngestController:
 
     def __init__(self, parent):
         self._parent = parent
+        self._last_applied_values = None
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -386,10 +387,9 @@ class LogbookIngestController:
         manager = self._manager()
         entry = self._session.get_or_create(self._session.key_for_path(path))
         values = manager.apply_to_entry(entry, path)
+        self._last_applied_values = values
         if values.hv is not None:
-            self._params.sp_hv.blockSignals(True)
-            self._params.sp_hv.setValue(values.hv)
-            self._params.sp_hv.blockSignals(False)
+            self._params.set_hv_value_with_source(values.hv, "logbook")
         if values.has_any():
             self._session.save()
         return values.has_any()
