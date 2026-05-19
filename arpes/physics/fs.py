@@ -456,7 +456,7 @@ class FermiSurfaceCanvas(QWidget):
         kx_centers = []
         ky_centers = []
 
-        def center_from_profile(axis, prof):
+        def center_from_profile(axis, prof, center_guess):
             y = np.asarray(prof, dtype=float)
             if not np.isfinite(y).any():
                 return np.nan
@@ -464,24 +464,64 @@ class FermiSurfaceCanvas(QWidget):
             if hi - lo <= 1e-12:
                 return np.nan
             y = np.clip((y - lo) / (hi - lo), 0, None)
-            left = axis < 0
-            right = axis > 0
+
+            axis = np.asarray(axis, dtype=float)
+            finite = np.isfinite(axis) & np.isfinite(y)
+            if finite.sum() < 5:
+                return np.nan
+            a = axis[finite]
+            yy = y[finite]
+            if a[0] > a[-1]:
+                a = a[::-1]
+                yy = yy[::-1]
+
+            if yy.size >= 3:
+                peak_mask = np.r_[False, (yy[1:-1] >= yy[:-2]) & (yy[1:-1] >= yy[2:]), False]
+            else:
+                peak_mask = np.ones_like(yy, dtype=bool)
+            if peak_mask.sum() < 2:
+                strongest = np.argsort(yy)[-min(6, yy.size):]
+            else:
+                strongest = np.where(peak_mask)[0]
+                strongest = strongest[np.argsort(yy[strongest])[-min(12, strongest.size):]]
+
+            span = max(float(np.nanmax(a) - np.nanmin(a)), 1e-12)
+            min_sep = max(0.08, 0.08 * span)
+            max_mid_gap = max(float(params.klim), 0.35)
+            candidates = []
+            for ii, il in enumerate(strongest):
+                for ir in strongest[ii + 1:]:
+                    kl, kr = float(a[il]), float(a[ir])
+                    sep = abs(kr - kl)
+                    if sep < min_sep:
+                        continue
+                    center = 0.5 * (kl + kr)
+                    if abs(center - center_guess) > max_mid_gap:
+                        continue
+                    balance = abs(float(yy[il]) - float(yy[ir]))
+                    amp = float(yy[il] + yy[ir])
+                    candidates.append((amp - 0.4 * balance - 0.05 * abs(center - center_guess), center))
+            if candidates:
+                return float(max(candidates, key=lambda item: item[0])[1])
+
+            left = a < center_guess
+            right = a > center_guess
             if not left.any() or not right.any():
                 return np.nan
-            kl = axis[left][int(np.nanargmax(y[left]))]
-            kr = axis[right][int(np.nanargmax(y[right]))]
+            kl = a[left][int(np.nanargmax(yy[left]))]
+            kr = a[right][int(np.nanargmax(yy[right]))]
             return float((kl + kr) / 2)
 
         y_samples = np.linspace(max(ky_arr.min(), -params.klim), min(ky_arr.max(), params.klim), 15)
         for y0 in y_samples:
             iy = int(np.argmin(np.abs(ky_arr - y0)))
-            c = center_from_profile(kx_arr, img[iy, :])
+            c = center_from_profile(kx_arr, img[iy, :], params.kx_center)
             if np.isfinite(c): kx_centers.append(c)
 
         x_samples = np.linspace(max(kx_arr.min(), -params.klim), min(kx_arr.max(), params.klim), 15)
         for x0 in x_samples:
             ix = int(np.argmin(np.abs(kx_arr - x0)))
-            c = center_from_profile(ky_arr, img[:, ix])
+            c = center_from_profile(ky_arr, img[:, ix], params.ky_center)
             if np.isfinite(c): ky_centers.append(c)
 
         if len(kx_centers) < 3 or len(ky_centers) < 3:
