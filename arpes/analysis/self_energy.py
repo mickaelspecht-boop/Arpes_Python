@@ -6,7 +6,14 @@ from typing import Any
 
 import numpy as np
 
-from arpes.theory.models import TheoryBandData, TheoryOverlayConfig, compare_fit_to_theory
+from arpes.theory.alignment import apply_energy_transform
+from arpes.theory.models import (
+    TheoryBandData,
+    TheoryOverlayConfig,
+    compare_fit_to_theory,
+    displayed_k_axis,
+    selected_segment_mask,
+)
 
 
 @dataclass(frozen=True)
@@ -63,14 +70,15 @@ def real_self_energy(
         raise ValueError(f"Branche {branch} paire {pair_index + 1} introuvable.")
     k_exp = np.asarray(branches[pair_index], dtype=float)
 
-    k_dft = np.asarray(data.k_distance, dtype=float) * config.k_scale + config.k_shift
-    bands = np.asarray(data.bands, dtype=float) + config.energy_shift
+    k_dft = displayed_k_axis(data, config)
+    bands = apply_energy_transform(data.bands, config)
     if bands.ndim != 2 or not (0 <= band_index < bands.shape[0]):
         raise ValueError(f"Bande DFT {band_index} introuvable.")
     order = np.argsort(k_dft)
     k_ref = k_dft[order]
     e_ref = bands[band_index][order]
-    valid_ref = np.isfinite(k_ref) & np.isfinite(e_ref)
+    segment = selected_segment_mask(data, config, k_dft.size)[order]
+    valid_ref = segment & np.isfinite(k_ref) & np.isfinite(e_ref)
     if int(valid_ref.sum()) < 2:
         raise ValueError("Bande DFT invalide pour interpolation.")
     k_ref = k_ref[valid_ref]

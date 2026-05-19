@@ -12,6 +12,7 @@ from arpes.theory.models import (
     TheoryBandData,
     TheoryOverlayConfig,
     available_segments,
+    bandstructure_to_theory_data,
     branch_display_names,
     parse_band_indices,
     segment_from_direction,
@@ -290,7 +291,26 @@ class TestSchemaRetrocompat:
         again = TheoryBandData.from_dict(d.to_dict())
         assert again.band_character == ["Ti-d"]
         assert again.band_meta[0]["crosses_ef"] is True
-        assert again.schema_version == 2
+        assert again.schema_version == 3
+
+    def test_spin_channels_are_concatenated_like_mp_plot(self):
+        class FakeBS:
+            efermi = 1.0
+            bands = {
+                "up": np.asarray([[1.0, 2.0], [3.0, 4.0]]),
+                "down": np.asarray([[5.0, 6.0]]),
+            }
+            distance = [0.0, 1.0]
+            labels_dict = {}
+            branches = []
+
+        data = bandstructure_to_theory_data(FakeBS(), material_id="mp-spin")
+        assert data.schema_version == 3
+        assert data.bands == [
+            [0.0, 1.0],
+            [2.0, 3.0],
+            [4.0, 5.0],
+        ]
 
     def test_crystal_system_legacy_default_and_roundtrip(self):
         assert TheoryBandData.from_dict({"material_id": "mp-1"}).crystal_system == ""
@@ -302,5 +322,8 @@ class TestSchemaRetrocompat:
         c = TheoryOverlayConfig.from_dict({})
         assert c.ef_window == 0.0
         assert c.color_by_band is True
+        assert c.path_convention == "mp_bulk"
         c2 = TheoryOverlayConfig.from_dict({"ef_window": -3.0})
         assert c2.ef_window == 0.0  # clampé >=0
+        c3 = TheoryOverlayConfig.from_dict({"path_convention": "arpes_pnictides"})
+        assert c3.to_dict()["path_convention"] == "arpes_pnictides"

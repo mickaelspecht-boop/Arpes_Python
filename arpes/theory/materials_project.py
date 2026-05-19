@@ -33,8 +33,11 @@ def load_materials_project_band_data(
         raise ValueError("Materials Project ID vide.")
     cache_path = _cache_path(cache_dir, mpid, path_type,
                              with_projections=with_projections)
+    cached: TheoryBandData | None = None
     if cache_path.exists() and not force_refresh:
-        return TheoryBandData.from_dict(json.loads(cache_path.read_text()))
+        cached = TheoryBandData.from_dict(json.loads(cache_path.read_text()))
+        if int(cached.schema_version) >= 3:
+            return cached
 
     try:
         from mp_api.client import MPRester
@@ -50,6 +53,8 @@ def load_materials_project_band_data(
             formula = _get_formula(mpr, mpid)
             crystal_system = _get_crystal_system(mpr, mpid)
     except Exception as exc:
+        if cached is not None:
+            return cached
         raise RuntimeError(f"Import Materials Project échoué pour {mpid}: {exc}") from exc
 
     data = bandstructure_to_theory_data(

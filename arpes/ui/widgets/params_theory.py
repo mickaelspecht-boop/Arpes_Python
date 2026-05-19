@@ -5,21 +5,17 @@ manuel, boutons import/comparer/vider, recherche par formule).
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
     QSizePolicy,
-    QTableWidget,
     QWidget,
 )
 
@@ -36,7 +32,11 @@ def build_theory_section(panel, lay) -> None:
     )
     panel.txt_theory_mpid = QLineEdit()
     panel.txt_theory_mpid.setPlaceholderText("mp-149")
-    panel.txt_theory_mpid.setToolTip("Materials Project ID. Nécessite mp-api + MP_API_KEY.")
+    panel.txt_theory_mpid.setToolTip(
+        "Materials Project ID. Entrée importe directement.\n"
+        "Nécessite mp-api + MP_API_KEY."
+    )
+    panel.txt_theory_mpid.returnPressed.connect(panel.theory_import_requested)
     panel.btn_theory_search = compact_button(QPushButton("Chercher MP"), max_width=130)
     panel.btn_theory_search.setToolTip(
         "Recherche par formule chimique sur Materials Project (réseau).\n"
@@ -51,11 +51,35 @@ def build_theory_section(panel, lay) -> None:
     panel.cmb_theory_segment = QComboBox()
     panel.cmb_theory_segment.setEditable(True)
     panel.cmb_theory_segment.setToolTip("Segment DFT proposé depuis la direction logbook, modifiable.")
-    panel.sp_theory_de = dspin(0.0, -5.0, 5.0, 0.05, dec=3)
-    panel.sp_theory_de.setToolTip("Décalage énergie manuel appliqué aux bandes DFT (eV).")
+    panel.cmb_theory_convention = QComboBox()
+    panel.cmb_theory_convention.addItem("MP bulk 3D", "mp_bulk")
+    panel.cmb_theory_convention.addItem("ARPES pnictides 2D", "arpes_pnictides")
+    panel.cmb_theory_convention.setToolTip(
+        "Convention d'affichage des labels dans le picker.\n"
+        "MP bulk = chemin 3D Materials Project brut.\n"
+        "ARPES pnictides = ajoute les alias 2D usuels Γ/X/M/S en annotation."
+    )
+    panel.sp_theory_mu = dspin(0.0, -5.0, 5.0, 0.05, dec=3)
+    panel.sp_theory_mu.setKeyboardTracking(False)
+    panel.sp_theory_mu.setToolTip(
+        "Shift chimique DFT μ (eV), avant renormalisation.\n"
+        "Transformation overlay: E = Z × (E_DFT - μ).\n"
+        "μ déplace les croisements de Fermi DFT; Z ajuste la dispersion."
+    )
+    # Alias legacy: d'anciens controllers/tests utilisent encore sp_theory_de.
+    panel.sp_theory_de = panel.sp_theory_mu
+    panel.sp_theory_z = dspin(1.0, 0.05, 5.0, 0.05, dec=3)
+    panel.sp_theory_z.setKeyboardTracking(False)
+    panel.sp_theory_z.setToolTip(
+        "Renormalisation globale de dispersion Z.\n"
+        "Z=1: DFT inchangée. Z<1: bandes plus plates.\n"
+        "Appliquée globalement à toutes les bandes sélectionnées."
+    )
     panel.sp_theory_dk = dspin(0.0, -5.0, 5.0, 0.02, dec=3)
+    panel.sp_theory_dk.setKeyboardTracking(False)
     panel.sp_theory_dk.setToolTip("Décalage k manuel appliqué aux bandes DFT (π/a affiché).")
     panel.sp_theory_kscale = dspin(1.0, 0.1, 5.0, 0.05, dec=3)
+    panel.sp_theory_kscale.setKeyboardTracking(False)
     panel.sp_theory_kscale.setToolTip("Facteur d'échelle k manuel pour rapprocher axe DFT et axe ARPES.")
     panel.sp_theory_alpha = dspin(0.65, 0.05, 1.0, 0.05, dec=2)
     panel.sp_theory_max = ispin(10, 1, 80)
@@ -72,12 +96,18 @@ def build_theory_section(panel, lay) -> None:
         "Vide → sélection automatique top-N par overlap fenêtre Y."
     )
     panel.txt_theory_bands.editingFinished.connect(panel._on_theory_bands_text_edited)
+    panel.btn_theory_pick_bands = QPushButton("Choisir les bandes...")
+    panel.btn_theory_pick_bands.setToolTip(
+        "Ouvre le diagramme DFT et permet de cliquer les bandes a afficher."
+    )
+    panel.btn_theory_pick_bands.clicked.connect(panel.theory_band_picker_requested)
     # --- filtre fenêtre E_F (B+A) ---
     panel.sp_theory_efwin = dspin(0.0, 0.0, 10.0, 0.05, dec=3)
+    panel.sp_theory_efwin.setKeyboardTracking(False)
     panel.sp_theory_efwin.setToolTip(
-        "Fenêtre ±ΔE autour de E_F (eV). 0 = désactivé.\n"
+        "Fenêtre ±E autour de E_F (eV). 0 = désactivé.\n"
         "Filtre l'overlay et la liste : seules les bandes traversant\n"
-        "±ΔE de E_F (E=0) sont gardées."
+        "cette fenêtre autour de E_F (E=0) sont gardées."
     )
     panel.chk_theory_ef_only = QCheckBox("Seulement bandes croisant E_F")
     panel.chk_theory_ef_only.setToolTip(
@@ -96,32 +126,10 @@ def build_theory_section(panel, lay) -> None:
         "pour afficher le caractère (ex Ti-d) par bande. Plus lent.\n"
         "Sans effet si Materials Project ne fournit pas les projections."
     )
-    # --- table bandes cochable (remplace la saisie aveugle) ---
-    panel.tbl_theory_bands = QTableWidget(0, 5)
-    panel.tbl_theory_bands.setHorizontalHeaderLabels(
-        ["#", "E min", "E max", "E_F", "caractère"]
-    )
-    panel.tbl_theory_bands.verticalHeader().setVisible(False)
-    panel.tbl_theory_bands.setEditTriggers(
-        QAbstractItemView.EditTrigger.NoEditTriggers
-    )
-    panel.tbl_theory_bands.setSelectionMode(
-        QAbstractItemView.SelectionMode.NoSelection
-    )
-    panel.tbl_theory_bands.setAlternatingRowColors(True)
-    panel.tbl_theory_bands.setMaximumHeight(190)
-    _hdr = panel.tbl_theory_bands.horizontalHeader()
-    _hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-    _hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-    panel.tbl_theory_bands.setToolTip(
-        "Coche les bandes DFT à afficher. Vide = sélection auto top-N.\n"
-        "Se synchronise avec le champ « Bandes idx » (format 1,3,5-8)."
-    )
-    panel.tbl_theory_bands.itemChanged.connect(panel._on_theory_band_table_toggled)
     for w in (panel.sp_theory_efwin, panel.chk_theory_ef_only,
               panel.chk_theory_color):
         sig = w.stateChanged if isinstance(w, QCheckBox) else w.valueChanged
-        sig.connect(panel.theory_overlay_changed)
+        sig.connect(panel._schedule_theory_overlay_changed)
     panel.chk_theory_mirror = QCheckBox("Miroir Γ (k → -k)")
     panel.chk_theory_mirror.setToolTip(
         "Duplique les bandes DFT en miroir autour de Γ (k → -k).\n"
@@ -129,9 +137,6 @@ def build_theory_section(panel, lay) -> None:
         "ne couvre que la moitié droite. Valable pour cristaux à symétrie\n"
         "d'inversion (ex BaNi₂As₂ I4/mmm)."
     )
-    btn_theory_import = QPushButton("Importer MP")
-    btn_theory_import.setToolTip("Importe les bandes DFT depuis le MP-ID saisi (réseau).")
-    btn_theory_import.clicked.connect(panel.theory_import_requested)
     btn_theory_refresh = QPushButton("Rafraîchir MP")
     btn_theory_refresh.setToolTip(
         "Ré-importe le MP-ID en ignorant le cache disque.\n"
@@ -166,58 +171,85 @@ def build_theory_section(panel, lay) -> None:
         "Premier label du segment → 0, second → 1."
     )
     btn_theory_align.clicked.connect(panel.theory_align_requested)
-    btn_theory_efalign = QPushButton("Aligner E_F")
+    btn_theory_efalign = QPushButton("Forcer μ=0")
     btn_theory_efalign.setToolTip(
-        "Force ΔE = 0. Bandes DFT centrées sur E_F = 0 (efermi MP déjà soustrait).\n"
-        "Utiliser après calibration EF ARPES pour vérifier le matching d'énergie."
+        "Remet le shift chimique à μ = 0.\n"
+        "Overlay: E = Z × E_DFT.\n"
+        "C'est une référence DFT brute, pas un alignement ARPES/DFT calculé."
     )
     btn_theory_efalign.clicked.connect(panel.theory_efalign_requested)
-    theory_btns = QWidget()
-    theory_btns_lay = QGridLayout(theory_btns)
-    theory_btns_lay.setContentsMargins(0, 0, 0, 0)
-    theory_btns_lay.setHorizontalSpacing(4)
-    theory_btns_lay.setVerticalSpacing(3)
-    # grille 3 colonnes : largeur min ≈ 3 boutons au lieu de 7 → la colonne de
-    # paramètres ne déborde plus l'écran.
-    _grid_btns = [
-        btn_theory_import, btn_theory_refresh, btn_theory_local_import,
-        btn_theory_clear, btn_theory_align, btn_theory_efalign,
-        btn_theory_compare, btn_self_energy,
-    ]
-    for i, b in enumerate(_grid_btns):
-        b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        b.setMaximumWidth(170)
-        theory_btns_lay.addWidget(b, i // 3, i % 3)
-    for c in range(3):
-        theory_btns_lay.setColumnStretch(c, 1)
+    def _btn_grid(buttons):
+        w = QWidget()
+        g = QGridLayout(w)
+        g.setContentsMargins(0, 0, 0, 0)
+        g.setHorizontalSpacing(4)
+        g.setVerticalSpacing(3)
+        for i, b in enumerate(buttons):
+            b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            b.setMaximumWidth(170)
+            g.addWidget(b, i // 3, i % 3)
+        for c in range(3):
+            g.setColumnStretch(c, 1)
+        return w
+
+    def _section(title):
+        lbl = QLabel(title)
+        lbl.setStyleSheet(
+            "color:#9fc;font-size:10px;font-weight:bold;"
+            "margin-top:6px;border-top:1px solid #444;padding-top:3px;"
+        )
+        return lbl
+
+    # boutons regroupés par rôle (source vs diagnostic) au lieu d'une grille
+    # fourre-tout : l'utilisateur retrouve l'action dans sa phase de travail.
+    source_btns = _btn_grid([
+        btn_theory_refresh, btn_theory_local_import, btn_theory_clear,
+    ])
+    align_btns = _btn_grid([btn_theory_align, btn_theory_efalign])
+    diag_btns = _btn_grid([btn_theory_compare, btn_self_energy])
+
     panel.lbl_theory_status = QLabel("Guide visuel uniquement.")
     panel.lbl_theory_status.setWordWrap(True)
     panel.lbl_theory_status.setStyleSheet("color:#aaa;font-size:10px;")
     for w in (
-        panel.chk_theory, panel.cmb_theory_segment, panel.sp_theory_de,
+        panel.chk_theory, panel.cmb_theory_segment, panel.cmb_theory_convention,
+        panel.sp_theory_mu, panel.sp_theory_z,
         panel.sp_theory_dk, panel.sp_theory_kscale, panel.sp_theory_alpha,
         panel.sp_theory_max, panel.chk_theory_mirror,
     ):
         signal = w.stateChanged if isinstance(w, QCheckBox) else (
             w.currentIndexChanged if isinstance(w, QComboBox) else w.valueChanged
         )
-        signal.connect(panel.theory_overlay_changed)
+        signal.connect(panel._schedule_theory_overlay_changed)
+
+    # 1 · Source DFT
+    fl_th.addRow(_section("1 · Source DFT"))
     fl_th.addRow(panel.chk_theory)
     fl_th.addRow("MP-ID:", mpid_row)
-    fl_th.addRow("Segment:", panel.cmb_theory_segment)
-    fl_th.addRow("ΔE (eV):", panel.sp_theory_de)
-    fl_th.addRow("Δk:", panel.sp_theory_dk)
-    fl_th.addRow("Scale k:", panel.sp_theory_kscale)
-    fl_th.addRow("Opacité:", panel.sp_theory_alpha)
-    fl_th.addRow("Max bandes:", panel.sp_theory_max)
+    fl_th.addRow("Convention:", panel.cmb_theory_convention)
+    fl_th.addRow(source_btns)
+    # 2 · Bandes affichées
+    fl_th.addRow(_section("2 · Bandes affichées"))
+    fl_th.addRow(panel.btn_theory_pick_bands)
+    fl_th.addRow("Bandes idx:", panel.txt_theory_bands)
     fl_th.addRow("Fenêtre E_F (eV):", panel.sp_theory_efwin)
     fl_th.addRow(panel.chk_theory_ef_only)
-    fl_th.addRow(panel.tbl_theory_bands)
-    fl_th.addRow("Bandes idx:", panel.txt_theory_bands)
+    fl_th.addRow("Max bandes:", panel.sp_theory_max)
     fl_th.addRow(panel.chk_theory_color)
     fl_th.addRow(panel.chk_theory_projections)
+    # 3 · Alignement DFT ↔ ARPES
+    fl_th.addRow(_section("3 · Alignement DFT ↔ ARPES"))
+    fl_th.addRow("Segment:", panel.cmb_theory_segment)
+    fl_th.addRow("Shift μ (eV):", panel.sp_theory_mu)
+    fl_th.addRow("Renorm Z:", panel.sp_theory_z)
+    fl_th.addRow("Δk:", panel.sp_theory_dk)
+    fl_th.addRow("Scale k:", panel.sp_theory_kscale)
     fl_th.addRow("a cristal (Å):", panel.sp_crystal_a)
     fl_th.addRow(panel.chk_theory_mirror)
-    fl_th.addRow(theory_btns)
+    fl_th.addRow(align_btns)
+    # 4 · Rendu & diagnostic
+    fl_th.addRow(_section("4 · Rendu & diagnostic"))
+    fl_th.addRow("Opacité:", panel.sp_theory_alpha)
+    fl_th.addRow(diag_btns)
     fl_th.addRow(panel.lbl_theory_status)
     lay.addWidget(panel._theory_widget)

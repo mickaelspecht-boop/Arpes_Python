@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .alignment import effective_mu_shift, effective_z_scale
 from .models import TheoryBandData, TheoryOverlayConfig, select_bands_for_view
 
 
@@ -99,7 +100,8 @@ def _overlay_label(data: TheoryBandData, config: TheoryOverlayConfig, best: dict
     source_label = "DFT MP" if data.source == "materials_project" else "DFT locale"
     label = (
         f"{source_label} {data.material_id}{segment} | "
-        f"dE={config.energy_shift:+.2f} eV dk={config.k_shift:+.2f}"
+        f"mu={effective_mu_shift(config):+.2f} eV Z={effective_z_scale(config):.2f} "
+        f"dk={config.k_shift:+.2f}"
     )
     if best:
         label += f"\nmeilleur score: bande {best.get('band_index')} rms={float(best.get('rms_e', 0.0))*1000:.0f} meV"

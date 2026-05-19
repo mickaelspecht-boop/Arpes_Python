@@ -75,6 +75,7 @@ class TestUiSmoke(unittest.TestCase):
                      "_help_panel"):
             self.assertTrue(hasattr(win, attr), f"widget {attr} non construit")
         self.assertTrue(hasattr(win._params, "_theory_widget"))
+        self.assertTrue(hasattr(win._params, "btn_theory_pick_bands"))
         self.assertTrue(hasattr(win._params, "_distortion_widget"))
         self.assertTrue(callable(getattr(win._params, "bm_distortion_params")))
         cfg = win._params.bm_distortion_params()

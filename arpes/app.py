@@ -67,6 +67,7 @@ from arpes.ui.controllers.fs_controller import FSController
 from arpes.ui.controllers.interaction_controller import InteractionController
 from arpes.ui.controllers.fit_runner_controller import FitRunnerController
 from arpes.ui.controllers.kz_controller import KzController
+from arpes.ui.controllers.proxy_map import PROXY_MAP
 from arpes.ui.controllers.theory_overlay_controller import TheoryOverlayController
 from arpes.ui.controllers.session_io_controller import SessionIOController
 from arpes.core.session import FileEntry, FitParams, Session
@@ -216,125 +217,7 @@ class ArpesExplorer(QMainWindow):
     # "_method")` → dispatch ici → bound method du controller.
     # ─────────────────────────────────────────────────────────────────────────
 
-    _PROXY_MAP = {
-        # FSController
-        "_current_is_fs": "_fs_ctrl",
-        "_on_fs_params_changed": "_fs_ctrl",
-        "_save_current_fs_center": "_fs_ctrl",
-        "_draw_fs_tab": "_fs_ctrl",
-        "_choose_bz_preset": "_fs_ctrl",
-        # PlotController
-        "_on_scroll_zoom": "_plot_ctrl",
-        "_update_display_data": "_plot_ctrl",
-        "_fit_roi_bounds": "_plot_ctrl",
-        "_fit_roi_data": "_plot_ctrl",
-        "_map_color_kwargs": "_plot_ctrl",
-        "_draw_fit_roi_overlay": "_plot_ctrl",
-        "_ef_offset_text": "_plot_ctrl",
-        "_draw_ef_label": "_plot_ctrl",
-        "_draw_bm": "_plot_ctrl",
-        "_reset_bm_view": "_plot_ctrl",
-        "_draw_mdc_energy_map": "_plot_ctrl",
-        "_draw_mdc_waterfall": "_plot_ctrl",
-        "_draw_kf_overlay": "_plot_ctrl",
-        "_get_mdc": "_plot_ctrl",
-        "_get_edc": "_plot_ctrl",
-        "_draw_mdc_edc": "_plot_ctrl",
-        "_draw_current_view": "_plot_ctrl",
-        # GammaController
-        "_store_fs_center_reference": "_gamma_ctrl",
-        "_k_to_angle_offset_deg": "_gamma_ctrl",
-        "_angle_offsets_from_k_center": "_gamma_ctrl",
-        "_project_gamma_by_azi": "_gamma_ctrl",
-        "_set_fs_center_pick_mode": "_gamma_ctrl",
-        "_on_fs_map_click": "_gamma_ctrl",
-        "_detect_fs_gamma": "_gamma_ctrl",
-        "_stored_gamma_reference": "_gamma_ctrl",
-        "_gamma_reference_to_bm_center": "_gamma_ctrl",
-        "_center_current_bm_axis_on_gamma": "_gamma_ctrl",
-        "_apply_stored_gamma_to_current_file": "_gamma_ctrl",
-        "_estimate_gamma_bm": "_gamma_ctrl",
-        "_apply_gamma_reference_to_bm": "_gamma_ctrl",
-        # NormController
-        "_load_grid_controls": "_norm_ctrl",
-        "_display_grid_config": "_norm_ctrl",
-        "_grid_status_text": "_norm_ctrl",
-        "_apply_grid_correction": "_norm_ctrl",
-        "_reset_grid_correction": "_norm_ctrl",
-        # DistortionController
-        "_apply_bm_distortion": "_distortion_ctrl",
-        "_reset_bm_distortion": "_distortion_ctrl",
-        "_auto_bm_distortion": "_distortion_ctrl",
-        "_import_calib_to_current": "_distortion_ctrl",
-        "_check_distortion_consistency_on_load": "_distortion_ctrl",
-        "_apply_calib_for_current_if_any": "_distortion_ctrl",
-        "_on_distortion_preview_changed": "_distortion_ctrl",
-        "_draw_distortion_preview_overlay": "_distortion_ctrl",
-        # InteractionController
-        "_on_view_changed": "_interaction_ctrl",
-        "_on_view_fit_changed": "_interaction_ctrl",
-        "_on_ev_spinbox_changed": "_interaction_ctrl",
-        "_schedule_model_redraw": "_interaction_ctrl",
-        "_schedule_fit_only_redraw": "_interaction_ctrl",
-        "_on_model_changed": "_interaction_ctrl",
-        "_on_fit_only_changed": "_interaction_ctrl",
-        "_set_fit_roi_pick_mode": "_interaction_ctrl",
-        "_on_fit_roi_press": "_interaction_ctrl",
-        "_on_fit_roi_motion": "_interaction_ctrl",
-        "_on_fit_roi_release": "_interaction_ctrl",
-        "_apply_fit_roi_from_bounds": "_interaction_ctrl",
-        "_reset_fit_roi_range": "_interaction_ctrl",
-        "_on_fit_select_press": "_interaction_ctrl",
-        "_on_fit_select_motion": "_interaction_ctrl",
-        "_on_fit_select_release": "_interaction_ctrl",
-        "_on_fit_annotate_press": "_interaction_ctrl",
-        "_on_fit_annotation_motion": "_interaction_ctrl",
-        "_delete_selected_fit_points": "_interaction_ctrl",
-        "_undo_fit_delete": "_interaction_ctrl",
-        "_redo_fit_delete": "_interaction_ctrl",
-        "_on_map_click": "_interaction_ctrl",
-        "_sync_ev_spinbox": "_interaction_ctrl",
-        # FitRunnerController
-        "_get_work_data": "_fit_runner_ctrl",
-        "_fit_guess": "_fit_runner_ctrl",
-        "_fit_full": "_fit_runner_ctrl",
-        "_clear_kf": "_fit_runner_ctrl",
-        "_ef_calibrate": "_fit_runner_ctrl",
-        "_apply_ef_calibration_result": "_fit_runner_ctrl",
-        "_apply_ef_reference_to_current": "_fit_runner_ctrl",
-        "_refresh_helper_buttons": "_fit_runner_ctrl",
-        "_copy_params": "_fit_runner_ctrl",
-        "_on_file_tags_changed": "_load_ctrl",
-        # KzController
-        "_open_kz_folder": "_kz_ctrl",
-        "_open_kz_logbook": "_kz_ctrl",
-        "_refresh_kz_dataset": "_kz_ctrl",
-        "_on_kz_params_changed": "_kz_ctrl",
-        "_draw_kz_tab": "_kz_ctrl",
-        "_current_supports_kz": "_kz_ctrl",
-        "_save_kz_session": "_kz_ctrl",
-        # THEORY_OVERLAY
-        "_import_theory_overlay": "_theory_overlay_ctrl",
-        "_refresh_theory_overlay": "_theory_overlay_ctrl",
-        "_import_local_theory_overlay": "_theory_overlay_ctrl",
-        "_clear_theory_overlay": "_theory_overlay_ctrl",
-        "_on_theory_overlay_changed": "_theory_overlay_ctrl",
-        "_compare_theory_overlay": "_theory_overlay_ctrl",
-        "_calculate_self_energy": "_theory_overlay_ctrl",
-        "_draw_theory_overlay": "_theory_overlay_ctrl",
-        "_restore_theory_overlay_for_entry": "_theory_overlay_ctrl",
-        "_search_theory_mp": "_theory_overlay_ctrl",
-        "_auto_fetch_theory_overlay_from_logbook": "_theory_overlay_ctrl",
-        "_align_theory_to_arpes": "_theory_overlay_ctrl",
-        "_align_theory_efermi": "_theory_overlay_ctrl",
-        "_on_crystal_a_changed": "_theory_overlay_ctrl",
-        "_save_session_as": "_session_io_ctrl",
-        "_open_session_file": "_session_io_ctrl",
-        "_open_recent_session": "_session_io_ctrl",
-        "_compare_sessions": "_session_io_ctrl",
-        "_update_gamma_preview": "_plot_ctrl",
-        "_batch_fit_folder": "_batch_ctrl",
-    }
+    _PROXY_MAP = PROXY_MAP
 
     def __getattr__(self, name: str):
         if name.startswith("_") and name in self._PROXY_MAP:

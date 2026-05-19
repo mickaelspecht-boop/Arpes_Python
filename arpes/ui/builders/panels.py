@@ -310,6 +310,7 @@ def wire_param_signals(window) -> None:
     p.theory_compare_requested.connect(window._compare_theory_overlay)
     p.self_energy_requested.connect(window._calculate_self_energy)
     p.theory_search_requested.connect(window._search_theory_mp)
+    p.theory_band_picker_requested.connect(window._open_theory_band_picker)
     p.theory_align_requested.connect(window._align_theory_to_arpes)
     p.theory_efalign_requested.connect(window._align_theory_efermi)
     p.crystal_a_changed.connect(window._on_crystal_a_changed)

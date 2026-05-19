@@ -10,9 +10,12 @@ from pathlib import Path
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from arpes.analysis.self_energy import real_self_energy
+from arpes.theory.alignment import alignment_warnings
+from arpes.theory.band_picker import validate_picker_data
+from arpes.theory.band_select import format_band_indices
 from arpes.theory.local_loaders import load_local_band_data
 from arpes.theory.materials_project import load_materials_project_band_data
-from arpes.theory.models import available_segments, compare_fit_to_theory, segment_from_direction
+from arpes.theory.models import available_segments, compare_fit_to_theory, parse_band_indices, segment_from_direction
 from arpes.theory.plot import draw_theory_overlay
 
 
@@ -192,6 +195,75 @@ class TheoryOverlayController:
         # Overlay DFT = cosmétique : fast path (skip recompute mesh/couleur,
         # zoom préservé).
         self._parent._draw_current_view(include_curves=False, overlays_only=True)
+        warnings = alignment_warnings(
+            float(cfg.get("mu_shift", 0.0) or 0.0),
+            float(cfg.get("z_scale", 1.0) or 1.0),
+        )
+        if warnings:
+            self._parent._status("Attention: " + " ".join(warnings))
+
+    def _open_theory_band_picker(self) -> None:
+        overlay = dict(self._current_overlay() or {})
+        data = overlay.get("data") or {}
+        if not data:
+            self._parent._status("Attention: importer une DFT avant de choisir les bandes.")
+            return
+        validation_error = validate_picker_data(data)
+        if validation_error:
+            self._parent._status(validation_error)
+            return
+
+        from arpes.ui.widgets.dialogs import TheoryBandPickerDialog
+
+        cfg = self._params.theory_overlay_config()
+        n_bands = len(data.get("bands") or [])
+        selected = parse_band_indices(str(cfg.get("band_indices") or ""), n_bands)
+        signature = self._overlay_picker_signature(overlay)
+        dialog = TheoryBandPickerDialog(
+            data,
+            cfg,
+            segments=list(overlay.get("segments") or []),
+            selected=selected,
+            parent=self._parent,
+        )
+        applied: dict[str, object] = {}
+
+        def _capture(indices, segment):
+            applied["indices"] = list(indices or [])
+            applied["segment"] = str(segment or "")
+
+        dialog.selection_applied.connect(_capture)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        if self._overlay_picker_signature(self._current_overlay()) != signature:
+            self._parent._status("Sélection DFT abandonnée: overlay changé depuis ouverture.")
+            return
+        indices = list(applied.get("indices", dialog.selected_band_indices()))
+        segment = str(applied.get("segment", dialog.selected_segment()) or "")
+        spec = format_band_indices(indices)
+        self._params.txt_theory_bands.blockSignals(True)
+        self._params.txt_theory_bands.setText(spec)
+        self._params.txt_theory_bands.blockSignals(False)
+        self._params.cmb_theory_segment.blockSignals(True)
+        self._params.cmb_theory_segment.setCurrentText(segment)
+        self._params.cmb_theory_segment.blockSignals(False)
+        self._params._on_theory_bands_text_edited()
+        if not indices:
+            self._parent._status("Sélection DFT vide: affichage auto top-N conservé.")
+        else:
+            self._parent._status(f"Bandes DFT sélectionnées: {spec}.")
+
+    def _overlay_picker_signature(self, overlay: dict | None) -> tuple:
+        data = (overlay or {}).get("data") or {}
+        cfg = (overlay or {}).get("config") or {}
+        bands = data.get("bands") or []
+        first = bands[0] if bands else []
+        return (
+            data.get("material_id") or "",
+            len(bands),
+            len(data.get("k_distance") or first or []),
+            cfg.get("segment") or "",
+        )
 
     def _compare_theory_overlay(self) -> None:
         overlay = dict(self._current_overlay() or {})
@@ -217,7 +289,7 @@ class TheoryOverlayController:
         self._parent._draw_current_view(include_curves=False)
         if not results:
             self._parent._status(
-                "Comparaison DFT: aucun recouvrement suffisant. Ajuster segment, dE, dk ou scale k."
+                "Comparaison DFT: aucun recouvrement suffisant. Ajuster segment, μ, Z, Δk ou scale k."
             )
             return
         best = results[0]
@@ -267,8 +339,15 @@ class TheoryOverlayController:
                 or ""
             )
         dlg = MPSearchDialog(self._parent, initial_formula=str(initial or ""))
-        dlg.mpid_selected.connect(self._params.txt_theory_mpid.setText)
+        dlg.mpid_selected.connect(self._import_selected_mpid)
         dlg.exec()
+
+    def _import_selected_mpid(self, mpid: str) -> None:
+        mpid = str(mpid or "").strip()
+        if not mpid:
+            return
+        self._params.txt_theory_mpid.setText(mpid)
+        self._apply_mp_id(mpid, source="recherche", show_dialog_on_error=True)
 
     def _align_theory_to_arpes(self) -> None:
         """Calcule scale + Δk pour mapper segment choisi sur [0, 1] (π/a).
@@ -307,7 +386,7 @@ class TheoryOverlayController:
                         f"Aligné {segment} : échelle PHYSIQUE "
                         f"(Å⁻¹·a/π, a={a_val:.4f} Å). Γ→0, X→1, M→√2. "
                         f"scale=1, Δk=0. Miroir Γ si scan symétrique. "
-                        f"ΔE encore manuel."
+                        f"μ encore manuel."
                     )
                 else:
                     msg = (
@@ -352,7 +431,7 @@ class TheoryOverlayController:
         self._on_theory_overlay_changed()
         self._parent._status(
             f"Aligné {segment} sur ARPES π/a : scale={scale:.3f}, Δk={shift:+.3f} "
-            f"({a}→0, {b}→1). ΔE encore manuel."
+            f"({a}→0, {b}→1). μ encore manuel."
         )
 
     def _on_crystal_a_changed(self) -> None:
@@ -366,13 +445,13 @@ class TheoryOverlayController:
         self._parent._status(f"Paramètre cristal a = {a:.4f} Å enregistré.")
 
     def _align_theory_efermi(self) -> None:
-        self._params.sp_theory_de.blockSignals(True)
-        self._params.sp_theory_de.setValue(0.0)
-        self._params.sp_theory_de.blockSignals(False)
+        self._params.sp_theory_mu.blockSignals(True)
+        self._params.sp_theory_mu.setValue(0.0)
+        self._params.sp_theory_mu.blockSignals(False)
         self._on_theory_overlay_changed()
         self._parent._status(
-            "ΔE = 0 forcé. DFT E_F=0 (efermi MP soustrait). "
-            "Vérifier que la calibration EF ARPES est appliquée."
+            "μ = 0 forcé. Overlay: E = Z × E_DFT. "
+            "Ne suppose pas que cet alignement est physiquement optimal."
         )
 
     def _restore_theory_overlay_for_entry(self) -> None:

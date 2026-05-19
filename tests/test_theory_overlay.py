@@ -50,6 +50,23 @@ class TestTheoryOverlayModels(unittest.TestCase):
         np.testing.assert_allclose(k, [-1.8, 0.2, 2.2])
         self.assertTrue(np.nanmax(e) <= 0.3)
 
+    def test_filter_bands_applies_mu_and_z(self):
+        data = TheoryBandData(
+            source="test",
+            material_id="mp-test",
+            k_distance=[0.0, 1.0],
+            bands=[[0.0, 1.0]],
+        )
+        cfg = TheoryOverlayConfig(
+            enabled=True,
+            band_indices="0",
+            mu_shift=0.2,
+            z_scale=0.5,
+        )
+        curves = filter_bands_for_view(data, cfg, xlim=(-1, 2), ylim=(-1, 1))
+        _k, e = curves[0]
+        np.testing.assert_allclose(e, [-0.1, 0.4])
+
     def test_filter_masks_outside_selected_segment(self):
         data = TheoryBandData(
             source="test",
@@ -83,6 +100,24 @@ class TestTheoryOverlayModels(unittest.TestCase):
         self.assertEqual(out[0]["band_index"], 0)
         self.assertAlmostEqual(out[0]["rms_e"], 0.0)
         self.assertEqual(out[0]["n_points"], 3)
+
+    def test_compare_fit_to_theory_uses_displayed_branch_axis(self):
+        data = TheoryBandData(
+            source="materials_project",
+            material_id="mp-test",
+            k_distance=[0.0, 1.0, 2.0, 3.0],
+            bands=[[9.0, -0.2, 0.0, 0.2]],
+            branches=[{"name": "\\Gamma-X", "start": 1, "end": 3}],
+        )
+        cfg = TheoryOverlayConfig(enabled=True, segment="Γ-X")
+        fit = {
+            "e_fitted": [-0.2, 0.0, 0.2],
+            "kF_plus": [[0.0, 0.5, 1.0]],
+            "kF_minus": [],
+        }
+        out = compare_fit_to_theory(data, cfg, fit, min_points=3)
+        self.assertEqual(out[0]["band_index"], 0)
+        self.assertAlmostEqual(out[0]["rms_e"], 0.0)
 
     def test_compare_fit_to_theory_requires_overlap(self):
         data = TheoryBandData(
