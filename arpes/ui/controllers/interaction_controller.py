@@ -79,6 +79,27 @@ class InteractionController:
     def _schedule_fit_only_redraw(self, _=None):
         self._parent._fit_redraw_timer.start(120)
 
+    def _schedule_live_guess(self, _=None) -> None:
+        """B: debounce → preview fit (_fit_guess, non persistant)."""
+        t = getattr(self._parent, "_live_fit_timer", None)
+        if t is not None:
+            t.start(350)
+
+    def _on_live_fit_guess(self, _=None) -> None:
+        p = self._parent
+        if p._raw_data is None:
+            return
+        # ne déclenche pas si l'onglet MDC fit n'est pas visible
+        tabs = getattr(p, "_tabs", None)
+        if tabs is not None and tabs.currentIndex() != 1:
+            return
+        fn = getattr(p, "_fit_guess", None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception:
+                pass
+
     def _on_model_changed(self, _=None):
         p = self._parent
         p._update_display_data()

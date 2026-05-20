@@ -145,6 +145,12 @@ def _build_init_section(panel, _fcl) -> None:
     panel.sp_np = ispin(1, 1, 8)
     panel.sp_np.setToolTip("Nombre de paires de Lorentziennes (= nombre de bandes croisées).")
     panel.sp_np.valueChanged.connect(panel._on_n_pairs_changed)
+    panel.btn_auto_pairs = compact_button(QPushButton("Auto"), max_width=60)
+    panel.btn_auto_pairs.setToolTip(
+        "Détecte automatiquement le nombre de paires par appariement\n"
+        "de pics symétriques détectés sur la MDC à E courant."
+    )
+    panel.btn_auto_pairs.clicked.connect(panel.n_pairs_auto_requested)
     panel._pair_lbl = ClickablePairLabel()
     panel._pair_lbl.pair_changed.connect(panel._on_pair_changed)
     panel.sp_kfi = dspin(0.30, 0.0, 3.0, 0.01)
@@ -164,7 +170,12 @@ def _build_init_section(panel, _fcl) -> None:
     )
     for w in (panel.sp_kfi, panel.sp_gi, panel.sp_gm):
         w.valueChanged.connect(panel.fit_only_changed)
-    fl.addRow("Nb paires:", panel.sp_np)
+    _np_row = QWidget()
+    _np_lay = QHBoxLayout(_np_row)
+    _np_lay.setContentsMargins(0, 0, 0, 0)
+    _np_lay.addWidget(panel.sp_np, 1)
+    _np_lay.addWidget(panel.btn_auto_pairs)
+    fl.addRow("Nb paires:", _np_row)
     fl.addRow(panel._pair_lbl)
     fl.addRow("kF init (π/a):", panel.sp_kfi)
     fl.addRow("γ init (π/a):", panel.sp_gi)

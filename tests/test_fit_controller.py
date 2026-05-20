@@ -126,3 +126,30 @@ class TestParamsHash(unittest.TestCase):
             compute_fit_params_hash(fp1),
             compute_fit_params_hash(fp2),
         )
+
+
+class TestDetectNPairs(unittest.TestCase):
+    def test_two_symmetric_peaks_gives_one_pair(self):
+        from arpes.physics.fit import detect_n_pairs
+        k = np.linspace(-1, 1, 401)
+        m = np.exp(-((k - 0.4) ** 2) / 0.002) + np.exp(-((k + 0.4) ** 2) / 0.002)
+        n = detect_n_pairs(k, m, k_min=-1, k_max=1, center_init=0.0,
+                            smooth_sigma=2.0)
+        self.assertEqual(n, 1)
+
+    def test_four_symmetric_peaks_gives_two_pairs(self):
+        from arpes.physics.fit import detect_n_pairs
+        k = np.linspace(-1, 1, 801)
+        peaks = [-0.6, -0.2, 0.2, 0.6]
+        m = sum(np.exp(-((k - p) ** 2) / 0.001) for p in peaks)
+        n = detect_n_pairs(k, m, k_min=-1, k_max=1, center_init=0.0,
+                            smooth_sigma=1.5)
+        self.assertEqual(n, 2)
+
+    def test_flat_mdc_falls_back_to_one(self):
+        from arpes.physics.fit import detect_n_pairs
+        k = np.linspace(-1, 1, 101)
+        m = np.ones_like(k)
+        self.assertEqual(
+            detect_n_pairs(k, m, k_min=-1, k_max=1, center_init=0.0), 1,
+        )

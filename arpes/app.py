@@ -203,6 +203,11 @@ class ArpesExplorer(QMainWindow):
         self._redraw_timer.timeout.connect(self._on_model_changed)
         self._fit_redraw_timer = QTimer(self); self._fit_redraw_timer.setSingleShot(True)
         self._fit_redraw_timer.timeout.connect(self._on_fit_only_changed)
+        # P2-B : preview de fit live (debounce) — lance _fit_guess (non
+        # persistant) quand l'utilisateur ajuste un kF init / γ init /
+        # E sélectionnée / etc.
+        self._live_fit_timer = QTimer(self); self._live_fit_timer.setSingleShot(True)
+        self._live_fit_timer.timeout.connect(self._on_live_fit_guess)
 
         self._build_ui()
         self._install_shortcuts()

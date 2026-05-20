@@ -280,7 +280,10 @@ def wire_param_signals(window) -> None:
     p = window._params
     p.params_changed.connect(window._schedule_model_redraw)
     p.fit_only_changed.connect(window._schedule_fit_only_redraw)
+    # B: live preview du fit (debounce) sur changements de params init
+    p.fit_only_changed.connect(window._schedule_live_guess)
     p.sp_ev.valueChanged.connect(window._on_ev_spinbox_changed)
+    p.sp_ev.valueChanged.connect(window._schedule_live_guess)
     p.guess_requested.connect(window._fit_guess)
     p.full_fit_requested.connect(window._fit_full)
     p.clear_kf_requested.connect(window._clear_kf)
@@ -300,6 +303,8 @@ def wire_param_signals(window) -> None:
     p.fit_roi_requested.connect(window._set_fit_roi_pick_mode)
     p.fit_roi_reset_requested.connect(window._reset_fit_roi_range)
     p.fit_undo_requested.connect(window._undo_fit_delete)
+    p.n_pairs_auto_requested.connect(window._auto_n_pairs)
+    p.kf_init_drag_changed.connect(window._on_kf_init_drag)
     p.file_tags_changed.connect(window._on_file_tags_changed)
     # THEORY_OVERLAY: optional/removable DFT guide wiring.
     p.theory_import_requested.connect(window._import_theory_overlay)

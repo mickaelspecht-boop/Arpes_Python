@@ -48,6 +48,52 @@ def compute_fit_params_hash(
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def detect_n_pairs(
+    k_arr,
+    mdc,
+    *,
+    k_min: float,
+    k_max: float,
+    center_init: float = 0.0,
+    smooth_sigma: float = 3.0,
+    min_height: float = 0.10,
+    max_pairs: int = 8,
+) -> int:
+    """Compte les paires de pics symétriques autour de ``center_init``.
+
+    Lisse + ``find_peaks`` dans la fenêtre k_min..k_max ; sépare gauche/
+    droite du centre ; renvoie min(n_gauche, n_droite). Si un seul côté
+    a des pics → renvoie ce nombre (pic symétrisé). 0 → 1 par défaut
+    (toujours au moins une paire). Borné par ``max_pairs``.
+    """
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.signal import find_peaks
+
+    k = np.asarray(k_arr, dtype=float)
+    m = np.asarray(mdc, dtype=float)
+    mask = (k >= float(k_min)) & (k <= float(k_max))
+    if int(mask.sum()) < 10:
+        return 1
+    kw, mw = k[mask], m[mask]
+    s = max(1, int(smooth_sigma))
+    mw_sm = gaussian_filter1d(np.nan_to_num(mw), sigma=s)
+    lo, hi = float(np.nanmin(mw_sm)), float(np.nanmax(mw_sm))
+    if hi - lo < 1e-10:
+        return 1
+    mn = (mw_sm - lo) / (hi - lo)
+    pks, _ = find_peaks(mn, height=float(min_height), distance=max(3, s))
+    if pks.size == 0:
+        return 1
+    kpks = kw[pks]
+    left = int(np.sum(kpks < float(center_init)))
+    right = int(np.sum(kpks >= float(center_init)))
+    if left == 0 and right == 0:
+        return 1
+    if left == 0 or right == 0:
+        return max(1, min(int(max_pairs), max(left, right)))
+    return max(1, min(int(max_pairs), min(left, right)))
+
+
 def _sanitize(obj):
     """JSON-safe : numpy scalaires, listes, dicts récursifs."""
     if isinstance(obj, dict):
