@@ -285,16 +285,34 @@ class FitRunnerController:
         if a <= 0:
             self._status("Attention: renseigne a cristal (Å) > 0 pour Im Σ.")
             return
-        result = imaginary_self_energy(fr, a, pair_index=0)
-        if result["energy"].size == 0:
+        wm = str(fr.get("width_mode", "symmetric"))
+        # Mode 'independent' → exposer γL/γR séparés + moyenne. Sinon mean seul.
+        wants_sides = (wm == "independent"
+                       and bool(fr.get("gamma_left_corrige"))
+                       and bool(fr.get("gamma_right_corrige")))
+        if wants_sides:
+            payload = {
+                "Moyenne": imaginary_self_energy(fr, a, pair_index=0,
+                                                  side="mean"),
+                "γL (kF-)": imaginary_self_energy(fr, a, pair_index=0,
+                                                   side="left"),
+                "γR (kF+)": imaginary_self_energy(fr, a, pair_index=0,
+                                                   side="right"),
+            }
+            ref = payload["Moyenne"]
+        else:
+            payload = imaginary_self_energy(fr, a, pair_index=0)
+            ref = payload
+        if ref["energy"].size == 0:
             self._status("Attention: Im Σ indisponible (vF/Γ manquants).")
             return
         from arpes.ui.widgets.dialogs import ImagSelfEnergyDialog
-        dlg = ImagSelfEnergyDialog(result, parent=p)
+        dlg = ImagSelfEnergyDialog(payload, parent=p)
         dlg.exec()
-        med = float(np.nanmedian(result["im_sigma"])) * 1000.0
+        med = float(np.nanmedian(ref["im_sigma"])) * 1000.0
+        suffix = " (mean/γL/γR séparés)" if wants_sides else ""
         self._status(
-            f"Im Σ med = {med:.1f} meV  |  vF = {result['vF_eV_A']:.2f} eV·Å"
+            f"Im Σ med = {med:.1f} meV  |  vF = {ref['vF_eV_A']:.2f} eV·Å{suffix}"
         )
 
     def _fit_full(self):

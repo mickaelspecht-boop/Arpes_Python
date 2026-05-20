@@ -102,24 +102,44 @@ def imaginary_self_energy(
     *,
     pair_index: int = 0,
     use_corrected: bool = True,
+    side: str = "mean",
 ) -> dict:
     """Im Σ(E) = (vF/2)·Γ_k(E) en eV.
+
+    ``side``: 'mean' (γ moyenné, défaut), 'left' (γ côté kF-), 'right'
+    (γ côté kF+). Les sources gauche/droite sont remplies uniquement
+    quand le fit a tourné en ``width_mode='independent'`` ; pour les
+    autres modes, gauche et droite valent la même chose que mean.
 
     Γ stocké en π/a (HWHM). Conversion : Γ_k[Å⁻¹] = Γ[π/a]·π/a.
     vF tiré de compute_fermi_velocity_mstar (kF_minus, paire 0 par
     défaut). Renvoie ``{"energy": e, "im_sigma": Σ, "vF_eV_A": vF,
-    "pair_index": pair_index}``. Tableaux vides si pré-requis manquent.
+    "pair_index": pair_index, "side": side}``. Tableaux vides si
+    pré-requis manquent.
     """
     empty = {"energy": np.array([]), "im_sigma": np.array([]),
-              "vF_eV_A": float("nan"), "pair_index": int(pair_index)}
+              "vF_eV_A": float("nan"), "pair_index": int(pair_index),
+              "side": str(side)}
     if not fit_result or crystal_a <= 0:
         return empty
     e_raw = fit_result.get("e_fitted")
     e = np.asarray([] if e_raw is None else e_raw, dtype=float)
-    src = "gamma_corrige" if use_corrected else "gamma_brut"
-    g_all = fit_result.get(src)
-    if g_all is None:
-        g_all = fit_result.get("gamma_corrige") or fit_result.get("gamma")
+    # Choix de la source γ selon side
+    if str(side).lower() == "left":
+        keys = (("gamma_left_corrige" if use_corrected else "gamma_left_brut"),
+                "gamma_corrige", "gamma")
+    elif str(side).lower() == "right":
+        keys = (("gamma_right_corrige" if use_corrected else "gamma_right_brut"),
+                "gamma_corrige", "gamma")
+    else:
+        keys = (("gamma_corrige" if use_corrected else "gamma_brut"),
+                "gamma_corrige", "gamma")
+    g_all = None
+    for k in keys:
+        cand = fit_result.get(k)
+        if cand is not None:
+            g_all = cand
+            break
     if g_all is None or not (0 <= pair_index < len(g_all)):
         return empty
     g_pi_a = np.asarray(g_all[pair_index], dtype=float)
@@ -148,6 +168,7 @@ def imaginary_self_energy(
         "im_sigma_std": im_sigma_std[finite],
         "vF_eV_A": float(vF),
         "pair_index": int(pair_index),
+        "side": str(side),
     }
 
 

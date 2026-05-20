@@ -322,3 +322,40 @@ class TestWidthModeAliasing(unittest.TestCase):
         from arpes.core.session import FitParams
         kw = MdcFitter.fit_kwargs(FitParams(width_mode="independent"))
         self.assertEqual(kw["width_mode"], "independent")
+
+
+class TestImSigmaSide(unittest.TestCase):
+    def _fr(self):
+        e = np.linspace(-0.04, 0.04, 9)
+        k = 0.4 + e / 2.0
+        gL = np.full_like(e, 0.04)
+        gR = np.full_like(e, 0.07)
+        return {
+            "e_fitted": e,
+            "kF_minus": [k],
+            "gamma_corrige": [0.5 * (gL + gR)],
+            "gamma_left_corrige": [gL],
+            "gamma_right_corrige": [gR],
+            "width_mode": "independent",
+        }
+
+    def test_left_uses_gamma_left(self):
+        from arpes.physics.fit import imaginary_self_energy
+        a = 4.0
+        rl = imaginary_self_energy(self._fr(), a, side="left")
+        rr = imaginary_self_energy(self._fr(), a, side="right")
+        rm = imaginary_self_energy(self._fr(), a, side="mean")
+        self.assertEqual(rl["side"], "left")
+        self.assertEqual(rr["side"], "right")
+        self.assertGreater(float(rr["im_sigma"][0]), float(rl["im_sigma"][0]))
+        # mean entre les deux
+        self.assertLess(float(rl["im_sigma"][0]), float(rm["im_sigma"][0]))
+        self.assertLess(float(rm["im_sigma"][0]), float(rr["im_sigma"][0]))
+
+    def test_side_falls_back_to_mean_when_no_left(self):
+        from arpes.physics.fit import imaginary_self_energy
+        fr = self._fr()
+        del fr["gamma_left_corrige"]
+        res = imaginary_self_energy(fr, 4.0, side="left")
+        # Pas de gauche dispo → tombe sur gamma_corrige (mean)
+        self.assertGreater(res["energy"].size, 0)

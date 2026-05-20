@@ -202,6 +202,10 @@ def fit_mdc_peak_pairs(
     kF_plus_list  = [[] for _ in range(n_pairs)]
     k0_list       = [[] for _ in range(n_pairs)]
     gamma_list    = [[] for _ in range(n_pairs)]
+    gamma_left_list  = [[] for _ in range(n_pairs)]  # γL (côté kF-)
+    gamma_right_list = [[] for _ in range(n_pairs)]  # γR (côté kF+)
+    sigma_gamma_left_list  = [[] for _ in range(n_pairs)]
+    sigma_gamma_right_list = [[] for _ in range(n_pairs)]
     sigma_kF_minus_list = [[] for _ in range(n_pairs)]
     sigma_kF_plus_list  = [[] for _ in range(n_pairs)]
     sigma_gamma_list    = [[] for _ in range(n_pairs)]
@@ -299,8 +303,8 @@ def fit_mdc_peak_pairs(
                     converged = True
 
                 if width_mode == 'independent':
-                    g1 = popt[3 + n_pp*i + 2]
-                    g2 = popt[3 + n_pp*i + 4]
+                    g1 = float(popt[3 + n_pp*i + 2])  # côté gauche (kF-)
+                    g2 = float(popt[3 + n_pp*i + 4])  # côté droit (kF+)
                     gamma_fit = float(np.nanmean([g1, g2]))
                     sg1 = float(sigma_full[3 + n_pp * i + 2])
                     sg2 = float(sigma_full[3 + n_pp * i + 4])
@@ -308,15 +312,23 @@ def fit_mdc_peak_pairs(
                 elif width_mode == 'symmetric':
                     gamma_fit = float(popt[3 + n_pp*i + 3])
                     sigma_gamma_val = float(sigma_full[3 + n_pp * i + 3])
+                    g1 = g2 = gamma_fit
+                    sg1 = sg2 = sigma_gamma_val
                 else:
                     # 'global' : w_global est avant η si voigt → idx -2 sinon -1
                     g_idx = -2 if is_voigt else -1
                     gamma_fit = float(popt[g_idx])
                     sigma_gamma_val = float(sigma_full[g_idx])
+                    g1 = g2 = gamma_fit
+                    sg1 = sg2 = sigma_gamma_val
                 gamma_list[i].append(gamma_fit if not jumped else np.nan)
+                gamma_left_list[i].append(g1 if not jumped else np.nan)
+                gamma_right_list[i].append(g2 if not jumped else np.nan)
                 sigma_gamma_list[i].append(
                     sigma_gamma_val if not jumped else np.nan
                 )
+                sigma_gamma_left_list[i].append(sg1 if not jumped else np.nan)
+                sigma_gamma_right_list[i].append(sg2 if not jumped else np.nan)
 
                 if verbose:
                     status = 'OK' if (converged and not jumped) else ('JUMP' if jumped else 'LOW_A')
@@ -367,6 +379,10 @@ def fit_mdc_peak_pairs(
                 kF_plus_list[i].append(np.nan)
                 k0_list[i].append(np.nan)
                 gamma_list[i].append(np.nan)
+                gamma_left_list[i].append(np.nan)
+                gamma_right_list[i].append(np.nan)
+                sigma_gamma_left_list[i].append(np.nan)
+                sigma_gamma_right_list[i].append(np.nan)
                 sigma_kF_minus_list[i].append(np.nan)
                 sigma_kF_plus_list[i].append(np.nan)
                 sigma_gamma_list[i].append(np.nan)
@@ -383,6 +399,21 @@ def fit_mdc_peak_pairs(
     sort_idx  = np.argsort(e_arr_out)
     k0_out = [np.array(x)[sort_idx] for x in k0_list]
     gamma_brut = [np.array(x)[sort_idx] for x in gamma_list]
+    gamma_left_brut  = [np.array(x)[sort_idx] for x in gamma_left_list]
+    gamma_right_brut = [np.array(x)[sort_idx] for x in gamma_right_list]
+    gamma_left_corrige = []
+    gamma_right_corrige = []
+    for i in range(n_pairs):
+        _, glc = _resolution_correct_gamma(
+            e_arr_out[sort_idx], k0_out[i], gamma_left_brut[i],
+            dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+        )
+        _, grc = _resolution_correct_gamma(
+            e_arr_out[sort_idx], k0_out[i], gamma_right_brut[i],
+            dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+        )
+        gamma_left_corrige.append(glc)
+        gamma_right_corrige.append(grc)
     gamma_min = []
     gamma_corrige = []
     for i in range(n_pairs):
@@ -416,6 +447,12 @@ def fit_mdc_peak_pairs(
         gamma_brut  =gamma_brut,
         gamma_min   =gamma_min,
         gamma_corrige=gamma_corrige,
+        gamma_left_brut    =gamma_left_brut,
+        gamma_right_brut   =gamma_right_brut,
+        gamma_left_corrige =gamma_left_corrige,
+        gamma_right_corrige=gamma_right_corrige,
+        sigma_gamma_left   =[np.array(x)[sort_idx] for x in sigma_gamma_left_list],
+        sigma_gamma_right  =[np.array(x)[sort_idx] for x in sigma_gamma_right_list],
         resolution  ={
             "dE_eV": float(dE_eV or 0.0),
             "dE_meV": float(dE_eV or 0.0) * 1000.0,
