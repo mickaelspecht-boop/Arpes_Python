@@ -38,6 +38,19 @@ class FitRunnerController:
     def _session(self):
         return self._parent._session
 
+    def _redraw_all_fit_views(self) -> None:
+        """Rafraîchit BM + MDC map + MDC EDC après fit/clear, quel que soit
+        l'onglet actif. Corrige : kF n'apparaissait que sur l'onglet courant
+        (BM si fit lancé depuis BM), forçait switch+revenir pour voir MDC."""
+        p = self._parent
+        for name in ("_draw_bm", "_draw_mdc_energy_map", "_draw_mdc_edc"):
+            fn = getattr(p, name, None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    pass
+
     def _status(self, msg: str) -> None:
         self._parent._status(msg)
 
@@ -163,7 +176,7 @@ class FitRunnerController:
                 threshold = 5.0
             if hasattr(self._params, "update_fit_quality"):
                 self._params.update_fit_quality(fr, threshold)
-            p._draw_current_view()
+            self._redraw_all_fit_views()
             self._status(summary.status_text)
             if hasattr(self._params, "mark_action_done"):
                 self._params.mark_action_done("fit complet terminé")
@@ -185,7 +198,7 @@ class FitRunnerController:
         p._fit_selected = []
         if hasattr(self._params, "update_fit_quality"):
             self._params.update_fit_quality(None, 5.0)
-        p._draw_current_view()
+        self._redraw_all_fit_views()
         self._params.lbl_res.setText("kF effacé")
         results = getattr(p, "_results", None)
         if results is not None and hasattr(results, "refresh"):
