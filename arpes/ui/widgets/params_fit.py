@@ -367,6 +367,38 @@ def _build_fit_buttons(panel, _fcl) -> None:
     btn_f.clicked.connect(panel.full_fit_requested)
     _fcl.addWidget(btn_f)
 
+    panel.chk_use_ensemble = QCheckBox("Ensemble fit (perturbe initiaux × N)")
+    panel.chk_use_ensemble.setToolTip(
+        "1 paire = 1 bande. Ensemble = refit N fois en perturbant kF_init\n"
+        "et γ_init (±jitter%) puis médiane robuste (MAD-filtré).\n"
+        "Donne σ statistique fiable. Plus lent (× N)."
+    )
+    panel.sp_ensemble_n = ispin(30, 5, 200)
+    panel.sp_ensemble_n.setToolTip("Nombre de runs (5..200).")
+    panel.sp_ensemble_jitter = dspin(0.10, 0.0, 0.5, 0.01, dec=3)
+    panel.sp_ensemble_jitter.setToolTip(
+        "Amplitude relative du jitter sur kF_init et γ_init (0.10 = ±10 %)."
+    )
+    _ens_row = QWidget()
+    _ens_lay = QHBoxLayout(_ens_row)
+    _ens_lay.setContentsMargins(0, 0, 0, 0)
+    _ens_lay.addWidget(QLabel("N:"))
+    _ens_lay.addWidget(panel.sp_ensemble_n)
+    _ens_lay.addWidget(QLabel("jitter:"))
+    _ens_lay.addWidget(panel.sp_ensemble_jitter)
+    _ens_lay.addStretch(1)
+    _fcl.addWidget(panel.chk_use_ensemble)
+    _fcl.addWidget(_ens_row)
+    panel.btn_fit_ensemble = compact_button(QPushButton("Fit ensemble"), max_width=180)
+    panel.btn_fit_ensemble.setStyleSheet(
+        "background:#7c3aed;color:white;font-weight:bold;padding:6px;"
+    )
+    panel.btn_fit_ensemble.setToolTip(
+        "Lance N fit complets avec initiaux jitterés, agrège médiane/MAD.\n"
+        "Écrit kF/Γ médians + σ statistiques dans fit_result.ensemble."
+    )
+    panel.btn_fit_ensemble.clicked.connect(panel.fit_ensemble_requested)
+    _fcl.addWidget(panel.btn_fit_ensemble)
     panel.btn_im_sigma = compact_button(QPushButton("Im Σ(E)"), max_width=140)
     panel.btn_im_sigma.setToolTip(
         "Calcule Im Σ(E) = (vF/2)·Γ(E) avec la largeur corrigée du fit.\n"

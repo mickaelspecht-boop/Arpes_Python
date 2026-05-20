@@ -19,6 +19,7 @@ def compute_fit_params_hash(
     bm_distortion: dict | None = None,
     grid_correction: dict | None = None,
     ef_correction: dict | None = None,
+    ensemble_settings: dict | None = None,
 ) -> str:
     """Empreinte stable des paramètres ayant un impact sur le fit MDC.
 
@@ -43,6 +44,7 @@ def compute_fit_params_hash(
         "bm_distortion": _sanitize(bm_distortion or {}),
         "grid_correction": _sanitize(grid_correction or {}),
         "ef_correction": _sanitize(ef_correction or {}),
+        "ensemble_settings": _sanitize(ensemble_settings or {}),
     }
     raw = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
@@ -137,6 +139,121 @@ def imaginary_self_energy(
         "im_sigma": im_sigma[finite],
         "vF_eV_A": float(vF),
         "pair_index": int(pair_index),
+    }
+
+
+def ensemble_fit(
+    mdc_fitter,
+    data,
+    kpar,
+    ev,
+    fp,
+    *,
+    n_runs: int = 30,
+    jitter_pct: float = 0.10,
+    resolution_source: str = "",
+    seed: int | None = None,
+) -> dict:
+    """I1: refit N fois avec perturbation des initiaux, agrège statistiquement.
+
+    Hypothèse : 1 paire = 1 bande (modèle Lorentzien symétrique).
+    L'ensemble réduit la sensibilité aux initiaux et donne σ statistique
+    plus fiable que la covariance de l'optimiseur seule.
+
+    - kF_init et γ_init perturbés relatif (×(1 + N(0, jitter_pct))).
+    - Filtre outliers via MAD (>3σ) avant moyenne.
+    - Renvoie dict ``ensemble`` à injecter dans fit_result :
+      ``{n_runs, n_ok, jitter_pct, e_fitted,
+         kF_minus_med/std, kF_plus_med/std,
+         gamma_corrige_med/std}`` + ``kF_minus``/``kF_plus``/``gamma_*``
+         écrasés par les médianes (consommé par pipeline aval).
+    """
+    from copy import deepcopy
+
+    rng = np.random.default_rng(seed)
+    runs: list[dict] = []
+    base_pairs = list(getattr(fp, "pairs", None) or [])
+    for _ in range(int(n_runs)):
+        fp_j = deepcopy(fp)
+        new_pairs = []
+        for pp in base_pairs:
+            kfj = float(pp.get("kF_init", 0.30)) * (
+                1.0 + jitter_pct * float(rng.standard_normal()))
+            gij = float(pp.get("gamma_init", 0.08)) * (
+                1.0 + jitter_pct * float(rng.standard_normal()))
+            new_pairs.append({**pp, "kF_init": max(0.0, kfj),
+                              "gamma_init": max(1e-4, gij)})
+        try:
+            object.__setattr__(fp_j, "pairs", new_pairs)
+        except Exception:
+            fp_j.pairs = new_pairs
+        try:
+            fr = mdc_fitter.run_full_fit(
+                data, kpar, ev, fp_j,
+                resolution_source=resolution_source,
+            )
+        except Exception:
+            continue
+        if not fr or fr.get("e_fitted") is None:
+            continue
+        runs.append(fr)
+    if not runs:
+        return {"n_runs": int(n_runs), "n_ok": 0,
+                "jitter_pct": float(jitter_pct), "ensemble": True}
+    # Référence taille e_fitted (1ère run convergée)
+    e_ref = np.asarray(runs[0].get("e_fitted") or [], dtype=float)
+    n_e = e_ref.size
+    if n_e == 0:
+        return {"n_runs": int(n_runs), "n_ok": 0,
+                "jitter_pct": float(jitter_pct), "ensemble": True}
+    # Empile les branches dim (n_runs_ok, n_pairs, n_e)
+    n_pairs = max(
+        max(len(fr.get("kF_minus") or []) for fr in runs),
+        max(len(fr.get("kF_plus") or []) for fr in runs),
+        1,
+    )
+
+    def _stack(key: str) -> np.ndarray:
+        arr = np.full((len(runs), n_pairs, n_e), np.nan, dtype=float)
+        for ri, fr in enumerate(runs):
+            branches = fr.get(key) or []
+            for pi in range(min(len(branches), n_pairs)):
+                v = np.asarray(branches[pi], dtype=float)
+                if v.size == n_e:
+                    arr[ri, pi, :] = v
+        return arr
+
+    km = _stack("kF_minus")
+    kp = _stack("kF_plus")
+    gc = _stack("gamma_corrige")
+    if np.all(np.isnan(gc)):
+        gc = _stack("gamma_brut")
+
+    def _agg(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Médiane + std après filtrage MAD (>3·MAD) par (paire, slice)."""
+        med = np.nanmedian(stack, axis=0)
+        mad = np.nanmedian(np.abs(stack - med[np.newaxis, ...]), axis=0)
+        # MAD * 1.4826 ≈ σ pour distribution gaussienne
+        sigma = 1.4826 * mad
+        mask_ok = np.abs(stack - med[np.newaxis, ...]) <= 3.0 * sigma[np.newaxis, ...] + 1e-12
+        filt = np.where(mask_ok, stack, np.nan)
+        return np.nanmedian(filt, axis=0), np.nanstd(filt, axis=0)
+
+    kF_minus_med, kF_minus_std = _agg(km)
+    kF_plus_med, kF_plus_std = _agg(kp)
+    gamma_med, gamma_std = _agg(gc)
+    return {
+        "ensemble": True,
+        "n_runs": int(n_runs),
+        "n_ok": int(len(runs)),
+        "jitter_pct": float(jitter_pct),
+        "e_fitted": e_ref.tolist(),
+        "kF_minus_med": [row.tolist() for row in kF_minus_med],
+        "kF_minus_std": [row.tolist() for row in kF_minus_std],
+        "kF_plus_med": [row.tolist() for row in kF_plus_med],
+        "kF_plus_std": [row.tolist() for row in kF_plus_std],
+        "gamma_med": [row.tolist() for row in gamma_med],
+        "gamma_std": [row.tolist() for row in gamma_std],
     }
 
 

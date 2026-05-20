@@ -200,3 +200,68 @@ class TestImSigma(unittest.TestCase):
         from arpes.physics.fit import imaginary_self_energy
         res = imaginary_self_energy({"e_fitted": [0.0]}, 4.0)
         self.assertEqual(res["energy"].size, 0)
+
+
+class TestEnsembleFit(unittest.TestCase):
+    def _make_fitter(self):
+        # Fitter qui renvoie kF_minus = kF_init + bruit fixe par run
+        from arpes.physics.fit import MdcFitter
+        ev = np.linspace(-0.05, 0.0, 6)
+
+        class _AP:
+            def __init__(self):
+                self._call = 0
+
+            def fit_mdc_peak_pairs(self, data, kpar, ev_arr, **kw):
+                self._call += 1
+                pairs = kw.get("kF_init") or [0.30]
+                kf0 = float(pairs[0])
+                # bruit centré : sinus du numéro d'appel pour reproductibilité
+                noise = 0.001 * np.sin(self._call)
+                return {
+                    "e_fitted": ev.tolist(),
+                    "kF_minus": [(np.full_like(ev, -kf0) + noise).tolist()],
+                    "kF_plus": [(np.full_like(ev, kf0) + noise).tolist()],
+                    "gamma_corrige": [np.full_like(ev, 0.05).tolist()],
+                    "gamma_brut": [np.full_like(ev, 0.05).tolist()],
+                    "xg": [0.0] * ev.size,
+                    "residuals": [],
+                    "chi2_red": [],
+                }
+        return MdcFitter(_AP()), ev
+
+    def test_ensemble_aggregates_runs(self):
+        from arpes.physics.fit import ensemble_fit
+        fitter, ev = self._make_fitter()
+        fp = FitParams(n_pairs=1, pairs=[{"kF_init": 0.30, "gamma_init": 0.08,
+                                             "gamma_max": 0.30}])
+        ens = ensemble_fit(fitter, np.zeros((10, ev.size)),
+                            np.linspace(-1, 1, 10), ev, fp,
+                            n_runs=20, jitter_pct=0.10, seed=42)
+        self.assertEqual(ens["ensemble"], True)
+        self.assertGreater(ens["n_ok"], 0)
+        self.assertEqual(len(ens["e_fitted"]), ev.size)
+        # médiane kF_plus ≈ 0.30 (± jitter)
+        med = float(np.nanmedian(ens["kF_plus_med"]))
+        self.assertAlmostEqual(med, 0.30, delta=0.05)
+        self.assertGreater(np.nanmean(ens["kF_plus_std"]), 0.0)
+
+    def test_ensemble_zero_runs_returns_empty(self):
+        from arpes.physics.fit import ensemble_fit
+
+        class _AP_bad:
+            def fit_mdc_peak_pairs(self, *a, **kw):
+                raise RuntimeError("boom")
+        fitter = MdcFitter(_AP_bad())
+        fp = FitParams()
+        ens = ensemble_fit(fitter, np.zeros((10, 6)),
+                            np.linspace(-1, 1, 10), np.linspace(-0.05, 0, 6),
+                            fp, n_runs=3, jitter_pct=0.10)
+        self.assertEqual(ens["n_ok"], 0)
+
+    def test_hash_includes_ensemble_settings(self):
+        from arpes.physics.fit import compute_fit_params_hash
+        fp = FitParams()
+        h1 = compute_fit_params_hash(fp, ensemble_settings={"n": 30, "jitter": 0.10})
+        h2 = compute_fit_params_hash(fp, ensemble_settings={"n": 50, "jitter": 0.10})
+        self.assertNotEqual(h1, h2)

@@ -306,6 +306,7 @@ def wire_param_signals(window) -> None:
     p.n_pairs_auto_requested.connect(window._auto_n_pairs)
     p.kf_init_drag_changed.connect(window._on_kf_init_drag)
     p.im_self_energy_requested.connect(window._calculate_im_self_energy)
+    p.fit_ensemble_requested.connect(window._fit_ensemble)
     p.file_tags_changed.connect(window._on_file_tags_changed)
     # THEORY_OVERLAY: optional/removable DFT guide wiring.
     p.theory_import_requested.connect(window._import_theory_overlay)

@@ -26,6 +26,7 @@ from arpes.physics.fit import (
     MdcFitter,
     compute_fit_params_hash,
     detect_n_pairs,
+    ensemble_fit,
     imaginary_self_energy,
 )
 from arpes.ui.widgets.dialogs import EFCalibrationDialog
@@ -181,6 +182,95 @@ class FitRunnerController:
             traceback.print_exc()
         p._mdc_edc.fig.tight_layout(pad=0.5)
         p._mdc_edc.redraw()
+
+    def _fit_ensemble(self) -> None:
+        """I1: refit N fois (perturbe initiaux), agrège kF/Γ médians + σ.
+
+        1 paire = 1 bande (modèle Lorentzien symétrique). L'ensemble
+        donne σ statistique fiable (MAD-filtré). Plus lent (× N).
+        """
+        p = self._parent
+        if p.ap is None:
+            self._status("Attention: arpes_plots non chargé")
+            return
+        data, kpar, ev = self._get_work_data()
+        if data is None:
+            return
+        fp = self._params.get_fit_params()
+        n = int(getattr(self._params, "sp_ensemble_n", None).value()
+                if hasattr(self._params, "sp_ensemble_n") else 30)
+        jitter = float(getattr(self._params, "sp_ensemble_jitter", None).value()
+                       if hasattr(self._params, "sp_ensemble_jitter") else 0.10)
+        self._status(f"Fit ensemble en cours (N={n}, jitter={jitter*100:.0f}%) ...")
+        QApplication.processEvents()
+        try:
+            controller = MdcFitter(p.ap)
+            ens = ensemble_fit(
+                controller, data, kpar, ev, fp,
+                n_runs=n, jitter_pct=jitter,
+                resolution_source=getattr(self._params,
+                                          "_resolution_source_detail", ""),
+            )
+            n_ok = int(ens.get("n_ok") or 0)
+            if n_ok == 0:
+                self._status("Attention: ensemble fit — aucune run convergée.")
+                return
+            # Compose fit_result final : médianes → kF/Γ, σ dans ensemble.
+            fr = {
+                "e_fitted": ens["e_fitted"],
+                "kF_minus": ens["kF_minus_med"],
+                "kF_plus": ens["kF_plus_med"],
+                "gamma_corrige": ens["gamma_med"],
+                "gamma_brut": ens["gamma_med"],  # référence (pas re-correction)
+                "ensemble": ens,
+            }
+            p._fit_res = fr
+            if p._current_path:
+                name = self._session.key_for_path(p._current_path)
+                entry = self._session.get_or_create(name)
+                controller.update_entry_after_fit(
+                    entry, fp,
+                    ef_offset=self._params.sp_ef.value(),
+                    edcnorm=p._cmb_view.currentText() == "EDCnorm",
+                    view_mode=p._cmb_view.currentText(),
+                    hv=p._raw_data["hv"],
+                )
+                fr["params_hash"] = self._current_fit_params_hash(entry)
+                self._session.set_fit_result(name, fr)
+                p._browser.refresh_item(name)
+                self._refresh_helper_buttons()
+            crystal_a = 0.0
+            try:
+                crystal_a = float(self._params.sp_crystal_a.value())
+            except Exception:
+                pass
+            summary = controller.summarize(fr, crystal_a=crystal_a)
+            self._params.lbl_res.setText(
+                summary.label_text +
+                f"\nEnsemble: {n_ok}/{n} runs, jitter={jitter*100:.0f}%"
+            )
+            self._params.lbl_res.setToolTip(
+                "Résolution instrumentale domine, fit non fiable"
+                if summary.resolution_dominates else
+                "kF/Γ = médianes MAD-filtrées; σ dans ensemble."
+            )
+            try:
+                threshold = float(self._params.sp_chi2_threshold.value())
+            except Exception:
+                threshold = 5.0
+            if hasattr(self._params, "update_fit_quality"):
+                self._params.update_fit_quality(
+                    fr, threshold,
+                    current_hash=self._current_fit_params_hash(),
+                )
+            self._update_mdc_tab_label(fr)
+            self._redraw_all_fit_views()
+            self._status(
+                f"Fit ensemble OK — {n_ok}/{n} runs convergées."
+            )
+        except Exception as e:
+            self._status(f"Attention: Fit ensemble : {e}")
+            traceback.print_exc()
 
     def _calculate_im_self_energy(self) -> None:
         """H: ouvre dialog Im Σ(E) depuis fit_result courant + a."""
