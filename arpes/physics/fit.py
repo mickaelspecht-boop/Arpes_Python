@@ -1,11 +1,67 @@
 """Controleur de fit MDC sans dependance PyQt."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any
+import hashlib
+import json
 import warnings
 
 import numpy as np
+
+
+def compute_fit_params_hash(
+    fp: Any,
+    *,
+    ef_offset: float = 0.0,
+    view_mode: str = "",
+    hv: float | None = None,
+    bm_distortion: dict | None = None,
+    grid_correction: dict | None = None,
+    ef_correction: dict | None = None,
+) -> str:
+    """Empreinte stable des paramètres ayant un impact sur le fit MDC.
+
+    Stockée dans fit_result et recalculée à l'affichage : si l'état
+    courant diffère du hash mémorisé, le fit affiché est marqué STALE
+    (paramètres modifiés depuis le fit → résultats potentiellement
+    incohérents). Cohérence cache (arpes-redteam).
+    """
+    fp_dict: dict
+    if is_dataclass(fp):
+        fp_dict = asdict(fp)
+    elif isinstance(fp, dict):
+        fp_dict = dict(fp)
+    else:
+        fp_dict = {k: getattr(fp, k) for k in dir(fp)
+                    if not k.startswith("_") and not callable(getattr(fp, k))}
+    payload = {
+        "fp": _sanitize(fp_dict),
+        "ef_offset": float(ef_offset or 0.0),
+        "view_mode": str(view_mode or ""),
+        "hv": float(hv) if hv is not None else None,
+        "bm_distortion": _sanitize(bm_distortion or {}),
+        "grid_correction": _sanitize(grid_correction or {}),
+        "ef_correction": _sanitize(ef_correction or {}),
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _sanitize(obj):
+    """JSON-safe : numpy scalaires, listes, dicts récursifs."""
+    if isinstance(obj, dict):
+        return {str(k): _sanitize(v) for k, v in sorted(obj.items())}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize(x) for x in obj]
+    if hasattr(obj, "item") and not isinstance(obj, (str, bytes)):
+        try:
+            return obj.item()
+        except Exception:
+            return str(obj)
+    if isinstance(obj, (int, float, str, bool)) or obj is None:
+        return obj
+    return str(obj)
 
 
 @dataclass(frozen=True)

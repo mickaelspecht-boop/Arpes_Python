@@ -614,7 +614,8 @@ class FitParamsPanel(QScrollArea):
             self.fit_only_changed.emit()
         self.fit_preset_changed.emit(name)
 
-    def update_fit_quality(self, fit_result: dict | None, chi2_threshold: float) -> None:
+    def update_fit_quality(self, fit_result: dict | None, chi2_threshold: float,
+                           *, current_hash: str | None = None) -> None:
         if not hasattr(self, "lbl_fit_quality"):
             return
         if not fit_result:
@@ -639,9 +640,17 @@ class FitParamsPanel(QScrollArea):
         bad = int(np.sum(arr > float(chi2_threshold)))
         ratio = bad / max(arr.size, 1)
         color = "#8fc" if ratio < 0.3 else "#fc8"
-        self.lbl_fit_quality.setText(
-            f"χ²_red méd: {med:.2f}  |  {arr.size} slices  |  {bad} douteuses"
-        )
+        text = f"χ²_red méd: {med:.2f}  |  {arr.size} slices  |  {bad} douteuses"
+        stored_hash = str(fit_result.get("params_hash") or "")
+        if current_hash and stored_hash and current_hash != stored_hash:
+            text = f"⚠ STALE — params modifiés depuis le fit | {text}"
+            color = "#f87171"  # rouge clair
+        self.lbl_fit_quality.setText(text)
         self.lbl_fit_quality.setStyleSheet(
-            f"color:{color};font-family:monospace;font-size:11px;"
+            f"color:{color};font-family:monospace;font-size:12px;font-weight:bold;"
+        )
+        self.lbl_fit_quality.setToolTip(
+            "STALE = paramètres MDC/EF/correction modifiés depuis ce fit.\n"
+            "Re-lancer Fit complet pour réaligner."
+            if "STALE" in text else "Qualité du fit MDC en cours."
         )

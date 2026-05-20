@@ -473,7 +473,22 @@ class LoadController:
                 threshold = float(self._params.sp_chi2_threshold.value())
             except Exception:
                 threshold = 5.0
-            self._params.update_fit_quality(entry.fit_result, threshold)
+            fit_ctrl = getattr(self._parent, "_fit_runner_ctrl", None)
+            current_hash = None
+            try:
+                if fit_ctrl is not None:
+                    current_hash = fit_ctrl._current_fit_params_hash(entry)
+            except Exception:
+                current_hash = None
+            self._params.update_fit_quality(
+                entry.fit_result, threshold, current_hash=current_hash,
+            )
+            # G: titre onglet Fit MDC reflète l'état restauré
+            try:
+                if fit_ctrl is not None:
+                    fit_ctrl._update_mdc_tab_label(entry.fit_result)
+            except Exception:
+                pass
 
         a_val = float(getattr(entry.meta, "crystal_a_angstrom", 0.0) or 0.0)
         if a_val <= 0.0:

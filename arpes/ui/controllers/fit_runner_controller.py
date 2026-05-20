@@ -22,7 +22,7 @@ from arpes.physics.ef_calibration import (
     apply_reference_to_target as apply_ef_reference_to_target,
     compute_calibration_update as compute_ef_calibration_update,
 )
-from arpes.physics.fit import MdcFitter
+from arpes.physics.fit import MdcFitter, compute_fit_params_hash
 from arpes.ui.widgets.dialogs import EFCalibrationDialog
 
 
@@ -37,6 +37,52 @@ class FitRunnerController:
     @property
     def _session(self):
         return self._parent._session
+
+    def _current_fit_params_hash(self, entry=None) -> str:
+        """Hash de l'état UI/données courant influant le fit MDC.
+
+        Comparé au hash stocké dans fit_result : si différent → fit
+        STALE (params modifiés depuis fit, résultat trompeur).
+        """
+        p = self._parent
+        fp = self._params.get_fit_params()
+        if entry is None and getattr(p, "_current_path", None):
+            key = self._session.key_for_path(p._current_path)
+            entry = self._session.get_or_create(key)
+        hv = None
+        try:
+            hv = float(p._raw_data["hv"]) if p._raw_data else None
+        except Exception:
+            hv = None
+        return compute_fit_params_hash(
+            fp,
+            ef_offset=self._params.sp_ef.value(),
+            view_mode=p._cmb_view.currentText(),
+            hv=hv,
+            bm_distortion=getattr(entry, "bm_distortion", None) if entry else None,
+            grid_correction=getattr(entry, "grid_correction", None) if entry else None,
+            ef_correction=getattr(entry, "ef_correction", None) if entry else None,
+        )
+
+    def _update_mdc_tab_label(self, fr: dict | None) -> None:
+        """G : titre dynamique de l'onglet Fit MDC = état du fit courant."""
+        p = self._parent
+        tabs = getattr(p, "_mdc_fit_tabs", None)
+        if tabs is None or tabs.count() < 1:
+            return
+        if not fr:
+            tabs.setTabText(0, "Fit MDC")
+            return
+        n_e = len(fr.get("e_fitted") or [])
+        stale = False
+        try:
+            stale = bool(fr.get("params_hash")
+                         and fr["params_hash"] != self._current_fit_params_hash())
+        except Exception:
+            stale = False
+        marker = "•" if stale else "✓"
+        suffix = " (stale)" if stale else ""
+        tabs.setTabText(0, f"Fit MDC {marker} {n_e}{suffix}")
 
     def _redraw_all_fit_views(self) -> None:
         """Rafraîchit BM + MDC map + MDC EDC après fit/clear, quel que soit
@@ -161,6 +207,8 @@ class FitRunnerController:
                     view_mode=p._cmb_view.currentText(),
                     hv=p._raw_data["hv"],
                 )
+                # F: empreinte des params au moment du fit -> détection stale
+                fr["params_hash"] = self._current_fit_params_hash(entry)
                 self._session.set_fit_result(name, fr)
                 p._browser.refresh_item(name)
                 self._refresh_helper_buttons()
@@ -176,7 +224,11 @@ class FitRunnerController:
             except Exception:
                 threshold = 5.0
             if hasattr(self._params, "update_fit_quality"):
-                self._params.update_fit_quality(fr, threshold)
+                self._params.update_fit_quality(
+                    fr, threshold,
+                    current_hash=self._current_fit_params_hash(),
+                )
+            self._update_mdc_tab_label(fr)
             self._redraw_all_fit_views()
             self._status(summary.status_text)
             if hasattr(self._params, "mark_action_done"):
@@ -199,6 +251,7 @@ class FitRunnerController:
         p._fit_selected = []
         if hasattr(self._params, "update_fit_quality"):
             self._params.update_fit_quality(None, 5.0)
+        self._update_mdc_tab_label(None)
         self._redraw_all_fit_views()
         self._params.lbl_res.setText("kF effacé")
         results = getattr(p, "_results", None)

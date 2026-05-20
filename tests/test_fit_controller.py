@@ -93,3 +93,36 @@ class TestFitController(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestParamsHash(unittest.TestCase):
+    def test_hash_stable_same_params(self):
+        from arpes.physics.fit import compute_fit_params_hash
+        fp = FitParams()
+        h1 = compute_fit_params_hash(fp, ef_offset=0.05, view_mode="Raw", hv=100.0)
+        h2 = compute_fit_params_hash(fp, ef_offset=0.05, view_mode="Raw", hv=100.0)
+        self.assertEqual(h1, h2)
+
+    def test_hash_changes_with_ef(self):
+        from arpes.physics.fit import compute_fit_params_hash
+        fp = FitParams()
+        h1 = compute_fit_params_hash(fp, ef_offset=0.05, view_mode="Raw")
+        h2 = compute_fit_params_hash(fp, ef_offset=0.06, view_mode="Raw")
+        self.assertNotEqual(h1, h2)
+
+    def test_hash_changes_with_distortion(self):
+        from arpes.physics.fit import compute_fit_params_hash
+        fp = FitParams()
+        h1 = compute_fit_params_hash(fp, bm_distortion={"enabled": False})
+        h2 = compute_fit_params_hash(fp, bm_distortion={"enabled": True,
+                                                          "trapezoid": {"slope_left": 0.1}})
+        self.assertNotEqual(h1, h2)
+
+    def test_hash_changes_with_fp_field(self):
+        from arpes.physics.fit import compute_fit_params_hash
+        fp1 = FitParams()
+        fp2 = FitParams(smooth_fit=fp1.smooth_fit + 1.0)
+        self.assertNotEqual(
+            compute_fit_params_hash(fp1),
+            compute_fit_params_hash(fp2),
+        )
