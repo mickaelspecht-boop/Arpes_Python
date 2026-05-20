@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import QMessageBox
 
 from arpes.physics.distortion import (
     angle_offsets_hash,
-    apply_distortion as _apply_distortion,
     auto_detect_parabola,
     auto_detect_trapezoid,
     calib_key_for_meta,

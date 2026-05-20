@@ -110,7 +110,6 @@ try:
     from arpes.io.loaders import (
         load_arpes,
         load_arpes_file,
-        loader_label as _loader_label,
         detect_format,
         detect_scan_kind,
         ARPESData,
@@ -120,7 +119,6 @@ try:
 except Exception:
     load_arpes = None
     load_arpes_file = None
-    _loader_label = lambda *a, **k: ""  # noqa: E731
     detect_format = None
     detect_scan_kind = None
     ARPESData = None

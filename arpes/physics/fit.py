@@ -231,7 +231,8 @@ def ensemble_fit(
         return {"n_runs": int(n_runs), "n_ok": 0,
                 "jitter_pct": float(jitter_pct), "ensemble": True}
     # Référence taille e_fitted (1ère run convergée)
-    e_ref = np.asarray(runs[0].get("e_fitted") or [], dtype=float)
+    _e0 = runs[0].get("e_fitted")
+    e_ref = np.asarray([] if _e0 is None else _e0, dtype=float)
     n_e = e_ref.size
     if n_e == 0:
         return {"n_runs": int(n_runs), "n_ok": 0,

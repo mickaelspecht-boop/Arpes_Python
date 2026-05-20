@@ -78,7 +78,9 @@ class FitRunnerController:
         if not fr:
             tabs.setTabText(0, "Fit MDC")
             return
-        n_e = len(fr.get("e_fitted") or [])
+        # numpy : `or []` planterait sur ndarray non vide (bool ambigu)
+        _e = fr.get("e_fitted")
+        n_e = 0 if _e is None else len(_e)
         stale = False
         try:
             stale = bool(fr.get("params_hash")

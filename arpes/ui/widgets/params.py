@@ -647,10 +647,12 @@ class FitParamsPanel(QScrollArea):
                 "color:#888;font-family:monospace;font-size:10px;"
             )
             return
-        chi2 = fit_result.get("chi2_red") or []
-        arr = np.asarray(chi2, dtype=float)
+        # numpy-safe : éviter `... or []` (bool ambigu si ndarray non vide)
+        _chi2 = fit_result.get("chi2_red")
+        arr = np.asarray([] if _chi2 is None else _chi2, dtype=float)
         arr = arr[np.isfinite(arr)]
-        n_total = len(fit_result.get("e_fitted") or [])
+        _ef = fit_result.get("e_fitted")
+        n_total = 0 if _ef is None else len(_ef)
         if arr.size == 0:
             self.lbl_fit_quality.setText(
                 f"{n_total} slices fittées | χ² indisponible"
