@@ -222,7 +222,13 @@ def ensemble_fit(
                 data, kpar, ev, fp_j,
                 resolution_source=resolution_source,
             )
-        except Exception:
+        except Exception as exc:
+            # Run individuel échoué → on continue (intention) mais on
+            # signale pour debug : N runs perdues peuvent biaiser σ.
+            warnings.warn(
+                f"ensemble_fit: run jitter échoué ({exc}); ignoré.",
+                RuntimeWarning, stacklevel=2,
+            )
             continue
         if not fr or fr.get("e_fitted") is None:
             continue

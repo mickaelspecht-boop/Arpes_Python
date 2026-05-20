@@ -731,7 +731,15 @@ def apply_ef_correction_to_dict(d: dict, cfg: dict) -> tuple[dict, dict]:
     ef_smooth = np.polyval(coefs, kpar)
     try:
         from arpes.ui.widgets.plots import apply_ef_correction_per_column as _apply
-    except Exception:
+    except Exception as exc:
+        # Import KO → données retournées NON corrigées EF : signaler
+        # explicitement (utilisateur croyait avoir appliqué une correction).
+        import warnings
+        warnings.warn(
+            f"apply_ef_correction_to_dict: import indisponible ({exc}); "
+            f"correction EF SAUTÉE — données retournées brutes.",
+            RuntimeWarning, stacklevel=2,
+        )
         return d, {}
     data_corr = _apply(data, kpar, ev, ef_smooth)
     out = dict(d)

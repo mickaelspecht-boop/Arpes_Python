@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import threading
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,12 @@ def load_raw_artifact(path: str | Path, cache_key: tuple, session_folder: str | 
             data = _restore_payload(manifest["data"], arrays)
             offsets = _restore_payload(manifest.get("angle_offsets", {}), arrays)
             return data, offsets
-    except Exception:
+    except Exception as exc:
+        # Cache illisible → cache miss + signal au lieu d'avaler l'erreur.
+        warnings.warn(
+            f"load_raw_artifact: cache illisible ({exc}); re-calcul requis.",
+            RuntimeWarning, stacklevel=2,
+        )
         return None
 
 
@@ -69,7 +75,14 @@ def save_raw_artifact(
         np.savez_compressed(tmp_path, __manifest__=np.array(json.dumps(manifest)), **arrays)
         npz_tmp = tmp_path if tmp_path.exists() else tmp_path.with_suffix(tmp_path.suffix + ".npz")
         os.replace(npz_tmp, cache_path)
-    except Exception:
+    except Exception as exc:
+        # Sauvegarde échouée → données NON persistées : surface l'erreur
+        # plutôt que perdre silencieusement.
+        warnings.warn(
+            f"save_raw_artifact: échec écriture {cache_path} ({exc}); "
+            f"cache disque non mis à jour.",
+            RuntimeWarning, stacklevel=2,
+        )
         try:
             tmp_path.unlink(missing_ok=True)
             tmp_path.with_suffix(tmp_path.suffix + ".npz").unlink(missing_ok=True)
@@ -150,8 +163,12 @@ def save_raw_artifact_async(
             save_raw_artifact(path, cache_key, data, angle_offsets, session_folder)
             prune_cache_folder(session_folder if session_folder else Path(path).parent,
                                max_mb=quota_mb)
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(
+                f"save_raw_artifact_async: thread cache crashé ({exc}); "
+                f"sauvegarde disque non garantie.",
+                RuntimeWarning, stacklevel=2,
+            )
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
