@@ -43,7 +43,8 @@ class FitRunnerController:
         l'onglet actif. Corrige : kF n'apparaissait que sur l'onglet courant
         (BM si fit lancé depuis BM), forçait switch+revenir pour voir MDC."""
         p = self._parent
-        for name in ("_draw_bm", "_draw_mdc_energy_map", "_draw_mdc_edc"):
+        for name in ("_draw_bm", "_draw_mdc_energy_map", "_draw_mdc_edc",
+                     "_draw_mdc_waterfall"):
             fn = getattr(p, name, None)
             if callable(fn):
                 try:
