@@ -236,7 +236,8 @@ def wire_ui_signals(window) -> None:
     window._mdc_fit_tabs.currentChanged.connect(window._on_mdc_fit_subtab_changed)
     window._cmb_view.currentIndexChanged.connect(window._on_view_changed)
     window._cmb_view_fit.currentIndexChanged.connect(window._on_view_fit_changed)
-    window._sp_gamma.valueChanged.connect(window._draw_bm)
+    # B: debounce gamma BM colormap (évite rafales pendant drag spinbox)
+    window._sp_gamma.valueChanged.connect(window._schedule_model_redraw)
 
     _connect_map_canvas(window._bm_canvas, window)
     _connect_map_canvas(window._mdc_map_canvas, window)
