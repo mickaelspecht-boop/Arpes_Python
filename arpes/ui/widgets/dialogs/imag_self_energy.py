@@ -17,6 +17,7 @@ class ImagSelfEnergyDialog(QDialog):
         lay = QVBoxLayout(self)
         e = np.asarray(result.get("energy") or [], dtype=float)
         im = np.asarray(result.get("im_sigma") or [], dtype=float)
+        self._im_std = np.asarray(result.get("im_sigma_std") or [], dtype=float)
         vF = float(result.get("vF_eV_A") or float("nan"))
         pi = int(result.get("pair_index") or 0)
         n = int(e.size)
@@ -35,8 +36,18 @@ class ImagSelfEnergyDialog(QDialog):
         ax.set_facecolor("#1a1a1a")
         if e.size:
             order = np.argsort(e)
-            ax.plot(e[order], im[order] * 1000.0, "o-",
-                    color="#f97316", lw=1.2, ms=4)
+            std = getattr(self, "_im_std", np.array([]))
+            if std.size == im.size and np.any(np.isfinite(std)):
+                yerr_ord = std[order] * 1000.0
+                yerr_ord[~np.isfinite(yerr_ord)] = 0.0
+                ax.errorbar(
+                    e[order], im[order] * 1000.0, yerr=yerr_ord,
+                    fmt="o-", color="#f97316", ecolor="#fdba74",
+                    elinewidth=0.7, capsize=1.5, lw=1.2, ms=4, alpha=0.95,
+                )
+            else:
+                ax.plot(e[order], im[order] * 1000.0, "o-",
+                        color="#f97316", lw=1.2, ms=4)
         ax.axhline(0.0, color="#888", lw=0.8, ls="--")
         ax.set_xlabel("E - EF (eV)", color="w")
         ax.set_ylabel("Im Σ (meV)", color="w")

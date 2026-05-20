@@ -520,20 +520,38 @@ class PlotController:
         ensemble = fr.get("ensemble") or {}
         km_std_all = ensemble.get("kF_minus_std") or []
         kp_std_all = ensemble.get("kF_plus_std") or []
+        smooth_on = bool(getattr(self._params, "chk_smooth_kf", None)
+                         and self._params.chk_smooth_kf.isChecked())
+        sm_sigma = float(getattr(self._params, "sp_smooth_kf_sigma", None).value()
+                         if hasattr(self._params, "sp_smooth_kf_sigma") else 0.0)
+
+        def _smooth(arr):
+            from scipy.ndimage import gaussian_filter1d
+            a = np.asarray(arr, dtype=float)
+            if not smooth_on or sm_sigma <= 0 or a.size < 3:
+                return a
+            # respecte les NaN : interpolation locale via masque
+            mask = np.isfinite(a)
+            if not mask.any():
+                return a
+            x = np.arange(a.size, dtype=float)
+            a_interp = np.interp(x, x[mask], a[mask])
+            return gaussian_filter1d(a_interp, sigma=sm_sigma)
+
         for i in range(n):
             c = PAIR_COLORS[i % len(PAIR_COLORS)]
             if i < len(fr.get("kF_minus", [])):
                 xerr_m = (np.asarray(km_std_all[i], dtype=float)
                           if i < len(km_std_all) else None)
                 self._scatter_kf_with_chi2(
-                    ax, np.asarray(fr["kF_minus"][i]), ev_f, bad_mask, c, "o",
+                    ax, _smooth(fr["kF_minus"][i]), ev_f, bad_mask, c, "o",
                     kf_std=xerr_m,
                 )
             if i < len(fr.get("kF_plus", [])):
                 xerr_p = (np.asarray(kp_std_all[i], dtype=float)
                           if i < len(kp_std_all) else None)
                 self._scatter_kf_with_chi2(
-                    ax, np.asarray(fr["kF_plus"][i]), ev_f, bad_mask, c, "^",
+                    ax, _smooth(fr["kF_plus"][i]), ev_f, bad_mask, c, "^",
                     kf_std=xerr_p,
                 )
         selected = list(getattr(self._parent, "_fit_selected", []) or [])

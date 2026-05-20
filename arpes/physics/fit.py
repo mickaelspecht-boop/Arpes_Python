@@ -133,10 +133,19 @@ def imaginary_self_energy(
     pi_over_a = np.pi / float(crystal_a)
     g_inv_A = g_pi_a * pi_over_a
     im_sigma = (vF / 2.0) * g_inv_A  # eV
+    # σ propagée depuis l'ensemble fit : Im Σ linéaire en Γ → σ(ImΣ)=(vF/2)·σ_Γ
+    im_sigma_std = np.full_like(im_sigma, np.nan)
+    ens = fit_result.get("ensemble") or {}
+    gstd_all = ens.get("gamma_std") or []
+    if 0 <= pair_index < len(gstd_all):
+        g_std_pi_a = np.asarray(gstd_all[pair_index], dtype=float)
+        if g_std_pi_a.size == e.size:
+            im_sigma_std = (vF / 2.0) * (g_std_pi_a * pi_over_a)
     finite = np.isfinite(e) & np.isfinite(im_sigma)
     return {
         "energy": e[finite],
         "im_sigma": im_sigma[finite],
+        "im_sigma_std": im_sigma_std[finite],
         "vF_eV_A": float(vF),
         "pair_index": int(pair_index),
     }

@@ -367,6 +367,23 @@ def _build_fit_buttons(panel, _fcl) -> None:
     btn_f.clicked.connect(panel.full_fit_requested)
     _fcl.addWidget(btn_f)
 
+    panel.chk_smooth_kf = QCheckBox("Lisser kF(E) (σ slices)")
+    panel.chk_smooth_kf.setToolTip(
+        "Lissage gaussien de kF(E) sur fenêtre énergétique (σ slices).\n"
+        "Réduit le jitter slice-à-slice sans biaiser la dispersion.\n"
+        "Appliqué à l'affichage uniquement (fit_result inchangé)."
+    )
+    panel.sp_smooth_kf_sigma = dspin(1.5, 0.0, 10.0, 0.5, dec=2)
+    panel.sp_smooth_kf_sigma.setToolTip("σ en nombre de slices E (typique 1-3).")
+    _sk_row = QWidget()
+    _sk_lay = QHBoxLayout(_sk_row)
+    _sk_lay.setContentsMargins(0, 0, 0, 0)
+    _sk_lay.addWidget(panel.chk_smooth_kf)
+    _sk_lay.addWidget(panel.sp_smooth_kf_sigma)
+    _sk_lay.addStretch(1)
+    _fcl.addWidget(_sk_row)
+    panel.chk_smooth_kf.stateChanged.connect(panel.fit_only_changed)
+    panel.sp_smooth_kf_sigma.valueChanged.connect(panel.fit_only_changed)
     panel.chk_use_ensemble = QCheckBox("Ensemble fit (perturbe initiaux × N)")
     panel.chk_use_ensemble.setToolTip(
         "1 paire = 1 bande. Ensemble = refit N fois en perturbant kF_init\n"
