@@ -5,7 +5,11 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
-from .fit_overlay import _make_peak_pairs_model, _resolution_correct_gamma
+from .fit_overlay import (
+    _make_peak_pairs_model,
+    _normalize_width_mode,
+    _resolution_correct_gamma,
+)
 
 def fit_mdc_peak_pairs(
     data_cut, kpar, ev_arr,
@@ -84,6 +88,8 @@ def fit_mdc_peak_pairs(
         'kpar', 'ev_arr': axes
     """
     is_voigt = (shape == 'voigt')
+    # Normalise les alias historiques (UI 'asymmetric' → backend 'independent')
+    width_mode = _normalize_width_mode(width_mode)
     model, n_pp, n_extra = _make_peak_pairs_model(n_pairs, width_mode, shape=shape)
 
     I_fit    = gaussian_filter1d(data_cut.astype(float), sigma=smooth_fit,    axis=0)

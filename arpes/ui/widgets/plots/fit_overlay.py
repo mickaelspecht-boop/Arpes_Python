@@ -86,6 +86,14 @@ def _make_edc_model(n_peaks, shape='lorentzian', bg='linear', with_fd=True):
     return model, n_bg, n_pp
 
 
+_WIDTH_MODE_ALIASES = {"asymmetric": "independent", "asym": "independent"}
+
+
+def _normalize_width_mode(width_mode: str) -> str:
+    """Mappe les alias historiques (UI) vers les noms backend canoniques."""
+    return _WIDTH_MODE_ALIASES.get(str(width_mode), str(width_mode))
+
+
 def _make_peak_pairs_model(n_pairs, width_mode='independent', shape='lorentzian'):
     """
     Fabrique un modele MDC a N paires de pics symétriques.
@@ -112,6 +120,7 @@ def _make_peak_pairs_model(n_pairs, width_mode='independent', shape='lorentzian'
           global      : k0_i, A1_i, A2_i                 (3 params) + w_global
         Si shape='voigt' : un dernier paramètre η_global appended.
     """
+    width_mode = _normalize_width_mode(width_mode)
     is_voigt = (shape == 'voigt')
 
     def model(k, *p):

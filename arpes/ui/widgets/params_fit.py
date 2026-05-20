@@ -42,7 +42,7 @@ MATERIAL_PRESETS: dict[str, dict | None] = {
         "smooth_fit": 2.0, "smooth_detect": 3.0,
         "gamma_init": 0.08, "gamma_max": 0.30,
         "min_amplitude": 0.02, "max_jump": 0.20,
-        "width_mode": "asymmetric",
+        "width_mode": "independent",
     },
     "Bruité (lissage++)": {
         "smooth_fit": 4.0, "smooth_detect": 5.0,
@@ -199,11 +199,17 @@ def _build_constraint_section(panel, _fcl) -> None:
         lambda: panel.sp_k0m.setEnabled(not panel.chk_k0a.isChecked())
     )
     panel.cmb_wm = QComboBox()
-    panel.cmb_wm.addItems(["symmetric", "asymmetric"])
-    panel.cmb_wm.setFixedWidth(110)
+    # Valeur = nom backend canonique. Label = explication physique.
+    panel.cmb_wm.addItem("Symétrique (γL = γR)", "symmetric")
+    panel.cmb_wm.addItem("Indépendant (γL ≠ γR)", "independent")
+    panel.cmb_wm.addItem("γ partagé toutes paires", "global")
+    panel.cmb_wm.setFixedWidth(220)
     panel.cmb_wm.setToolTip(
-        "symmetric : les deux pics de la paire ont le même γ.\n"
-        "asymmetric : γ gauche et droit peuvent différer (pics asymétriques)."
+        "Symétrique  : γL = γR pour chaque paire (asymétrie d'amplitude OK).\n"
+        "Indépendant : γL ≠ γR par paire (asymétrie de largeur ; mobilité\n"
+        "              dépendante de la direction, parcours libre moyen).\n"
+        "γ partagé   : une seule γ pour toutes les paires (rare ; à utiliser\n"
+        "              uniquement si les bandes ont vraiment la même largeur)."
     )
     for w in (panel.sp_xg, panel.sp_cx, panel.sp_k0m):
         w.valueChanged.connect(panel.fit_only_changed)

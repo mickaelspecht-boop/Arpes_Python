@@ -302,3 +302,23 @@ class TestVoigtModel(unittest.TestCase):
         self.assertEqual(kw["shape"], "voigt")
         self.assertEqual(MdcFitter.fit_kwargs(FitParams())["shape"],
                           "lorentzian")
+
+
+class TestWidthModeAliasing(unittest.TestCase):
+    def test_alias_asymmetric_maps_to_independent(self):
+        from arpes.ui.widgets.plots.fit_overlay import (
+            _make_peak_pairs_model, _normalize_width_mode,
+        )
+        self.assertEqual(_normalize_width_mode("asymmetric"), "independent")
+        self.assertEqual(_normalize_width_mode("symmetric"), "symmetric")
+        # n_pp doit correspondre à 'independent' (5) pas 'symmetric' (4)
+        _m, npp_a, _ = _make_peak_pairs_model(1, width_mode="asymmetric")
+        _m, npp_i, _ = _make_peak_pairs_model(1, width_mode="independent")
+        self.assertEqual(npp_a, npp_i)
+        self.assertEqual(npp_a, 5)
+
+    def test_fit_kwargs_threads_independent(self):
+        from arpes.physics.fit import MdcFitter
+        from arpes.core.session import FitParams
+        kw = MdcFitter.fit_kwargs(FitParams(width_mode="independent"))
+        self.assertEqual(kw["width_mode"], "independent")

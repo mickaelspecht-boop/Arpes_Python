@@ -280,7 +280,7 @@ class FitParamsPanel(QScrollArea):
             xg_range=self.sp_xg.value(),
             center_init=self.sp_cx.value(),
             k0_max=None if self.chk_k0a.isChecked() else self.sp_k0m.value(),
-            width_mode=self.cmb_wm.currentText(),
+            width_mode=str(self.cmb_wm.currentData() or "independent"),
             min_amplitude=self.sp_ma.value(),
             max_jump=self.sp_mj.value(),
             scan_direction=self.cmb_sd.currentText(),
@@ -504,7 +504,13 @@ class FitParamsPanel(QScrollArea):
             self.sp_k0m.setValue(fp.k0_max)
         else:
             self.chk_k0a.setChecked(True)
-        self.cmb_wm.setCurrentText(fp.width_mode)
+        # Migration : alias historique asymmetric → independent
+        wm = "independent" if str(fp.width_mode) == "asymmetric" else str(fp.width_mode)
+        idx_wm = self.cmb_wm.findData(wm)
+        if idx_wm >= 0:
+            self.cmb_wm.blockSignals(True)
+            self.cmb_wm.setCurrentIndex(idx_wm)
+            self.cmb_wm.blockSignals(False)
         self.cmb_sd.setCurrentText(fp.scan_direction)
         if hasattr(self, "cmb_lineshape"):
             target = str(getattr(fp, "shape", "lorentzian") or "lorentzian")
@@ -613,9 +619,14 @@ class FitParamsPanel(QScrollArea):
                     sp.setValue(float(preset[key]))
                     sp.blockSignals(False)
             if "width_mode" in preset:
-                self.cmb_wm.blockSignals(True)
-                self.cmb_wm.setCurrentText(str(preset["width_mode"]))
-                self.cmb_wm.blockSignals(False)
+                wm_p = str(preset["width_mode"])
+                if wm_p == "asymmetric":
+                    wm_p = "independent"
+                idx_p = self.cmb_wm.findData(wm_p)
+                if idx_p >= 0:
+                    self.cmb_wm.blockSignals(True)
+                    self.cmb_wm.setCurrentIndex(idx_p)
+                    self.cmb_wm.blockSignals(False)
             self._save_pair()
             self._pair_params[self._current_pair]["gamma_init"] = float(
                 preset.get("gamma_init", self.sp_gi.value())
