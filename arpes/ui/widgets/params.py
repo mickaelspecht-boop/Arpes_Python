@@ -90,7 +90,6 @@ class FitParamsPanel(QScrollArea):
     fit_roi_requested = pyqtSignal(bool)
     fit_roi_reset_requested = pyqtSignal()
     fit_undo_requested = pyqtSignal()
-    n_pairs_auto_requested = pyqtSignal()
     kf_init_drag_changed = pyqtSignal(int, int, float)  # pair_idx, sign(-1/+1), kF (π/a)
     im_self_energy_requested = pyqtSignal()
     fit_ensemble_requested = pyqtSignal()
@@ -288,6 +287,8 @@ class FitParamsPanel(QScrollArea):
             dE_meV=self.sp_dE_meV.value(),
             dk_inv_a=self.sp_dk_inv_a.value(),
             pairs=[dict(p) for p in self._pair_params],
+            shape=(self.cmb_lineshape.currentData()
+                    if hasattr(self, "cmb_lineshape") else "lorentzian"),
         )
 
     def set_fit_controls_visible(self, visible: bool):
@@ -505,6 +506,13 @@ class FitParamsPanel(QScrollArea):
             self.chk_k0a.setChecked(True)
         self.cmb_wm.setCurrentText(fp.width_mode)
         self.cmb_sd.setCurrentText(fp.scan_direction)
+        if hasattr(self, "cmb_lineshape"):
+            target = str(getattr(fp, "shape", "lorentzian") or "lorentzian")
+            idx = self.cmb_lineshape.findData(target)
+            if idx >= 0:
+                self.cmb_lineshape.blockSignals(True)
+                self.cmb_lineshape.setCurrentIndex(idx)
+                self.cmb_lineshape.blockSignals(False)
 
         n = fp.n_pairs
         raw = list(getattr(fp, "pairs", None) or [])

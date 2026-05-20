@@ -304,7 +304,6 @@ def wire_param_signals(window) -> None:
     p.fit_roi_requested.connect(window._set_fit_roi_pick_mode)
     p.fit_roi_reset_requested.connect(window._reset_fit_roi_range)
     p.fit_undo_requested.connect(window._undo_fit_delete)
-    p.n_pairs_auto_requested.connect(window._auto_n_pairs)
     p.kf_init_drag_changed.connect(window._on_kf_init_drag)
     p.im_self_energy_requested.connect(window._calculate_im_self_energy)
     p.fit_ensemble_requested.connect(window._fit_ensemble)

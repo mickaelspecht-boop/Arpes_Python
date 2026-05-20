@@ -28,6 +28,7 @@ def fit_mdc_peak_pairs(
     dE_eV=0.0,
     dk_inv_a=0.0,
     resolution_source="",
+    shape='lorentzian',
     verbose=False,
 ):
     """
@@ -82,7 +83,8 @@ def fit_mdc_peak_pairs(
         'I_smoothed': array lissé sur toute l'axe k (pour affichage)
         'kpar', 'ev_arr': axes
     """
-    model, n_pp, n_extra = _make_peak_pairs_model(n_pairs, width_mode)
+    is_voigt = (shape == 'voigt')
+    model, n_pp, n_extra = _make_peak_pairs_model(n_pairs, width_mode, shape=shape)
 
     I_fit    = gaussian_filter1d(data_cut.astype(float), sigma=smooth_fit,    axis=0)
     I_detect = gaussian_filter1d(data_cut.astype(float), sigma=smooth_detect, axis=0)
@@ -126,6 +128,9 @@ def fit_mdc_peak_pairs(
             hi += [k0_hi,  np.inf, np.inf]
     if width_mode == 'global':
         lo += [gamma_floor]; hi += [gamma_max]
+    # Voigt : paramètre η_global ∈ [0,1] appended à la fin de p
+    if is_voigt:
+        lo += [0.0]; hi += [1.0]
 
     # Direction du scan
     # 'down' : de ev_end (proche EF) vers ev_start (basses E)
@@ -199,6 +204,7 @@ def fit_mdc_peak_pairs(
     fit_curve_list = []
     residual_list = []
     chi2_list = []
+    eta_list = []  # paramètre η_global du pseudo-Voigt (NaN si shape=lorentzian)
     prev_popt     = None
     prev_k0       = list(kF_init)   # derniers k0 valides pour détecter les sauts
 
@@ -216,6 +222,8 @@ def fit_mdc_peak_pairs(
                 p += [abs(k0g), A_g, A_g]
         if width_mode == 'global':
             p += [gamma_init]
+        if is_voigt:
+            p += [0.5]
         return p
 
     for ev_i in wf_energies:
@@ -238,6 +246,7 @@ def fit_mdc_peak_pairs(
         try:
             popt, pcov = curve_fit(model, kpar_fit, mdc_n, p0=p0,
                                 bounds=(lo, hi), maxfev=8000)
+            eta_list.append(float(popt[-1]) if is_voigt else float("nan"))
             fit_y = model(kpar_fit, *popt)
             residual_y = mdc_n - fit_y
             dof = max(1, int(kpar_fit.size) - int(len(popt)))
@@ -294,8 +303,10 @@ def fit_mdc_peak_pairs(
                     gamma_fit = float(popt[3 + n_pp*i + 3])
                     sigma_gamma_val = float(sigma_full[3 + n_pp * i + 3])
                 else:
-                    gamma_fit = float(popt[-1])
-                    sigma_gamma_val = float(sigma_full[-1])
+                    # 'global' : w_global est avant η si voigt → idx -2 sinon -1
+                    g_idx = -2 if is_voigt else -1
+                    gamma_fit = float(popt[g_idx])
+                    sigma_gamma_val = float(sigma_full[g_idx])
                 gamma_list[i].append(gamma_fit if not jumped else np.nan)
                 sigma_gamma_list[i].append(
                     sigma_gamma_val if not jumped else np.nan
@@ -358,6 +369,7 @@ def fit_mdc_peak_pairs(
             fit_curve_list.append(np.full_like(kpar_fit, np.nan, dtype=float))
             residual_list.append(np.full_like(kpar_fit, np.nan, dtype=float))
             chi2_list.append(np.nan)
+            eta_list.append(np.nan)
             prev_popt = None
 
     # Réordonner en énergie croissante (indépendant du sens du scan)
@@ -392,6 +404,8 @@ def fit_mdc_peak_pairs(
         ev_arr     =ev_arr,
         n_pairs    =n_pairs,
         width_mode =width_mode,
+        shape       =shape,
+        eta         =np.asarray(eta_list, dtype=float)[sort_idx] if len(eta_list) == len(sort_idx) else np.asarray(eta_list, dtype=float),
         gamma       =gamma_brut,
         gamma_brut  =gamma_brut,
         gamma_min   =gamma_min,

@@ -265,3 +265,40 @@ class TestEnsembleFit(unittest.TestCase):
         h1 = compute_fit_params_hash(fp, ensemble_settings={"n": 30, "jitter": 0.10})
         h2 = compute_fit_params_hash(fp, ensemble_settings={"n": 50, "jitter": 0.10})
         self.assertNotEqual(h1, h2)
+
+
+class TestVoigtModel(unittest.TestCase):
+    def test_voigt_extra_eta_param(self):
+        from arpes.ui.widgets.plots.fit_overlay import _make_peak_pairs_model
+        # 'global' lorentzian : n_extra = 1 (w_global)
+        _m, npp, nx = _make_peak_pairs_model(2, width_mode="global",
+                                              shape="lorentzian")
+        self.assertEqual(nx, 1)
+        # 'global' voigt : n_extra = 2 (w_global + eta)
+        _m, _npp, nx2 = _make_peak_pairs_model(2, width_mode="global",
+                                                shape="voigt")
+        self.assertEqual(nx2, 2)
+        # 'symmetric' voigt : n_extra = 1 (eta only)
+        _m, _npp, nx3 = _make_peak_pairs_model(1, width_mode="symmetric",
+                                                shape="voigt")
+        self.assertEqual(nx3, 1)
+
+    def test_voigt_model_callable(self):
+        from arpes.ui.widgets.plots.fit_overlay import _make_peak_pairs_model
+        model, npp, nx = _make_peak_pairs_model(1, width_mode="symmetric",
+                                                  shape="voigt")
+        # p layout : bg_a, bg_b, xg, [k0,A1,A2,w], eta
+        p = [0.0, 0.0, 0.0, 0.3, 1.0, 1.0, 0.05, 0.5]
+        k = np.linspace(-1, 1, 51)
+        y = model(k, *p)
+        self.assertEqual(y.shape, k.shape)
+        # pic à k0 doit dépasser le minimum
+        self.assertGreater(float(y.max()), float(y.min()) + 0.1)
+
+    def test_shape_threads_through_fit_kwargs(self):
+        from arpes.physics.fit import MdcFitter
+        from arpes.core.session import FitParams
+        kw = MdcFitter.fit_kwargs(FitParams(shape="voigt"))
+        self.assertEqual(kw["shape"], "voigt")
+        self.assertEqual(MdcFitter.fit_kwargs(FitParams())["shape"],
+                          "lorentzian")

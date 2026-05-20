@@ -145,12 +145,6 @@ def _build_init_section(panel, _fcl) -> None:
     panel.sp_np = ispin(1, 1, 8)
     panel.sp_np.setToolTip("Nombre de paires de Lorentziennes (= nombre de bandes croisées).")
     panel.sp_np.valueChanged.connect(panel._on_n_pairs_changed)
-    panel.btn_auto_pairs = compact_button(QPushButton("Auto"), max_width=60)
-    panel.btn_auto_pairs.setToolTip(
-        "Détecte automatiquement le nombre de paires par appariement\n"
-        "de pics symétriques détectés sur la MDC à E courant."
-    )
-    panel.btn_auto_pairs.clicked.connect(panel.n_pairs_auto_requested)
     panel._pair_lbl = ClickablePairLabel()
     panel._pair_lbl.pair_changed.connect(panel._on_pair_changed)
     panel.sp_kfi = dspin(0.30, 0.0, 3.0, 0.01)
@@ -170,12 +164,7 @@ def _build_init_section(panel, _fcl) -> None:
     )
     for w in (panel.sp_kfi, panel.sp_gi, panel.sp_gm):
         w.valueChanged.connect(panel.fit_only_changed)
-    _np_row = QWidget()
-    _np_lay = QHBoxLayout(_np_row)
-    _np_lay.setContentsMargins(0, 0, 0, 0)
-    _np_lay.addWidget(panel.sp_np, 1)
-    _np_lay.addWidget(panel.btn_auto_pairs)
-    fl.addRow("Nb paires:", _np_row)
+    fl.addRow("Nb paires:", panel.sp_np)
     fl.addRow(panel._pair_lbl)
     fl.addRow("kF init (π/a):", panel.sp_kfi)
     fl.addRow("γ init (π/a):", panel.sp_gi)
@@ -231,6 +220,19 @@ def _build_constraint_section(panel, _fcl) -> None:
     fl.addRow("Centre Γ (π/a):", panel.sp_cx)
     fl.addRow("kF max (π/a):", k0w)
     fl.addRow("Symétrie paire:", panel.cmb_wm)
+    panel.cmb_lineshape = QComboBox()
+    panel.cmb_lineshape.addItem("Lorentzien", "lorentzian")
+    panel.cmb_lineshape.addItem("Pseudo-Voigt (η_global)", "voigt")
+    panel.cmb_lineshape.setFixedWidth(180)
+    panel.cmb_lineshape.setToolTip(
+        "Profil de raie utilisé pour le fit des MDC.\n"
+        "Lorentzien : intrinsèque (durée de vie ; défaut).\n"
+        "Pseudo-Voigt : (1-η)·L + η·G — résolution instrumentale\n"
+        "absorbée par η_global ∈ [0,1] fitté. Plus rigoureux pour bandes\n"
+        "corrélées. Stocke η par slice dans fit_result.eta."
+    )
+    panel.cmb_lineshape.currentIndexChanged.connect(panel.fit_only_changed)
+    fl.addRow("Profil:", panel.cmb_lineshape)
     _fcl.addWidget(grp)
 
 

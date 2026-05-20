@@ -86,9 +86,9 @@ def _make_edc_model(n_peaks, shape='lorentzian', bg='linear', with_fd=True):
     return model, n_bg, n_pp
 
 
-def _make_peak_pairs_model(n_pairs, width_mode='independent'):
+def _make_peak_pairs_model(n_pairs, width_mode='independent', shape='lorentzian'):
     """
-    Fabrique un modele MDC a N paires de Lorentziennes symétriques.
+    Fabrique un modele MDC a N paires de pics symétriques.
 
     Chaque paire i fitte deux pics à ±k0_i + xg (centre commun).
 
@@ -97,6 +97,11 @@ def _make_peak_pairs_model(n_pairs, width_mode='independent'):
         'global'      — une seule largeur partagée par toutes les paires
         'symmetric'   — w1=w2 au sein de chaque paire, mais varie entre paires
 
+    shape :
+        'lorentzian' — défaut, élargissement intrinsèque (durée de vie).
+        'voigt'      — pseudo-Voigt = (1-η)·L + η·G (résolution incluse).
+                       Ajoute un paramètre global η ∈ [0,1] à la FIN de p.
+
     Vecteur de paramètres p :
         p[0] : bg_a  (fond linéaire pente)
         p[1] : bg_b  (fond linéaire offset)
@@ -104,31 +109,40 @@ def _make_peak_pairs_model(n_pairs, width_mode='independent'):
         Puis pour chaque paire i :
           independent : k0_i, A1_i, w1_i, A2_i, w2_i   (5 params)
           symmetric   : k0_i, A1_i, A2_i, w_i           (4 params)
-          global      : k0_i, A1_i, A2_i                 (3 params) + w_global à la fin
+          global      : k0_i, A1_i, A2_i                 (3 params) + w_global
+        Si shape='voigt' : un dernier paramètre η_global appended.
     """
+    is_voigt = (shape == 'voigt')
+
     def model(k, *p):
         p  = np.asarray(p, dtype=float)
         bg = p[0] * k + p[1]
         xg = p[2]
         res = bg.copy()
+        eta = float(p[-1]) if is_voigt else 0.0
+
+        def _peak(x, x0, A, w):
+            if is_voigt:
+                return _voigt_pseudo(x, x0, A, w, eta)
+            return _lor_peak(x, x0, A, w)
 
         if width_mode == 'global':
-            w_global = p[-1]
+            # En voigt, w_global est avant eta (donc p[-2]) ; sinon p[-1].
+            w_global = p[-2] if is_voigt else p[-1]
             for i in range(n_pairs):
                 k0 = p[3 + 3*i]
                 A1 = p[3 + 3*i + 1]
                 A2 = p[3 + 3*i + 2]
-                w  = w_global
-                res += _lor_peak(k, -k0 + xg, A1, w)
-                res += _lor_peak(k, +k0 + xg, A2, w)
+                res += _peak(k, -k0 + xg, A1, w_global)
+                res += _peak(k, +k0 + xg, A2, w_global)
         elif width_mode == 'symmetric':
             for i in range(n_pairs):
                 k0 = p[3 + 4*i]
                 A1 = p[3 + 4*i + 1]
                 A2 = p[3 + 4*i + 2]
                 w  = p[3 + 4*i + 3]
-                res += _lor_peak(k, -k0 + xg, A1, w)
-                res += _lor_peak(k, +k0 + xg, A2, w)
+                res += _peak(k, -k0 + xg, A1, w)
+                res += _peak(k, +k0 + xg, A2, w)
         else:  # independent
             for i in range(n_pairs):
                 k0 = p[3 + 5*i]
@@ -136,13 +150,13 @@ def _make_peak_pairs_model(n_pairs, width_mode='independent'):
                 w1 = p[3 + 5*i + 2]
                 A2 = p[3 + 5*i + 3]
                 w2 = p[3 + 5*i + 4]
-                res += _lor_peak(k, -k0 + xg, A1, w1)
-                res += _lor_peak(k, +k0 + xg, A2, w2)
+                res += _peak(k, -k0 + xg, A1, w1)
+                res += _peak(k, +k0 + xg, A2, w2)
         return res
 
     # Nombre de params par paire selon le mode
     n_pp = {'independent': 5, 'symmetric': 4, 'global': 3}[width_mode]
-    n_extra = 1 if width_mode == 'global' else 0  # w_global à la fin
+    n_extra = (1 if width_mode == 'global' else 0) + (1 if is_voigt else 0)
     return model, n_pp, n_extra
 
 

@@ -368,6 +368,7 @@ class MdcFitter:
             "dE_eV": fp.dE_meV / 1000.0,
             "dk_inv_a": fp.dk_inv_a,
             "resolution_source": resolution_source,
+            "shape": getattr(fp, "shape", "lorentzian"),
             "verbose": False,
         }
 

@@ -28,6 +28,7 @@ class FitParams:
     center_init: float = 0.0
     k0_max: Optional[float] = None
     width_mode: str = "symmetric"
+    shape: str = "lorentzian"  # "lorentzian" | "voigt" (pseudo-Voigt η_global)
     min_amplitude: float = 0.01
     max_jump: float = 0.20
     scan_direction: str = "up"

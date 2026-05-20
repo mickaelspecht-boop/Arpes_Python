@@ -25,7 +25,6 @@ from arpes.physics.ef_calibration import (
 from arpes.physics.fit import (
     MdcFitter,
     compute_fit_params_hash,
-    detect_n_pairs,
     ensemble_fit,
     imaginary_self_energy,
 )
@@ -297,28 +296,6 @@ class FitRunnerController:
         self._status(
             f"Im Σ med = {med:.1f} meV  |  vF = {result['vF_eV_A']:.2f} eV·Å"
         )
-
-    def _auto_n_pairs(self) -> None:
-        """C: détecte le nombre de paires depuis pics symétriques MDC à E courant."""
-        p = self._parent
-        data, kpar, ev = self._get_work_data()
-        if data is None:
-            return
-        try:
-            j = int(np.argmin(np.abs(np.asarray(ev) - float(p._sel_ev))))
-            mdc = data[:, j]
-        except Exception:
-            self._status("Attention: MDC indisponible à cette E.")
-            return
-        n = detect_n_pairs(
-            kpar, mdc,
-            k_min=self._params.sp_kmin.value(),
-            k_max=self._params.sp_kmax.value(),
-            center_init=self._params.sp_cx.value(),
-            smooth_sigma=self._params.sp_sfd.value(),
-        )
-        self._params.sp_np.setValue(int(n))
-        self._status(f"Auto-paires: {n} détecté(s) à E={p._sel_ev:.3f} eV.")
 
     def _fit_full(self):
         p = self._parent
