@@ -517,12 +517,25 @@ class PlotController:
         chi2 = np.asarray(fr.get("chi2_red", []), dtype=float)
         threshold = float(getattr(self._params, "sp_chi2_threshold", None).value()) if hasattr(self._params, "sp_chi2_threshold") else np.inf
         bad_mask = chi2 > threshold if chi2.size == ev_f.size else np.zeros(ev_f.size, dtype=bool)
+        ensemble = fr.get("ensemble") or {}
+        km_std_all = ensemble.get("kF_minus_std") or []
+        kp_std_all = ensemble.get("kF_plus_std") or []
         for i in range(n):
             c = PAIR_COLORS[i % len(PAIR_COLORS)]
             if i < len(fr.get("kF_minus", [])):
-                self._scatter_kf_with_chi2(ax, np.asarray(fr["kF_minus"][i]), ev_f, bad_mask, c, "o")
+                xerr_m = (np.asarray(km_std_all[i], dtype=float)
+                          if i < len(km_std_all) else None)
+                self._scatter_kf_with_chi2(
+                    ax, np.asarray(fr["kF_minus"][i]), ev_f, bad_mask, c, "o",
+                    kf_std=xerr_m,
+                )
             if i < len(fr.get("kF_plus", [])):
-                self._scatter_kf_with_chi2(ax, np.asarray(fr["kF_plus"][i]), ev_f, bad_mask, c, "^")
+                xerr_p = (np.asarray(kp_std_all[i], dtype=float)
+                          if i < len(kp_std_all) else None)
+                self._scatter_kf_with_chi2(
+                    ax, np.asarray(fr["kF_plus"][i]), ev_f, bad_mask, c, "^",
+                    kf_std=xerr_p,
+                )
         selected = list(getattr(self._parent, "_fit_selected", []) or [])
         if selected:
             ev_f = np.asarray(fr["e_fitted"])
@@ -546,7 +559,8 @@ class PlotController:
                            edgecolors="#fbbf24", linewidths=1.6, zorder=7)
         self._draw_fit_annotations(ax, fr)
 
-    def _scatter_kf_with_chi2(self, ax, k_values, ev_f, bad_mask, color, marker) -> None:
+    def _scatter_kf_with_chi2(self, ax, k_values, ev_f, bad_mask, color, marker,
+                              *, kf_std=None) -> None:
         n = min(len(k_values), len(ev_f), len(bad_mask))
         if n == 0:
             return
@@ -555,6 +569,18 @@ class PlotController:
         bad = np.asarray(bad_mask[:n], dtype=bool)
         valid = np.isfinite(k) & np.isfinite(e)
         good = valid & ~bad
+        # Barres d'erreur ensemble fit (σ statistique sur kF)
+        if kf_std is not None and good.any():
+            xerr = np.asarray(kf_std[:n], dtype=float)
+            xerr_good = xerr[good]
+            mask_finite_err = np.isfinite(xerr_good) & (xerr_good > 0)
+            if mask_finite_err.any():
+                idx = np.where(good)[0][mask_finite_err]
+                ax.errorbar(
+                    k[idx], e[idx], xerr=xerr[idx],
+                    fmt="none", ecolor=color, elinewidth=0.6,
+                    capsize=1.2, alpha=0.55, zorder=4,
+                )
         if good.any():
             ax.scatter(k[good], e[good], s=7, color=color, marker=marker,
                        zorder=5, alpha=0.85)
