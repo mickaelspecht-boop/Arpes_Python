@@ -153,3 +153,50 @@ class TestDetectNPairs(unittest.TestCase):
         self.assertEqual(
             detect_n_pairs(k, m, k_min=-1, k_max=1, center_init=0.0), 1,
         )
+
+
+class TestFermiVelocityMstar(unittest.TestCase):
+    def test_linear_kF_gives_constant_vf(self):
+        from arpes.physics.fit import compute_fermi_velocity_mstar
+        # E = vF·(k - k0) avec vF_pi_a = 2.0, k0 = 0.4 π/a
+        e = np.linspace(-0.04, 0.04, 11)
+        k = 0.4 + e / 2.0  # k(E) = 0.4 + E/vF_pi_a
+        fr = {"e_fitted": e, "kF_minus": [k]}
+        a = 4.0  # Å
+        out = compute_fermi_velocity_mstar(fr, a)
+        # vF_eV_A = |slope_pi_a| / (π/a) = 2.0 / (π/4) = 8/π
+        self.assertAlmostEqual(out["vF_eV_A"], 8.0 / np.pi, places=3)
+        # kF_inv_A = 0.4·(π/4) = 0.1·π
+        self.assertAlmostEqual(out["kF_inv_A"], 0.4 * np.pi / 4.0, places=4)
+        self.assertTrue(np.isfinite(out["mstar_over_me"]))
+        self.assertGreater(out["mstar_over_me"], 0.0)
+
+    def test_no_crystal_a_returns_nan(self):
+        from arpes.physics.fit import compute_fermi_velocity_mstar
+        fr = {"e_fitted": [0.0], "kF_minus": [[0.3]]}
+        out = compute_fermi_velocity_mstar(fr, 0.0)
+        self.assertTrue(np.isnan(out["vF_eV_A"]))
+
+
+class TestImSigma(unittest.TestCase):
+    def test_returns_arrays_with_expected_scale(self):
+        from arpes.physics.fit import imaginary_self_energy
+        e = np.linspace(-0.04, 0.04, 9)
+        k = 0.4 + e / 2.0
+        gamma = np.full_like(e, 0.05)  # Γ(π/a) constant
+        fr = {
+            "e_fitted": e,
+            "kF_minus": [k],
+            "gamma_corrige": [gamma],
+        }
+        a = 4.0
+        res = imaginary_self_energy(fr, a)
+        self.assertEqual(res["energy"].size, e.size)
+        # Im Σ = (vF/2) * Γ·(π/a) ; vF=8/π eV·Å → Im Σ = (8/π/2)·0.05·(π/4)
+        expected = (8.0 / np.pi / 2.0) * 0.05 * (np.pi / 4.0)
+        self.assertAlmostEqual(float(res["im_sigma"][0]), expected, places=4)
+
+    def test_empty_when_no_gamma(self):
+        from arpes.physics.fit import imaginary_self_energy
+        res = imaginary_self_energy({"e_fitted": [0.0]}, 4.0)
+        self.assertEqual(res["energy"].size, 0)

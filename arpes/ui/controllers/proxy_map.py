@@ -86,6 +86,7 @@ PROXY_MAP = {
     "_fit_full": "_fit_runner_ctrl",
     "_clear_kf": "_fit_runner_ctrl",
     "_auto_n_pairs": "_fit_runner_ctrl",
+    "_calculate_im_self_energy": "_fit_runner_ctrl",
     "_on_kf_init_drag": "_plot_ctrl",
     "_schedule_live_guess": "_interaction_ctrl",
     "_on_live_fit_guess": "_interaction_ctrl",

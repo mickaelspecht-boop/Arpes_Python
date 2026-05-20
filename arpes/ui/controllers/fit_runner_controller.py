@@ -22,7 +22,12 @@ from arpes.physics.ef_calibration import (
     apply_reference_to_target as apply_ef_reference_to_target,
     compute_calibration_update as compute_ef_calibration_update,
 )
-from arpes.physics.fit import MdcFitter, compute_fit_params_hash, detect_n_pairs
+from arpes.physics.fit import (
+    MdcFitter,
+    compute_fit_params_hash,
+    detect_n_pairs,
+    imaginary_self_energy,
+)
 from arpes.ui.widgets.dialogs import EFCalibrationDialog
 
 
@@ -177,6 +182,32 @@ class FitRunnerController:
         p._mdc_edc.fig.tight_layout(pad=0.5)
         p._mdc_edc.redraw()
 
+    def _calculate_im_self_energy(self) -> None:
+        """H: ouvre dialog Im Σ(E) depuis fit_result courant + a."""
+        p = self._parent
+        fr = getattr(p, "_fit_res", None)
+        if not fr:
+            self._status("Attention: faire un fit MDC avant Im Σ.")
+            return
+        try:
+            a = float(self._params.sp_crystal_a.value())
+        except Exception:
+            a = 0.0
+        if a <= 0:
+            self._status("Attention: renseigne a cristal (Å) > 0 pour Im Σ.")
+            return
+        result = imaginary_self_energy(fr, a, pair_index=0)
+        if result["energy"].size == 0:
+            self._status("Attention: Im Σ indisponible (vF/Γ manquants).")
+            return
+        from arpes.ui.widgets.dialogs import ImagSelfEnergyDialog
+        dlg = ImagSelfEnergyDialog(result, parent=p)
+        dlg.exec()
+        med = float(np.nanmedian(result["im_sigma"])) * 1000.0
+        self._status(
+            f"Im Σ med = {med:.1f} meV  |  vF = {result['vF_eV_A']:.2f} eV·Å"
+        )
+
     def _auto_n_pairs(self) -> None:
         """C: détecte le nombre de paires depuis pics symétriques MDC à E courant."""
         p = self._parent
@@ -235,7 +266,12 @@ class FitRunnerController:
                 p._browser.refresh_item(name)
                 self._refresh_helper_buttons()
 
-            summary = controller.summarize(fr)
+            crystal_a = 0.0
+            try:
+                crystal_a = float(self._params.sp_crystal_a.value())
+            except Exception:
+                crystal_a = 0.0
+            summary = controller.summarize(fr, crystal_a=crystal_a)
             self._params.lbl_res.setText(summary.label_text)
             self._params.lbl_res.setToolTip(
                 "Résolution instrumentale domine, fit non fiable"

@@ -367,6 +367,13 @@ def _build_fit_buttons(panel, _fcl) -> None:
     btn_f.clicked.connect(panel.full_fit_requested)
     _fcl.addWidget(btn_f)
 
+    panel.btn_im_sigma = compact_button(QPushButton("Im Σ(E)"), max_width=140)
+    panel.btn_im_sigma.setToolTip(
+        "Calcule Im Σ(E) = (vF/2)·Γ(E) avec la largeur corrigée du fit.\n"
+        "Nécessite un fit complet et un paramètre de maille a > 0."
+    )
+    panel.btn_im_sigma.clicked.connect(panel.im_self_energy_requested)
+    _fcl.addWidget(panel.btn_im_sigma)
     btn_batch = compact_button(QPushButton("Batch fit dossier"), max_width=200)
     btn_batch.setToolTip(
         "Lance Fit complet sur tous les fichiers du dossier qui n'ont pas\n"

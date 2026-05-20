@@ -48,6 +48,98 @@ def compute_fit_params_hash(
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def compute_fermi_velocity_mstar(
+    fit_result: dict,
+    crystal_a: float,
+    *,
+    branch: str = "kF_minus",
+    pair_index: int = 0,
+    window_eV: float = 0.05,
+) -> dict[str, float]:
+    """vF (eV·Å) + m*/m_e à partir de kF(E) près de E_F.
+
+    Régression linéaire E ≈ vF·(k - k_F0) sur les points e_fitted dans
+    ±window_eV. kF en π/a converti en Å⁻¹ via a. m*/m_e=7.6199·kF/vF
+    (ℏ²/m_e = 7.6199 eV·Å²). Renvoie NaN si données insuffisantes.
+    """
+    nan = float("nan")
+    out = {"vF_eV_A": nan, "kF_inv_A": nan, "mstar_over_me": nan}
+    if not fit_result or crystal_a <= 0:
+        return out
+    e_raw = fit_result.get("e_fitted")
+    e = np.asarray([] if e_raw is None else e_raw, dtype=float)
+    branches = fit_result.get(branch)
+    if branches is None or not (0 <= pair_index < len(branches)):
+        return out
+    k = np.asarray(branches[pair_index], dtype=float)  # en π/a
+    mask = np.isfinite(e) & np.isfinite(k) & (np.abs(e) <= float(window_eV))
+    if int(mask.sum()) < 3:
+        return out
+    ew = e[mask]
+    kw = k[mask]
+    # Régression : E = vF_natural·(k - k0) avec k en π/a → vF_pi_a = pente
+    slope_pi_a, intercept = np.polyfit(kw, ew, 1)
+    if not np.isfinite(slope_pi_a) or abs(slope_pi_a) < 1e-9:
+        return out
+    # k0 (kF à E=0) en π/a, puis Å⁻¹
+    k0_pi_a = -intercept / slope_pi_a
+    pi_over_a = np.pi / float(crystal_a)
+    kF_inv_A = float(abs(k0_pi_a) * pi_over_a)
+    vF_eV_A = float(abs(slope_pi_a) / pi_over_a)  # (π/a)→Å⁻¹ : ÷(π/a)
+    HBAR2_OVER_ME = 7.6199682  # eV·Å²
+    mstar = HBAR2_OVER_ME * kF_inv_A / vF_eV_A if vF_eV_A > 0 else nan
+    out["vF_eV_A"] = vF_eV_A
+    out["kF_inv_A"] = kF_inv_A
+    out["mstar_over_me"] = float(mstar)
+    return out
+
+
+def imaginary_self_energy(
+    fit_result: dict,
+    crystal_a: float,
+    *,
+    pair_index: int = 0,
+    use_corrected: bool = True,
+) -> dict:
+    """Im Σ(E) = (vF/2)·Γ_k(E) en eV.
+
+    Γ stocké en π/a (HWHM). Conversion : Γ_k[Å⁻¹] = Γ[π/a]·π/a.
+    vF tiré de compute_fermi_velocity_mstar (kF_minus, paire 0 par
+    défaut). Renvoie ``{"energy": e, "im_sigma": Σ, "vF_eV_A": vF,
+    "pair_index": pair_index}``. Tableaux vides si pré-requis manquent.
+    """
+    empty = {"energy": np.array([]), "im_sigma": np.array([]),
+              "vF_eV_A": float("nan"), "pair_index": int(pair_index)}
+    if not fit_result or crystal_a <= 0:
+        return empty
+    e_raw = fit_result.get("e_fitted")
+    e = np.asarray([] if e_raw is None else e_raw, dtype=float)
+    src = "gamma_corrige" if use_corrected else "gamma_brut"
+    g_all = fit_result.get(src)
+    if g_all is None:
+        g_all = fit_result.get("gamma_corrige") or fit_result.get("gamma")
+    if g_all is None or not (0 <= pair_index < len(g_all)):
+        return empty
+    g_pi_a = np.asarray(g_all[pair_index], dtype=float)
+    if g_pi_a.size != e.size or g_pi_a.size == 0:
+        return empty
+    vfd = compute_fermi_velocity_mstar(
+        fit_result, crystal_a, pair_index=pair_index)
+    vF = vfd.get("vF_eV_A", float("nan"))
+    if not np.isfinite(vF) or vF <= 0:
+        return empty
+    pi_over_a = np.pi / float(crystal_a)
+    g_inv_A = g_pi_a * pi_over_a
+    im_sigma = (vF / 2.0) * g_inv_A  # eV
+    finite = np.isfinite(e) & np.isfinite(im_sigma)
+    return {
+        "energy": e[finite],
+        "im_sigma": im_sigma[finite],
+        "vF_eV_A": float(vF),
+        "pair_index": int(pair_index),
+    }
+
+
 def detect_n_pairs(
     k_arr,
     mdc,
@@ -164,7 +256,7 @@ class MdcFitter:
             )
 
     @staticmethod
-    def summarize(fr: dict) -> FitSummary:
+    def summarize(fr: dict, *, crystal_a: float = 0.0) -> FitSummary:
         e_fitted = fr.get("e_fitted", [])
         n_e = len(e_fitted)
         kf0 = np.asarray((fr.get("kF_minus") or [[np.nan]])[0], dtype=float)
@@ -182,10 +274,19 @@ class MdcFitter:
                     f"\nΓ med = {float(np.nanmedian(gb)):.4f} brut / "
                     f"{float(np.nanmedian(gc)):.4f} corrigé{warn}"
                 )
+        vf_line = ""
+        if float(crystal_a or 0.0) > 0:
+            vfd = compute_fermi_velocity_mstar(fr, float(crystal_a))
+            vF = vfd["vF_eV_A"]
+            ms = vfd["mstar_over_me"]
+            kF = vfd["kF_inv_A"]
+            if np.isfinite(vF) and np.isfinite(ms):
+                vf_line = (f"\nvF = {vF:.2f} eV·Å | m*/m_e = {ms:.2f} | "
+                            f"kF = {kF:.3f} Å⁻¹")
         label_text = (
             f"OK  Fit complet  {n_ok}/{n_e} points\n"
             f"xg = {xg_mean:.4f} π/a"
-            f"{gamma_note}"
+            f"{gamma_note}{vf_line}"
         )
         status_text = f"Fit OK — {n_ok}/{n_e}  xg={xg_mean:.4f}{gamma_note.replace(chr(10), ' | ')}"
         return FitSummary(
