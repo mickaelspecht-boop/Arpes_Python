@@ -11,8 +11,8 @@ from typing import Any
 import numpy as np
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
-    QWidget,
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+    QVBoxLayout, QWidget,
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -91,19 +91,28 @@ class FsCompareCanvas(QWidget):
         lay.addLayout(bar)
 
         # --- 3 canvas matplotlib horizontaux ------------------------------
+        # IMPORTANT : forcer Expanding + min taille petite. Sinon
+        # FigureCanvas demande figsize×dpi (400px×3=1200px) en sizeHint et
+        # gonfle le QTabWidget → squashe le panneau droit de l'app.
         canv_row = QHBoxLayout()
-        self.fig_a = Figure(figsize=(4, 4), tight_layout=True)
+        self.fig_a = Figure(figsize=(3, 3), tight_layout=True)
         self.canvas_a = FigureCanvas(self.fig_a)
+        self.canvas_a.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.canvas_a.setMinimumSize(120, 120)
         self.ax_a = self.fig_a.add_subplot(111)
         canv_row.addWidget(self.canvas_a, 1)
 
-        self.fig_b = Figure(figsize=(4, 4), tight_layout=True)
+        self.fig_b = Figure(figsize=(3, 3), tight_layout=True)
         self.canvas_b = FigureCanvas(self.fig_b)
+        self.canvas_b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.canvas_b.setMinimumSize(120, 120)
         self.ax_b = self.fig_b.add_subplot(111)
         canv_row.addWidget(self.canvas_b, 1)
 
-        self.fig_d = Figure(figsize=(4, 4), tight_layout=True)
+        self.fig_d = Figure(figsize=(3, 3), tight_layout=True)
         self.canvas_d = FigureCanvas(self.fig_d)
+        self.canvas_d.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.canvas_d.setMinimumSize(120, 120)
         self.ax_d = self.fig_d.add_subplot(111)
         canv_row.addWidget(self.canvas_d, 1)
         lay.addLayout(canv_row, 1)
