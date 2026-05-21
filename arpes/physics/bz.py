@@ -1,7 +1,7 @@
 """Presets simples de zone de Brillouin 2D pour overlays FS."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -194,3 +194,102 @@ def bz_high_symmetry_points(
     for x, y in poly:
         points.append((float(x), float(y), "", "#9ca3af"))
     return points
+
+
+# --------------------------------------------------------------------------
+# Mapping cristal 3D réel → preset 2D + labels HS selon plan kz courant.
+# Sert l'overlay BZ dans la fenêtre FS (cf. Fig. 4 Ideta 2014, BaNi2P2).
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Lattice3D:
+    """Paramètres maille cristallographique (Bravais 3D)."""
+    a: float                       # Å
+    b: float                       # Å
+    c: float                       # Å
+    alpha_deg: float = 90.0
+    beta_deg: float = 90.0
+    gamma_deg: float = 90.0
+    bravais: str = "tetragonal"    # tetragonal | orthorhombic | hexagonal | cubic
+    space_group: str | int = ""
+    mp_id: str = ""
+
+    def preset_key(self) -> str:
+        bv = (self.bravais or "").lower()
+        if bv in ("cubic", "tetragonal"):
+            return "square"
+        if bv == "orthorhombic":
+            return "rectangle"
+        if bv == "hexagonal":
+            return "hexagonal"
+        return "square"  # fallback raisonnable
+
+
+_HS_LABELS_BY_PLANE: dict[str, dict[str, list[str]]] = {
+    # plan kz=0 (Γ-plane) → centre = Γ ; plan kz=π/c (Z-plane) → centre = Z.
+    # Tétragonal I4/mmm : Γ-X-M ↔ Z-R-A (cf. Bilbao server).
+    "tetragonal": {"Gamma": ["Γ", "X", "M"], "Z": ["Z", "R", "A"]},
+    "orthorhombic": {"Gamma": ["Γ", "X", "Y", "S"], "Z": ["Z", "U", "T", "R"]},
+    "hexagonal": {"Gamma": ["Γ", "K", "M"], "Z": ["A", "H", "L"]},
+    "cubic": {"Gamma": ["Γ", "X", "M"], "Z": ["Γ", "X", "M"]},  # kz=2π/a équiv. Γ
+}
+
+
+def _label_remap(points_2d: list[tuple[float, float, str, str]],
+                 src_labels: list[str], dst_labels: list[str]
+                 ) -> list[tuple[float, float, str, str]]:
+    """Renomme les labels HS selon table src→dst, en gardant ordre/couleur."""
+    if not src_labels or not dst_labels or len(src_labels) != len(dst_labels):
+        return points_2d
+    rename = dict(zip(src_labels, dst_labels))
+    out = []
+    for x, y, lab, col in points_2d:
+        out.append((x, y, rename.get(lab, lab), col))
+    return out
+
+
+def bz_points_for_lattice_plane(
+    lattice: Lattice3D,
+    plane: str = "Gamma",
+) -> tuple[np.ndarray, list[tuple[float, float, str, str]], str]:
+    """Polygon BZ 2D + points HS labellés pour un cristal 3D dans un plan kz.
+
+    Retourne ``(polygon_xy, hs_points, preset_key)``.
+
+    - ``plane`` ∈ {"Gamma", "Z"}. Sélectionne table labels HS appropriée.
+    - Polygon et coordonnées en unités **π/a** sur kx et **π/b** sur ky
+      (cohérent avec convention loader ARPES).
+    - ``preset_key`` retourné pour debug / persistence.
+
+    Limitation V1 : ne gère pas les BZ hexagonal-centered ou tricliniques.
+    Pour bravais non reconnu : fallback "square" + labels Γ-plane.
+    """
+    preset_key = lattice.preset_key()
+    # Half-extents en unités cohérentes avec presets (1.0 = π/a).
+    if preset_key == "square":
+        half_x = 1.0
+        half_y = 1.0
+    elif preset_key == "rectangle":
+        half_x = 1.0
+        half_y = float(lattice.a) / max(float(lattice.b), 1e-9)
+    elif preset_key == "hexagonal":
+        half_x = 1.0
+        half_y = float(np.sqrt(3.0) / 2.0)
+    else:
+        preset_key = "square"
+        half_x = 1.0
+        half_y = 1.0
+
+    # bz_polygon/bz_high_symmetry_points attendent la chaîne `shape`
+    # (`square`, `hexagon`, ...) et non la clé de preset (`hexagonal`).
+    shape = resolve_bz_preset(preset_key).shape
+    poly = bz_polygon(shape, half_x, half_y, lattice.gamma_deg)
+    pts_raw = bz_high_symmetry_points(shape, half_x, half_y, lattice.gamma_deg)
+
+    bv = (lattice.bravais or "tetragonal").lower()
+    table = _HS_LABELS_BY_PLANE.get(bv, _HS_LABELS_BY_PLANE["tetragonal"])
+    src = table.get("Gamma", [])
+    dst = table.get(plane, src)
+    pts = _label_remap(pts_raw, src, dst)
+    return poly, pts, preset_key

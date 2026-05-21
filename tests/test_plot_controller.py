@@ -59,7 +59,13 @@ class TestPlotController(unittest.TestCase):
 
         def fake_compute(*args, **kwargs):
             calls.append((args, kwargs))
-            return SimpleNamespace(data=np.asarray(raw["data"]) + 1.0, grid_info={"ok": True})
+            return SimpleNamespace(
+                data=np.asarray(raw["data"]) + 1.0,
+                grid_info={"ok": True},
+                distortion_info={"distorted": True},
+                kpar=np.asarray([-0.2, 0.2]),
+                ev=np.asarray([-0.3, 0.0, 0.3]),
+            )
 
         class _Combo:
             def currentText(self):
@@ -74,6 +80,9 @@ class TestPlotController(unittest.TestCase):
             _current_raw_load_cache_key=("raw", "file"),
             _display_cache=OrderedDict(),
             _display_cache_max=4,
+            _data_disp_kpar=None,
+            _data_disp_ev=None,
+            _distortion_display_info={},
         )
         parent._current_entry = lambda: SimpleNamespace(grid_correction={})
         ctrl = PlotController(parent)
@@ -90,6 +99,18 @@ class TestPlotController(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         np.testing.assert_allclose(parent._data_disp, raw["data"] + 1.0)
         self.assertEqual(parent._grid_display_info, {"ok": True})
+        self.assertEqual(parent._distortion_display_info, {"distorted": True})
+        np.testing.assert_allclose(parent._data_disp_kpar, [-0.2, 0.2])
+        np.testing.assert_allclose(parent._data_disp_ev, [-0.3, 0.0, 0.3])
+
+    def test_axis_cache_signature_detects_internal_axis_change(self):
+        a = np.asarray([-1.0, -0.2, 0.0, 1.0])
+        b = np.asarray([-1.0, -0.1, 0.0, 1.0])
+
+        self.assertNotEqual(
+            plot_ctrl_mod._axis_cache_signature(a),
+            plot_ctrl_mod._axis_cache_signature(b),
+        )
 
     def test_mdc_edc_use_cached_edcnorm_display(self):
         raw = self._raw()

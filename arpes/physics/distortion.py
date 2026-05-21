@@ -239,6 +239,142 @@ def apply_distortion(
     return out, info
 
 
+def _ky_drift_metric(
+    volume: np.ndarray,
+    *,
+    finite_only: bool = True,
+) -> float:
+    """σ(BM_par_ky) / ⟨BM⟩ : métrique drift détecteur le long de ky.
+
+    ``volume`` shape ``(n_ky, n_kx, n_e)``. Réduit en (n_ky, n_kx) puis mesure
+    écart-type des profils par ky, normalisé par moyenne globale.
+
+    Retourne 0.0 si volume vide / plat / NaN majoritaires.
+    Sert garde-fou redteam : refus propagation si > 0.15.
+    """
+    v = np.asarray(volume, dtype=float)
+    if v.ndim != 3 or v.shape[0] < 2:
+        return 0.0
+    profiles = np.nanmean(v, axis=2)  # (n_ky, n_kx)
+    if finite_only and not np.isfinite(profiles).any():
+        return 0.0
+    mean_per_ky = np.nanmean(profiles, axis=1)  # (n_ky,)
+    finite = mean_per_ky[np.isfinite(mean_per_ky)]
+    if finite.size < 2:
+        return 0.0
+    mu = float(np.nanmean(finite))
+    if abs(mu) < 1e-12:
+        return 0.0
+    return float(np.nanstd(finite) / abs(mu))
+
+
+def fs_domain_checksum(kpar, ev) -> tuple[float, float, float, float]:
+    """Checksum (kpar_min, kpar_max, ev_min, ev_max) — invalidation calib si shift."""
+    k = _safe_axis(kpar)
+    e = _safe_axis(ev)
+    return (
+        float(k[0]) if k.size else 0.0,
+        float(k[-1]) if k.size else 0.0,
+        float(e[0]) if e.size else 0.0,
+        float(e[-1]) if e.size else 0.0,
+    )
+
+
+def apply_distortion_to_fs_volume(
+    volume: np.ndarray,
+    kx,
+    ky,
+    ev,
+    cfg: dict | None,
+    *,
+    drift_threshold: float = 0.15,
+    bm_checksum: tuple[float, float, float, float] | None = None,
+) -> tuple[np.ndarray, dict]:
+    """Propage la distorsion BM (trapèze seul) à chaque coupe ky d'un volume FS.
+
+    ``volume`` shape ``(n_ky, n_kx, n_e)`` (convention loaders FS).
+    Appelle ``apply_distortion(slice_kx_ev, kx, ev, cfg_trapèze_seul)`` pour
+    chaque ``ky``. **Parabole interdite** sur volume FS (risque capture
+    dispersion réelle Dirac/Shockley — décision conseil arpes-physicist).
+
+    Garde-fous :
+    - σ(BM_par_ky)/⟨BM⟩ > ``drift_threshold`` → raise ``ValueError`` (tilt
+      détecteur dépendant ky, calib BM non valide hors centre).
+    - ``bm_checksum`` ≠ ``fs_domain_checksum(kx, ev)`` → raise (calib hors
+      domaine FS, ex copy-paste params depuis autre run).
+    - Volume avec NaN → préservés (slice par slice, pas de propagation).
+
+    Retourne ``(volume_corrected, info)`` avec
+    ``info = {"applied": bool, "n_slices", "drift_ratio", "reason"?}``.
+
+    Identité bit-exact si ``cfg`` désactivée.
+    """
+    vol = np.asarray(volume, dtype=np.float32)
+    if vol.ndim != 3:
+        raise ValueError(
+            f"apply_distortion_to_fs_volume: volume doit être 3D (n_ky,n_kx,n_e), got {vol.shape}"
+        )
+    n_ky, n_kx, n_e = vol.shape
+    kx_axis = _safe_axis(kx)
+    ky_axis = _safe_axis(ky)
+    ev_axis = _safe_axis(ev)
+    if (kx_axis.size, ev_axis.size) != (n_kx, n_e):
+        raise ValueError(
+            f"apply_distortion_to_fs_volume: axes (kx={kx_axis.size}, ev={ev_axis.size}) "
+            f"incompatible volume shape={vol.shape}"
+        )
+    if ky_axis.size != n_ky:
+        raise ValueError(
+            f"apply_distortion_to_fs_volume: ky.size={ky_axis.size} ≠ n_ky={n_ky}"
+        )
+
+    if not is_distortion_active(cfg):
+        return vol, {"applied": False, "reason": "disabled", "n_slices": 0}
+
+    # GF Redteam #4 — checksum domaine kpar/ev.
+    fs_check = fs_domain_checksum(kx_axis, ev_axis)
+    if bm_checksum is not None:
+        for a, b in zip(bm_checksum, fs_check):
+            if abs(float(a) - float(b)) > max(1e-3, 0.05 * max(abs(a), abs(b))):
+                raise ValueError(
+                    f"apply_distortion_to_fs_volume: calib BM hors domaine FS "
+                    f"(BM={bm_checksum} vs FS={fs_check}). Recalibrer."
+                )
+
+    # GF Redteam #1 — σ(BM_par_ky)/⟨BM⟩ : tilt détecteur ky-dépendant.
+    drift = _ky_drift_metric(vol)
+    if drift > float(drift_threshold):
+        raise ValueError(
+            f"apps_distortion_to_fs_volume: drift ky/⟨BM⟩={drift:.3f} > "
+            f"{drift_threshold:.3f}. Calib BM moyenne non valide hors centre."
+        )
+
+    # GF Physicist — parabole interdite sur volume FS.
+    cfg_trap_only = dict(cfg or {})
+    if cfg_trap_only.get("parabola"):
+        cfg_trap_only["parabola"] = dict(cfg_trap_only["parabola"])
+        cfg_trap_only["parabola"]["enabled"] = False
+
+    out = np.empty_like(vol)
+    n_applied = 0
+    for iy in range(n_ky):
+        slice_2d = vol[iy]  # (n_kx, n_e)
+        slice_corr, info_slice = apply_distortion(
+            slice_2d, kx_axis, ev_axis, cfg_trap_only,
+        )
+        out[iy] = slice_corr
+        if info_slice.get("applied"):
+            n_applied += 1
+
+    return out, {
+        "applied": n_applied > 0,
+        "n_slices": int(n_applied),
+        "drift_ratio": float(drift),
+        "fs_checksum": fs_check,
+        "parabola_skipped": bool((cfg or {}).get("parabola", {}).get("enabled", False)),
+    }
+
+
 def signal_bbox(
     data: np.ndarray, kpar, ev,
     *, intensity_percentile: float = 50.0, finite_only: bool = True,

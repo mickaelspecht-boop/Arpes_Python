@@ -45,6 +45,9 @@ except ImportError:
 from arpes.physics.plot_compute import apply_ef_correction_to_dict
 
 
+RAW_LOAD_CACHE_VERSION = 2
+
+
 def _freeze_cache_value(value: Any) -> Any:
     """Transforme une valeur de contexte en clé hashable stable."""
     if isinstance(value, np.generic):
@@ -316,7 +319,8 @@ class LoadController:
     def _load_cache_key(self, path: str, prepared: _PreparedEntry) -> tuple:
         entry = prepared.entry
         return (
-            "raw-loader-v1",
+            f"raw-loader-v{RAW_LOAD_CACHE_VERSION}",
+            str(prepared.fmt_guess or ""),
             self._path_signature(Path(path)),
             round(float(self._params.sp_phi.value()), 8),
             round(float(self._params.sp_ef.value()), 8),
@@ -498,6 +502,16 @@ class LoadController:
         self._params.sp_crystal_a.blockSignals(False)
         self._parent._restore_theory_overlay_for_entry()
         self._parent._apply_stored_gamma_to_current_file(save_entry=True)
+        # Restore BZ-crystal overlay settings from session entry into FSControlPanel
+        try:
+            self._parent._restore_fs_crystal_settings_from_entry(entry)
+        except Exception:
+            pass
+        # Re-populate combo selectors du tab Compare pol (nouveau fichier dans session.files)
+        try:
+            self._parent._refresh_fs_compare_selectors()
+        except Exception:
+            pass
         try:
             self._parent._check_distortion_consistency_on_load()
             self._parent._apply_calib_for_current_if_any()

@@ -42,6 +42,14 @@ def build_menubar(window) -> QMenuBar:
     )
     act_scoped.triggered.connect(lambda: window._logbook_ctrl.add_scoped_logbook())
     logbook_menu.addAction(act_scoped)
+    act_auto_scoped = QAction("Auto-attacher scopés (Folder Name)…", window)
+    act_auto_scoped.setToolTip(
+        "Scanne toutes les sheets d'un xlsx, lit la cellule « Folder Name »\n"
+        "de chaque sheet, et auto-attache au sous-dossier correspondant.\n"
+        "Plus rapide que d'attacher chaque sheet une par une."
+    )
+    act_auto_scoped.triggered.connect(lambda: window._logbook_ctrl.auto_attach_scoped_logbooks_xlsx())
+    logbook_menu.addAction(act_auto_scoped)
 
     logbook_menu.addSeparator()
     attached_menu = logbook_menu.addMenu("Logbooks attachés")

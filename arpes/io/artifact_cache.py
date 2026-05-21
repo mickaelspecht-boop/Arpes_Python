@@ -176,22 +176,33 @@ def save_raw_artifact_async(
 
 
 def clear_cache_folder(session_folder: str | Path | None) -> tuple[int, int]:
-    """Supprime `.arpes_cache/raw_artifacts/`. Retourne (n_files, total_bytes)."""
+    """Supprime les artefacts `.arpes_cache` connus. Retourne (n_files, total_bytes)."""
     root = raw_artifact_root(session_folder or Path.cwd(), session_folder)
-    if not root.exists():
-        return (0, 0)
+    cache_root = root.parent
     n = 0
     total = 0
-    for f in root.glob("*.npz"):
+    if root.exists():
+        for f in root.glob("*.npz"):
+            try:
+                total += f.stat().st_size
+            except OSError:
+                pass
+            n += 1
         try:
-            total += f.stat().st_size
-        except OSError:
+            shutil.rmtree(root, ignore_errors=True)
+        except Exception:
             pass
-        n += 1
-    try:
-        shutil.rmtree(root, ignore_errors=True)
-    except Exception:
-        pass
+    if cache_root.exists():
+        for f in cache_root.glob("*_fs_mean_v*.npz"):
+            try:
+                total += f.stat().st_size
+            except OSError:
+                pass
+            n += 1
+            try:
+                f.unlink()
+            except OSError:
+                pass
     return (n, total)
 
 
@@ -232,12 +243,18 @@ def cache_size_mb(session_folder: str | Path | None) -> float:
     if session_folder is None:
         return 0.0
     root = raw_artifact_root(session_folder, session_folder)
-    if not root.exists():
-        return 0.0
     total = 0
-    for f in root.glob("*.npz"):
-        try:
-            total += f.stat().st_size
-        except OSError:
-            continue
+    if root.exists():
+        for f in root.glob("*.npz"):
+            try:
+                total += f.stat().st_size
+            except OSError:
+                continue
+    cache_root = root.parent
+    if cache_root.exists():
+        for f in cache_root.glob("*_fs_mean_v*.npz"):
+            try:
+                total += f.stat().st_size
+            except OSError:
+                continue
     return total / (1024 * 1024)

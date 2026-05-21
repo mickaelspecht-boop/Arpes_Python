@@ -122,6 +122,157 @@ def excel_table_from_header(raw, row_idx: int):
     return df, mapping
 
 
+# Labels qui indiquent une cellule "Folder Name" (à gauche) dont la valeur
+# en cellule adjacente (à droite, sur même ligne) est le nom du sous-dossier.
+# Normalisé via `_norm_text` (lowercase + alphanumérique).
+_FOLDER_NAME_LABELS = {
+    "foldername", "folder", "dossier", "nomdossier", "subfolder",
+    "nameoffolder", "foldernameroot", "datafolder",
+}
+
+# Hauteur de scan (lignes en haut de la sheet) pour chercher la cellule.
+_FOLDER_NAME_SCAN_ROWS = 15
+
+
+def find_folder_name_in_sheet(raw) -> str:
+    """Cherche la cellule "Folder Name" et retourne sa valeur adjacente.
+
+    Robuste aux templates qui varient :
+    - Scan des ``_FOLDER_NAME_SCAN_ROWS`` premières lignes.
+    - Label cherché : "Folder Name" / "Folder" / "Dossier" / "Subfolder" / ...
+      (case-insensitive, espaces/ponctuation ignorés via ``_norm_text``).
+    - Valeur = cellule non-vide à droite du label sur la même ligne (saute
+      jusqu'à 3 colonnes vides).
+    - Retourne ``""`` si rien de pertinent.
+
+    Args:
+        raw: ``pandas.DataFrame`` brut (header=None) de la sheet.
+    """
+    from arpes.io.logbook import _norm_text
+    try:
+        n_rows = min(int(len(raw)), _FOLDER_NAME_SCAN_ROWS)
+    except TypeError:
+        return ""
+    for row_idx in range(n_rows):
+        try:
+            row = raw.iloc[row_idx].tolist()
+        except Exception:
+            continue
+        for col_idx, cell in enumerate(row):
+            label = _norm_text(cell)
+            if label and label in _FOLDER_NAME_LABELS:
+                # Valeur = première cellule non-vide à droite (jusqu'à 4 col)
+                for j in range(col_idx + 1, min(col_idx + 5, len(row))):
+                    val = _cell_text(row[j])
+                    if val:
+                        return val
+                break  # label trouvé mais valeur vide : autre ligne potentielle
+    return ""
+
+
+def match_folder_to_subfolder(
+    folder_name: str,
+    candidate_subfolders: list[str],
+) -> str:
+    """Matche un nom de dossier déclaré (sheet) avec un sous-dossier session.
+
+    Stratégies (ordre priorité) :
+    1. Match exact (case-sensitive) sur le nom du sous-dossier (basename).
+    2. Match insensible à la casse.
+    3. Match normalisé via ``_norm_text`` (alphanumérique seul).
+    4. Match basename du sous-dossier (rel = ``parent/BNA_S2`` → basename ``BNA_S2``).
+    5. Substring : nom déclaré contenu dans rel ou réciproque (normalisé).
+
+    Retourne le ``rel`` matché ou ``""``.
+    """
+    from arpes.io.logbook import _norm_text
+    target_norm = _norm_text(folder_name)
+    if not target_norm:
+        return ""
+
+    # 1. exact
+    for rel in candidate_subfolders:
+        if rel == folder_name:
+            return rel
+    # 2. case-insensitive
+    target_low = folder_name.lower()
+    for rel in candidate_subfolders:
+        if rel.lower() == target_low:
+            return rel
+    # 3. normalized
+    for rel in candidate_subfolders:
+        if _norm_text(rel) == target_norm:
+            return rel
+    # 4. basename (last part) match
+    for rel in candidate_subfolders:
+        parts = rel.replace("\\", "/").split("/")
+        base = parts[-1] if parts else rel
+        if _norm_text(base) == target_norm:
+            return rel
+    # 5. substring (normalisé) — match prudent : ≥3 caractères, évite faux positifs
+    if len(target_norm) >= 3:
+        for rel in candidate_subfolders:
+            rel_norm = _norm_text(rel)
+            if target_norm in rel_norm or rel_norm in target_norm:
+                return rel
+    return ""
+
+
+def scan_xlsx_for_scoped_logbooks(
+    pd,
+    path,
+    candidate_subfolders: list[str],
+) -> list[dict]:
+    """Scanne toutes les sheets d'un xlsx → liste candidats scoped logbook.
+
+    Pour chaque sheet :
+    - Lit les premières lignes.
+    - Cherche cellule "Folder Name" via ``find_folder_name_in_sheet``.
+    - Si trouvé, matche contre ``candidate_subfolders`` via
+      ``match_folder_to_subfolder``.
+    - Vérifie que la sheet contient bien des colonnes attendues (file + hv)
+      via ``best_excel_table`` (sinon ignore : ce n'est pas une vraie sheet
+      de données).
+
+    Retourne liste de ``{"sheet", "folder_declared", "subfolder_rel",
+    "mapping", "df", "n_rows"}`` pour chaque sheet exploitable.
+    """
+    out: list[dict] = []
+    try:
+        book = pd.ExcelFile(path)
+    except Exception:
+        return out
+    for sheet in book.sheet_names:
+        try:
+            raw = pd.read_excel(path, sheet_name=sheet, header=None)
+        except Exception:
+            continue
+        if raw.dropna(how="all").empty:
+            continue
+        folder_declared = find_folder_name_in_sheet(raw)
+        if not folder_declared:
+            continue
+        matched_rel = match_folder_to_subfolder(folder_declared, candidate_subfolders)
+        if not matched_rel:
+            continue
+        candidates = excel_header_candidates(raw)
+        guessed = best_excel_table(raw, candidates)
+        if guessed is None:
+            continue
+        df, mapping = guessed
+        if not mapping.get("file") or not mapping.get("hv"):
+            continue
+        out.append({
+            "sheet": sheet,
+            "folder_declared": folder_declared,
+            "subfolder_rel": matched_rel,
+            "mapping": mapping,
+            "df": df,
+            "n_rows": int(len(df)),
+        })
+    return out
+
+
 _TITLE_TOKENS = {"plan", "measurement", "for", "title", "page", "sheet", "data"}
 
 

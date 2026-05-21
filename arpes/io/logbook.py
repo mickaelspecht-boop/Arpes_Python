@@ -449,7 +449,13 @@ def _infer_logbook_mapping(columns: list[str], df=None) -> dict[str, str]:
             ["hv"], ["hnu"], ["photon", "energy"], ["photon", "energie"],
             ["energy", "ev"], ["energie", "ev"], ["hn"],
         ]),
-        "temperature": _pick_column(columns, [
+        "temperature": _pick_exact_column(columns, {
+            "temp", "TEMP", "Temp",
+            "t", "T", "t_k", "T_K", "t(k)", "T(K)", "t [k]", "T [K]",
+            "tk", "TK", "Tk",
+            "temperature", "Temperature", "TEMPERATURE",
+            "sample temperature", "Sample Temperature", "sample_temperature",
+        }) or _pick_column(columns, [
             ["sample", "temperature"], ["temperature"], ["temp"], ["t", "sample"], ["t", "k"],
         ]),
         "polarization": _pick_exact_column(columns, {

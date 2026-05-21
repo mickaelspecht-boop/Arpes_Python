@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from arpes.core.session import FileEntry, Session
+from arpes.io.artifact_cache import cache_size_mb, clear_cache_folder
 from arpes.io.logbook import LogbookAppliedValues
 
 try:
@@ -100,6 +101,24 @@ def _prepared(path: Path):
 
 @unittest.skipUnless(HAS_LOAD_CONTROLLER, "LoadController/PyQt6 indisponible")
 class TestLoadControllerCache(unittest.TestCase):
+    def test_clear_disk_cache_removes_raw_and_cls_fs_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw_dir = root / ".arpes_cache" / "raw_artifacts"
+            raw_dir.mkdir(parents=True)
+            raw_file = raw_dir / "raw_dummy.npz"
+            fs_file = root / ".arpes_cache" / "FS_fs_mean_v2.npz"
+            raw_file.write_bytes(b"raw-cache")
+            fs_file.write_bytes(b"fs-cache")
+
+            self.assertGreater(cache_size_mb(root), 0.0)
+            n, total = clear_cache_folder(root)
+
+            self.assertEqual(n, 2)
+            self.assertEqual(total, len(b"raw-cache") + len(b"fs-cache"))
+            self.assertFalse(raw_file.exists())
+            self.assertFalse(fs_file.exists())
+
     def test_dispatch_loader_reuses_same_file_and_params(self):
         calls = []
         old_load = load_mod.load_arpes_file

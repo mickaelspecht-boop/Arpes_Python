@@ -137,7 +137,6 @@ class GammaController:
         ky = float(params.ky_center + event.ydata)
         self._fs_controls.set_center(kx, ky)
         self._store_fs_center_reference(kx, ky, source="fs_manual")
-        self._apply_stored_gamma_to_current_file(save_entry=True)
         self._set_fs_center_pick_mode(False)
         self._draw_fs_tab()
         msg = f"Gamma FS manuel : kx={kx:+.4f}, ky={ky:+.4f} π/a"
@@ -157,7 +156,6 @@ class GammaController:
             res = self._fs_canvas.detect_gamma(self._raw_data, params)
             self._fs_controls.set_center(res["kx"], res["ky"])
             self._store_fs_center_reference(res["kx"], res["ky"], source="fs_auto")
-            self._apply_stored_gamma_to_current_file(save_entry=True)
             self._draw_fs_tab()
             msg = (f"Gamma FS détecté : kx={res['kx']:+.4f}, ky={res['ky']:+.4f} π/a "
                    f"| {len(res.get('gamma_kx_list', []))} coupes kx, "

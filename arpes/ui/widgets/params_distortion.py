@@ -186,6 +186,23 @@ def build_bm_distortion_section(panel, lay) -> None:
     )
     outer.addWidget(panel.chk_distortion_crop)
 
+    outer.addWidget(_hline())
+
+    # ── propagation au volume FS (opt-in, OFF par défaut) ───────────────────
+    panel.chk_distortion_fs_propagate = QCheckBox("Propager au volume FS")
+    panel.chk_distortion_fs_propagate.setChecked(False)
+    panel.chk_distortion_fs_propagate.setToolTip(
+        "Applique la même correction (trapèze uniquement) à toutes les BM\n"
+        "du volume FS, puis recalcule la carte kx/ky à E_F.\n"
+        "Coûteux : O(N_ky × N_kx × N_e). Désactivé tant que la distorsion\n"
+        "n'est pas calibrée. Refusé si drift ky/⟨BM⟩ > 15 % (calib non\n"
+        "représentative hors centre)."
+    )
+    panel.chk_distortion_fs_propagate.toggled.connect(
+        lambda _on: panel.propagate_distortion_fs_toggled.emit()
+    )
+    outer.addWidget(panel.chk_distortion_fs_propagate)
+
     # ── boutons d'action ────────────────────────────────────────────────────
     btn_apply = compact_button(QPushButton("Appliquer"))
     btn_apply.setToolTip("Sauve les paramètres et recalcule l'affichage BM.")

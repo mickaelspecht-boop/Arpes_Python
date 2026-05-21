@@ -8,6 +8,7 @@ import numpy as np
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes.physics.plot_compute import (
     BandmapAxesState,
+    _axis_signature as _full_axis_signature,
     compute_bandmap_display,
     draw_bandmap_axes as _plot_draw_bandmap_axes,
     draw_ef_label as _plot_draw_ef_label,
@@ -25,19 +26,7 @@ PAIR_COLORS = ["#ff8c00", "#00e5ff", "#7fff00", "#ff44cc"]
 
 
 def _axis_cache_signature(axis) -> tuple:
-    arr = np.asarray(axis, dtype=float)
-    if arr.size == 0:
-        return (0,)
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return (arr.size, "all-nan")
-    return (
-        int(arr.size),
-        float(finite[0]),
-        float(finite[-1]),
-        float(np.nanmin(finite)),
-        float(np.nanmax(finite)),
-    )
+    return _full_axis_signature(axis)
 
 
 def _lorentzian(k, k0, gamma, A):
@@ -186,10 +175,20 @@ class PlotController:
 
         display_cache = getattr(self, "_display_cache", None)
         if display_cache is not None and cache_key in display_cache:
-            disp_cached, info_cached = display_cache.pop(cache_key)
-            display_cache[cache_key] = (disp_cached, info_cached)
+            cached = display_cache.pop(cache_key)
+            if len(cached) == 2:
+                disp_cached, info_cached = cached
+                distortion_info_cached = {}
+                kpar_cached = None
+                ev_cached = None
+            else:
+                disp_cached, info_cached, distortion_info_cached, kpar_cached, ev_cached = cached
+            display_cache[cache_key] = cached
             self._data_disp = disp_cached
             self._grid_display_info = dict(info_cached or {})
+            self._distortion_display_info = dict(distortion_info_cached or {})
+            self._data_disp_kpar = np.asarray(kpar_cached) if kpar_cached is not None else None
+            self._data_disp_ev = np.asarray(ev_cached) if ev_cached is not None else None
             self._disp_cache_key = cache_key
             return
 
@@ -210,7 +209,13 @@ class PlotController:
         self._data_disp_ev = np.asarray(re_) if re_ is not None else None
         self._disp_cache_key = cache_key
         if display_cache is not None:
-            display_cache[cache_key] = (result.data, dict(result.grid_info or {}))
+            display_cache[cache_key] = (
+                result.data,
+                dict(result.grid_info or {}),
+                dict(getattr(result, "distortion_info", {}) or {}),
+                np.asarray(rk) if rk is not None else None,
+                np.asarray(re_) if re_ is not None else None,
+            )
             max_items = int(getattr(self, "_display_cache_max", 12) or 12)
             while len(display_cache) > max_items:
                 display_cache.popitem(last=False)

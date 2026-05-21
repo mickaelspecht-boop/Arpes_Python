@@ -17,7 +17,7 @@ import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QGroupBox, QPushButton,
-    QDoubleSpinBox, QCheckBox, QLabel, QScrollArea, QComboBox
+    QDoubleSpinBox, QCheckBox, QLabel, QScrollArea, QComboBox, QLineEdit
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
@@ -52,6 +52,13 @@ class FSParams:
     overlay_bz: bool = True
     show_hsym: bool = True
     cmap: str = "inferno"
+    # --- Overlay BZ cristal réel (lattice MP) ----------------------------
+    v0_eV: float = 12.0                # inner potential pour calcul kz
+    kz_plane: str = "Auto"             # "Gamma" | "Z" | "Auto"
+    phi_c_deg: float = 0.0             # rotation cristal/détecteur (deg)
+    overlay_bz_crystal: bool = False   # afficher polygone BZ cristal
+    overlay_hs_crystal: bool = False   # afficher labels HS cristal
+    mp_id: str = ""                    # Materials Project ID (read-only ici)
 
 
 class FSControlPanel(QScrollArea):
@@ -60,6 +67,9 @@ class FSControlPanel(QScrollArea):
     gamma_requested = pyqtSignal()
     manual_center_requested = pyqtSignal(bool)
     bz_preset_requested = pyqtSignal()
+    # --- Overlay BZ cristal (MP) -----------------------------------------
+    mp_lattice_fetch_requested = pyqtSignal()   # bouton "Récup symétrie MP"
+    bz_crystal_overlay_changed = pyqtSignal()   # toggles / V0 / plan / phi_c
 
     def __init__(self):
         super().__init__()
@@ -140,6 +150,58 @@ class FSControlPanel(QScrollArea):
         lay.addWidget(grp_bz)
         self._update_bz_angle_visibility()
 
+        # --- Groupbox : overlay BZ cristal réel (lattice MP) ---------------
+        grp_xb = QGroupBox("Mapping BZ cristal (Materials Project)")
+        fx = QFormLayout(grp_xb)
+        self.ed_mp_id = QLineEdit()
+        self.ed_mp_id.setPlaceholderText("mp-xxxx (optionnel : auto depuis logbook)")
+        self.btn_mp_fetch = compact_button(QPushButton("Récup symétrie MP"), max_width=160)
+        self.btn_mp_fetch.setToolTip(
+            "Récupère paramètres de maille (a,b,c,α,β,γ) + groupe d'espace\n"
+            "depuis Materials Project. Cache disque + timeout 10 s.\n"
+            "Réutilise mp_id du logbook si laissé vide."
+        )
+        self.btn_mp_fetch.clicked.connect(self.mp_lattice_fetch_requested)
+        self.sp_v0 = self._dspin(12.0, 0.5, 50.0, 0.5, dec=2)
+        self.sp_v0.setToolTip(
+            "Potentiel interne V0 (eV) utilisé dans le modèle d'électron libre\n"
+            "pour calculer kz. NE PAS confondre avec le travail de sortie φ.\n"
+            "Valeurs typiques : 8–15 eV. Défaut : 12 eV."
+        )
+        self.cmb_kz_plane = QComboBox()
+        self.cmb_kz_plane.addItems(["Auto", "Gamma", "Z"])
+        self.cmb_kz_plane.setToolTip(
+            "Plan kz utilisé pour les labels HS (Γ/X/M vs Z/R/A).\n"
+            "Auto : déduit du calcul kz(hν, V0) replié dans la 1ère BZ."
+        )
+        self.cmb_kz_plane.currentIndexChanged.connect(self.bz_crystal_overlay_changed)
+        self.sp_phi_c = self._dspin(0.0, -180.0, 180.0, 0.5, dec=2)
+        self.sp_phi_c.setToolTip(
+            "Rotation entre l'axe a* du cristal et l'axe kx du détecteur.\n"
+            "Δazi du manipulateur est déjà géré via la référence Γ FS."
+        )
+        # _dspin connecte déjà valueChanged → params_changed ; on cascade :
+        self.sp_phi_c.valueChanged.connect(self.bz_crystal_overlay_changed)
+        self.sp_v0.valueChanged.connect(self.bz_crystal_overlay_changed)
+        self.chk_bz_xtal = QCheckBox("Contours BZ cristal")
+        self.chk_bz_xtal.setChecked(False)
+        self.chk_bz_xtal.stateChanged.connect(self.bz_crystal_overlay_changed)
+        self.chk_hs_xtal = QCheckBox("Points HS cristal (Γ/X/M ou Z/R/A)")
+        self.chk_hs_xtal.setChecked(False)
+        self.chk_hs_xtal.stateChanged.connect(self.bz_crystal_overlay_changed)
+        self.lbl_kz = QLabel("kz : —  |  plan : —  |  cristal : non chargé")
+        self.lbl_kz.setStyleSheet("color:#aaa; font-size:10px;")
+        self.lbl_kz.setWordWrap(True)
+        fx.addRow("MP ID :", self.ed_mp_id)
+        fx.addRow(self.btn_mp_fetch)
+        fx.addRow("V0 (potentiel interne) eV :", self.sp_v0)
+        fx.addRow("Plan kz :", self.cmb_kz_plane)
+        fx.addRow("φ_c cristal/détecteur (°) :", self.sp_phi_c)
+        fx.addRow(self.chk_bz_xtal)
+        fx.addRow(self.chk_hs_xtal)
+        fx.addRow(self.lbl_kz)
+        lay.addWidget(grp_xb)
+
         self.lbl_info = QLabel("Charge un fast map Solaris ou un dossier FS CLS.")
         self.lbl_info.setWordWrap(True)
         self.lbl_info.setStyleSheet("color:#aaa; font-size:10px;")
@@ -173,7 +235,14 @@ class FSControlPanel(QScrollArea):
             bz_half_x=self.sp_bzx.value(), bz_half_y=self.sp_bzy.value(),
             bz_angle_deg=self.sp_bz_angle.value(),
             normalize_profile=self.chk_norm.isChecked(), overlay_bz=self.chk_bz.isChecked(),
-            show_hsym=self.chk_hsym.isChecked(), cmap=self.cmb_cmap.currentText())
+            show_hsym=self.chk_hsym.isChecked(), cmap=self.cmb_cmap.currentText(),
+            v0_eV=self.sp_v0.value(),
+            kz_plane=self.cmb_kz_plane.currentText(),
+            phi_c_deg=self.sp_phi_c.value(),
+            overlay_bz_crystal=self.chk_bz_xtal.isChecked(),
+            overlay_hs_crystal=self.chk_hs_xtal.isChecked(),
+            mp_id=self.ed_mp_id.text().strip(),
+        )
 
     def set_center(self, kx: float, ky: float):
         self.sp_kx0.blockSignals(True); self.sp_ky0.blockSignals(True)
@@ -423,6 +492,8 @@ class FermiSurfaceCanvas(QWidget):
             self.ax.set_title(title, color="w", fontsize=10)
             if has_kxky_axes:
                 self._overlay_bz(params)
+                if params.overlay_bz_crystal or params.overlay_hs_crystal:
+                    self._overlay_bz_crystal(params, raw_data)
             else:
                 self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
                 self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
@@ -531,6 +602,64 @@ class FermiSurfaceCanvas(QWidget):
         return {"kx": gx, "ky": gy,
                 "gamma_kx_list": kx_centers, "gamma_ky_list": ky_centers}
 
+    def _overlay_bz_crystal(self, p: FSParams, raw_data):
+        """Overlay polygone BZ cristal + labels HS depuis lattice MP.
+
+        Lit ``raw_data["metadata"]["fs_lattice"]`` (dict cache MP) si présent,
+        sinon retombe sur preset 2D existant via ``Lattice3D`` heuristique
+        construit depuis a/b utilisateur. Calcule kz via hν + V0 si dispo.
+        """
+        from arpes.physics.bz import Lattice3D
+        from arpes.physics.bz_overlay import project_hs_points
+
+        meta = (raw_data or {}).get("metadata", {}) or {}
+        lat_dict = meta.get("fs_lattice") or {}
+        if lat_dict:
+            lat = Lattice3D(
+                a=float(lat_dict.get("a", p.a_lattice)),
+                b=float(lat_dict.get("b", p.b_lattice)),
+                c=float(lat_dict.get("c", 1.0) or 1.0),
+                alpha_deg=float(lat_dict.get("alpha_deg", 90.0)),
+                beta_deg=float(lat_dict.get("beta_deg", 90.0)),
+                gamma_deg=float(lat_dict.get("gamma_deg", 90.0)),
+                bravais=str(lat_dict.get("bravais", "tetragonal")),
+                space_group=str(lat_dict.get("space_group", "")),
+                mp_id=str(lat_dict.get("mp_id", p.mp_id)),
+            )
+        else:
+            # Fallback : pas de lattice MP → fabrique heuristique tétragonal
+            # depuis (a, b) utilisateur. Pas de labels Z (c inconnu).
+            lat = Lattice3D(
+                a=float(p.a_lattice), b=float(p.b_lattice),
+                c=10.0, bravais="tetragonal",
+            )
+
+        plane = p.kz_plane if p.kz_plane in ("Gamma", "Z") else "Gamma"
+        proj, poly = project_hs_points(
+            lat,
+            plane=plane,
+            phi_c_deg=float(p.phi_c_deg),
+            gamma_kx=0.0, gamma_ky=0.0,  # Γ déjà centré par params.kx/ky_center
+        )
+        if p.overlay_bz_crystal:
+            line, = self.ax.plot(
+                poly[:, 0], poly[:, 1],
+                color="orange", lw=1.4, ls="-", alpha=0.85,
+            )
+            self._overlay_artists.append(line)
+        if p.overlay_hs_crystal:
+            for pt in proj:
+                scat = self.ax.scatter(
+                    [pt.kx], [pt.ky], c=pt.color or "orange",
+                    s=45, zorder=6, edgecolors="black", linewidths=0.5,
+                )
+                ann = self.ax.annotate(
+                    pt.label, (pt.kx, pt.ky), xytext=(5, 5),
+                    textcoords="offset points",
+                    color="orange", fontsize=10, fontweight="bold",
+                )
+                self._overlay_artists.extend([scat, ann])
+
     def _overlay_bz(self, p: FSParams):
         if not p.overlay_bz: return
         bx, by = p.bz_half_x, p.bz_half_y
@@ -546,5 +675,6 @@ class FermiSurfaceCanvas(QWidget):
                 self._overlay_artists.extend([scat, ann])
             for x, y, name, color in bz_high_symmetry_points(p.bz_shape, bx, by, p.bz_angle_deg):
                 dot(x, y, name, color)
-        self.ax.set_xlim(-p.klim, p.klim)
-        if p.klim > 0: self.ax.set_ylim(-p.klim, p.klim)
+        # NE PAS recadrer aux limites BZ : on garde le signal entier visible,
+        # le user zoome via la toolbar matplotlib si besoin. (Demandé par user
+        # après ajout du zoom — éviter perte de signal hors BZ théorique.)

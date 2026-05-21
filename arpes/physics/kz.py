@@ -165,6 +165,48 @@ def kz_from_hv_kpar(
     return out
 
 
+def fold_kz_to_1bz(
+    kz_inv_a: float,
+    c_lattice: float,
+    *,
+    plane_tol: float = 0.05,
+) -> dict:
+    """Replie kz dans la 1ère zone de Brillouin (kz ∈ [0, π/c]).
+
+    Retourne ``{"kz_reduced_pi_over_c", "n_zone", "plane", "near_boundary"}``.
+
+    - ``plane`` ∈ {"Gamma", "Z", "intermediate"} selon proximité 0 ou π/c.
+    - ``near_boundary`` = True si |kz_red − π/c| < plane_tol·π/c (ou |kz_red| < tol).
+    - ``plane_tol`` : tolérance relative à π/c (défaut 5%).
+    """
+    if c_lattice <= 0:
+        raise ValueError(f"fold_kz: c={c_lattice:.3f} A invalide")
+    kz = float(kz_inv_a)
+    if not np.isfinite(kz):
+        raise ValueError("fold_kz: kz non fini")
+    g_z = 2.0 * np.pi / float(c_lattice)  # vecteur réciproque
+    n_zone = int(np.floor((abs(kz) + 0.5 * g_z) / g_z))
+    kz_red = abs(kz) - n_zone * g_z  # ∈ [-π/c, +π/c]
+    kz_red = abs(kz_red)             # plier symétrie kz ↔ -kz : ∈ [0, π/c]
+    kz_red_pi_c = kz_red / (np.pi / float(c_lattice))  # en unités π/c, ∈ [0, 1]
+    tol = float(plane_tol)
+    if kz_red_pi_c <= tol:
+        plane = "Gamma"
+    elif kz_red_pi_c >= 1.0 - tol:
+        plane = "Z"
+    else:
+        plane = "intermediate"
+    near_boundary = (kz_red_pi_c <= tol) or (kz_red_pi_c >= 1.0 - tol) or (
+        abs(kz_red_pi_c - 0.5) <= tol
+    )
+    return {
+        "kz_reduced_pi_over_c": float(kz_red_pi_c),
+        "n_zone": int(n_zone),
+        "plane": plane,
+        "near_boundary": bool(near_boundary),
+    }
+
+
 def convert_kz_unit(kz_inv_a, *, unit: str, c_lattice: float) -> np.ndarray:
     kz = np.asarray(kz_inv_a, dtype=float)
     if unit == "A^-1":

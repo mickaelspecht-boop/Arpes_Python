@@ -67,6 +67,13 @@ class FileEntry:
     meta: FileMeta = field(default_factory=FileMeta)
     fs_center_kx: Optional[float] = None
     fs_center_ky: Optional[float] = None
+    fs_v0: float = 12.0                     # inner potential (eV) pour calcul kz
+    fs_kz_plane: str = "Auto"               # "Gamma" | "Z" | "Auto"
+    fs_phi_c_deg: float = 0.0               # rotation cristal/détecteur (deg)
+    fs_bz_crystal_visible: bool = False     # overlay BZ cristal MP
+    fs_hs_crystal_visible: bool = False     # labels HS cristal (Γ/X/M ou Z/R/A)
+    fs_lattice: dict = field(default_factory=dict)  # cache lattice MP {a,b,c,alpha,beta,gamma,bravais,space_group,mp_id}
+    propagate_distortion_to_fs: bool = False  # opt-in : applique distortion BM aux coupes du volume FS
     grid_correction: dict = field(default_factory=dict)
     ef_correction: dict = field(default_factory=dict)
     bm_distortion: dict = field(default_factory=dict)
@@ -244,6 +251,13 @@ class Session:
                 meta=mt,
                 fs_center_kx=edict.get("fs_center_kx"),
                 fs_center_ky=edict.get("fs_center_ky"),
+                fs_v0=float(edict.get("fs_v0", 12.0) or 12.0),
+                fs_kz_plane=str(edict.get("fs_kz_plane", "Auto") or "Auto"),
+                fs_phi_c_deg=float(edict.get("fs_phi_c_deg", 0.0) or 0.0),
+                fs_bz_crystal_visible=bool(edict.get("fs_bz_crystal_visible", False)),
+                fs_hs_crystal_visible=bool(edict.get("fs_hs_crystal_visible", False)),
+                fs_lattice=edict.get("fs_lattice", {}) or {},
+                propagate_distortion_to_fs=bool(edict.get("propagate_distortion_to_fs", False)),
                 grid_correction=edict.get("grid_correction", {}) or {},
                 ef_correction=edict.get("ef_correction", {}) or {},
                 bm_distortion=edict.get("bm_distortion", {}) or {},

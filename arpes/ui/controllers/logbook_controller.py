@@ -174,6 +174,133 @@ class LogbookIngestController:
             self.apply_to_controls(self._parent._current_path)
         self._browser.refresh()
 
+    # ---------------------------------------------------- auto-attach scopes
+    def auto_attach_scoped_logbooks_xlsx(self) -> None:
+        """Scanne toutes les sheets d'un xlsx, auto-attache par Folder Name.
+
+        Robuste aux variations de template :
+        - Cherche cellule "Folder Name" / "Folder" / "Dossier" / variations
+          dans les 15 premières lignes de chaque sheet (case-insensitive).
+        - Matche contre sous-dossiers session : exact, case-insensitive,
+          normalisé (alphanumérique seul), basename, substring (≥3 char).
+        - Ignore sheets sans "Folder Name" ou sans colonne file+hv détectées.
+        - Liste résultats avant validation user (dialog confirmation).
+        """
+        from arpes.io.logbook_io import scan_xlsx_for_scoped_logbooks
+        try:
+            import pandas as pd
+        except ImportError:
+            QMessageBox.warning(self._parent, "Auto-scope logbook",
+                                "pandas requis pour scanner les xlsx.")
+            return
+        if self._session.folder is None:
+            QMessageBox.warning(self._parent, "Auto-scope logbook",
+                                "Ouvre d'abord un dossier de session.")
+            return
+        start = str(self._session.folder)
+        path, _ = QFileDialog.getOpenFileName(
+            self._parent, "Fichier xlsx à scanner", start,
+            "Excel (*.xlsx *.xls *.xlsm)")
+        if not path:
+            return
+        rels = self._session_subfolders()
+        if not rels:
+            QMessageBox.warning(self._parent, "Auto-scope logbook",
+                                "Aucun sous-dossier détecté dans la session.")
+            return
+        try:
+            results = scan_xlsx_for_scoped_logbooks(pd, path, rels)
+        except Exception as exc:
+            QMessageBox.warning(self._parent, "Auto-scope logbook",
+                                f"Scan échoué : {exc}")
+            self._status(f"✗ Auto-scope : {exc}")
+            return
+        if not results:
+            QMessageBox.information(
+                self._parent, "Auto-scope logbook",
+                "Aucune sheet exploitable trouvée :\n"
+                "- Pas de cellule « Folder Name » dans les sheets, ou\n"
+                "- Le nom déclaré ne correspond à aucun sous-dossier session, ou\n"
+                "- Sheets sans colonnes file+hv détectables.\n\n"
+                f"Sous-dossiers session : {', '.join(rels[:10])}"
+            )
+            return
+
+        # Dialog confirmation avec preview matches
+        chosen = self._confirm_auto_scoped_dialog(results)
+        if not chosen:
+            return
+
+        # Read records de chaque sheet via read_logbook standard (pour conservation
+        # du flux inherit_logbook_context). Override sheet_name = sheet ciblée.
+        for entry in chosen:
+            sheet = entry["sheet"]
+            rel = entry["subfolder_rel"]
+            try:
+                records, mapping, _sn = self.read(
+                    Path(path),
+                    sheet_override=sheet,
+                )
+            except Exception as exc:
+                self._status(f"✗ Auto-scope : {sheet} → {exc}")
+                continue
+            # vire anciens records de ce scope
+            self._session.logbook_records = [
+                r for r in self._session.logbook_records
+                if not (isinstance(r, dict) and r.get("_subfolder_rel") == rel)
+            ]
+            for r in records:
+                if isinstance(r, dict):
+                    rc = dict(r)
+                    rc["_subfolder_rel"] = rel
+                    self._session.logbook_records.append(rc)
+            self._session.scoped_logbooks[rel] = {
+                "path": path, "sheet": sheet, "n": len(records),
+                "mapping": dict(mapping),
+            }
+        self._session.save()
+        attached_txt = ", ".join(f"{e['sheet']}→{e['subfolder_rel']}" for e in chosen)
+        self._status(f"✓ Auto-scope : {len(chosen)} sheets attachées ({attached_txt})")
+        if self._parent._current_path:
+            self.apply_to_controls(self._parent._current_path)
+        self._browser.refresh()
+
+    def _confirm_auto_scoped_dialog(self, results: list[dict]) -> list[dict]:
+        """Dialog : preview matches sheet→sous-dossier, user coche ceux à attacher."""
+        dlg = QDialog(self._parent)
+        dlg.setWindowTitle("Auto-attacher scopés — confirmation")
+        lay = QVBoxLayout(dlg)
+        lbl = QLabel(
+            f"<b>{len(results)} match(es) détectés</b><br>"
+            "Décoche ceux à ignorer. Les anciens scopés sur ces sous-dossiers "
+            "seront <b>remplacés</b>."
+        )
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+        lst = QListWidget()
+        for r in results:
+            txt = (f"{r['sheet']:25s} → {r['subfolder_rel']}  "
+                   f"(folder déclaré: {r['folder_declared']}, {r['n_rows']} lignes)")
+            it = QListWidgetItem(txt)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(Qt.CheckState.Checked)
+            it.setData(Qt.ItemDataRole.UserRole, r)
+            lst.addItem(it)
+        lay.addWidget(lst)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return []
+        return [
+            lst.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(lst.count())
+            if lst.item(i).checkState() == Qt.CheckState.Checked
+        ]
+
     # --------------------------------------------------------- detach / état
     def attached_logbooks(self) -> list[tuple[str, str, str]]:
         """Retourne [(scope_label, filename, key)] pour menu/affichage.
@@ -241,11 +368,23 @@ class LogbookIngestController:
             QMessageBox.warning(self._parent, "Logbook", str(exc))
             self._status(f"Attention: Logbook : {exc}")
 
-    def read(self, path: Path) -> tuple[list[dict], dict[str, str], str]:
-        """Lit le logbook via `read_logbook_file` en injectant les sélecteurs UI."""
+    def read(
+        self,
+        path: Path,
+        *,
+        sheet_override: str | None = None,
+    ) -> tuple[list[dict], dict[str, str], str]:
+        """Lit le logbook via `read_logbook_file` en injectant les sélecteurs UI.
+
+        ``sheet_override`` : force la sheet utilisée (court-circuite le dialog
+        de sélection). Utilisé par l'auto-attach scopé.
+        """
+        sheet_selector = self._choose_excel_sheet
+        if sheet_override is not None:
+            sheet_selector = lambda _names: sheet_override
         result = read_logbook_file(
             path,
-            sheet_selector=self._choose_excel_sheet,
+            sheet_selector=sheet_selector,
             table_selector=self._choose_excel_table,
             mapping_selector=self._choose_logbook_mapping,
         )

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
 from arpes.ui.widgets.help_panel import HelpPanel
 from arpes.ui.widgets.kz import KzCanvas, KzControlPanel
+from arpes.ui.widgets.plots.fs_compare import FsCompareCanvas
 
 
 def build_left_panel(window) -> QWidget:
@@ -87,6 +88,7 @@ def _build_tabs(window) -> QTabWidget:
     window._tabs.addTab(_build_mdc_tab(window), "MDC Fit")
     window._tabs.addTab(_build_results_tab(window), "Résultats")
     window._tabs.addTab(_build_fs_tab(window), "FS")
+    window._tabs.addTab(_build_fs_compare_tab(window), "Compare pol")
     window._tabs.addTab(_build_kz_tab(window), "KZ")
     window._tabs.addTab(_build_notes_tab(window), "Notes")
     window._tabs.addTab(_build_help_tab(window), "Aide")
@@ -212,6 +214,11 @@ def _build_fs_tab(window) -> QWidget:
     return window._fs_canvas
 
 
+def _build_fs_compare_tab(window) -> QWidget:
+    window._fs_compare = FsCompareCanvas()
+    return window._fs_compare
+
+
 def _build_kz_tab(window) -> QWidget:
     window._kz_canvas = KzCanvas()
     return window._kz_canvas
@@ -256,6 +263,18 @@ def wire_ui_signals(window) -> None:
             window._fs_controls.manual_center_requested.connect(window._set_fs_center_pick_mode)
         if hasattr(window._fs_controls, "bz_preset_requested"):
             window._fs_controls.bz_preset_requested.connect(window._choose_bz_preset)
+        if hasattr(window._fs_controls, "bz_crystal_overlay_changed"):
+            window._fs_controls.bz_crystal_overlay_changed.connect(
+                window._on_bz_crystal_overlay_changed
+            )
+        if hasattr(window._fs_controls, "mp_lattice_fetch_requested"):
+            window._fs_controls.mp_lattice_fetch_requested.connect(
+                window._on_mp_lattice_fetch
+            )
+
+    if hasattr(window, "_fs_compare"):
+        window._fs_compare.pair_load_requested.connect(window._on_fs_compare_pair_load)
+        window._fs_compare.auto_suggest_requested.connect(window._on_fs_compare_auto_suggest)
 
     window._kz_controls.folder_requested.connect(window._open_kz_folder)
     if hasattr(window._kz_controls, "kz_logbook_requested"):
@@ -301,6 +320,10 @@ def wire_param_signals(window) -> None:
     p.distortion_auto_requested.connect(window._auto_bm_distortion)
     p.distortion_import_calib_requested.connect(window._import_calib_to_current)
     p.distortion_preview_changed.connect(window._on_distortion_preview_changed)
+    if hasattr(p, "propagate_distortion_fs_toggled"):
+        p.propagate_distortion_fs_toggled.connect(
+            window._on_propagate_distortion_fs_toggled
+        )
     p.fit_roi_requested.connect(window._set_fit_roi_pick_mode)
     p.fit_roi_reset_requested.connect(window._reset_fit_roi_range)
     p.fit_undo_requested.connect(window._undo_fit_delete)

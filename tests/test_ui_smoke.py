@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -15,6 +17,8 @@ try:
     from PyQt6.QtWidgets import QApplication
 
     from arpes.app import ArpesExplorer
+    from arpes.core.session import Session
+    from arpes.ui.controllers.gamma_controller import GammaController
     UI_AVAILABLE = True
 except Exception:
     UI_AVAILABLE = False
@@ -92,6 +96,73 @@ class TestUiSmoke(unittest.TestCase):
         # C : fast path overlays-only sans données : no-op sûr
         win._draw_bm(overlays_only=True)
         win._draw_current_view(overlays_only=True)
+
+    def test_fs_gamma_actions_keep_detected_center_in_panel(self):
+        class FakeControls:
+            def __init__(self):
+                self.center = (0.0, 0.0)
+                self.lbl_info = SimpleNamespace(setText=lambda text: None)
+
+            def params(self):
+                return SimpleNamespace(kx_center=self.center[0], ky_center=self.center[1])
+
+            def set_center(self, kx, ky):
+                self.center = (float(kx), float(ky))
+
+        class FakeCanvas:
+            def detect_gamma(self, raw_data, params):
+                return {"kx": 0.23, "ky": -0.17, "gamma_kx_list": [1, 2, 3], "gamma_ky_list": [1, 2, 3]}
+
+        class Parent:
+            def __init__(self):
+                self._raw_data = {
+                    "path": "/tmp/fs",
+                    "hv": 60.0,
+                    "kpar": [-1.0, 0.0, 1.0],
+                    "metadata": {
+                        "fs_data": object(),
+                        "fs_kx": [-1.0, 0.0, 1.0],
+                        "fs_ky": [-1.0, 0.0, 1.0],
+                        "fs_kind": "kxky",
+                    },
+                }
+                self._current_path = "/tmp/fs"
+                self._session = Session(Path("/tmp"))
+                self._fs_controls = FakeControls()
+                self._fs_canvas = FakeCanvas()
+                self._params = SimpleNamespace(
+                    sp_hv=SimpleNamespace(value=lambda: 60.0),
+                    sp_phi=SimpleNamespace(value=lambda: 4.5),
+                    mark_action_done=lambda text: None,
+                )
+                self._draws = 0
+
+            def _current_entry(self):
+                return self._session.get_or_create(self._session.key_for_path(self._current_path))
+
+            def _same_path(self, a, b):
+                return a == b
+
+            def _current_is_fs(self):
+                return True
+
+            def _draw_fs_tab(self):
+                self._draws += 1
+
+            def _status(self, text):
+                pass
+
+        parent = Parent()
+        ctrl = GammaController(parent)
+
+        ctrl._detect_fs_gamma()
+
+        self.assertEqual(parent._fs_controls.center, (0.23, -0.17))
+        entry = parent._current_entry()
+        self.assertAlmostEqual(entry.fs_center_kx, 0.23)
+        self.assertAlmostEqual(entry.fs_center_ky, -0.17)
+        self.assertFalse(parent._raw_data["metadata"].get("fs_gamma_axis_centered", False))
+        self.assertEqual(parent._draws, 1)
 
 
 if __name__ == "__main__":
