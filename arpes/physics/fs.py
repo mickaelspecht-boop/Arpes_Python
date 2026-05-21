@@ -480,7 +480,8 @@ class FermiSurfaceCanvas(QWidget):
                 except Exception:
                     pass
                 self._mesh = None
-            if self._mesh is None:
+            fresh_draw = self._mesh is None
+            if fresh_draw:
                 self.ax.cla(); self._dark()
                 self._mesh = self.ax.pcolormesh(x, y, fs, cmap=params.cmap, shading="auto", vmin=0, vmax=1)
                 self._mesh_signature = signature
@@ -498,12 +499,13 @@ class FermiSurfaceCanvas(QWidget):
                 self._overlay_bz(params)
                 if params.overlay_bz_crystal or params.overlay_hs_crystal:
                     self._overlay_bz_crystal(params, raw_data)
-            # Borne TOUJOURS aux limites des données — évite que les artistes
-            # overlay (polygone BZ, points HS) gonflent l'axe et déforment
-            # le canvas Qt (chevauchement panneau droit). Le signal complet
-            # reste visible ; user zoome via toolbar matplotlib.
-            self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
-            self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
+            # Limites aux données UNIQUEMENT sur fresh_draw (nouvelle data /
+            # nouveau fichier). Sur simple refresh (toggle overlay, redraw
+            # layout), on PRESERVE le zoom courant — sinon chaque resize
+            # splitter écrase le zoom user.
+            if fresh_draw:
+                self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
+                self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
             self.ax.tick_params(colors="w")
             for sp in self.ax.spines.values(): sp.set_edgecolor("#555")
             self.canvas.draw_idle()
