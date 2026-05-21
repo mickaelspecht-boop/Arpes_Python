@@ -47,11 +47,6 @@ def build_right_panel(window) -> QWidget:
     window._right_stack.addWidget(window._fs_controls)
     window._kz_controls = KzControlPanel()
     window._right_stack.addWidget(window._kz_controls)
-    # Borne largeur du stack droit : empêche un panel enfant de pousser
-    # le splitter et de manger l'espace canvas central. Le splitter reste
-    # ajustable par user dans [200, 480].
-    window._right_stack.setMaximumWidth(480)
-    window._right_stack.setMinimumWidth(200)
     return window._right_stack
 
 

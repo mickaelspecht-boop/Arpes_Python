@@ -74,9 +74,6 @@ class FSControlPanel(QScrollArea):
     def __init__(self):
         super().__init__()
         self.setWidgetResizable(True)
-        # Borne largeur : évite que le panel grossisse au-delà de l'espace
-        # alloué par le QSplitter (sinon canvas central rétréci ou coupé).
-        self.setMaximumWidth(460)
         w = QWidget()
         self._lay = QVBoxLayout(w)
         self._lay.setContentsMargins(6, 6, 6, 6)
@@ -418,9 +415,6 @@ class FermiSurfaceCanvas(QWidget):
         self._mesh_signature = None
         self._overlay_artists: list = []
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
-        # Min size pour garantir que le signal reste visible même si user
-        # tire le splitter pour agrandir le panneau droit.
-        self.canvas.setMinimumSize(360, 320)
         self.toolbar = NavToolbar(self.canvas, self)
         act = self.toolbar.addAction("⤢ Vue init")
         act.setToolTip("Réinitialise les axes aux limites des données "
