@@ -74,6 +74,9 @@ class FSControlPanel(QScrollArea):
     def __init__(self):
         super().__init__()
         self.setWidgetResizable(True)
+        # Borne largeur : évite que le panel grossisse au-delà de l'espace
+        # alloué par le QSplitter (sinon canvas central rétréci ou coupé).
+        self.setMaximumWidth(460)
         w = QWidget()
         self._lay = QVBoxLayout(w)
         self._lay.setContentsMargins(6, 6, 6, 6)
@@ -186,17 +189,21 @@ class FSControlPanel(QScrollArea):
         self.chk_bz_xtal = QCheckBox("Contours BZ cristal")
         self.chk_bz_xtal.setChecked(False)
         self.chk_bz_xtal.stateChanged.connect(self.bz_crystal_overlay_changed)
-        self.chk_hs_xtal = QCheckBox("Points HS cristal (Γ/X/M ou Z/R/A)")
+        self.chk_hs_xtal = QCheckBox("Points HS cristal")
+        self.chk_hs_xtal.setToolTip("Γ/X/M (plan Γ) ou Z/R/A (plan Z), depuis lattice MP.")
         self.chk_hs_xtal.setChecked(False)
         self.chk_hs_xtal.stateChanged.connect(self.bz_crystal_overlay_changed)
-        self.lbl_kz = QLabel("kz : —  |  plan : —  |  cristal : non chargé")
+        self.lbl_kz = QLabel("kz : — | cristal : —")
         self.lbl_kz.setStyleSheet("color:#aaa; font-size:10px;")
         self.lbl_kz.setWordWrap(True)
-        fx.addRow("MP ID :", self.ed_mp_id)
+        self.lbl_kz.setMaximumWidth(240)
+        # Labels courts → garde la colonne form étroite, évite que le panel
+        # déborde sur le canvas central et coupe le panneau droit.
+        fx.addRow("MP :", self.ed_mp_id)
         fx.addRow(self.btn_mp_fetch)
-        fx.addRow("V0 (potentiel interne) eV :", self.sp_v0)
-        fx.addRow("Plan kz :", self.cmb_kz_plane)
-        fx.addRow("φ_c cristal/détecteur (°) :", self.sp_phi_c)
+        fx.addRow("V0 (eV) :", self.sp_v0)
+        fx.addRow("Plan :", self.cmb_kz_plane)
+        fx.addRow("φc (°) :", self.sp_phi_c)
         fx.addRow(self.chk_bz_xtal)
         fx.addRow(self.chk_hs_xtal)
         fx.addRow(self.lbl_kz)
@@ -411,6 +418,9 @@ class FermiSurfaceCanvas(QWidget):
         self._mesh_signature = None
         self._overlay_artists: list = []
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
+        # Min size pour garantir que le signal reste visible même si user
+        # tire le splitter pour agrandir le panneau droit.
+        self.canvas.setMinimumSize(360, 320)
         self.toolbar = NavToolbar(self.canvas, self)
         act = self.toolbar.addAction("⤢ Vue init")
         act.setToolTip("Réinitialise les axes aux limites des données "
@@ -494,12 +504,12 @@ class FermiSurfaceCanvas(QWidget):
                 self._overlay_bz(params)
                 if params.overlay_bz_crystal or params.overlay_hs_crystal:
                     self._overlay_bz_crystal(params, raw_data)
-            else:
-                self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
-                self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
-            if has_kxky_axes and not params.overlay_bz:
-                self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
-                self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
+            # Borne TOUJOURS aux limites des données — évite que les artistes
+            # overlay (polygone BZ, points HS) gonflent l'axe et déforment
+            # le canvas Qt (chevauchement panneau droit). Le signal complet
+            # reste visible ; user zoome via toolbar matplotlib.
+            self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
+            self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
             self.ax.tick_params(colors="w")
             for sp in self.ax.spines.values(): sp.set_edgecolor("#555")
             self.canvas.draw_idle()
