@@ -78,6 +78,7 @@ class FileEntry:
     ef_correction: dict = field(default_factory=dict)
     bm_distortion: dict = field(default_factory=dict)
     theory_overlay: dict = field(default_factory=dict)
+    band_analysis: dict = field(default_factory=dict)  # TB fit / kink / gap results
     annotations: dict[str, list[dict]] = field(default_factory=dict)
 
     @property
@@ -262,6 +263,7 @@ class Session:
                 ef_correction=edict.get("ef_correction", {}) or {},
                 bm_distortion=edict.get("bm_distortion", {}) or {},
                 theory_overlay=edict.get("theory_overlay", {}) or {},
+                band_analysis=edict.get("band_analysis", {}) or {},
                 annotations=edict.get("annotations", {}) or {},
             )
             self.files[name] = entry

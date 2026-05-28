@@ -6,6 +6,7 @@ PROXY_MAP = {
     # FSController
     "_current_is_fs": "_fs_ctrl",
     "_on_fs_params_changed": "_fs_ctrl",
+    "_schedule_fs_redraw": "_fs_ctrl",
     "_save_current_fs_center": "_fs_ctrl",
     "_draw_fs_tab": "_fs_ctrl",
     "_choose_bz_preset": "_fs_ctrl",
@@ -74,6 +75,7 @@ PROXY_MAP = {
     "_check_distortion_consistency_on_load": "_distortion_ctrl",
     "_apply_calib_for_current_if_any": "_distortion_ctrl",
     "_on_distortion_preview_changed": "_distortion_ctrl",
+    "_redraw_distortion_preview": "_distortion_ctrl",
     "_draw_distortion_preview_overlay": "_distortion_ctrl",
     # InteractionController
     "_on_view_changed": "_interaction_ctrl",
@@ -146,4 +148,9 @@ PROXY_MAP = {
     "_compare_sessions": "_session_io_ctrl",
     "_update_gamma_preview": "_plot_ctrl",
     "_batch_fit_folder": "_batch_ctrl",
+    # BandAnalysisController
+    "_run_tb_fit": "_band_analysis_ctrl",
+    "_run_kink_analysis": "_band_analysis_ctrl",
+    "_run_gap_fit": "_band_analysis_ctrl",
+    "_refresh_band_analysis_panel": "_band_analysis_ctrl",
 }

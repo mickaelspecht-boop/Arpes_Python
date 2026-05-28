@@ -143,7 +143,7 @@ class ArpesExplorer(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ARPES Explorer — BaNi₂As₂")
-        self.resize(1500, 900)
+        self.resize(1650, 950)
 
         self.ap = _load_ap()
         self._session     = Session()
@@ -196,6 +196,8 @@ class ArpesExplorer(QMainWindow):
         self._session_io_ctrl = SessionIOController(self)
         from arpes.ui.controllers.batch_controller import BatchController
         self._batch_ctrl = BatchController(self)
+        from arpes.ui.controllers.band_analysis_controller import BandAnalysisController
+        self._band_analysis_ctrl = BandAnalysisController(self)
 
         # Debouncers : évitent N redraws quand l'utilisateur clique-clique
         # rapidement sur un spinbox ou tape une valeur.
@@ -208,6 +210,10 @@ class ArpesExplorer(QMainWindow):
         # E sélectionnée / etc.
         self._live_fit_timer = QTimer(self); self._live_fit_timer.setSingleShot(True)
         self._live_fit_timer.timeout.connect(self._on_live_fit_guess)
+        self._distortion_preview_timer = QTimer(self); self._distortion_preview_timer.setSingleShot(True)
+        self._distortion_preview_timer.timeout.connect(self._redraw_distortion_preview)
+        self._fs_redraw_timer = QTimer(self); self._fs_redraw_timer.setSingleShot(True)
+        self._fs_redraw_timer.timeout.connect(self._on_fs_params_changed)
 
         self._build_ui()
         self._install_shortcuts()
@@ -327,7 +333,7 @@ class ArpesExplorer(QMainWindow):
         wire_ui_signals(self)
 
     def _on_tab_changed(self, index: int):
-        # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS, 4=KZ, 5=Aide
+        # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS, 4=KZ, 5=Notes, 6=Aide
         if hasattr(self, "_right_stack"):
             self._right_stack.setCurrentIndex(2 if index == 4 else (1 if index == 3 else 0))
         if index == 0:
@@ -626,7 +632,16 @@ class ArpesExplorer(QMainWindow):
 
 
     # ─────────────────────────────────────────────────────────────────────────
-    def _status(self, msg: str): self.statusBar().showMessage(msg)
+    def _status(self, msg: str):
+        text = str(msg or "").strip()
+        if text.startswith(("✓", "⚠", "✗")):
+            self.statusBar().showMessage(text)
+            return
+        if text.startswith("Attention:"):
+            text = "⚠ " + text.removeprefix("Attention:").strip()
+        elif text.startswith("OK "):
+            text = "✓ " + text
+        self.statusBar().showMessage(text)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

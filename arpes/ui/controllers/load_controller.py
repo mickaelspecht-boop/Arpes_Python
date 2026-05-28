@@ -517,6 +517,10 @@ class LoadController:
             self._parent._apply_calib_for_current_if_any()
         except Exception:
             pass
+        try:
+            self._parent._refresh_band_analysis_panel()
+        except Exception:
+            pass
 
     def _refresh_ui(self, d, prepared, path, *, entry_dirty: bool = False):
         entry = prepared.entry

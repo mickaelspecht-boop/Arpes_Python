@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTabWidget,
@@ -18,6 +19,7 @@ from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
 from arpes.ui.widgets.help_panel import HelpPanel
 from arpes.ui.widgets.kz import KzCanvas, KzControlPanel
 from arpes.ui.widgets.plots.fs_compare import FsCompareCanvas
+from arpes.ui.widgets.band_analysis_panel import BandAnalysisPanel
 
 
 def build_left_panel(window) -> QWidget:
@@ -31,6 +33,7 @@ def build_right_panel(window) -> QWidget:
     from arpes.app import FitParamsPanel
 
     right_split = QSplitter(Qt.Orientation.Vertical)
+    right_split.setChildrenCollapsible(False)
 
     window._params = FitParamsPanel()
     window._params.set_context("bm")
@@ -43,6 +46,11 @@ def build_right_panel(window) -> QWidget:
         window._fs_controls = QWidget()
 
     window._right_stack = QStackedWidget()
+    window._right_stack.setMinimumWidth(320)
+    window._right_stack.setSizePolicy(
+        QSizePolicy.Policy.Preferred,
+        QSizePolicy.Policy.Expanding,
+    )
     window._right_stack.addWidget(right_split)
     window._right_stack.addWidget(window._fs_controls)
     window._kz_controls = KzControlPanel()
@@ -56,12 +64,20 @@ def build_central_widget(window, left_panel: QWidget, right_panel: QWidget) -> Q
     root.setContentsMargins(4, 4, 4, 4)
 
     window._main_split = QSplitter(Qt.Orientation.Horizontal)
+    window._main_split.setChildrenCollapsible(False)
     root.addWidget(window._main_split)
 
+    tabs = _build_tabs(window)
+    tabs.setMinimumWidth(260)
+    tabs.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+
     window._main_split.addWidget(left_panel)
-    window._main_split.addWidget(_build_tabs(window))
+    window._main_split.addWidget(tabs)
     window._main_split.addWidget(right_panel)
-    window._main_split.setSizes([210, 850, 440])
+    window._main_split.setSizes([200, 930, 500])
+    window._main_split.setStretchFactor(0, 0)
+    window._main_split.setStretchFactor(1, 1)
+    window._main_split.setStretchFactor(2, 0)
     return central
 
 
@@ -88,7 +104,6 @@ def _build_tabs(window) -> QTabWidget:
     window._tabs.addTab(_build_mdc_tab(window), "MDC Fit")
     window._tabs.addTab(_build_results_tab(window), "Résultats")
     window._tabs.addTab(_build_fs_tab(window), "FS")
-    window._tabs.addTab(_build_fs_compare_tab(window), "Compare pol")
     window._tabs.addTab(_build_kz_tab(window), "KZ")
     window._tabs.addTab(_build_notes_tab(window), "Notes")
     window._tabs.addTab(_build_help_tab(window), "Aide")
@@ -195,6 +210,9 @@ def _build_mdc_tab(window) -> QWidget:
     window._edc_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
     window._mdc_fit_tabs.addTab(window._edc_canvas, "EDC")
 
+    window._band_panel = BandAnalysisPanel()
+    window._mdc_fit_tabs.addTab(window._band_panel, "Analyse bandes")
+
     mdc_lay.addWidget(window._mdc_fit_tabs, stretch=1)
     return mdc_widget
 
@@ -207,16 +225,19 @@ def _build_results_tab(window) -> QWidget:
 
 
 def _build_fs_tab(window) -> QWidget:
+    fs_tabs = QTabWidget()
+    fs_tabs.setStyleSheet(
+        "QTabBar::tab{background:#303030;color:#bbb;padding:4px 10px;}"
+        "QTabBar::tab:selected{background:#444;color:white;}"
+    )
     if FermiSurfaceCanvas is not None:
         window._fs_canvas = FermiSurfaceCanvas()
     else:
         window._fs_canvas = QWidget()
-    return window._fs_canvas
-
-
-def _build_fs_compare_tab(window) -> QWidget:
+    fs_tabs.addTab(window._fs_canvas, "Carte FS")
     window._fs_compare = FsCompareCanvas()
-    return window._fs_compare
+    fs_tabs.addTab(window._fs_compare, "Compare pol")
+    return fs_tabs
 
 
 def _build_kz_tab(window) -> QWidget:
@@ -254,8 +275,13 @@ def wire_ui_signals(window) -> None:
 
     wire_param_signals(window)
 
+    if hasattr(window, "_band_panel"):
+        window._band_panel.tb_fit_requested.connect(window._run_tb_fit)
+        window._band_panel.kink_run_requested.connect(window._run_kink_analysis)
+        window._band_panel.gap_fit_requested.connect(window._run_gap_fit)
+
     if FSControlPanel is not None:
-        window._fs_controls.params_changed.connect(window._on_fs_params_changed)
+        window._fs_controls.params_changed.connect(window._schedule_fs_redraw)
         window._fs_controls.redraw_requested.connect(window._draw_fs_tab)
         if hasattr(window._fs_controls, "gamma_requested"):
             window._fs_controls.gamma_requested.connect(window._detect_fs_gamma)
@@ -270,6 +296,10 @@ def wire_ui_signals(window) -> None:
         if hasattr(window._fs_controls, "mp_lattice_fetch_requested"):
             window._fs_controls.mp_lattice_fetch_requested.connect(
                 window._on_mp_lattice_fetch
+            )
+        if hasattr(window._fs_controls, "distortion_fs_toggled"):
+            window._fs_controls.distortion_fs_toggled.connect(
+                window._on_propagate_distortion_fs_toggled
             )
 
     if hasattr(window, "_fs_compare"):
