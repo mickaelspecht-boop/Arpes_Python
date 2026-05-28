@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -141,10 +142,12 @@ class FileBrowserPanel(QWidget):
         self._btn_load = QPushButton("Charger la sélection")
         self._btn_load.clicked.connect(self._load_selected)
         self._btn_load.setEnabled(False)
+        self._btn_load.setToolTip("Choisir un fichier ou un groupe dans la liste pour activer cette action.")
         lay.addWidget(self._btn_load)
 
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(180)
         self.setMaximumWidth(340)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def _open_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Dossier données ARPES",
@@ -568,12 +571,12 @@ class FileBrowserPanel(QWidget):
         if direction:
             bits.append(f"direction={direction} ({dir_src})")
         geom = []
-        if azi is not None:
+        if azi is not None and abs(float(azi)) > 1e-9:
             geom.append(f"azi={float(azi):.1f}°")
-        if polar is not None:
-            geom.append(f"P={float(polar):.1f}°")
-        if tilt is not None:
-            geom.append(f"T={float(tilt):.1f}°")
+        if polar is not None and abs(float(polar)) > 1e-9:
+            geom.append(f"polar={float(polar):.1f}°")
+        if tilt is not None and abs(float(tilt)) > 1e-9:
+            geom.append(f"tilt={float(tilt):.1f}°")
         if geom:
             sources = sorted({s for s in (azi_src, p_src, t_src) if s})
             src_txt = f" ({'+'.join(sources)})" if sources else ""
@@ -593,12 +596,15 @@ class FileBrowserPanel(QWidget):
         if has_path:
             self._btn_load.setText("Charger ce fichier")
             self._btn_load.setEnabled(True)
+            self._btn_load.setToolTip("Charge le fichier sélectionné dans la session courante.")
         elif has_group:
             self._btn_load.setText("Ouvrir/réduire le groupe")
             self._btn_load.setEnabled(True)
+            self._btn_load.setToolTip("Ouvre ou réduit le groupe sélectionné dans le navigateur.")
         else:
             self._btn_load.setText("Charger la sélection")
             self._btn_load.setEnabled(False)
+            self._btn_load.setToolTip("Choisir un fichier ou un groupe dans la liste pour activer cette action.")
         self._lbl_selection.setText(self._describe_item(item))
 
     def _add_header(self, group: str, n_items: int):

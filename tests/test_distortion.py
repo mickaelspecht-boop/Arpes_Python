@@ -6,6 +6,7 @@ import unittest
 import numpy as np
 
 from arpes.physics.distortion import (
+    _source_coords,
     angle_offsets_hash,
     apply_distortion,
     auto_detect_parabola,
@@ -125,6 +126,59 @@ class TestApplyDistortion(unittest.TestCase):
         out, _ = apply_distortion(data, kpar, ev, cfg)
         # Au pivot rien ne bouge ; loin du pivot, certains bords sortent → NaN.
         self.assertTrue(np.isnan(out).any())
+
+    def test_free_trapezoid_edges_are_independent(self):
+        kpar = np.linspace(-1.0, 1.0, 11)
+        ev = np.linspace(-0.2, 0.2, 9)
+        k_src, _ = _source_coords(
+            kpar,
+            ev,
+            slope_left=0.2,
+            slope_right=0.0,
+            pivot_ev=0.0,
+            a_para=0.0,
+            k0_para=0.0,
+            apply_trap=True,
+            apply_para=False,
+            trap_mode="free",
+        )
+
+        np.testing.assert_allclose(k_src[-1, :], kpar[-1])
+        self.assertGreater(np.nanmax(np.abs(k_src[0, :] - kpar[0])), 0.0)
+
+    def test_trapezoid_edges_follow_declared_slopes_off_center(self):
+        kpar = np.linspace(0.5, 2.5, 11)
+        ev = np.array([0.0, 1.0])
+
+        k_src, _ = _source_coords(
+            kpar,
+            ev,
+            slope_left=0.2,
+            slope_right=0.2,
+            pivot_ev=0.0,
+            a_para=0.0,
+            k0_para=0.0,
+            apply_trap=True,
+            apply_para=False,
+            trap_mode="symmetric",
+        )
+        self.assertAlmostEqual(k_src[0, 1], kpar[0] - 0.2)
+        self.assertAlmostEqual(k_src[-1, 1], kpar[-1] + 0.2)
+
+        k_src, _ = _source_coords(
+            kpar,
+            ev,
+            slope_left=0.2,
+            slope_right=-0.2,
+            pivot_ev=0.0,
+            a_para=0.0,
+            k0_para=0.0,
+            apply_trap=True,
+            apply_para=False,
+            trap_mode="antisymmetric",
+        )
+        self.assertAlmostEqual(k_src[0, 1], kpar[0] - 0.2)
+        self.assertAlmostEqual(k_src[-1, 1], kpar[-1] - 0.2)
 
 
 class TestClampParams(unittest.TestCase):

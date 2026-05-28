@@ -150,21 +150,17 @@ def compute_bandmap_display(
     ev_disp = np.asarray(raw_data["ev_arr"])
     distortion_info: dict = {}
     if distortion_correction:
-        from arpes.physics.distortion import apply_distortion, is_fs_data
+        from arpes.physics.distortion import apply_distortion
 
-        meta = raw_data.get("metadata", {}) or {}
-        if is_fs_data(meta):
-            distortion_info = {"applied": False, "reason": "fs_data_unsupported"}
-        else:
-            try:
-                raw, distortion_info = apply_distortion(
-                    raw, kpar_disp, ev_disp, distortion_correction,
-                )
-                if distortion_info.get("applied"):
-                    kpar_disp = np.asarray(distortion_info.get("kpar_axis", kpar_disp))
-                    ev_disp = np.asarray(distortion_info.get("ev_axis", ev_disp))
-            except Exception as exc:
-                distortion_info = {"applied": False, "error": str(exc)}
+        try:
+            raw, distortion_info = apply_distortion(
+                raw, kpar_disp, ev_disp, distortion_correction,
+            )
+            if distortion_info.get("applied"):
+                kpar_disp = np.asarray(distortion_info.get("kpar_axis", kpar_disp))
+                ev_disp = np.asarray(distortion_info.get("ev_axis", ev_disp))
+        except Exception as exc:
+            distortion_info = {"applied": False, "error": str(exc)}
     if mode == "Raw":
         disp = raw
     elif mode == "EDCnorm":

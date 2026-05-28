@@ -129,6 +129,7 @@ def _source_coords(
     k0_para: float,
     apply_trap: bool,
     apply_para: bool,
+    trap_mode: str = "symmetric",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Calcule les coordonnées sources (k_src, e_src) en un seul passage.
 
@@ -139,12 +140,13 @@ def _source_coords(
     K, E = np.meshgrid(kpar_out, ev_out, indexing="ij")
     if apply_trap:
         d_e = E - float(pivot_ev)
-        alpha = 0.5 * (float(slope_left) + float(slope_right))
-        beta = 0.5 * (float(slope_right) - float(slope_left))
-        w = 1.0 + alpha * d_e
-        # Évite division par zéro / inversion → fallback identité localement.
-        w_safe = np.where(np.abs(w) < 1e-3, 1.0, w)
-        k_src = (K - beta * d_e) / w_safe
+        k_min = float(kpar_out[0])
+        k_max = float(kpar_out[-1])
+        span = max(k_max - k_min, 1e-12)
+        u = (K - k_min) / span
+        left_src = k_min - float(slope_left) * d_e
+        right_src = k_max + float(slope_right) * d_e
+        k_src = (1.0 - u) * left_src + u * right_src
     else:
         k_src = K
     if apply_para:
@@ -211,6 +213,7 @@ def apply_distortion(
         k0_para=float(para.get("k0", 0.0) or 0.0),
         apply_trap=apply_trap,
         apply_para=apply_para,
+        trap_mode=str(trap.get("mode") or "symmetric"),
     )
 
     dk = _grid_step(kpar_axis)

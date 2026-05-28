@@ -28,6 +28,13 @@ class FSController:
         self._save_current_fs_center()
         self._draw_fs_tab()
 
+    def _schedule_fs_redraw(self, _=None):
+        timer = getattr(self._parent, "_fs_redraw_timer", None)
+        if timer is not None:
+            timer.start(150)
+            return
+        self._on_fs_params_changed()
+
     def _choose_bz_preset(self):
         if not hasattr(self, "_fs_controls"):
             return
@@ -222,17 +229,26 @@ class FSController:
 
     def _on_propagate_distortion_fs_toggled(self):
         """Sync UI → entry + redraw FS."""
-        if not hasattr(self, "_params"):
-            return
+        enabled = False
+        sender = None
+        try:
+            sender = self._parent.sender()
+        except Exception:
+            sender = None
+        if sender is not None and hasattr(sender, "isChecked"):
+            enabled = bool(sender.isChecked())
+        elif hasattr(self, "_fs_controls") and hasattr(self._fs_controls, "chk_distortion_fs"):
+            enabled = bool(self._fs_controls.chk_distortion_fs.isChecked())
+        elif hasattr(self, "_params") and hasattr(self._params, "chk_distortion_fs_propagate"):
+            enabled = bool(self._params.chk_distortion_fs_propagate.isChecked())
         entry = self._current_entry()
         if entry is not None:
             try:
-                entry.propagate_distortion_to_fs = bool(
-                    self._params.chk_distortion_fs_propagate.isChecked()
-                )
+                entry.propagate_distortion_to_fs = enabled
                 self._session.save()
             except Exception:
                 pass
+        self._sync_distortion_fs_toggles(enabled)
         # Invalide cache local pour forcer recalcul
         self._fs_distortion_cache_invalidate()
         self._draw_fs_tab()
@@ -269,9 +285,14 @@ class FSController:
         meta = self._raw_data.get("metadata", {}) or {}
         if meta.get("fs_data") is None:
             return False
-        cfg = entry.bm_distortion or {}
+        cfg = self._distortion_cfg_for_current_fs(entry, meta)
         if not is_distortion_active(cfg):
             self._restore_fs_data_original()
+            self._status(
+                "⚠ Distortion FS : aucune calibration BM active pour cette FS "
+                "(calibrer une BM de même géométrie puis activer ici)."
+            )
+            self._disable_fs_distortion_after_failure(entry)
             return False
 
         # Sauve original si pas déjà fait (clé séparée pour restore propre).
@@ -302,14 +323,17 @@ class FSController:
         except ValueError as exc:
             self._status(f"⚠ Distortion FS : {exc}")
             self._restore_fs_data_original()
+            self._disable_fs_distortion_after_failure(entry)
             return False
         except Exception as exc:
             self._status(f"✗ Distortion FS : échec {exc}")
             self._restore_fs_data_original()
+            self._disable_fs_distortion_after_failure(entry)
             return False
 
         if not info.get("applied"):
             self._restore_fs_data_original()
+            self._disable_fs_distortion_after_failure(entry)
             return False
 
         # Cache LRU 1 entrée (clear avant insert)
@@ -323,6 +347,53 @@ class FSController:
             f"drift={info.get('drift_ratio', 0.0):.3f})"
         )
         return True
+
+    def _disable_fs_distortion_after_failure(self, entry) -> None:
+        try:
+            entry.propagate_distortion_to_fs = False
+            self._session.save()
+        except Exception:
+            pass
+        self._sync_distortion_fs_toggles(False)
+
+    def _distortion_cfg_for_current_fs(self, entry, meta: dict) -> dict:
+        """Retourne la config distortion à utiliser pour FS.
+
+        Priorité :
+        1. config stockée directement sur l'entrée FS ;
+        2. calibration partagée `(lens_mode, pass_energy, hv)` créée depuis une BM.
+        """
+        from arpes.physics.distortion import calib_key_for_meta, is_distortion_active
+        from arpes.ui.controllers.distortion_controller import _load_calib_store
+
+        cfg = getattr(entry, "bm_distortion", {}) or {}
+        if is_distortion_active(cfg):
+            return cfg
+        try:
+            key = "|".join(calib_key_for_meta(meta))
+            calib = (_load_calib_store() or {}).get(key)
+        except Exception:
+            calib = None
+        if not calib or not is_distortion_active(calib):
+            return {}
+        cfg = {
+            "enabled": True,
+            "trapezoid": dict(calib.get("trapezoid") or {}),
+            "parabola": dict(calib.get("parabola") or {}),
+            "calib_key": list(calib_key_for_meta(meta)),
+            "source": "shared_calib_fs",
+        }
+        entry.bm_distortion = cfg
+        try:
+            self._session.save()
+        except Exception:
+            pass
+        if hasattr(self, "_params") and hasattr(self._params, "set_bm_distortion_state"):
+            try:
+                self._params.set_bm_distortion_state(cfg)
+            except Exception:
+                pass
+        return cfg
 
     def _restore_fs_data_original(self):
         if self._raw_data is None:
@@ -379,14 +450,24 @@ class FSController:
                 w.blockSignals(False)
         # Sync chk propagation distortion (panel distortion vit dans _params).
         if hasattr(self, "_params") and hasattr(self._params, "chk_distortion_fs_propagate"):
-            chk = self._params.chk_distortion_fs_propagate
-            chk.blockSignals(True)
-            try:
-                chk.setChecked(bool(getattr(entry, "propagate_distortion_to_fs", False)))
-            finally:
-                chk.blockSignals(False)
+            self._sync_distortion_fs_toggles(
+                bool(getattr(entry, "propagate_distortion_to_fs", False))
+            )
         # Invalide cache distortion FS (changement de fichier)
         self._fs_distortion_cache_invalidate()
+
+    def _sync_distortion_fs_toggles(self, enabled: bool) -> None:
+        for obj in (
+            getattr(getattr(self, "_params", None), "chk_distortion_fs_propagate", None),
+            getattr(getattr(self, "_fs_controls", None), "chk_distortion_fs", None),
+        ):
+            if obj is None:
+                continue
+            obj.blockSignals(True)
+            try:
+                obj.setChecked(bool(enabled))
+            finally:
+                obj.blockSignals(False)
 
     def _lattice_summary(self) -> str:
         entry = self._current_entry()

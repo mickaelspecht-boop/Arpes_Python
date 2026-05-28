@@ -222,8 +222,9 @@ def apply_bm_gamma_axis_shift(
 
     Mute ``raw_data["kpar"]`` et ``raw_data["metadata"]`` en place.
     Retourne ``True`` si le shift a été appliqué, ``False`` sinon (FS sans
-    `allow_fs`, déjà centré, offsets déjà appliqués, ``gamma_bm`` non fini,
-    kpar vide).
+    `allow_fs`, offsets déjà appliqués, ``gamma_bm`` non fini, kpar vide).
+    Si l'axe a déjà été recentré, applique seulement le delta entre l'ancien
+    et le nouveau Γ pour permettre l'ajustement manuel sans recharger.
 
     Si ``allow_fs`` et ``raw_data`` est une FS, décale aussi ``fs_kx`` /
     ``fs_ky`` pour que le panel FS et la vue BM (qui lit ``kpar`` issu d'une
@@ -241,8 +242,6 @@ def apply_bm_gamma_axis_shift(
         return False
     if meta.get("angle_offsets_applied"):
         return False
-    if bool(meta.get("bm_gamma_axis_centered", False)):
-        return False
     if not np.isfinite(gamma_bm):
         return False
 
@@ -251,7 +250,17 @@ def apply_bm_gamma_axis_shift(
         return False
 
     shift = float(gamma_bm)
-    raw_data["kpar"] = kpar - shift
+    previous_shift = 0.0
+    if bool(meta.get("bm_gamma_axis_centered", False)):
+        try:
+            previous_shift = float(meta.get("bm_gamma_axis_shift", 0.0) or 0.0)
+        except Exception:
+            previous_shift = 0.0
+    delta = shift - previous_shift
+    if abs(delta) < 1e-12 and bool(meta.get("bm_gamma_axis_centered", False)):
+        return False
+
+    raw_data["kpar"] = kpar - delta
     meta["bm_gamma_axis_centered"] = True
     meta["bm_gamma_axis_shift"] = shift
     meta["bm_gamma_axis_note"] = "kpar_display = kpar_raw - gamma_bm"
@@ -259,10 +268,16 @@ def apply_bm_gamma_axis_shift(
         ky_shift = float(gamma_ky) if np.isfinite(gamma_ky) else 0.0
         fs_kx = meta.get("fs_kx")
         if fs_kx is not None:
-            meta["fs_kx"] = np.asarray(fs_kx, dtype=float) - shift
+            meta["fs_kx"] = np.asarray(fs_kx, dtype=float) - delta
         fs_ky = meta.get("fs_ky")
-        if fs_ky is not None and ky_shift != 0.0:
-            meta["fs_ky"] = np.asarray(fs_ky, dtype=float) - ky_shift
+        previous_ky_shift = 0.0
+        try:
+            previous_ky_shift = float(meta.get("fs_gamma_axis_shift_ky", 0.0) or 0.0)
+        except Exception:
+            previous_ky_shift = 0.0
+        ky_delta = ky_shift - previous_ky_shift
+        if fs_ky is not None and ky_delta != 0.0:
+            meta["fs_ky"] = np.asarray(fs_ky, dtype=float) - ky_delta
         meta["fs_gamma_axis_centered"] = True
         meta["fs_gamma_axis_shift_kx"] = shift
         meta["fs_gamma_axis_shift_ky"] = ky_shift

@@ -27,6 +27,9 @@ from arpes.theory.materials_project import (
 )
 
 
+_ACTIVE_SEARCHES: set[tuple[QThread, QObject]] = set()
+
+
 class _SearchWorker(QObject):
     finished = pyqtSignal(list)
     failed = pyqtSignal(str)
@@ -57,6 +60,7 @@ class MPSearchDialog(QDialog):
         self.resize(720, 480)
         self._thread: QThread | None = None
         self._worker: _SearchWorker | None = None
+        self._search_token = 0
         self._build(initial_formula)
 
     def _build(self, initial_formula: str) -> None:
@@ -97,23 +101,32 @@ class MPSearchDialog(QDialog):
         if not formula:
             self.lbl_status.setText("Attention : formule vide.")
             return
-        self._stop_thread()
+        self._cancel_thread()
+        self._search_token += 1
+        token = self._search_token
         self.btn_search.setEnabled(False)
         self.lbl_status.setText(f"Recherche {formula} sur Materials Project ...")
         self.tbl.setRowCount(0)
 
-        self._thread = QThread(self)
+        self._thread = QThread()
         self._worker = _SearchWorker(formula)
         self._worker.moveToThread(self._thread)
+        _ACTIVE_SEARCHES.add((self._thread, self._worker))
         self._thread.started.connect(self._worker.run)
-        self._worker.finished.connect(self._on_results)
-        self._worker.failed.connect(self._on_failed)
+        self._worker.finished.connect(lambda results, t=token: self._on_results(t, results))
+        self._worker.failed.connect(lambda message, t=token: self._on_failed(t, message))
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
-        self._thread.finished.connect(self._cleanup_thread)
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.finished.connect(
+            lambda th=self._thread, wk=self._worker, t=token: self._cleanup_thread(th, wk, t)
+        )
         self._thread.start()
 
-    def _on_results(self, results: list) -> None:
+    def _on_results(self, token: int, results: list) -> None:
+        if token != self._search_token:
+            return
         self.btn_search.setEnabled(True)
         if not results:
             self.lbl_status.setText("Aucun résultat. Vérifie la formule (sensible au cas, Ba2NiAs2 ≠ BaNi2As2).")
@@ -136,7 +149,9 @@ class MPSearchDialog(QDialog):
                 self.tbl.setItem(row, col, item)
         self.tbl.selectRow(0)
 
-    def _on_failed(self, message: str) -> None:
+    def _on_failed(self, token: int, message: str) -> None:
+        if token != self._search_token:
+            return
         self.btn_search.setEnabled(True)
         self.lbl_status.setText(f"Erreur : {message}")
 
@@ -155,16 +170,44 @@ class MPSearchDialog(QDialog):
         self.mpid_selected.emit(mpid)
         self.accept()
 
-    def _stop_thread(self) -> None:
-        if self._thread is not None and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait(2000)
-        self._cleanup_thread()
-
-    def _cleanup_thread(self) -> None:
-        self._worker = None
+    def _cancel_thread(self) -> None:
+        self._search_token += 1
+        thread = self._thread
+        worker = self._worker
         self._thread = None
+        self._worker = None
+        if thread is None:
+            return
+        if worker is not None:
+            for signal in (worker.finished, worker.failed):
+                try:
+                    signal.disconnect()
+                except Exception:
+                    pass
+            try:
+                worker.finished.connect(thread.quit)
+                worker.failed.connect(thread.quit)
+            except Exception:
+                pass
+        try:
+            thread.quit()
+        except Exception:
+            pass
+        try:
+            self.btn_search.setEnabled(True)
+        except Exception:
+            pass
+
+    def _cleanup_thread(self, thread: QThread, worker: QObject, token: int) -> None:
+        _ACTIVE_SEARCHES.discard((thread, worker))
+        if token == self._search_token:
+            self._worker = None
+            self._thread = None
+
+    def reject(self) -> None:
+        self._cancel_thread()
+        super().reject()
 
     def closeEvent(self, event) -> None:
-        self._stop_thread()
+        self._cancel_thread()
         super().closeEvent(event)

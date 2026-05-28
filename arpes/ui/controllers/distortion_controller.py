@@ -26,7 +26,6 @@ from arpes.physics.distortion import (
     gamma_shift_signature,
     get_cfg_summary,
     is_distortion_active,
-    is_fs_data,
     signal_bbox,
 )
 
@@ -92,9 +91,10 @@ class DistortionController:
                                 "Charge d'abord une BM.")
             return
         meta = self._current_meta()
-        if is_fs_data(meta):
+        data = np.asarray(self._raw_data.get("data"), dtype=float)
+        if data.ndim != 2:
             QMessageBox.warning(self._parent, "Distorsion BM",
-                                "Correction non disponible sur une FS (slice 2D requise).")
+                                "Correction disponible seulement sur une BM 2D.")
             return
         if self._ef_calib_in_progress():
             QMessageBox.warning(self._parent, "Distorsion BM",
@@ -155,9 +155,6 @@ class DistortionController:
         """Active l'overlay pointillé sur la BM (caché à nouveau après Apply)."""
         if self._raw_data is None:
             return
-        meta = self._current_meta()
-        if is_fs_data(meta):
-            return
         cfg = self._params.bm_distortion_params()
         active = (
             (cfg["trapezoid"]["enabled"] and (
@@ -166,12 +163,40 @@ class DistortionController:
             or (cfg["parabola"]["enabled"] and abs(cfg["parabola"]["a"]) > 0)
         )
         self._parent._distortion_preview_visible = bool(active)
+        timer = getattr(self._parent, "_distortion_preview_timer", None)
+        if timer is not None:
+            timer.start(100)
+            return
+        self._redraw_distortion_preview()
+
+    def _redraw_distortion_preview(self):
+        """Rafraîchit uniquement l'overlay BM visible, sans redessiner MDC/FS."""
+        tabs = getattr(self._parent, "_tabs", None)
+        if tabs is not None and tabs.currentIndex() != 0:
+            return
         try:
-            # preview = overlay pointillé seul : fast path (pas de
-            # recompute mesh/couleur, zoom préservé).
-            self._draw_current_view(overlays_only=True)
+            self._draw_bm(overlays_only=True)
         except Exception:
             pass
+
+    def _distortion_preview_bbox(self, kpar, ev):
+        data = np.asarray(self._raw_data["data"], dtype=float)
+        key = (
+            self._raw_data.get("path"),
+            id(self._raw_data),
+            id(self._raw_data.get("data")),
+            data.shape,
+            id(self._raw_data.get("kpar")),
+            id(self._raw_data.get("ev_arr")),
+        )
+        if getattr(self._parent, "_distortion_preview_bbox_key", None) == key:
+            cached = getattr(self._parent, "_distortion_preview_bbox", None)
+            if cached is not None:
+                return cached
+        bbox = signal_bbox(data, kpar, ev, intensity_percentile=50.0)
+        self._parent._distortion_preview_bbox_key = key
+        self._parent._distortion_preview_bbox = bbox
+        return bbox
 
     def _draw_distortion_preview_overlay(self, ax):
         """Trace en pointillé les contours du trapèze + de l'iso-énergie
@@ -188,8 +213,7 @@ class DistortionController:
         if kpar.size < 2 or ev.size < 2:
             return
         # Bbox du signal effectif (intensité > p50). Sinon fallback fenêtre.
-        bbox = signal_bbox(np.asarray(self._raw_data["data"], dtype=float),
-                            kpar, ev, intensity_percentile=50.0)
+        bbox = self._distortion_preview_bbox(kpar, ev)
         k_min, k_max = bbox["k_min"], bbox["k_max"]
         ev_min, ev_max = bbox["ev_min"], bbox["ev_max"]
 
@@ -203,14 +227,10 @@ class DistortionController:
             pivot = float(trap.get("pivot_ev")
                           if trap.get("pivot_ev") is not None
                           else 0.5 * (ev_min + ev_max))
-            alpha = 0.5 * (slope_l + slope_r)
-            beta = 0.5 * (slope_r - slope_l)
             e_samples = np.linspace(ev_min, ev_max, 60)
             d_e = e_samples - pivot
-            w = 1.0 + alpha * d_e
-            w = np.where(np.abs(w) < 1e-3, 1.0, w)
-            left_src = (k_min - beta * d_e) / w
-            right_src = (k_max - beta * d_e) / w
+            left_src = k_min - slope_l * d_e
+            right_src = k_max + slope_r * d_e
             ax.plot(left_src, e_samples, "--", color="cyan", lw=1.3, alpha=0.85,
                     zorder=8, label="trap L (preview)")
             ax.plot(right_src, e_samples, "--", color="cyan", lw=1.3, alpha=0.85,
@@ -235,9 +255,9 @@ class DistortionController:
             QMessageBox.warning(self._parent, "Distorsion BM auto", "Charge d'abord une BM.")
             return
         meta = self._current_meta()
-        if is_fs_data(meta):
+        if np.asarray(self._raw_data.get("data"), dtype=float).ndim != 2:
             QMessageBox.warning(self._parent, "Distorsion BM auto",
-                                "Auto-detect non applicable à une FS.")
+                                "Auto-detect disponible seulement sur une BM 2D.")
             return
         data = np.asarray(self._raw_data["data"], dtype=float)
         kpar = np.asarray(self._raw_data["kpar"], dtype=float)
@@ -310,7 +330,7 @@ class DistortionController:
         if self._raw_data is None:
             return
         meta = self._current_meta()
-        if is_fs_data(meta) or not self._current_path:
+        if not self._current_path:
             return
         entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
         if entry.bm_distortion:

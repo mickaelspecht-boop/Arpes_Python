@@ -13,9 +13,17 @@ from PyQt6.QtWidgets import QPushButton, QVBoxLayout, QWidget
 class _CollapsibleSection(QWidget):
     """En-tête cliquable + widget contenu repliable."""
 
-    def __init__(self, title: str, content: QWidget, *, open_default: bool = False):
+    def __init__(
+        self,
+        title: str,
+        content: QWidget,
+        *,
+        open_default: bool = False,
+        summary: str = "",
+    ):
         super().__init__()
         self._title = title
+        self._summary = summary
         self._content = content
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -36,7 +44,8 @@ class _CollapsibleSection(QWidget):
     def _on_toggle(self, checked: bool) -> None:
         self._content.setVisible(checked)
         arrow = "▼" if checked else "▶"
-        self.btn.setText(f"{arrow}  {self._title}")
+        suffix = f" · {self._summary}" if self._summary and not checked else ""
+        self.btn.setText(f"{arrow}  {self._title}{suffix}")
 
     def set_open(self, opened: bool) -> None:
         self.btn.setChecked(bool(opened))
@@ -53,7 +62,7 @@ def build_utilities_section(panel, lay) -> None:
     cv.setContentsMargins(0, 0, 0, 0)
     cv.setSpacing(4)
 
-    def _wrap(builder, title, *, open_default=False) -> _CollapsibleSection:
+    def _wrap(builder, title, *, open_default=False, summary="") -> _CollapsibleSection:
         page = QWidget()
         page_lay = QVBoxLayout(page)
         page_lay.setContentsMargins(2, 2, 2, 2)
@@ -64,16 +73,18 @@ def build_utilities_section(panel, lay) -> None:
             if w is not None and w.parent() is page:
                 w.setTitle("")
                 w.setFlat(True)
-        sec = _CollapsibleSection(title, page, open_default=open_default)
+        sec = _CollapsibleSection(
+            title, page, open_default=open_default, summary=summary
+        )
         cv.addWidget(sec)
         return sec
 
     panel._sec_grid = _wrap(build_utils_section, "Filtre grille (FFT)",
-                             open_default=False)
+                             open_default=False, summary="force 0.85")
     panel._sec_theory = _wrap(build_theory_section, "DFT / Théorie",
-                               open_default=False)
+                               open_default=False, summary="off")
     panel._sec_distortion = _wrap(build_bm_distortion_section, "Distorsion BM",
-                                   open_default=False)
+                                   open_default=False, summary="désactivée")
 
     lay.addWidget(panel._utilities_container)
     # alias rétrocompat avec ancien attribut (set_context lit _utilities_toolbox)

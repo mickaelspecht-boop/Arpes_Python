@@ -7,6 +7,7 @@ QGroupBox checkable (collapsibles). L'état est persisté via le signal
 """
 from __future__ import annotations
 
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -53,17 +54,52 @@ MATERIAL_PRESETS: dict[str, dict | None] = {
 }
 
 
-def _make_collapsible(panel, title: str, key: str) -> tuple[QGroupBox, QFormLayout]:
-    grp = QGroupBox(title)
-    grp.setCheckable(True)
-    grp.setChecked(True)
+class _ButtonCollapsible(QWidget):
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, title: str, content: QWidget, *, open_default: bool = True):
+        super().__init__()
+        self._title = title
+        self._content = content
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        self.btn = QPushButton()
+        self.btn.setCheckable(True)
+        self.btn.setStyleSheet(
+            "QPushButton { background:#3a3a4a; color:#cde; padding:6px 8px;"
+            " border-radius:3px; font-weight:bold; text-align:left; }"
+            "QPushButton:checked { background:#4a4a6a; color:#fff; }"
+            "QPushButton:hover { background:#454560; }"
+        )
+        self.btn.clicked.connect(self.setChecked)
+        lay.addWidget(self.btn)
+        lay.addWidget(content)
+        self.setChecked(open_default)
+
+    def isChecked(self) -> bool:
+        return self.btn.isChecked()
+
+    def setChecked(self, checked: bool) -> None:
+        opened = bool(checked)
+        self.btn.setChecked(opened)
+        self._content.setVisible(opened)
+        arrow = "▼" if opened else "▶"
+        self.btn.setText(f"{arrow}  {self._title}")
+        self.toggled.emit(opened)
+
+
+def _make_collapsible(
+    panel,
+    title: str,
+    key: str,
+    *,
+    open_default: bool = True,
+) -> tuple[_ButtonCollapsible, QFormLayout]:
     content = QWidget()
     fl = QFormLayout(content)
     fl.setContentsMargins(2, 2, 2, 2)
-    outer = QVBoxLayout(grp)
-    outer.setContentsMargins(6, 18, 6, 6)
-    outer.addWidget(content)
-    grp.toggled.connect(content.setVisible)
+    grp = _ButtonCollapsible(title, content, open_default=bool(open_default))
     grp.toggled.connect(lambda v, k=key: panel.fit_section_toggled.emit(k, bool(v)))
     panel._fit_sections[key] = grp
     return grp, fl
@@ -173,7 +209,9 @@ def _build_init_section(panel, _fcl) -> None:
 
 
 def _build_constraint_section(panel, _fcl) -> None:
-    grp, fl = _make_collapsible(panel, "Contraintes optimiseur", "constraints")
+    grp, fl = _make_collapsible(
+        panel, "Avancé - contraintes optimiseur", "constraints", open_default=False
+    )
     panel.sp_xg = dspin(0.10, 0.0, 0.5, 0.01)
     panel.sp_xg.setToolTip(
         "Demi-largeur de la zone de contrainte autour du centre Γ (π/a).\n"
@@ -243,7 +281,9 @@ def _build_constraint_section(panel, _fcl) -> None:
 
 
 def _build_detect_section(panel, _fcl) -> None:
-    grp, fl = _make_collapsible(panel, "Détection / scan", "detect")
+    grp, fl = _make_collapsible(
+        panel, "Avancé - détection / scan", "detect", open_default=False
+    )
     panel.sp_sff = dspin(2.0, 0.0, 10.0, 0.5, dec=1)
     panel.sp_sff.setToolTip(
         "Sigma du lissage gaussien appliqué à la MDC avant l'optimisation scipy.\n"
@@ -289,7 +329,9 @@ def _build_detect_section(panel, _fcl) -> None:
 
 
 def _build_resolution_section(panel, _fcl) -> None:
-    grp, fl = _make_collapsible(panel, "Résolution instrumentale", "resolution")
+    grp, fl = _make_collapsible(
+        panel, "Avancé - résolution instrumentale", "resolution", open_default=False
+    )
     panel.sp_dE_meV = dspin(15.0, 1.0, 200.0, 1.0, dec=1)
     panel.sp_dE_meV.setToolTip(
         "FWHM énergie instrumentale estimée ou saisie manuellement (meV).\n"
@@ -346,6 +388,16 @@ def _build_waterfall_group(panel, _fcl) -> None:
 
 def _build_fit_buttons(panel, _fcl) -> None:
     _fcl.addWidget(hsep())
+    actions_grp = QGroupBox("Actions fit")
+    actions_lay_root = QVBoxLayout(actions_grp)
+    actions_lay_root.setContentsMargins(6, 6, 6, 6)
+    actions_lay_root.setSpacing(4)
+
+    primary_row = QWidget()
+    primary_lay = QHBoxLayout(primary_row)
+    primary_lay.setContentsMargins(0, 0, 0, 0)
+    primary_lay.setSpacing(4)
+
     btn_g = compact_button(QPushButton("Fit slice (E courante)  [Ctrl+G]"), max_width=260)
     btn_g.setStyleSheet("background:#1a6b3a;color:white;font-weight:bold;padding:6px;")
     btn_g.setToolTip(
@@ -353,10 +405,18 @@ def _build_fit_buttons(panel, _fcl) -> None:
         "Sert à calibrer les initiaux avant un fit complet."
     )
     btn_g.clicked.connect(panel.guess_requested)
-    _fcl.addWidget(btn_g)
+    primary_lay.addWidget(btn_g)
+
+    btn_f = compact_button(QPushButton("Fit complet  [Ctrl+F]"), max_width=220)
+    btn_f.setStyleSheet("background:#2a6099;color:white;font-weight:bold;padding:6px;")
+    btn_f.setToolTip("Lance le fit MDC complet sur la plage d'analyse courante.")
+    btn_f.clicked.connect(panel.full_fit_requested)
+    primary_lay.addWidget(btn_f)
+    primary_lay.addStretch(1)
+    actions_lay_root.addWidget(primary_row)
 
     panel._gamma_tools_widget = QWidget()
-    gamma_lay = QVBoxLayout(panel._gamma_tools_widget)
+    gamma_lay = QHBoxLayout(panel._gamma_tools_widget)
     gamma_lay.setContentsMargins(0, 0, 0, 0)
     gamma_lay.setSpacing(4)
     btn_gamma = compact_button(QPushButton("Auto Γ BM"), max_width=160)
@@ -368,12 +428,8 @@ def _build_fit_buttons(panel, _fcl) -> None:
     btn_ref.setToolTip("Applique le Γ de référence mesuré sur une FS à la BM courante.")
     btn_ref.clicked.connect(panel.gamma_ref_requested)
     gamma_lay.addWidget(btn_ref)
-    _fcl.addWidget(panel._gamma_tools_widget)
-
-    btn_f = compact_button(QPushButton("Fit complet  [Ctrl+F]"), max_width=220)
-    btn_f.setStyleSheet("background:#2a6099;color:white;font-weight:bold;padding:6px;")
-    btn_f.clicked.connect(panel.full_fit_requested)
-    _fcl.addWidget(btn_f)
+    gamma_lay.addStretch(1)
+    actions_lay_root.addWidget(panel._gamma_tools_widget)
 
     panel.chk_smooth_kf = QCheckBox("Lisser kF(E) (σ slices)")
     panel.chk_smooth_kf.setToolTip(
@@ -389,9 +445,18 @@ def _build_fit_buttons(panel, _fcl) -> None:
     _sk_lay.addWidget(panel.chk_smooth_kf)
     _sk_lay.addWidget(panel.sp_smooth_kf_sigma)
     _sk_lay.addStretch(1)
-    _fcl.addWidget(_sk_row)
+    actions_lay_root.addWidget(_sk_row)
     panel.chk_smooth_kf.stateChanged.connect(panel.fit_only_changed)
     panel.sp_smooth_kf_sigma.valueChanged.connect(panel.fit_only_changed)
+
+    advanced_content = QWidget()
+    advanced_lay = QVBoxLayout(advanced_content)
+    advanced_lay.setContentsMargins(0, 0, 0, 0)
+    advanced_lay.setSpacing(4)
+    advanced_actions = _ButtonCollapsible(
+        "Actions avancées", advanced_content, open_default=False
+    )
+
     panel.chk_use_ensemble = QCheckBox("Ensemble fit (perturbe initiaux × N)")
     panel.chk_use_ensemble.setToolTip(
         "1 paire = 1 bande. Ensemble = refit N fois en perturbant kF_init\n"
@@ -412,8 +477,8 @@ def _build_fit_buttons(panel, _fcl) -> None:
     _ens_lay.addWidget(QLabel("jitter:"))
     _ens_lay.addWidget(panel.sp_ensemble_jitter)
     _ens_lay.addStretch(1)
-    _fcl.addWidget(panel.chk_use_ensemble)
-    _fcl.addWidget(_ens_row)
+    advanced_lay.addWidget(panel.chk_use_ensemble)
+    advanced_lay.addWidget(_ens_row)
     panel.btn_fit_ensemble = compact_button(QPushButton("Fit ensemble"), max_width=180)
     panel.btn_fit_ensemble.setStyleSheet(
         "background:#7c3aed;color:white;font-weight:bold;padding:6px;"
@@ -423,14 +488,14 @@ def _build_fit_buttons(panel, _fcl) -> None:
         "Écrit kF/Γ médians + σ statistiques dans fit_result.ensemble."
     )
     panel.btn_fit_ensemble.clicked.connect(panel.fit_ensemble_requested)
-    _fcl.addWidget(panel.btn_fit_ensemble)
+    advanced_lay.addWidget(panel.btn_fit_ensemble)
     panel.btn_im_sigma = compact_button(QPushButton("Im Σ(E)"), max_width=140)
     panel.btn_im_sigma.setToolTip(
         "Calcule Im Σ(E) = (vF/2)·Γ(E) avec la largeur corrigée du fit.\n"
         "Nécessite un fit complet et un paramètre de maille a > 0."
     )
     panel.btn_im_sigma.clicked.connect(panel.im_self_energy_requested)
-    _fcl.addWidget(panel.btn_im_sigma)
+    advanced_lay.addWidget(panel.btn_im_sigma)
     btn_batch = compact_button(QPushButton("Batch fit dossier"), max_width=200)
     btn_batch.setToolTip(
         "Lance Fit complet sur tous les fichiers du dossier qui n'ont pas\n"
@@ -438,12 +503,16 @@ def _build_fit_buttons(panel, _fcl) -> None:
         "Boîte de progression annulable."
     )
     btn_batch.clicked.connect(panel.batch_fit_requested)
-    _fcl.addWidget(btn_batch)
+    advanced_lay.addWidget(btn_batch)
 
     actions_row = QWidget()
     actions_lay = QHBoxLayout(actions_row)
     actions_lay.setContentsMargins(0, 0, 0, 0)
     btn_cl = compact_button(QPushButton("Effacer kF"), max_width=120)
+    btn_cl.setToolTip(
+        "Supprime les points kF sélectionnés sur le graphe MDC Fit.\n"
+        "Action réversible avec « Annuler suppression » ou Ctrl+Z."
+    )
     btn_cl.clicked.connect(panel.clear_kf_requested)
     panel.btn_fit_undo = compact_button(QPushButton("↶ Annuler suppression"), max_width=180)
     panel.btn_fit_undo.setEnabled(False)
@@ -455,7 +524,9 @@ def _build_fit_buttons(panel, _fcl) -> None:
     actions_lay.addWidget(btn_cl)
     actions_lay.addWidget(panel.btn_fit_undo)
     actions_lay.addStretch(1)
-    _fcl.addWidget(actions_row)
+    advanced_lay.addWidget(actions_row)
+    actions_lay_root.addWidget(advanced_actions)
+    _fcl.addWidget(actions_grp)
 
     panel.lbl_fit_quality = QLabel("")
     panel.lbl_fit_quality.setWordWrap(True)

@@ -257,9 +257,25 @@ class TestApplyBmGammaAxisShift(unittest.TestCase):
         raw = self._make_raw([-0.1, 0.1], angle_offsets_applied=True)
         self.assertFalse(apply_bm_gamma_axis_shift(raw, 0.05))
 
-    def test_refuses_when_already_centered(self):
-        raw = self._make_raw([-0.1, 0.1], bm_gamma_axis_centered=True)
+    def test_reapplies_delta_when_already_centered(self):
+        raw = self._make_raw(
+            [-0.15, -0.05, 0.05],
+            bm_gamma_axis_centered=True,
+            bm_gamma_axis_shift=0.05,
+        )
+        ok = apply_bm_gamma_axis_shift(raw, 0.08)
+        self.assertTrue(ok)
+        np.testing.assert_allclose(raw["kpar"], [-0.18, -0.08, 0.02])
+        self.assertAlmostEqual(raw["metadata"]["bm_gamma_axis_shift"], 0.08)
+
+    def test_already_centered_same_shift_is_noop(self):
+        raw = self._make_raw(
+            [-0.15, -0.05, 0.05],
+            bm_gamma_axis_centered=True,
+            bm_gamma_axis_shift=0.05,
+        )
         self.assertFalse(apply_bm_gamma_axis_shift(raw, 0.05))
+        np.testing.assert_allclose(raw["kpar"], [-0.15, -0.05, 0.05])
 
     def test_refuses_nan_gamma(self):
         raw = self._make_raw([-0.1, 0.1])

@@ -39,7 +39,35 @@ class TestUiSmoke(unittest.TestCase):
         win = self._make_window()
         self.assertIsNotNone(win)
         self.assertEqual(win._tabs.count(), 7)
+        self.assertEqual(
+            [win._tabs.tabText(i) for i in range(win._tabs.count())],
+            ["BM", "MDC Fit", "Résultats", "FS", "KZ", "Notes", "Aide"],
+        )
+        fs_tabs = win._tabs.widget(3)
+        self.assertEqual(
+            [fs_tabs.tabText(i) for i in range(fs_tabs.count())],
+            ["Carte FS", "Compare pol"],
+        )
         self.assertIsNotNone(win.ap, "arpes_plots doit être chargé")
+
+    def test_tab_right_panel_mapping(self):
+        win = self._make_window()
+        expected = {
+            0: 0,  # BM controls
+            1: 0,  # MDC controls
+            2: 0,  # Results: no dedicated right panel
+            3: 1,  # FS controls
+            4: 2,  # KZ controls
+            5: 0,  # Notes
+            6: 0,  # Help
+        }
+        for index, right_index in expected.items():
+            win._on_tab_changed(index)
+            self.assertEqual(
+                win._right_stack.currentIndex(),
+                right_index,
+                f"onglet {index} ({win._tabs.tabText(index)})",
+            )
 
     def test_controllers_wired(self):
         win = self._make_window()
@@ -85,6 +113,28 @@ class TestUiSmoke(unittest.TestCase):
         cfg = win._params.bm_distortion_params()
         self.assertIn("trapezoid", cfg)
         self.assertIn("parabola", cfg)
+
+    def test_distortion_coupled_slopes_are_bidirectional(self):
+        win = self._make_window()
+        p = win._params
+
+        p.rb_distortion_trap_sym.setChecked(True)
+        p.sp_distortion_slope_l.setValue(0.120)
+        self.assertAlmostEqual(p.sp_distortion_slope_r.value(), 0.120)
+        p.sp_distortion_slope_r.setValue(-0.080)
+        self.assertAlmostEqual(p.sp_distortion_slope_l.value(), -0.080)
+
+        p.rb_distortion_trap_anti.setChecked(True)
+        p.sp_distortion_slope_l.setValue(0.070)
+        self.assertAlmostEqual(p.sp_distortion_slope_r.value(), -0.070)
+        p.sp_distortion_slope_r.setValue(0.040)
+        self.assertAlmostEqual(p.sp_distortion_slope_l.value(), -0.040)
+
+        p.rb_distortion_trap_free.setChecked(True)
+        p.sp_distortion_slope_l.setValue(0.010)
+        p.sp_distortion_slope_r.setValue(0.090)
+        self.assertAlmostEqual(p.sp_distortion_slope_l.value(), 0.010)
+        self.assertAlmostEqual(p.sp_distortion_slope_r.value(), 0.090)
 
     def test_reset_view_and_fast_path_wired(self):
         win = self._make_window()

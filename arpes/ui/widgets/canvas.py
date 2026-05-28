@@ -12,12 +12,16 @@ from matplotlib.figure import Figure
 class MplCanvas(QWidget):
     def __init__(self, figsize=(5, 4), toolbar=False, nrows=1):
         super().__init__()
+        self.setMinimumSize(80, 80)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored,
+                           QSizePolicy.Policy.Expanding)
         # Optionnel : recalage de vue spécifique (ex BM pcolormesh dont
         # relim/autoscale matplotlib ne restaure pas l'étendue data).
         self.reset_callback = None
         self.fig = Figure(figsize=figsize, tight_layout=True)
         self.canvas = FigureCanvas(self.fig)
-        self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding,
+        self.canvas.setMinimumSize(80, 80)
+        self.canvas.setSizePolicy(QSizePolicy.Policy.Ignored,
                                   QSizePolicy.Policy.Expanding)
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
         self.toolbar = None

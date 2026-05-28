@@ -83,7 +83,7 @@ class InteractionController:
         """B: debounce → preview fit (_fit_guess, non persistant)."""
         t = getattr(self._parent, "_live_fit_timer", None)
         if t is not None:
-            t.start(350)
+            t.start(800)
 
     def _on_live_fit_guess(self, _=None) -> None:
         p = self._parent

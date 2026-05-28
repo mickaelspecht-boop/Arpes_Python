@@ -17,7 +17,8 @@ import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QGroupBox, QPushButton,
-    QDoubleSpinBox, QCheckBox, QLabel, QScrollArea, QComboBox, QLineEdit
+    QDoubleSpinBox, QCheckBox, QLabel, QScrollArea, QComboBox, QLineEdit,
+    QSizePolicy
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
@@ -67,6 +68,7 @@ class FSControlPanel(QScrollArea):
     gamma_requested = pyqtSignal()
     manual_center_requested = pyqtSignal(bool)
     bz_preset_requested = pyqtSignal()
+    distortion_fs_toggled = pyqtSignal(bool)
     # --- Overlay BZ cristal (MP) -----------------------------------------
     mp_lattice_fetch_requested = pyqtSignal()   # bouton "Récup symétrie MP"
     bz_crystal_overlay_changed = pyqtSignal()   # toggles / V0 / plan / phi_c
@@ -83,8 +85,45 @@ class FSControlPanel(QScrollArea):
     def _dspin(self, value, lo, hi, step, dec=3):
         sp = QDoubleSpinBox()
         sp.setRange(lo, hi); sp.setSingleStep(step); sp.setDecimals(dec); sp.setValue(value)
+        sp.setKeyboardTracking(False)
         sp.valueChanged.connect(self.params_changed)
         return sp
+
+    def _add_collapsible_group(
+        self,
+        parent_lay: QVBoxLayout,
+        title: str,
+        group: QGroupBox,
+        *,
+        open_default: bool,
+    ) -> QPushButton:
+        group.setTitle("")
+        group.setFlat(True)
+        wrapper = QWidget()
+        lay = QVBoxLayout(wrapper)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        btn = QPushButton()
+        btn.setCheckable(True)
+        btn.setStyleSheet(
+            "QPushButton { background:#3a3a4a; color:#cde; padding:6px 8px;"
+            " border-radius:3px; font-weight:bold; text-align:left; }"
+            "QPushButton:checked { background:#4a4a6a; color:#fff; }"
+            "QPushButton:hover { background:#454560; }"
+        )
+        lay.addWidget(btn)
+        lay.addWidget(group)
+
+        def _set_open(opened: bool) -> None:
+            group.setVisible(bool(opened))
+            arrow = "▼" if opened else "▶"
+            btn.setText(f"{arrow}  {title}")
+
+        btn.clicked.connect(_set_open)
+        btn.setChecked(bool(open_default))
+        _set_open(bool(open_default))
+        parent_lay.addWidget(wrapper)
+        return btn
 
     def _build(self):
         lay = self._lay
@@ -92,9 +131,13 @@ class FSControlPanel(QScrollArea):
         grp_lat = QGroupBox("Réseau / unités π/a")
         fl = QFormLayout(grp_lat)
         self.sp_a = self._dspin(3.960, 1.0, 20.0, 0.01)
+        self.sp_a.setToolTip("Paramètre de maille a (Å), utilisé pour les unités π/a et résultats physiques.")
         self.sp_b = self._dspin(3.960, 1.0, 20.0, 0.01)
+        self.sp_b.setToolTip("Paramètre de maille b (Å), utilisé pour les unités π/a en carte FS.")
         self.sp_kx0 = self._dspin(0.0, -5.0, 5.0, 0.01)
+        self.sp_kx0.setToolTip("Centre Γ en kx (π/a) pour recentrer la carte FS.")
         self.sp_ky0 = self._dspin(0.0, -5.0, 5.0, 0.01)
+        self.sp_ky0.setToolTip("Centre Γ en ky (π/a) pour recentrer la carte FS.")
         fl.addRow("a (Å):", self.sp_a)
         fl.addRow("b (Å):", self.sp_b)
         fl.addRow("centre kx:", self.sp_kx0)
@@ -104,10 +147,15 @@ class FSControlPanel(QScrollArea):
         grp_fs = QGroupBox("Carte FS")
         fl2 = QFormLayout(grp_fs)
         self.sp_win = self._dspin(0.030, 0.001, 0.500, 0.005)
+        self.sp_win.setToolTip("Fenêtre d'intégration autour de EF pour construire l'intensité FS.")
         self.sp_ref_lo = self._dspin(-0.600, -5.000, 1.000, 0.050)
+        self.sp_ref_lo.setToolTip("Borne basse de référence pour la normalisation de flux.")
         self.sp_ref_hi = self._dspin(-0.200, -5.000, 1.000, 0.050)
+        self.sp_ref_hi.setToolTip("Borne haute de référence pour la normalisation de flux.")
         self.sp_sm = self._dspin(1.0, 0.0, 8.0, 0.25, dec=2)
+        self.sp_sm.setToolTip("Lissage gaussien appliqué à la carte FS affichée.")
         self.cmb_cmap = QComboBox(); self.cmb_cmap.addItems(["inferno", "viridis", "magma", "gray", "hot"])
+        self.cmb_cmap.setToolTip("Palette de couleur de la carte FS.")
         self.cmb_cmap.currentIndexChanged.connect(self.params_changed)
         self.chk_norm = QCheckBox("Normalisation flux par slice"); self.chk_norm.setChecked(True)
         self.chk_norm.setToolTip(
@@ -147,8 +195,8 @@ class FSControlPanel(QScrollArea):
         fl3.addRow("angle réseau:", self.sp_bz_angle)
         fl3.addRow("limite affichage:", self.sp_klim)
         fl3.addRow(btn_bz)
-        lay.addWidget(grp_bz)
         self._update_bz_angle_visibility()
+        self._add_collapsible_group(lay, "ZDB théorique", grp_bz, open_default=False)
 
         # --- Groupbox : overlay BZ cristal réel (lattice MP) ---------------
         grp_xb = QGroupBox("Mapping BZ cristal (Materials Project)")
@@ -204,12 +252,23 @@ class FSControlPanel(QScrollArea):
         fx.addRow(self.chk_bz_xtal)
         fx.addRow(self.chk_hs_xtal)
         fx.addRow(self.lbl_kz)
-        lay.addWidget(grp_xb)
+        self._add_collapsible_group(
+            lay, "Mapping BZ cristal (Materials Project)", grp_xb, open_default=False
+        )
 
         self.lbl_info = QLabel("Charge un fast map Solaris ou un dossier FS CLS.")
         self.lbl_info.setWordWrap(True)
         self.lbl_info.setStyleSheet("color:#aaa; font-size:10px;")
         lay.addWidget(self.lbl_info)
+        self.chk_distortion_fs = QCheckBox("Appliquer distorsion BM au volume FS")
+        self.chk_distortion_fs.setChecked(False)
+        self.chk_distortion_fs.setToolTip(
+            "Applique au volume FS la calibration de distorsion BM partagée\n"
+            "(trapèze uniquement). La calibration doit venir d'une BM de même\n"
+            "géométrie analyseur : lens/pass energy/hν."
+        )
+        self.chk_distortion_fs.toggled.connect(self.distortion_fs_toggled)
+        lay.addWidget(self.chk_distortion_fs)
         btn = compact_button(QPushButton("Redessiner FS"), max_width=160)
         btn.clicked.connect(self.redraw_requested)
         lay.addWidget(btn)
@@ -406,8 +465,14 @@ def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
 class FermiSurfaceCanvas(QWidget):
     def __init__(self):
         super().__init__()
+        self.setMinimumSize(80, 80)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored,
+                           QSizePolicy.Policy.Expanding)
         self.fig = Figure(figsize=(7, 6), tight_layout=True)
         self.canvas = FigureCanvas(self.fig)
+        self.canvas.setMinimumSize(80, 80)
+        self.canvas.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                  QSizePolicy.Policy.Expanding)
         self.ax = self.fig.add_subplot(111)
         self._fs_map_cache: OrderedDict[tuple, tuple[np.ndarray, np.ndarray, np.ndarray, str]] = OrderedDict()
         self._fs_map_cache_max = 8

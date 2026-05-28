@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -41,7 +42,15 @@ def build_energy_section(panel, lay) -> None:
 
 def build_ef_section(panel, lay) -> None:
     panel._ef_widget = QGroupBox("EF / Chargement")
-    fl_ef = QFormLayout(panel._ef_widget)
+    ef_root = QVBoxLayout(panel._ef_widget)
+    ef_root.setContentsMargins(6, 6, 6, 6)
+    ef_root.setSpacing(6)
+
+    grp_calib = QGroupBox("Calibration énergie")
+    fl_calib = QFormLayout(grp_calib)
+    grp_session = QGroupBox("Provenance / session")
+    fl_session = QFormLayout(grp_session)
+
     panel.sp_phi = dspin(4.031, 3.0, 6.0, 0.01)
     panel.sp_phi.setToolTip("Fonction de travail φ (eV). Utilisée pour calculer E_kin → E−EF.")
     panel.sp_hv = dspin(0.0, 0.0, 500.0, 0.01, dec=4)
@@ -96,18 +105,20 @@ def build_ef_section(panel, lay) -> None:
     tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
     panel.txt_file_tags.setCompleter(tag_completer)
     panel.txt_file_tags.editingFinished.connect(panel.file_tags_changed)
-    fl_ef.addRow("φ (eV):", panel.sp_phi)
-    fl_ef.addRow("hν (eV):", hv_row)
-    fl_ef.addRow("EF offset:", panel.sp_ef)
-    fl_ef.addRow("Tags:", panel.txt_file_tags)
-    fl_ef.addRow(btn_log)
-    fl_ef.addRow(btn_ef)
-    fl_ef.addRow(panel.btn_ef_ref)
-    fl_ef.addRow(panel.btn_copy)
+    fl_calib.addRow("φ (eV):", panel.sp_phi)
+    fl_calib.addRow("hν (eV):", hv_row)
+    fl_calib.addRow("EF offset:", panel.sp_ef)
+    fl_calib.addRow(btn_ef)
+    fl_calib.addRow(panel.btn_ef_ref)
+    fl_session.addRow(btn_log)
+    fl_session.addRow("Tags:", panel.txt_file_tags)
+    fl_session.addRow(panel.btn_copy)
     panel.lbl_action = QLabel("Dernière action : aucune")
     panel.lbl_action.setWordWrap(True)
     panel.lbl_action.setStyleSheet("color:#9fc;font-size:10px;")
-    fl_ef.addRow(panel.lbl_action)
+    fl_session.addRow(panel.lbl_action)
+    ef_root.addWidget(grp_calib)
+    ef_root.addWidget(grp_session)
     lay.addWidget(panel._ef_widget)
 
 

@@ -430,6 +430,12 @@ class PlotController:
         return {id(artist) for artist in artists}
 
     def _clear_plot_overlays(self, ax) -> None:
+        legend = ax.get_legend()
+        if legend is not None:
+            try:
+                legend.remove()
+            except Exception:
+                pass
         active = {
             id(rect)
             for rect in (

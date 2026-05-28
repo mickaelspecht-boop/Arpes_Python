@@ -52,6 +52,43 @@ class TestPlotController(unittest.TestCase):
         out = compute_bandmap_display(raw, mode="Raw", edc_norm_enabled=True)
         self.assertIs(out.data, raw["data"])
 
+    def test_distortion_applies_to_fs_mean_bandmap(self):
+        kpar = np.linspace(-1.0, 1.0, 41)
+        ev = np.linspace(-0.4, 0.1, 31)
+        kk, ee = np.meshgrid(kpar, ev, indexing="ij")
+        data = np.exp(-((kk - 0.2 * ee) ** 2) / 0.04)
+        raw = {
+            "data": data,
+            "kpar": kpar,
+            "ev_arr": ev,
+            "metadata": {
+                "fs_data": np.zeros((3, kpar.size, ev.size), dtype=float),
+                "fs_kx": kpar,
+                "fs_ky": np.arange(3),
+                "fs_energy": ev,
+            },
+        }
+        cfg = {
+            "enabled": True,
+            "trapezoid": {
+                "enabled": True,
+                "slope_left": 0.05,
+                "slope_right": -0.05,
+                "pivot_ev": -0.1,
+            },
+            "parabola": {"enabled": False, "a": 0.0, "k0": 0.0},
+        }
+
+        out = compute_bandmap_display(
+            raw,
+            mode="Raw",
+            edc_norm_enabled=False,
+            distortion_correction=cfg,
+        )
+
+        self.assertTrue(out.distortion_info.get("applied"))
+        self.assertFalse(np.array_equal(out.data, data))
+
     def test_update_display_data_reuses_cross_file_display_cache(self):
         raw = self._raw()
         calls = []

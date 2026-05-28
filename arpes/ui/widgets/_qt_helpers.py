@@ -11,11 +11,13 @@ def dspin(val, lo, hi, step, dec=3) -> QDoubleSpinBox:
     w = QDoubleSpinBox()
     w.setRange(lo, hi); w.setSingleStep(step)
     w.setDecimals(dec); w.setValue(val); w.setFixedWidth(82)
+    w.setKeyboardTracking(False)
     return w
 
 
 def ispin(val, lo, hi) -> QSpinBox:
     w = QSpinBox(); w.setRange(lo, hi); w.setValue(val); w.setFixedWidth(60)
+    w.setKeyboardTracking(False)
     return w
 
 

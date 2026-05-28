@@ -28,17 +28,10 @@ from arpes.ui.widgets._qt_helpers import compact_button, dspin
 
 
 _HELP_TRAPEZE = (
-    "<b>Trapèze (θ)</b><br>"
-    "Si les bords gauche/droit de la BM sont inclinés (le détecteur Scienta "
-    "déforme le k-axe en fonction de E), redresser via deux pentes en "
-    "<i>Δkpar par eV</i>. Calibrer sur une mesure d'or polycristallin pour "
-    "que EF reste plat ±2 meV."
+    "<b>Trapèze θ</b> : redresse les bords inclinés de la BM."
 )
 _HELP_PARABOLE = (
-    "<b>Parabole (E)</b><br>"
-    "Aplatit la courbure parabolique des iso-énergies (artefact de lentille). "
-    "Warp axe E par <i>a·(kpar − k0)²</i>. Avec a&gt;0 si EF est concave "
-    "vers le bas. Ne soustrait <b>pas</b> la dispersion physique."
+    "<b>Parabole E</b> : aplatit la courbure instrumentale des iso-énergies."
 )
 
 
@@ -80,11 +73,11 @@ def build_bm_distortion_section(panel, lay) -> None:
     panel.rb_distortion_trap_sym = QRadioButton("Symétrique")
     panel.rb_distortion_trap_sym.setChecked(True)
     panel.rb_distortion_trap_sym.setToolTip(
-        "slope_R = -slope_L : trapèze qui s'élargit/rétrécit (artefact lentille)."
+        "slope_R = +slope_L : trapèze qui s'élargit/rétrécit (artefact lentille)."
     )
     panel.rb_distortion_trap_anti = QRadioButton("Antisymétrique")
     panel.rb_distortion_trap_anti.setToolTip(
-        "slope_R = +slope_L : parallélogramme (cisaillement, désalignement détecteur)."
+        "slope_R = -slope_L : parallélogramme (cisaillement, désalignement détecteur)."
     )
     panel.rb_distortion_trap_free = QRadioButton("Libre")
     panel.rb_distortion_trap_free.setToolTip("Bords gauche/droit indépendants.")
@@ -119,21 +112,33 @@ def build_bm_distortion_section(panel, lay) -> None:
     fl_trap.addRow("Pivot E (eV):", panel.sp_distortion_pivot)
     outer.addLayout(fl_trap)
 
-    def _sync_coupled(_=None):
-        sl = panel.sp_distortion_slope_l.value()
+    def _coupled_target(value: float) -> float | None:
         if panel.rb_distortion_trap_sym.isChecked():
-            target = -sl
+            return float(value)
         elif panel.rb_distortion_trap_anti.isChecked():
-            target = sl
-        else:
+            return -float(value)
+        return None
+
+    def _sync_right_from_left(_=None):
+        target = _coupled_target(panel.sp_distortion_slope_l.value())
+        if target is None:
             return
         panel.sp_distortion_slope_r.blockSignals(True)
         panel.sp_distortion_slope_r.setValue(target)
         panel.sp_distortion_slope_r.blockSignals(False)
 
-    panel.sp_distortion_slope_l.valueChanged.connect(_sync_coupled)
-    panel.rb_distortion_trap_sym.toggled.connect(_sync_coupled)
-    panel.rb_distortion_trap_anti.toggled.connect(_sync_coupled)
+    def _sync_left_from_right(_=None):
+        target = _coupled_target(panel.sp_distortion_slope_r.value())
+        if target is None:
+            return
+        panel.sp_distortion_slope_l.blockSignals(True)
+        panel.sp_distortion_slope_l.setValue(target)
+        panel.sp_distortion_slope_l.blockSignals(False)
+
+    panel.sp_distortion_slope_l.valueChanged.connect(_sync_right_from_left)
+    panel.sp_distortion_slope_r.valueChanged.connect(_sync_left_from_right)
+    panel.rb_distortion_trap_sym.toggled.connect(_sync_right_from_left)
+    panel.rb_distortion_trap_anti.toggled.connect(_sync_right_from_left)
 
     # Live preview : tout changement déclenche l'apparition de l'overlay
     # pointillé sur la BM (caché à nouveau après Apply / Reset).
@@ -232,7 +237,8 @@ def build_bm_distortion_section(panel, lay) -> None:
     btn_lay.setContentsMargins(0, 0, 0, 0)
     btn_lay.setHorizontalSpacing(4)
     btn_lay.setVerticalSpacing(3)
-    for i, b in enumerate((btn_apply, btn_auto, btn_reset, btn_calib)):
+    btn_reset.setStyleSheet("color:#ffd0d0;")
+    for i, b in enumerate((btn_auto, btn_calib, btn_apply, btn_reset)):
         b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         b.setMaximumWidth(170)
         btn_lay.addWidget(b, i // 2, i % 2)

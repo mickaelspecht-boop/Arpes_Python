@@ -33,6 +33,12 @@ class ClickablePairLabel(QLabel):
         self._n = 1
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setToolTip("Paire active : clic gauche ou flèche droite = suivante; clic droit ou flèche gauche = précédente.")
+        self.setAccessibleName("Sélecteur de paire MDC")
+        self.setAccessibleDescription(
+            "Change la paire de Lorentziennes active pour les paramètres initiaux du fit MDC."
+        )
         self.setStyleSheet(
             "background:#3a3a4a; color:#cde; font-weight:bold;"
             " padding:4px 8px; border-radius:3px; border:1px solid #556;"
@@ -54,18 +60,32 @@ class ClickablePairLabel(QLabel):
         else:
             self.setText(f"<  Paire {self._current + 1} / {self._n}  >")
 
+    def _step_pair(self, delta: int) -> None:
+        if self._n < 2:
+            return
+        self._current = (self._current + int(delta)) % self._n
+        self._update()
+        self.pair_changed.emit(self._current)
+
     def mousePressEvent(self, event):
         if self._n < 2:
             return
         if event.button() == Qt.MouseButton.LeftButton:
-            self._current = (self._current + 1) % self._n
+            self._step_pair(+1)
         elif event.button() == Qt.MouseButton.RightButton:
-            self._current = (self._current - 1) % self._n
+            self._step_pair(-1)
         else:
             super().mousePressEvent(event)
             return
-        self._update()
-        self.pair_changed.emit(self._current)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Right, Qt.Key.Key_Down, Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._step_pair(+1)
+            return
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Up):
+            self._step_pair(-1)
+            return
+        super().keyPressEvent(event)
 
 
 class FitParamsPanel(QScrollArea):
@@ -585,10 +605,6 @@ class FitParamsPanel(QScrollArea):
             grp.blockSignals(True)
             grp.setChecked(expanded)
             grp.blockSignals(False)
-            for i in range(grp.layout().count()):
-                w = grp.layout().itemAt(i).widget()
-                if w is not None:
-                    w.setVisible(expanded)
 
     def fit_section_states(self) -> dict[str, bool]:
         return {k: bool(g.isChecked()) for k, g in self._fit_sections.items()}
