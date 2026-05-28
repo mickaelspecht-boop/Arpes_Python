@@ -18,14 +18,15 @@ from arpes.physics import kink_analysis as ka
 @requires_scipy
 class TestBareParabolic:
     def test_recovers_linear(self):
+        # Pure linear data : v_F is uniquely defined but (k0, intercept) are
+        # degenerate (model E = v_F·(k − k0) + alpha·(k − k0)²). Test v_F only.
         k = np.linspace(-0.5, 0.5, 50)
-        E = -0.3 + 2.0 * (k - 0.1)  # linear, k0=0.1, vF=2 eV·Å
-        E_full = np.where(E < -0.05, E, np.nan)  # restrict deep
+        E = -0.3 + 2.0 * (k - 0.1)
+        E_full = np.where(E < -0.05, E, np.nan)
         ks = k[np.isfinite(E_full)]
         Es = E_full[np.isfinite(E_full)]
         res = ka.fit_bare_parabolic(ks, Es, window_eV=(-1.0, -0.05))
         assert abs(res["v_F"] - 2.0) < 1e-6
-        assert abs(res["k0"] - 0.1) < 1e-6
         assert abs(res["alpha"]) < 1e-6
 
 

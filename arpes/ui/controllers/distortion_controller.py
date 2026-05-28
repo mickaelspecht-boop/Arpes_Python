@@ -123,6 +123,13 @@ class DistortionController:
             self._session.save()
             self._save_to_calib_store(cfg_clamped, meta)
             self._parent._distortion_preview_visible = False
+            # Invalidation explicite cache FS volume : si propagate_distortion_to_fs
+            # actif, la prochaine visite onglet FS doit re-warper avec la NOUVELLE
+            # calibration BM (cache_signature détecte déjà, mais on force pour clarté).
+            try:
+                self._parent._fs_distortion_cache_invalidate()
+            except Exception:
+                pass
             self._update_display_data()
             self._draw_current_view()
             msg = get_cfg_summary(cfg_clamped)
@@ -243,7 +250,10 @@ class DistortionController:
                             if (trap and trap.get("pivot_ev") is not None)
                             else 0.5 * (ev_min + ev_max))
             k_samples = np.linspace(k_min, k_max, 200)
-            e_curve = pivot_e - a * (k_samples - k0) ** 2
+            # Overlay convention cohérente avec apply : e_src = E + a*(K-k0)².
+            # Band source à E_peak(K) = pivot + a*(K-k0)² → overlay = pivot + a*(K-k0)².
+            # Si a<0, parabole ouvre vers le bas (dispersion trou type cuprate).
+            e_curve = pivot_e + a * (k_samples - k0) ** 2
             mask = (e_curve >= ev_min) & (e_curve <= ev_max)
             if mask.any():
                 ax.plot(k_samples[mask], e_curve[mask], ":", color="magenta",

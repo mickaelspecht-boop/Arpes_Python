@@ -528,10 +528,16 @@ class FermiSurfaceCanvas(QWidget):
             fs_kind = meta.get("fs_kind", "")
             x = kx - params.kx_center
             y = ky - params.ky_center
+            # Center explicitly in signature : redondant avec _axis_signature(x/y)
+            # mais immune aux collisions et explicite à la relecture. Garantit
+            # qu'un changement de Γ (via set_center / detect_gamma) force toujours
+            # fresh_draw → recadrage xlim/ylim sur nouveau centre.
             signature = (
                 tuple(np.asarray(fs).shape),
                 _axis_signature(x),
                 _axis_signature(y),
+                round(float(params.kx_center), 8),
+                round(float(params.ky_center), 8),
             )
             for artist in list(self._overlay_artists):
                 try:

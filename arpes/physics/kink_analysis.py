@@ -226,7 +226,7 @@ def run_kink_analysis(
     elif lam < 0:
         notes.append("λ < 0 — unphysical for electron-boson coupling; "
                      "check bare-band window and dispersion sign.")
-    if E_exp.ptp() < 0.05:
+    if np.ptp(E_exp) < 0.05:
         notes.append("Dispersion span <50 meV — λ estimate fragile, widen range.")
 
     return KinkResult(
