@@ -519,249 +519,30 @@ class PlotController:
         self._waterfall_canvas.fig.tight_layout(pad=0.6)
         self._waterfall_canvas.redraw()
 
+    # Fit-overlay drawing methods live in fit_overlay_drawer.py; thin
+    # wrappers keep external callers (other controllers, tests) working.
     def _draw_kf_overlay(self, ax):
-        if self._fit_res is None:
-            # Even with no active fit, zone rectangles + other zone fits help context.
-            self._draw_zone_overlays(ax)
-            return
-        fr = self._fit_res
-        if self._axis_state_mismatch(fr):
-            ax.text(
-                0.5, 0.02,
-                "⚠ fit_result axes mismatch (grid/distortion changed) — "
-                "relancer le fit MDC",
-                transform=ax.transAxes, ha="center", va="bottom",
-                color="#fb923c", fontsize=8, alpha=0.95,
-            )
-            self._draw_zone_overlays(ax)
-            return
-        n  = self._params.sp_np.value()
-        ev_f = np.asarray(fr["e_fitted"])
-        chi2 = np.asarray(fr.get("chi2_red", []), dtype=float)
-        threshold = float(getattr(self._params, "sp_chi2_threshold", None).value()) if hasattr(self._params, "sp_chi2_threshold") else np.inf
-        bad_mask = chi2 > threshold if chi2.size == ev_f.size else np.zeros(ev_f.size, dtype=bool)
-        ensemble = fr.get("ensemble") or {}
-        km_std_all = ensemble.get("kF_minus_std") or []
-        kp_std_all = ensemble.get("kF_plus_std") or []
-        smooth_on = bool(getattr(self._params, "chk_smooth_kf", None)
-                         and self._params.chk_smooth_kf.isChecked())
-        sm_sigma = float(getattr(self._params, "sp_smooth_kf_sigma", None).value()
-                         if hasattr(self._params, "sp_smooth_kf_sigma") else 0.0)
-
-        def _smooth(arr):
-            from scipy.ndimage import gaussian_filter1d
-            a = np.asarray(arr, dtype=float)
-            if not smooth_on or sm_sigma <= 0 or a.size < 3:
-                return a
-            # respecte les NaN : interpolation locale via masque
-            mask = np.isfinite(a)
-            if not mask.any():
-                return a
-            x = np.arange(a.size, dtype=float)
-            a_interp = np.interp(x, x[mask], a[mask])
-            return gaussian_filter1d(a_interp, sigma=sm_sigma)
-
-        for i in range(n):
-            c = PAIR_COLORS[i % len(PAIR_COLORS)]
-            if i < len(fr.get("kF_minus", [])):
-                xerr_m = (np.asarray(km_std_all[i], dtype=float)
-                          if i < len(km_std_all) else None)
-                self._scatter_kf_with_chi2(
-                    ax, _smooth(fr["kF_minus"][i]), ev_f, bad_mask, c, "o",
-                    kf_std=xerr_m,
-                )
-            if i < len(fr.get("kF_plus", [])):
-                xerr_p = (np.asarray(kp_std_all[i], dtype=float)
-                          if i < len(kp_std_all) else None)
-                self._scatter_kf_with_chi2(
-                    ax, _smooth(fr["kF_plus"][i]), ev_f, bad_mask, c, "^",
-                    kf_std=xerr_p,
-                )
-        selected = list(getattr(self._parent, "_fit_selected", []) or [])
-        if selected:
-            ev_f = np.asarray(fr["e_fitted"])
-            sel_k: list[float] = []
-            sel_e: list[float] = []
-            for branch, pair_idx, point_idx in selected:
-                arrays = fr.get(branch) or []
-                if not (0 <= pair_idx < len(arrays)):
-                    continue
-                arr = np.asarray(arrays[pair_idx], dtype=float)
-                if not (0 <= point_idx < arr.size and point_idx < ev_f.size):
-                    continue
-                k_val = arr[point_idx]
-                e_val = ev_f[point_idx]
-                if not (np.isfinite(k_val) and np.isfinite(e_val)):
-                    continue
-                sel_k.append(float(k_val))
-                sel_e.append(float(e_val))
-            if sel_k:
-                ax.scatter(sel_k, sel_e, s=70, facecolors="none",
-                           edgecolors="#fbbf24", linewidths=1.6, zorder=7)
-        self._draw_fit_annotations(ax, fr)
-        self._draw_zone_overlays(ax)
+        from arpes.ui.controllers.fit_overlay_drawer import draw_kf_overlay
+        return draw_kf_overlay(self, ax)
 
     def _axis_state_mismatch(self, fr: dict) -> bool:
-        """True if fr was fitted under different grid/distortion state than now.
-
-        kF arrays in fr live in the (k, E) axis active at fit time. If the
-        user toggles distortion/grid since then, the BM is drawn on a different
-        axis and overlay points end up at the wrong physical k.
-        """
-        if not isinstance(fr, dict):
-            return False
-        fit_dist = fr.get("distorted")
-        fit_grid = fr.get("grid_active")
-        if fit_dist is None and fit_grid is None:
-            # Legacy fit_result without tags — assume consistent (back-compat).
-            return False
-        p = self._parent
-        if not getattr(p, "_current_path", None):
-            return False
-        entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
-        from arpes.physics.distortion import is_distortion_active
-        cur_dist = bool(
-            getattr(entry, "bm_distortion", None)
-            and is_distortion_active(entry.bm_distortion)
-        )
-        cur_grid = bool((getattr(entry, "grid_correction", None) or {}).get("enabled"))
-        if fit_dist is not None and bool(fit_dist) != cur_dist:
-            return True
-        if fit_grid is not None and bool(fit_grid) != cur_grid:
-            return True
-        return False
+        from arpes.ui.controllers.fit_overlay_drawer import axis_state_mismatch
+        return axis_state_mismatch(self, fr)
 
     def _draw_zone_overlays(self, ax) -> None:
-        """Overlay kF for every zone's fit_result (except active, already drawn)."""
-        p = self._parent
-        if not getattr(p, "_current_path", None):
-            return
-        entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
-        zones = getattr(entry, "fit_zones", None) or []
-        if not zones:
-            return
-        from arpes.ui.controllers.fit_zones_controller import ZONE_PALETTE
-        active_id = entry.active_zone_id
-        for z in zones:
-            zid = z.get("id")
-            fr = z.get("fit_result")
-            if not fr or zid == active_id:
-                continue
-            color = ZONE_PALETTE[int(z.get("color_idx", 0)) % len(ZONE_PALETTE)]
-            try:
-                ev_f = np.asarray(fr["e_fitted"], dtype=float)
-            except Exception:
-                continue
-            for branch, marker in (("kF_minus", "o"), ("kF_plus", "^")):
-                arrays = fr.get(branch) or []
-                for arr in arrays:
-                    a = np.asarray(arr, dtype=float)
-                    n = min(a.size, ev_f.size)
-                    if n == 0:
-                        continue
-                    valid = np.isfinite(a[:n]) & np.isfinite(ev_f[:n])
-                    if valid.any():
-                        ax.scatter(
-                            a[:n][valid], ev_f[:n][valid], s=5, marker=marker,
-                            color=color, alpha=0.65, zorder=4,
-                            label=f"{z.get('label')}" if marker == "o" else None,
-                        )
-        # Draw zone rectangles (semi-transparent)
-        try:
-            from matplotlib.patches import Rectangle
-        except ImportError:
-            return
-        for z in zones:
-            fp = z.get("fit_params", {})
-            try:
-                k0 = float(fp.get("k_min")); k1 = float(fp.get("k_max"))
-                e0 = float(fp.get("ev_start")); e1 = float(fp.get("ev_end"))
-            except Exception:
-                continue
-            color = ZONE_PALETTE[int(z.get("color_idx", 0)) % len(ZONE_PALETTE)]
-            alpha = 0.20 if z.get("id") == active_id else 0.08
-            lw = 1.8 if z.get("id") == active_id else 1.0
-            ax.add_patch(Rectangle(
-                (k0, e0), k1 - k0, e1 - e0,
-                fill=False, edgecolor=color, linewidth=lw, alpha=0.9,
-                linestyle="-" if z.get("active", True) else "--",
-                zorder=3,
-            ))
-            ax.text(
-                k0, e1, f" {z.get('label')}",
-                color=color, fontsize=7, va="bottom", ha="left",
-                alpha=0.95, zorder=4,
-            )
+        from arpes.ui.controllers.fit_overlay_drawer import draw_zone_overlays
+        return draw_zone_overlays(self, ax)
 
     def _scatter_kf_with_chi2(self, ax, k_values, ev_f, bad_mask, color, marker,
                               *, kf_std=None) -> None:
-        n = min(len(k_values), len(ev_f), len(bad_mask))
-        if n == 0:
-            return
-        k = np.asarray(k_values[:n], dtype=float)
-        e = np.asarray(ev_f[:n], dtype=float)
-        bad = np.asarray(bad_mask[:n], dtype=bool)
-        valid = np.isfinite(k) & np.isfinite(e)
-        good = valid & ~bad
-        # Barres d'erreur ensemble fit (σ statistique sur kF)
-        if kf_std is not None and good.any():
-            xerr = np.asarray(kf_std[:n], dtype=float)
-            xerr_good = xerr[good]
-            mask_finite_err = np.isfinite(xerr_good) & (xerr_good > 0)
-            if mask_finite_err.any():
-                idx = np.where(good)[0][mask_finite_err]
-                ax.errorbar(
-                    k[idx], e[idx], xerr=xerr[idx],
-                    fmt="none", ecolor=color, elinewidth=0.6,
-                    capsize=1.2, alpha=0.55, zorder=4,
-                )
-        if good.any():
-            ax.scatter(k[good], e[good], s=7, color=color, marker=marker,
-                       zorder=5, alpha=0.85)
-        if (valid & bad).any():
-            ax.scatter(k[valid & bad], e[valid & bad], s=20, color="#fb923c",
-                       marker=marker, edgecolors="black", linewidths=0.35,
-                       zorder=6, alpha=0.95)
+        from arpes.ui.controllers.fit_overlay_drawer import scatter_kf_with_chi2
+        return scatter_kf_with_chi2(
+            ax, k_values, ev_f, bad_mask, color, marker, kf_std=kf_std,
+        )
 
     def _draw_fit_annotations(self, ax, fr: dict) -> None:
-        p = self._parent
-        if not getattr(p, "_current_path", None):
-            return
-        entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
-        annotations = entry.annotations or {}
-        if not annotations:
-            return
-        ev_f = np.asarray(fr.get("e_fitted", []), dtype=float)
-        if ev_f.size == 0:
-            return
-        for branch in ("kF_minus", "kF_plus"):
-            arrays = fr.get(branch) or []
-            for note in annotations.get(branch, []):
-                try:
-                    pair_idx = int(note.get("pair", -1))
-                    point_idx = int(note.get("index", -1))
-                except Exception:
-                    continue
-                if not (0 <= pair_idx < len(arrays)):
-                    continue
-                arr = np.asarray(arrays[pair_idx], dtype=float)
-                if not (0 <= point_idx < arr.size and point_idx < ev_f.size):
-                    continue
-                k_val = arr[point_idx]
-                e_val = ev_f[point_idx]
-                if not (np.isfinite(k_val) and np.isfinite(e_val)):
-                    continue
-                text = str(note.get("text", "")).strip()
-                ax.plot(
-                    k_val, e_val, marker="*", markersize=12,
-                    color="#fde047", markeredgecolor="black", zorder=8,
-                )
-                if text:
-                    ax.annotate(
-                        text[:30], xy=(k_val, e_val), xytext=(5, 5),
-                        textcoords="offset points", fontsize=7,
-                        color="#fde047", zorder=9,
-                    )
+        from arpes.ui.controllers.fit_overlay_drawer import draw_fit_annotations
+        return draw_fit_annotations(self, ax, fr)
 
     # ─────────────────────────────────────────────────────────────────────────
     # MDC + EDC
@@ -803,248 +584,34 @@ class PlotController:
         )
 
     # ---------- A: drag kF init markers + snap-to-peak ----------
+    # kF drag handlers extracted to kf_drag_handlers.py — thin wrappers below.
     def _install_kf_drag_handlers(self) -> None:
-        """Connecte une seule fois pick/motion/release sur _mdc_edc."""
-        if getattr(self._parent, "_kf_drag_cids", None):
-            return
-        canvas = self._mdc_edc.canvas
-        cids = [
-            canvas.mpl_connect("pick_event", self._on_kf_pick),
-            canvas.mpl_connect("motion_notify_event", self._on_kf_motion),
-            canvas.mpl_connect("button_release_event", self._on_kf_release),
-        ]
-        self._parent._kf_drag_cids = cids
-        self._parent._kf_drag_active = None
+        from arpes.ui.controllers.kf_drag_handlers import install_kf_drag_handlers
+        return install_kf_drag_handlers(self)
 
     def _on_kf_pick(self, event) -> None:
-        art = event.artist
-        meta = getattr(art, "_kf_meta", None)
-        if meta is None:
-            return
-        self._parent._kf_drag_active = (meta[0], meta[1], art)
+        from arpes.ui.controllers.kf_drag_handlers import on_kf_pick
+        return on_kf_pick(self, event)
 
     def _on_kf_motion(self, event) -> None:
-        active = getattr(self._parent, "_kf_drag_active", None)
-        if not active or event.inaxes is None or event.xdata is None:
-            return
-        _pi, _sign, line = active
-        x = float(event.xdata)
-        line.set_xdata([x, x])
-        self._mdc_edc.canvas.draw_idle()
+        from arpes.ui.controllers.kf_drag_handlers import on_kf_motion
+        return on_kf_motion(self, event)
 
     def _on_kf_release(self, event) -> None:
-        active = getattr(self._parent, "_kf_drag_active", None)
-        if not active:
-            return
-        pi, sign, line = active
-        self._parent._kf_drag_active = None
-        if event.inaxes is None or event.xdata is None:
-            return
-        cx = float(self._params.sp_cx.value())
-        x_new = float(event.xdata)
-        # Snap-to-peak : pic le plus proche dans ±γ_init autour de x_new
-        x_snap = self._snap_to_mdc_peak(x_new)
-        if x_snap is not None:
-            x_new = x_snap
-        line.set_xdata([x_new, x_new])
-        kf_new = max(0.0, sign * (x_new - cx))
-        # Signal vers handler standard (mise à jour _pair_params + redraw)
-        self._params.kf_init_drag_changed.emit(int(pi), int(sign), float(kf_new))
+        from arpes.ui.controllers.kf_drag_handlers import on_kf_release
+        return on_kf_release(self, event)
 
     def _snap_to_mdc_peak(self, x_target: float) -> float | None:
-        res = self._get_mdc()
-        if res is None:
-            return None
-        from scipy.signal import find_peaks
-        from scipy.ndimage import gaussian_filter1d
-
-        kpar, mdc = res
-        s = max(1, int(self._params.sp_sfd.value()))
-        m_sm = gaussian_filter1d(np.nan_to_num(mdc), sigma=s)
-        gi = float(self._params.sp_gi.value())
-        window = max(gi * 2.0, 0.05)
-        mask = (kpar >= x_target - window) & (kpar <= x_target + window)
-        if int(mask.sum()) < 3:
-            return None
-        kw = kpar[mask]
-        mw = m_sm[mask]
-        rng = float(np.nanmax(mw) - np.nanmin(mw))
-        if rng <= 0:
-            return None
-        mn = (mw - np.nanmin(mw)) / rng
-        pks, _ = find_peaks(mn, height=0.3)
-        if pks.size == 0:
-            return None
-        # Pic le plus proche de la cible
-        i = int(np.argmin(np.abs(kw[pks] - x_target)))
-        return float(kw[pks[i]])
+        from arpes.ui.controllers.kf_drag_handlers import snap_to_mdc_peak
+        return snap_to_mdc_peak(self, x_target)
 
     def _on_kf_init_drag(self, pair_idx: int, sign: int, kf_new: float) -> None:
-        """Reçoit le résultat du drag → MAJ _pair_params + redraw + live guess."""
-        try:
-            params = self._params._pair_params
-            while len(params) <= pair_idx:
-                params.append({"kF_init": 0.30,
-                                "gamma_init": self._params.sp_gi.value(),
-                                "gamma_max": self._params.sp_gm.value()})
-            params[pair_idx]["kF_init"] = float(kf_new)
-            # Refléter dans le spinbox si la paire courante == pi
-            cur = getattr(self._params, "_current_pair", 0)
-            if cur == pair_idx:
-                self._params.sp_kfi.blockSignals(True)
-                self._params.sp_kfi.setValue(float(kf_new))
-                self._params.sp_kfi.blockSignals(False)
-        except Exception:
-            pass
-        # Re-dessine MDC + déclenche live guess (B)
-        try:
-            self._draw_mdc_edc()
-        except Exception:
-            pass
-        try:
-            self._parent._schedule_live_guess()
-        except Exception:
-            pass
+        from arpes.ui.controllers.kf_drag_handlers import on_kf_init_drag
+        return on_kf_init_drag(self, pair_idx, sign, kf_new)
 
     def _draw_mdc_edc(self):
-        from scipy.ndimage import gaussian_filter1d
-
-        ax_mdc = self._mdc_edc.axes[0]
-        ax_edc = self._edc_canvas.axes[0] if hasattr(self, "_edc_canvas") else None
-        ax_mdc.cla()
-        if ax_edc is not None:
-            ax_edc.cla()
-        self._mdc_edc._dark()
-        if hasattr(self, "_edc_canvas"):
-            self._edc_canvas._dark()
-
-        # ── MDC ──────────────────────────────────────────────────────────────
-        res = self._get_mdc()
-        if res is not None:
-            kpar, mdc = res
-            lo, hi = np.nanpercentile(mdc, [1, 99])
-            mdc_n = np.clip((mdc - lo) / (hi - lo + 1e-12), 0, 1)
-
-            ax_mdc.plot(kpar, mdc_n, color="white", lw=1.2, label="MDC", zorder=3)
-            ax_mdc.fill_between(kpar, 0, mdc_n, alpha=0.08, color="white", zorder=1)
-
-            kmin = self._params.sp_kmin.value()
-            kmax = self._params.sp_kmax.value()
-            ax_mdc.axvspan(kpar.min(), kmin, alpha=0.15, color="gray", zorder=0)
-            ax_mdc.axvspan(kmax, kpar.max(), alpha=0.15, color="gray", zorder=0)
-
-            pairs, mdc_smooth = build_model_pairs(
-                kpar, mdc_n,
-                n_pairs      = self._params.sp_np.value(),
-                gamma_init   = self._params.sp_gi.value(),
-                k_min        = kmin, k_max = kmax,
-                center_init  = self._params.sp_cx.value(),
-                smooth_sigma = self._params.sp_sfd.value(),
-            )
-
-            # ── courbe lissée détection (comme Igor "smooth before detect") ──
-            ax_mdc.plot(kpar, mdc_smooth, color="#aaa", lw=0.8, ls="-",
-                        alpha=0.55, label=f"lissé-det (σ={self._params.sp_sfd.value():.1f})", zorder=2)
-
-            # ── courbe lissée ajustement (utilisée par l'optimiseur scipy) ────
-            sff = self._params.sp_sff.value()
-            sfd = self._params.sp_sfd.value()
-            if sff > 0.5 and abs(sff - sfd) > 0.3:
-                _mdc_fit_sm = gaussian_filter1d(np.nan_to_num(mdc_n.copy()), sigma=max(0.5, sff))
-                ax_mdc.plot(kpar, _mdc_fit_sm, color="#ffa040", lw=0.8, ls="-",
-                            alpha=0.55, zorder=2, label=f"lissé-fit (σ={sff:.1f})")
-
-            # ── zone de contrainte xg (center_init ± xg_range) ───────────────
-            cx  = self._params.sp_cx.value()
-            xgr = self._params.sp_xg.value()
-            ax_mdc.axvspan(cx - xgr, cx + xgr, alpha=0.08, color="cyan",
-                           zorder=0, label=f"Fenêtre Γ ±{xgr:.2f}")
-            ax_mdc.axvline(cx, color="cyan", lw=0.6, ls=":", alpha=0.45, zorder=1)
-
-            # ── contrainte kF max (si active) ─────────────────────────────────
-            if not self._params.chk_k0a.isChecked():
-                k0m = self._params.sp_k0m.value()
-                ax_mdc.axvline(cx + k0m, color="plum", lw=0.9, ls=":", alpha=0.7, zorder=1,
-                               label=f"|kF|<{k0m:.2f}")
-                ax_mdc.axvline(cx - k0m, color="plum", lw=0.9, ls=":", alpha=0.7, zorder=1)
-
-            # ── marqueurs kF_init par paire (drag = nouveau kF_init) ─────────
-            n_p = self._params.sp_np.value()
-            self._kf_drag_lines = []
-            for pi, pp in enumerate(self._params._pair_params[:n_p]):
-                kf = pp.get("kF_init", 0.30)
-                pc = PAIR_COLORS[pi % len(PAIR_COLORS)]
-                ln_p = ax_mdc.axvline(cx + kf, color=pc, lw=1.2, ls="-.",
-                                       alpha=0.85, zorder=4, picker=6)
-                ln_m = ax_mdc.axvline(cx - kf, color=pc, lw=1.2, ls="-.",
-                                       alpha=0.85, zorder=4, picker=6)
-                ln_p._kf_meta = (pi, +1)
-                ln_m._kf_meta = (pi, -1)
-                self._kf_drag_lines.append((pi, +1, ln_p))
-                self._kf_drag_lines.append((pi, -1, ln_m))
-            self._install_kf_drag_handlers()
-
-            # ── modèle Lorentzien décomposé ───────────────────────────────────
-            gmax = self._params.sp_gm.value()
-            total = np.zeros_like(mdc_n)
-            for i, (curve, km, kp, cl, cr) in enumerate(pairs):
-                c = PAIR_COLORS[i % len(PAIR_COLORS)]
-                # zones γ_max autour des pics détectés (largeur maximale autorisée)
-                for k0 in (km, kp):
-                    ax_mdc.axvspan(k0 - gmax, k0 + gmax, alpha=0.05, color=c, zorder=0)
-                valid = np.isfinite(curve)
-                if valid.any():
-                    # courbe totale de la paire
-                    ax_mdc.plot(kpar, np.where(valid, curve, np.nan),
-                                color=c, lw=1.3, ls="--", zorder=4,
-                                label=f"P{i+1}  kF≈{abs(kp-km)/2:.3f}")
-                    # pics individuels (gauche / droite) — modèle Igor lor_pair
-                    for comp in (cl, cr):
-                        vc = np.isfinite(comp)
-                        if vc.any():
-                            ax_mdc.plot(kpar, np.where(vc, comp, np.nan),
-                                        color=c, lw=0.7, ls=":", alpha=0.55, zorder=3)
-                    total += np.where(valid, curve, 0.)
-            if n_p > 1:
-                ax_mdc.plot(kpar, total, color="white", lw=0.8, ls=":",
-                            alpha=0.45, label="Σ", zorder=4)
-
-            ax_mdc.axvline(0, color="w", lw=0.5, ls="--", alpha=0.3)
-            int_win = self._params.sp_int_win.value()
-            ax_mdc.set_xlabel("k// (π/a)", fontsize=8, color="w")
-            ax_mdc.set_ylabel("I (norm.)", fontsize=8, color="w")
-            ax_mdc.set_title(
-                f"MDC  E={self._sel_ev:.3f} eV  ±{int_win*1000:.0f} meV  |  {self._ef_offset_text()}",
-                fontsize=8, color="w")
-            ax_mdc.tick_params(colors="w", labelsize=7)
-            ax_mdc.legend(fontsize=7, facecolor="#333", labelcolor="w",
-                          loc="upper right", framealpha=0.7, ncol=2)
-            for sp in ax_mdc.spines.values(): sp.set_edgecolor("#555")
-
-        # ── EDC ──────────────────────────────────────────────────────────────
-        res2 = self._get_edc()
-        if ax_edc is not None and res2 is not None:
-            ev_arr, edc = res2
-            lo, hi = np.nanpercentile(edc, [1, 99])
-            edc_n = np.clip((edc - lo) / (hi - lo + 1e-12), 0, 1)
-
-            ax_edc.plot(ev_arr, edc_n, color="#7dd3fc", lw=1.2)
-            ax_edc.fill_between(ev_arr, 0, edc_n, alpha=0.15, color="#7dd3fc")
-            ax_edc.axvline(0, color="cyan", lw=0.8, ls="--", alpha=0.7)
-            ax_edc.axvline(self._sel_ev, color="lime", lw=1.0, ls=":")
-            self._draw_ef_label(ax_edc, horizontal=False)
-            ax_edc.set_xlabel("E − EF (eV)", fontsize=8, color="w")
-            ax_edc.set_ylabel("I (norm.)", fontsize=8, color="w")
-            ax_edc.set_title(f"EDC  k={self._sel_k:.3f} π/a  |  {self._ef_offset_text()}",
-                             fontsize=8, color="w")
-            ax_edc.tick_params(colors="w", labelsize=7)
-            for sp in ax_edc.spines.values(): sp.set_edgecolor("#555")
-
-        self._mdc_edc.fig.tight_layout(pad=0.5)
-        self._mdc_edc.redraw()
-        if hasattr(self, "_edc_canvas"):
-            self._edc_canvas.fig.tight_layout(pad=0.5)
-            self._edc_canvas.redraw()
+        from arpes.ui.controllers.mdc_edc_drawer import draw_mdc_edc
+        return draw_mdc_edc(self)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Interactions carte

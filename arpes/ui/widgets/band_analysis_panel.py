@@ -313,38 +313,9 @@ class BandAnalysisPanel(QWidget):
             "pair": self.tb_pair.value(),
         }
 
-    def show_tb_result(self, tb: dict, *, k: np.ndarray | None = None,
-                       E: np.ndarray | None = None,
-                       E_fit: np.ndarray | None = None):
-        p = tb.get("params", {})
-        per = tb.get("perr", {})
-        parts = [f"<b>Model:</b> {tb.get('model','')}"]
-        for name, v in p.items():
-            err = per.get(name, 0.0)
-            parts.append(f"<b>{name}</b>={v:.4f}±{err:.4f} eV")
-        if tb.get("m_eff_over_me") is not None:
-            parts.append(f"<b>m*/m</b>={tb['m_eff_over_me']:.3f}")
-        if tb.get("bandwidth_eV") is not None:
-            parts.append(f"<b>W</b>={tb['bandwidth_eV']:.3f} eV")
-        parts.append(f"χ²_red={tb.get('chi2_red',0.0):.2e} (N={tb.get('n_points',0)})")
-        self.tb_summary.setText(" — ".join(parts))
-        ax = self.tb_canvas.ax
-        ax.clear()
-        ax.set_facecolor("#1a1a1a")
-        if k is not None and E is not None:
-            ax.plot(k, E, "o", ms=3, color="#fbbf24", label="MDC peaks")
-        if k is not None and E_fit is not None:
-            order = np.argsort(k)
-            ax.plot(k[order], E_fit[order], "-", lw=1.5,
-                    color="#60a5fa", label="TB fit")
-        ax.set_xlabel("k (Å⁻¹)", color="#ddd")
-        ax.set_ylabel("E − E_F (eV)", color="#ddd")
-        ax.tick_params(colors="#ddd")
-        ax.legend(facecolor="#2b2b2b", edgecolor="#444", labelcolor="#ddd",
-                  fontsize=8)
-        self.tb_canvas.redraw()
-        notes = tb.get("notes") or []
-        self.tb_notes.setHtml("<br>".join(f"⚠ {n}" for n in notes) if notes else "")
+    def show_tb_result(self, tb, *, k=None, E=None, E_fit=None):
+        from arpes.ui.widgets.band_analysis_renders import show_tb_result
+        return show_tb_result(self, tb, k=k, E=E, E_fit=E_fit)
 
     # ------------------------------------------------------------------
     # Kink tab
@@ -440,36 +411,9 @@ class BandAnalysisPanel(QWidget):
             "E_F": self.kink_EF.value(),
         }
 
-    def show_kink_result(self, kink: dict):
-        lam = kink.get("lambda")
-        lam_err = kink.get("lambda_err")
-        vb = kink.get("v_bare")
-        parts = []
-        if lam is not None:
-            parts.append(f"<b>λ</b>={lam:.3f}" + (f"±{lam_err:.3f}" if lam_err else ""))
-        if vb is not None:
-            parts.append(f"v_bare={vb:.3f} eV·Å")
-        self.kink_summary.setText(" — ".join(parts) or "λ non extractible.")
-        E = np.asarray(kink.get("E_exp") or [])
-        re = np.asarray(kink.get("re_sigma") or [])
-        im = kink.get("im_sigma")
-        ax_re, ax_im = self.kink_canvas.axes
-        for ax in (ax_re, ax_im):
-            ax.clear(); ax.set_facecolor("#1a1a1a"); ax.tick_params(colors="#ddd")
-        ax_re.plot(E, re, "-o", ms=3, color="#fbbf24")
-        ax_re.set_ylabel("Re Σ (eV)", color="#ddd")
-        ax_re.axhline(0, color="#666", lw=0.5)
-        if im is not None:
-            ax_im.plot(E, np.asarray(im), "-o", ms=3, color="#60a5fa")
-            ax_im.set_ylabel("Im Σ (eV)", color="#ddd")
-        else:
-            ax_im.text(0.5, 0.5, "Γ_MDC absent → Im Σ N/A",
-                       ha="center", va="center", color="#aaa",
-                       transform=ax_im.transAxes)
-        ax_im.set_xlabel("E − E_F (eV)", color="#ddd")
-        self.kink_canvas.redraw()
-        notes = kink.get("notes") or []
-        self.kink_notes.setHtml("<br>".join(f"⚠ {n}" for n in notes) if notes else "")
+    def show_kink_result(self, kink):
+        from arpes.ui.widgets.band_analysis_renders import show_kink_result
+        return show_kink_result(self, kink)
 
     # ------------------------------------------------------------------
     # Gap tab
@@ -552,36 +496,9 @@ class BandAnalysisPanel(QWidget):
             "E_F": self.gap_EF.value(),
         }
 
-    def show_gap_result(self, gap: dict):
-        Ds = gap.get("deltas_meV") or []
-        errs = gap.get("delta_err_meV") or []
-        Gs = gap.get("gammas_meV") or []
-        parts = []
-        for i, D in enumerate(Ds):
-            e = errs[i] if i < len(errs) else 0.0
-            parts.append(f"Δ<sub>{i+1}</sub>={D:.2f}±{e:.2f} meV")
-        for i, G in enumerate(Gs):
-            parts.append(f"Γ<sub>{i+1}</sub>={G:.2f} meV")
-        parts.append(f"k_F={gap.get('k_F_inv_A', 0.0):.3f} Å⁻¹")
-        parts.append(f"χ²_red={gap.get('chi2_red', 0.0):.2e}")
-        self.gap_summary.setText(" — ".join(parts))
-        omega = np.asarray(gap.get("omega_meV") or [])
-        I_sym = np.asarray(gap.get("I_sym") or [])
-        I_fit = np.asarray(gap.get("I_fit") or [])
-        ax = self.gap_canvas.ax
-        ax.clear(); ax.set_facecolor("#1a1a1a"); ax.tick_params(colors="#ddd")
-        ax.plot(omega, I_sym, "o", ms=3, color="#fbbf24", label="symmetrized")
-        ax.plot(omega, I_fit, "-", lw=1.5, color="#60a5fa", label="Dynes fit")
-        for D in Ds:
-            ax.axvline(D, color="#a78bfa", ls="--", lw=0.6)
-            ax.axvline(-D, color="#a78bfa", ls="--", lw=0.6)
-        ax.set_xlabel("ω = E − E_F (meV)", color="#ddd")
-        ax.set_ylabel("I_sym", color="#ddd")
-        ax.legend(facecolor="#2b2b2b", edgecolor="#444", labelcolor="#ddd",
-                  fontsize=8)
-        self.gap_canvas.redraw()
-        notes = gap.get("notes") or []
-        self.gap_notes.setHtml("<br>".join(f"⚠ {n}" for n in notes) if notes else "")
+    def show_gap_result(self, gap):
+        from arpes.ui.widgets.band_analysis_renders import show_gap_result
+        return show_gap_result(self, gap)
 
     # ------------------------------------------------------------------
     # Summary tab
@@ -618,121 +535,11 @@ class BandAnalysisPanel(QWidget):
 
     def update_summary(self, ba: dict, *, has_fit: bool, n_points: int,
                        n_pairs: int) -> None:
-        """Rebuild the summary text + cross-validation note."""
-        lines: list[str] = []
-        lines.append("<table cellpadding='3' style='font-size:11px;'>")
-        lines.append("<tr><th align='left'>Source</th><th align='left'>Métrique</th>"
-                     "<th align='left'>Valeur</th><th align='left'>Note</th></tr>")
-        if has_fit:
-            lines.append(
-                f"<tr><td>MDC</td><td>points</td><td>{n_points}</td>"
-                f"<td>{n_pairs} paire(s)</td></tr>"
-            )
-        else:
-            lines.append("<tr><td colspan='4'><i>Aucun fit MDC. Lance le fit "
-                         "MDC pour activer les analyses.</i></td></tr>")
-            lines.append("</table>")
-            self.summary_text.setHtml("\n".join(lines))
-            return
-        tb = ba.get("tb") or {}
-        kink = ba.get("kink") or {}
-        gap = ba.get("gap") or {}
-        if tb:
-            params = tb.get("params", {})
-            perr = tb.get("perr", {})
-            for name, v in params.items():
-                err = perr.get(name, 0.0)
-                lines.append(
-                    f"<tr><td>TB</td><td>{name}</td>"
-                    f"<td>{v:+.4f} ± {err:.4f} eV</td><td></td></tr>"
-                )
-            if tb.get("m_eff_over_me") is not None:
-                lines.append(
-                    f"<tr><td>TB</td><td>m*/m</td>"
-                    f"<td>{tb['m_eff_over_me']:.3f}</td><td></td></tr>"
-                )
-            if tb.get("bandwidth_eV") is not None:
-                lines.append(
-                    f"<tr><td>TB</td><td>W (bandwidth)</td>"
-                    f"<td>{tb['bandwidth_eV']:.3f} eV</td><td></td></tr>"
-                )
-            lines.append(
-                f"<tr><td>TB</td><td>χ²_red</td>"
-                f"<td>{tb.get('chi2_red', 0.0):.2e}</td>"
-                f"<td>N={tb.get('n_points', 0)}</td></tr>"
-            )
-        if kink:
-            lam = kink.get("lambda")
-            err = kink.get("lambda_err")
-            vb = kink.get("v_bare")
-            if lam is not None:
-                note = ""
-                if lam < 0:
-                    note = "⚠ λ&lt;0 non physique"
-                elif lam > 2.5:
-                    note = "⚠ λ très élevé"
-                lines.append(
-                    f"<tr><td>Kink</td><td>λ</td>"
-                    f"<td>{lam:.3f}"
-                    + (f" ± {err:.3f}" if err else "")
-                    + f"</td><td>{note}</td></tr>"
-                )
-            if vb is not None:
-                lines.append(
-                    f"<tr><td>Kink</td><td>v_bare</td>"
-                    f"<td>{vb:.3f} eV·Å</td><td></td></tr>"
-                )
-        if gap:
-            for i, D in enumerate(gap.get("deltas_meV") or []):
-                errs = gap.get("delta_err_meV") or []
-                e = errs[i] if i < len(errs) else 0.0
-                lines.append(
-                    f"<tr><td>Gap</td><td>Δ<sub>{i+1}</sub></td>"
-                    f"<td>{D:.2f} ± {e:.2f} meV</td><td></td></tr>"
-                )
-            for i, G in enumerate(gap.get("gammas_meV") or []):
-                lines.append(
-                    f"<tr><td>Gap</td><td>Γ<sub>{i+1}</sub></td>"
-                    f"<td>{G:.2f} meV</td><td></td></tr>"
-                )
-            lines.append(
-                f"<tr><td>Gap</td><td>k_F</td>"
-                f"<td>{gap.get('k_F_inv_A', 0.0):.3f} Å⁻¹</td><td></td></tr>"
-            )
-            lines.append(
-                f"<tr><td>Gap</td><td>χ²_red</td>"
-                f"<td>{gap.get('chi2_red', 0.0):.2e}</td><td></td></tr>"
-            )
-        lines.append("</table>")
-        # Cross-validation block
-        cross = self._cross_validation_block(tb, kink)
-        if cross:
-            lines.append("<br><b>Cohérence:</b><br>")
-            lines.append(cross)
-        # All warnings consolidated
-        all_notes: list[str] = []
-        for label, payload in (("TB", tb), ("Kink", kink), ("Gap", gap)):
-            for n in payload.get("notes") or []:
-                all_notes.append(f"<b>[{label}]</b> {n}")
-        if all_notes:
-            lines.append("<br><br><b>Warnings:</b><br>")
-            lines.append("<br>".join(f"⚠ {n}" for n in all_notes))
-        self.summary_text.setHtml("\n".join(lines))
-
-    def _cross_validation_block(self, tb: dict, kink: dict) -> str | None:
-        m_over_me = tb.get("m_eff_over_me") if tb else None
-        lam = kink.get("lambda") if kink else None
-        if m_over_me is None or lam is None:
-            return None
-        predicted = 1.0 + lam
-        ratio = m_over_me / predicted if predicted > 0 else float("nan")
-        flag = ""
-        if abs(ratio - 1.0) > 0.3:
-            flag = " ⚠ écart &gt;30 % : revoir bare-band (kink) ou modèle TB."
-        return (
-            f"m*/m = {m_over_me:.3f} vs (1+λ) prédit = {predicted:.3f}"
-            f" — ratio = {ratio:.2f}.{flag}"
+        from arpes.ui.widgets.band_analysis_summary import render_summary_html
+        html = render_summary_html(
+            ba, has_fit=has_fit, n_points=n_points, n_pairs=n_pairs,
         )
+        self.summary_text.setHtml(html)
 
     # ------------------------------------------------------------------
     # Status row update (multi-stage badges)
@@ -860,23 +667,5 @@ class BandAnalysisPanel(QWidget):
     # ------------------------------------------------------------------
 
     def restore(self, ba: dict):
-        if "tb" in ba:
-            tb = ba["tb"]
-            self.show_tb_result(tb)
-        else:
-            self.tb_summary.setText("Aucun fit TB.")
-            self.tb_canvas.ax.clear(); self.tb_canvas.redraw()
-            self.tb_notes.clear()
-        if "kink" in ba:
-            self.show_kink_result(ba["kink"])
-        else:
-            self.kink_summary.setText("Aucune analyse de kink.")
-            for ax in self.kink_canvas.axes: ax.clear()
-            self.kink_canvas.redraw()
-            self.kink_notes.clear()
-        if "gap" in ba:
-            self.show_gap_result(ba["gap"])
-        else:
-            self.gap_summary.setText("Aucun fit de gap.")
-            self.gap_canvas.ax.clear(); self.gap_canvas.redraw()
-            self.gap_notes.clear()
+        from arpes.ui.widgets.band_analysis_renders import restore_all
+        return restore_all(self, ba)
