@@ -318,3 +318,73 @@ class BandAnalysisController:
         entry = self._current_entry()
         ba = getattr(entry, "band_analysis", None) if entry else None
         panel.restore(ba or {})
+        # Prerequisite badges + Run enable + Paire# visibility
+        fr = getattr(entry, "fit_result", None) if entry else None
+        n_pairs = 1
+        n_pts = 0
+        if fr:
+            e_fit = fr.get("e_fitted")
+            n_pts = 0 if e_fit is None else len(e_fit)
+            try:
+                n_pairs = max(
+                    len(fr.get("kF_minus") or []),
+                    len(fr.get("kF_plus") or []),
+                    1,
+                )
+            except Exception:
+                n_pairs = 1
+        try:
+            panel.update_prerequisites(
+                has_fit=bool(fr), n_pairs=n_pairs, n_points=n_pts,
+            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Auto-fill defaults from current context
+    # ------------------------------------------------------------------
+    def _autofill_band_analysis(self, target: str) -> None:
+        """Compute smart defaults for the requested tab and apply to UI."""
+        panel = getattr(self._parent, "_band_panel", None)
+        if panel is None:
+            return
+        entry = self._current_entry()
+        if entry is None:
+            return
+        defaults: dict = {}
+        # Branch heuristic : first branch with any finite values
+        fr = getattr(entry, "fit_result", None) or {}
+        chosen_branch = "kF_minus"
+        for b in ("kF_minus", "kF_plus"):
+            arrs = fr.get(b) or []
+            if arrs and any(
+                np.any(np.isfinite(np.asarray(arr, float))) for arr in arrs
+            ):
+                chosen_branch = b
+                break
+        defaults["branch"] = chosen_branch
+        # E_F from sp_ef spinner if available
+        try:
+            defaults["E_F"] = float(self._parent._params.sp_ef.value())
+        except Exception:
+            defaults["E_F"] = 0.0
+        if target == "tb":
+            try:
+                a = float(getattr(entry.meta, "crystal_a_angstrom", 0.0) or 0.0)
+            except Exception:
+                a = 0.0
+            if a > 0:
+                defaults["a"] = a
+        elif target == "kink":
+            e_fit = np.asarray(fr.get("e_fitted") or [], float)
+            if e_fit.size >= 4:
+                e_min = float(np.nanmin(e_fit))
+                e_max = float(np.nanmax(e_fit))
+                # Window = deepest 60% of dispersion, excluding near-EF 20%
+                span = e_max - e_min
+                defaults["window_lo"] = e_min
+                defaults["window_hi"] = e_min + 0.6 * span
+        elif target == "gap":
+            # ω_max ≈ 5× expected gap if known, else default 30 meV
+            defaults["omega_max_meV"] = 30.0
+        panel.apply_autofill(target, defaults)
