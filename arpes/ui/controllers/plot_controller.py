@@ -521,6 +521,8 @@ class PlotController:
 
     def _draw_kf_overlay(self, ax):
         if self._fit_res is None:
+            # Even with no active fit, zone rectangles + other zone fits help context.
+            self._draw_zone_overlays(ax)
             return
         fr = self._fit_res
         n  = self._params.sp_np.value()
@@ -587,6 +589,69 @@ class PlotController:
                 ax.scatter(sel_k, sel_e, s=70, facecolors="none",
                            edgecolors="#fbbf24", linewidths=1.6, zorder=7)
         self._draw_fit_annotations(ax, fr)
+        self._draw_zone_overlays(ax)
+
+    def _draw_zone_overlays(self, ax) -> None:
+        """Overlay kF for every zone's fit_result (except active, already drawn)."""
+        p = self._parent
+        if not getattr(p, "_current_path", None):
+            return
+        entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
+        zones = getattr(entry, "fit_zones", None) or []
+        if not zones:
+            return
+        from arpes.ui.controllers.fit_zones_controller import ZONE_PALETTE
+        active_id = entry.active_zone_id
+        for z in zones:
+            zid = z.get("id")
+            fr = z.get("fit_result")
+            if not fr or zid == active_id:
+                continue
+            color = ZONE_PALETTE[int(z.get("color_idx", 0)) % len(ZONE_PALETTE)]
+            try:
+                ev_f = np.asarray(fr["e_fitted"], dtype=float)
+            except Exception:
+                continue
+            for branch, marker in (("kF_minus", "o"), ("kF_plus", "^")):
+                arrays = fr.get(branch) or []
+                for arr in arrays:
+                    a = np.asarray(arr, dtype=float)
+                    n = min(a.size, ev_f.size)
+                    if n == 0:
+                        continue
+                    valid = np.isfinite(a[:n]) & np.isfinite(ev_f[:n])
+                    if valid.any():
+                        ax.scatter(
+                            a[:n][valid], ev_f[:n][valid], s=5, marker=marker,
+                            color=color, alpha=0.65, zorder=4,
+                            label=f"{z.get('label')}" if marker == "o" else None,
+                        )
+        # Draw zone rectangles (semi-transparent)
+        try:
+            from matplotlib.patches import Rectangle
+        except ImportError:
+            return
+        for z in zones:
+            fp = z.get("fit_params", {})
+            try:
+                k0 = float(fp.get("k_min")); k1 = float(fp.get("k_max"))
+                e0 = float(fp.get("ev_start")); e1 = float(fp.get("ev_end"))
+            except Exception:
+                continue
+            color = ZONE_PALETTE[int(z.get("color_idx", 0)) % len(ZONE_PALETTE)]
+            alpha = 0.20 if z.get("id") == active_id else 0.08
+            lw = 1.8 if z.get("id") == active_id else 1.0
+            ax.add_patch(Rectangle(
+                (k0, e0), k1 - k0, e1 - e0,
+                fill=False, edgecolor=color, linewidth=lw, alpha=0.9,
+                linestyle="-" if z.get("active", True) else "--",
+                zorder=3,
+            ))
+            ax.text(
+                k0, e1, f" {z.get('label')}",
+                color=color, fontsize=7, va="bottom", ha="left",
+                alpha=0.95, zorder=4,
+            )
 
     def _scatter_kf_with_chi2(self, ax, k_values, ev_f, bad_mask, color, marker,
                               *, kf_std=None) -> None:

@@ -79,6 +79,9 @@ class FileEntry:
     bm_distortion: dict = field(default_factory=dict)
     theory_overlay: dict = field(default_factory=dict)
     band_analysis: dict = field(default_factory=dict)  # TB fit / kink / gap results
+    fit_zones: list[dict] = field(default_factory=list)
+    # each zone : {id, label, color_idx, active, fit_params, fit_result|None}
+    active_zone_id: Optional[str] = None
     annotations: dict[str, list[dict]] = field(default_factory=dict)
 
     @property
@@ -264,6 +267,8 @@ class Session:
                 bm_distortion=edict.get("bm_distortion", {}) or {},
                 theory_overlay=edict.get("theory_overlay", {}) or {},
                 band_analysis=edict.get("band_analysis", {}) or {},
+                fit_zones=list(edict.get("fit_zones", []) or []),
+                active_zone_id=edict.get("active_zone_id"),
                 annotations=edict.get("annotations", {}) or {},
             )
             self.files[name] = entry

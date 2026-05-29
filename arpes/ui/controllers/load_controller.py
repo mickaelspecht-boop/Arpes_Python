@@ -521,6 +521,10 @@ class LoadController:
             self._parent._refresh_band_analysis_panel()
         except Exception:
             pass
+        try:
+            self._parent._refresh_zones_strip()
+        except Exception:
+            pass
 
     def _refresh_ui(self, d, prepared, path, *, entry_dirty: bool = False):
         entry = prepared.entry

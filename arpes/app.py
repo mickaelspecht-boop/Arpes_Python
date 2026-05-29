@@ -198,6 +198,8 @@ class ArpesExplorer(QMainWindow):
         self._batch_ctrl = BatchController(self)
         from arpes.ui.controllers.band_analysis_controller import BandAnalysisController
         self._band_analysis_ctrl = BandAnalysisController(self)
+        from arpes.ui.controllers.fit_zones_controller import FitZonesController
+        self._fit_zones_ctrl = FitZonesController(self)
 
         # Debouncers : évitent N redraws quand l'utilisateur clique-clique
         # rapidement sur un spinbox ou tape une valeur.
@@ -434,6 +436,16 @@ class ArpesExplorer(QMainWindow):
                 offsets["gamma_ref_source"] = ref.get("source", "")
                 offsets["target_polar"] = geom.get("polar")
                 offsets["target_tilt"] = geom.get("tilt")
+                p_ref = ref.get("polar")
+                p_target = geom.get("polar")
+                if p_ref is not None and p_target is not None:
+                    offsets["theta0_deg"] = (
+                        float(offsets.get("theta0_deg", 0.0) or 0.0)
+                        + float(p_ref)
+                        - float(p_target)
+                    )
+                    offsets["source"] = "gamma_reference_projected_to_bm_raw_polar"
+                    offsets["ref_polar"] = float(p_ref)
                 return offsets
 
         # Pour une autre FS CLS, on recentre les deux axes via la même rotation

@@ -113,6 +113,7 @@ def build_fit_controls(panel, lay) -> None:
 
     panel._fit_sections = {}
 
+    _build_zones_strip(panel, _fcl)
     _build_roi_group(panel, _fcl)
     _build_preset_combo(panel, _fcl)
     _build_init_section(panel, _fcl)
@@ -123,6 +124,12 @@ def build_fit_controls(panel, lay) -> None:
     _build_fit_buttons(panel, _fcl)
 
     lay.addWidget(panel._fit_controls_widget)
+
+
+def _build_zones_strip(panel, _fcl) -> None:
+    from arpes.ui.widgets.zones_strip import ZonesStrip
+    panel.zones_strip = ZonesStrip()
+    _fcl.addWidget(panel.zones_strip)
 
 
 def _build_roi_group(panel, _fcl) -> None:
