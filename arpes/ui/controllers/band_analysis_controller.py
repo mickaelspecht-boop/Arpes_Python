@@ -379,6 +379,54 @@ class BandAnalysisController:
         except Exception:
             pass
 
+    @staticmethod
+    def build_csv_rows(entry, ba: dict) -> list[tuple[str, str, str, str, str]]:
+        """Build the (source, metric, value, error, unit) row list for CSV export.
+
+        Pure function (no Qt) so it's directly testable.
+        """
+        rows: list[tuple[str, str, str, str, str]] = [
+            ("source", "metric", "value", "error", "unit"),
+        ]
+        fr = getattr(entry, "fit_result", None) or {}
+        if fr.get("e_fitted") is not None:
+            rows.append(("MDC", "n_points", str(len(fr["e_fitted"])), "", ""))
+        tb = ba.get("tb") or {}
+        for name, v in (tb.get("params") or {}).items():
+            err = (tb.get("perr") or {}).get(name, 0.0)
+            rows.append(("TB", name, f"{v:.6f}", f"{err:.6f}", "eV"))
+        if tb.get("m_eff_over_me") is not None:
+            rows.append(("TB", "m_eff_over_me",
+                         f"{tb['m_eff_over_me']:.4f}", "", ""))
+        if tb.get("bandwidth_eV") is not None:
+            rows.append(("TB", "W", f"{tb['bandwidth_eV']:.4f}", "", "eV"))
+        if tb.get("chi2_red") is not None:
+            rows.append(("TB", "chi2_red", f"{tb['chi2_red']:.4e}", "", ""))
+        kink = ba.get("kink") or {}
+        if kink.get("lambda") is not None:
+            err = kink.get("lambda_err") or 0.0
+            rows.append(("Kink", "lambda",
+                         f"{kink['lambda']:.4f}", f"{err:.4f}", ""))
+        if kink.get("v_bare") is not None:
+            rows.append(("Kink", "v_bare",
+                         f"{kink['v_bare']:.4f}", "", "eV.A"))
+        gap = ba.get("gap") or {}
+        for i, D in enumerate(gap.get("deltas_meV") or []):
+            errs = gap.get("delta_err_meV") or []
+            e = errs[i] if i < len(errs) else 0.0
+            rows.append(("Gap", f"Delta_{i+1}",
+                         f"{D:.4f}", f"{e:.4f}", "meV"))
+        for i, G in enumerate(gap.get("gammas_meV") or []):
+            rows.append(("Gap", f"Gamma_{i+1}",
+                         f"{G:.4f}", "", "meV"))
+        if gap.get("k_F_inv_A") is not None:
+            rows.append(("Gap", "k_F",
+                         f"{gap['k_F_inv_A']:.6f}", "", "A^-1"))
+        if gap.get("chi2_red") is not None:
+            rows.append(("Gap", "chi2_red",
+                         f"{gap['chi2_red']:.4e}", "", ""))
+        return rows
+
     def _export_band_analysis_csv(self) -> None:
         """Write all metrics from entry.band_analysis to a user-chosen CSV."""
         entry = self._current_entry()
@@ -400,38 +448,7 @@ class BandAnalysisController:
             return
         if not path.lower().endswith(".csv"):
             path = path + ".csv"
-        rows: list[tuple[str, str, str, str, str]] = []
-        rows.append(("source", "metric", "value", "error", "unit"))
-        fr = getattr(entry, "fit_result", None) or {}
-        if fr.get("e_fitted") is not None:
-            rows.append(("MDC", "n_points", str(len(fr["e_fitted"])), "", ""))
-        tb = ba.get("tb") or {}
-        for name, v in (tb.get("params") or {}).items():
-            err = (tb.get("perr") or {}).get(name, 0.0)
-            rows.append(("TB", name, f"{v:.6f}", f"{err:.6f}", "eV"))
-        if tb.get("m_eff_over_me") is not None:
-            rows.append(("TB", "m_eff_over_me", f"{tb['m_eff_over_me']:.4f}", "", ""))
-        if tb.get("bandwidth_eV") is not None:
-            rows.append(("TB", "W", f"{tb['bandwidth_eV']:.4f}", "", "eV"))
-        if tb.get("chi2_red") is not None:
-            rows.append(("TB", "chi2_red", f"{tb['chi2_red']:.4e}", "", ""))
-        kink = ba.get("kink") or {}
-        if kink.get("lambda") is not None:
-            err = kink.get("lambda_err") or 0.0
-            rows.append(("Kink", "lambda", f"{kink['lambda']:.4f}", f"{err:.4f}", ""))
-        if kink.get("v_bare") is not None:
-            rows.append(("Kink", "v_bare", f"{kink['v_bare']:.4f}", "", "eV.A"))
-        gap = ba.get("gap") or {}
-        for i, D in enumerate(gap.get("deltas_meV") or []):
-            errs = gap.get("delta_err_meV") or []
-            e = errs[i] if i < len(errs) else 0.0
-            rows.append(("Gap", f"Delta_{i+1}", f"{D:.4f}", f"{e:.4f}", "meV"))
-        for i, G in enumerate(gap.get("gammas_meV") or []):
-            rows.append(("Gap", f"Gamma_{i+1}", f"{G:.4f}", "", "meV"))
-        if gap.get("k_F_inv_A") is not None:
-            rows.append(("Gap", "k_F", f"{gap['k_F_inv_A']:.6f}", "", "A^-1"))
-        if gap.get("chi2_red") is not None:
-            rows.append(("Gap", "chi2_red", f"{gap['chi2_red']:.4e}", "", ""))
+        rows = self.build_csv_rows(entry, ba)
         try:
             import csv
             with open(path, "w", newline="", encoding="utf-8") as f:
@@ -443,16 +460,13 @@ class BandAnalysisController:
     # ------------------------------------------------------------------
     # Auto-fill defaults from current context
     # ------------------------------------------------------------------
-    def _autofill_band_analysis(self, target: str) -> None:
-        """Compute smart defaults for the requested tab and apply to UI."""
-        panel = getattr(self._parent, "_band_panel", None)
-        if panel is None:
-            return
-        entry = self._current_entry()
-        if entry is None:
-            return
+    @staticmethod
+    def compute_autofill_defaults(target: str, entry, *, ef_offset: float = 0.0) -> dict:
+        """Pure function returning the autofill dict for the chosen tab.
+
+        Decoupled from the panel + spinboxes so it's directly testable.
+        """
         defaults: dict = {}
-        # Branch heuristic : first branch with any finite values
         fr = getattr(entry, "fit_result", None) or {}
         chosen_branch = "kF_minus"
         for b in ("kF_minus", "kF_plus"):
@@ -463,11 +477,7 @@ class BandAnalysisController:
                 chosen_branch = b
                 break
         defaults["branch"] = chosen_branch
-        # E_F from sp_ef spinner if available
-        try:
-            defaults["E_F"] = float(self._parent._params.sp_ef.value())
-        except Exception:
-            defaults["E_F"] = 0.0
+        defaults["E_F"] = float(ef_offset)
         if target == "tb":
             try:
                 a = float(getattr(entry.meta, "crystal_a_angstrom", 0.0) or 0.0)
@@ -480,11 +490,23 @@ class BandAnalysisController:
             if e_fit.size >= 4:
                 e_min = float(np.nanmin(e_fit))
                 e_max = float(np.nanmax(e_fit))
-                # Window = deepest 60% of dispersion, excluding near-EF 20%
                 span = e_max - e_min
                 defaults["window_lo"] = e_min
                 defaults["window_hi"] = e_min + 0.6 * span
         elif target == "gap":
-            # ω_max ≈ 5× expected gap if known, else default 30 meV
             defaults["omega_max_meV"] = 30.0
+        return defaults
+
+    def _autofill_band_analysis(self, target: str) -> None:
+        panel = getattr(self._parent, "_band_panel", None)
+        if panel is None:
+            return
+        entry = self._current_entry()
+        if entry is None:
+            return
+        try:
+            ef = float(self._parent._params.sp_ef.value())
+        except Exception:
+            ef = 0.0
+        defaults = self.compute_autofill_defaults(target, entry, ef_offset=ef)
         panel.apply_autofill(target, defaults)

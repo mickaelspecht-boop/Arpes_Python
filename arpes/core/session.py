@@ -282,8 +282,11 @@ class Session:
         return self.files[filename]
 
     def set_fit_result(self, filename: str, fr: dict):
+        # Delegate to fit_result_store so the active-zone mirror is kept in
+        # sync automatically (single-setter pattern, per architect audit).
+        from arpes.core.fit_result_store import set_fit_result as _store_set
         entry = self.get_or_create(filename)
-        entry.fit_result = _to_serial(fr)
+        _store_set(entry, _to_serial(fr))
         self.save()
 
     def key_for_path(self, path: str | Path) -> str:

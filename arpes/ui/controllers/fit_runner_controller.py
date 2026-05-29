@@ -433,9 +433,10 @@ class FitRunnerController:
         p = self._parent
         p._fit_res = None
         if p._current_path:
+            from arpes.core.fit_result_store import clear_fit_result
             key = self._session.key_for_path(p._current_path)
             entry = self._session.get_or_create(key)
-            entry.fit_result = None
+            clear_fit_result(entry)
             entry.annotations = {}
             self._session.save()
             if hasattr(p, "_browser"):
@@ -635,9 +636,10 @@ class FitRunnerController:
                 self._params.load_fit_params(fp)
             except Exception:
                 pass
+            from arpes.core.fit_result_store import set_fit_result
             fr = z.get("fit_result")
             p._fit_res = fr
-            entry.fit_result = fr
+            set_fit_result(entry, fr, zone_id=zone_id)
             self._update_mdc_tab_label(fr)
             self._redraw_all_fit_views()
             return
@@ -716,10 +718,11 @@ class FitRunnerController:
                 self._status(f"Zone {zone.get('label')} échec : {exc}")
         # Active zone now drives single-fit views.
         if zctrl is not None:
+            from arpes.core.fit_result_store import set_fit_result
             active_z = zctrl.active_zone(entry)
             if active_z and active_z.get("fit_result"):
                 p._fit_res = active_z["fit_result"]
-                entry.fit_result = p._fit_res
+                set_fit_result(entry, p._fit_res, zone_id=active_z.get("id"))
         self._session.save()
         self._refresh_zones_strip()
         self._redraw_all_fit_views()

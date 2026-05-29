@@ -186,7 +186,7 @@ class FitZonesController:
         z = self.active_zone(entry)
         if z is None:
             return
-        entry.fit_result = z.get("fit_result")
+        set_fit_result(entry, z.get("fit_result"), zone_id=z.get("id"))
         try:
             fp = FitParams(**{
                 k: v for k, v in z.get("fit_params", {}).items()

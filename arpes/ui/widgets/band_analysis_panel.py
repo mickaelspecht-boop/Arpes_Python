@@ -112,13 +112,7 @@ class BandAnalysisPanel(QWidget):
     # Top status row (multi-stage progress + presets)
     # ------------------------------------------------------------------
 
-    PRESETS = {
-        "Custom": {},
-        "BaNi2P2": {"a": 4.143, "lattice": "square", "omega_max_meV": 25.0},
-        "Bi2212":  {"a": 5.40,  "lattice": "square", "omega_max_meV": 80.0},
-        "FeSe":    {"a": 3.77,  "lattice": "square", "omega_max_meV": 15.0},
-        "Cu(111)": {"a": 2.56,  "lattice": "hex",    "omega_max_meV": 5.0},
-    }
+    from arpes.ui.widgets.band_analysis_presets import PRESETS  # noqa: E402
 
     def _build_status_row(self) -> QWidget:
         w = QWidget()

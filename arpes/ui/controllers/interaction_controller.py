@@ -583,13 +583,14 @@ class InteractionController:
         return best
 
     def _persist_fit_result(self, fr: dict) -> None:
+        from arpes.core.fit_result_store import set_fit_result
         p = self._parent
         p._fit_res = fr
         path = getattr(p, "_current_path", None)
         if path:
             key = p._session.key_for_path(path)
             entry = p._session.get_or_create(key)
-            entry.fit_result = fr
+            set_fit_result(entry, fr)
             p._session.save()
         results = getattr(p, "_results", None)
         if results is not None and hasattr(results, "refresh_physics_only"):
