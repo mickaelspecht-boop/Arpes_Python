@@ -115,7 +115,7 @@ try:
         detect_scan_kind,
         ARPESData,
     )
-    from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
+    from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
     ERLAB_OK = True
 except Exception:
     load_arpes = None

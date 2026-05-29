@@ -43,14 +43,19 @@ class FitRunnerController:
     def _session(self):
         return self._parent._session
 
-    def _current_fit_params_hash(self, entry=None) -> str:
+    def _current_fit_params_hash(self, entry=None, *, fp=None) -> str:
         """Hash de l'état UI/données courant influant le fit MDC.
 
         Comparé au hash stocké dans fit_result : si différent → fit
         STALE (params modifiés depuis fit, résultat trompeur).
+
+        ``fp`` peut être passé explicitement pour utiliser un FitParams
+        précis (multi-zone) au lieu de relire l'UI (où seules les
+        paires 0 sont synchronisées via load_fit_params).
         """
         p = self._parent
-        fp = self._params.get_fit_params()
+        if fp is None:
+            fp = self._params.get_fit_params()
         if entry is None and getattr(p, "_current_path", None):
             key = self._session.key_for_path(p._current_path)
             entry = self._session.get_or_create(key)
@@ -118,7 +123,7 @@ class FitRunnerController:
         entry = p._current_entry() if hasattr(p, "_current_entry") else None
         from arpes.physics.distortion import is_distortion_active
         from arpes.physics.plot_compute import compute_bandmap_display
-        from arpes.physics.fs import remove_detector_grid_artifact
+        from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
         grid_cfg = entry.grid_correction if entry and (entry.grid_correction or {}).get("enabled") else None
         bm_dist = getattr(entry, "bm_distortion", None) if entry else None
         dist_cfg = bm_dist if (bm_dist and is_distortion_active(bm_dist)) else None
@@ -655,6 +660,13 @@ class FitRunnerController:
         n_ok = 0
         n_fail = 0
         zctrl = getattr(p, "_fit_zones_ctrl", None)
+        # MED-5: snapshot global γ BEFORE the loop so the asymmetric warning
+        # compares each zone against the same Γ instead of its own center_init
+        # (which load_fit_params would overwrite each iteration).
+        try:
+            gamma_global = float(self._params.sp_cx.value())
+        except Exception:
+            gamma_global = 0.0
         for i, zone in enumerate(active):
             self._status(f"Fit zone {i + 1}/{len(active)} ({zone.get('label')}) ...")
             QApplication.processEvents()
@@ -676,7 +688,9 @@ class FitRunnerController:
                         self._params, "_resolution_source_detail", "",
                     ),
                 )
-                fr["params_hash"] = self._current_fit_params_hash(entry)
+                # MED-6: hash from the zone's own fp, not from the partially
+                # synced UI (sp_kfi / sp_gi only reflect pair 0).
+                fr["params_hash"] = self._current_fit_params_hash(entry, fp=fp)
                 fr["zone_id"] = zone["id"]
                 fr["zone_label"] = zone.get("label")
                 from arpes.physics.distortion import is_distortion_active
@@ -685,11 +699,9 @@ class FitRunnerController:
                     and is_distortion_active(entry.bm_distortion)
                 )
                 fr["grid_active"] = bool((entry.grid_correction or {}).get("enabled"))
-                # Asymmetric warning (gamma_center heuristic from sp_cx)
                 if zctrl is not None:
                     try:
-                        gc = float(self._params.sp_cx.value())
-                        warn = zctrl.asymmetric_warning(zone, gc)
+                        warn = zctrl.asymmetric_warning(zone, gamma_global)
                         if warn:
                             fr["asymmetric_warning"] = warn
                             self._status(warn)

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
+from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.kz import kz_from_hv_kpar, fold_kz_to_1bz
 
 

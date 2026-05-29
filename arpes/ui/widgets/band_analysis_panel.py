@@ -152,14 +152,23 @@ class BandAnalysisPanel(QWidget):
         if name == "Custom":
             return
         preset = self.PRESETS.get(name, {})
-        if "a" in preset:
-            self.tb_a.setValue(float(preset["a"]))
-        if "lattice" in preset:
-            idx = self.tb_lattice.findText(preset["lattice"])
-            if idx >= 0:
-                self.tb_lattice.setCurrentIndex(idx)
-        if "omega_max_meV" in preset:
-            self.gap_omega_max.setValue(float(preset["omega_max_meV"]))
+        # MED-7: block child-widget signals so we don't trigger 3 cascading
+        # redraws / param-changed emissions while applying the preset.
+        widgets = [self.tb_a, self.tb_lattice, self.gap_omega_max]
+        prev = [w.blockSignals(True) for w in widgets]
+        try:
+            if "a" in preset:
+                self.tb_a.setValue(float(preset["a"]))
+            if "lattice" in preset:
+                idx = self.tb_lattice.findText(preset["lattice"])
+                if idx >= 0:
+                    self.tb_lattice.setCurrentIndex(idx)
+                    self.tb_b.setEnabled(preset["lattice"] == "rect")
+            if "omega_max_meV" in preset:
+                self.gap_omega_max.setValue(float(preset["omega_max_meV"]))
+        finally:
+            for w, state in zip(widgets, prev):
+                w.blockSignals(state)
         self.preset_requested.emit(name)
 
     # ------------------------------------------------------------------

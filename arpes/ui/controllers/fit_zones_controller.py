@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 
+from arpes.core.fit_result_store import clear_fit_result, set_fit_result
 from arpes.core.session import FitParams
 
 
@@ -142,9 +143,7 @@ class FitZonesController:
         return {"ok": False, "error": "zone_not_found"}
 
     def _v_clear_results(self, entry, payload: dict) -> dict:
-        for z in entry.fit_zones:
-            z["fit_result"] = None
-        entry.fit_result = None
+        clear_fit_result(entry)
         self._save()
         return {"ok": True}
 
@@ -166,14 +165,12 @@ class FitZonesController:
             fp_snapshot = _params_to_dict(self._parent._params.get_fit_params())
         except Exception:
             fp_snapshot = None
-        for z in entry.fit_zones:
-            if z.get("id") == zone_id:
-                z["fit_result"] = fr
-                if fp_snapshot is not None:
+        if fp_snapshot is not None:
+            for z in entry.fit_zones:
+                if z.get("id") == zone_id:
                     z["fit_params"] = fp_snapshot
-                break
-        if entry.active_zone_id == zone_id:
-            entry.fit_result = fr
+                    break
+        set_fit_result(entry, fr, zone_id=zone_id)
         self._save()
 
     def active_zone(self, entry=None) -> dict | None:

@@ -5,7 +5,7 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
-from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
+from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.gamma import (
     apply_bm_gamma_axis_shift as _gamma_apply_bm_axis_shift,
     build_gamma_reference as _gamma_build_reference,
@@ -119,6 +119,27 @@ class GammaController:
                 self._tabs.setCurrentIndex(3)
             self._status("Centrage manuel Γ : clique sur le centre à viser dans la carte FS.")
 
+    def _sync_current_fs_gamma_to_bm_center(self, kx: float) -> None:
+        """Keep BM fit center aligned when Γ is picked/detected on current FS."""
+        if self._raw_data is None:
+            return
+        meta = self._raw_data.get("metadata", {}) or {}
+        if meta.get("fs_data") is None:
+            return
+        centered_axis = bool(
+            meta.get("angle_offsets_applied")
+            or meta.get("bm_gamma_axis_centered")
+            or meta.get("fs_gamma_axis_centered")
+        )
+        center = 0.0 if centered_axis else float(kx)
+        sp_cx = getattr(self._params, "sp_cx", None)
+        if sp_cx is not None and hasattr(sp_cx, "setValue"):
+            sp_cx.setValue(center)
+        if self._current_path:
+            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
+            entry.fit_params.center_init = center
+            self._session.save()
+
     def _on_fs_map_click(self, event):
         if not getattr(self, "_fs_pick_center_active", False):
             return
@@ -137,6 +158,7 @@ class GammaController:
         ky = float(params.ky_center + event.ydata)
         self._fs_controls.set_center(kx, ky)
         self._store_fs_center_reference(kx, ky, source="fs_manual")
+        self._sync_current_fs_gamma_to_bm_center(kx)
         self._set_fs_center_pick_mode(False)
         self._draw_fs_tab()
         msg = f"Gamma FS manuel : kx={kx:+.4f}, ky={ky:+.4f} π/a"
@@ -156,10 +178,27 @@ class GammaController:
             res = self._fs_canvas.detect_gamma(self._raw_data, params)
             self._fs_controls.set_center(res["kx"], res["ky"])
             self._store_fs_center_reference(res["kx"], res["ky"], source="fs_auto")
+            self._sync_current_fs_gamma_to_bm_center(res["kx"])
             self._draw_fs_tab()
+            score = res.get("symmetry_score")
+            score_txt = ""
+            try:
+                score_f = float(score)
+                score_txt = f", corr={score_f:.2f}" if np.isfinite(score_f) else ""
+            except (TypeError, ValueError):
+                pass
+            quality = res.get("quality", "?")
+            delta = res.get("gamma_delta_kx")
+            delta_txt = ""
+            try:
+                delta_f = float(delta)
+                delta_txt = f", Δkx={delta_f:+.3f}" if np.isfinite(delta_f) else ""
+            except (TypeError, ValueError):
+                pass
             msg = (f"Gamma FS détecté : kx={res['kx']:+.4f}, ky={res['ky']:+.4f} π/a "
                    f"| {len(res.get('gamma_kx_list', []))} coupes kx, "
-                   f"{len(res.get('gamma_ky_list', []))} coupes ky")
+                   f"{len(res.get('gamma_ky_list', []))} coupes ky"
+                   f" | qualité={quality}{score_txt}{delta_txt}")
             self._status(msg)
             if hasattr(self._params, "mark_action_done"):
                 self._params.mark_action_done(f"Gamma FS détecté ({res['kx']:+.4f}, {res['ky']:+.4f})")
@@ -190,8 +229,7 @@ class GammaController:
         )
 
     def _center_current_bm_axis_on_gamma(self, gamma_bm: float, ref: dict | None = None) -> bool:
-        """Wrapper UI : délègue à `arpes_gamma.apply_bm_gamma_axis_shift` puis
-        synchronise la sélection MDC `_sel_k`."""
+        """Center the current BM display axis from an explicit Γ action."""
         if self._raw_data is None:
             return False
         applied = _gamma_apply_bm_axis_shift(self._raw_data, gamma_bm, ref=ref)
@@ -228,24 +266,12 @@ class GammaController:
                     )
                     if not np.isfinite(kx_fs) or not np.isfinite(ky_fs):
                         return
-                shifted = _gamma_apply_bm_axis_shift(
-                    self._raw_data, float(kx_fs), ref=ref,
-                    allow_fs=True, gamma_ky=float(ky_fs),
-                )
-                if shifted:
-                    self._fs_controls.set_center(0.0, 0.0)
-                    if hasattr(self, "_sel_k"):
-                        self._sel_k = float(self._sel_k - float(kx_fs))
-                    if save_entry and entry is not None:
-                        entry.fs_center_kx = 0.0
-                        entry.fs_center_ky = 0.0
-                        self._session.save()
-                else:
-                    self._fs_controls.set_center(float(kx_fs), float(ky_fs))
-                    if save_entry and entry is not None:
-                        entry.fs_center_kx = float(kx_fs)
-                        entry.fs_center_ky = float(ky_fs)
-                        self._session.save()
+                self._fs_controls.set_center(float(kx_fs), float(ky_fs))
+                self._sync_current_fs_gamma_to_bm_center(float(kx_fs))
+                if save_entry and entry is not None:
+                    entry.fs_center_kx = float(kx_fs)
+                    entry.fs_center_ky = float(ky_fs)
+                    self._session.save()
                 if not same:
                     self._status(f"Γ FS propagé par azimut : kx={kx_fs:+.4f}, ky={ky_fs:+.4f} π/a")
                 return

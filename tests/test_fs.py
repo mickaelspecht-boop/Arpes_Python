@@ -5,6 +5,7 @@ toute régression sémantique au moment du déplacement Qt → ui/widgets/fs.py.
 """
 import os
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 from matplotlib.collections import QuadMesh
@@ -17,10 +18,17 @@ except Exception:  # pragma: no cover
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from arpes.physics.fs import FermiSurfaceCanvas, FSParams, _fs_cache_key, _robust_norm, extract_fs_map
+    from arpes.physics.fs import FSParams, _fs_cache_key, _robust_norm, extract_fs_map
+    from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas
     HAS_FS = True
 except Exception:  # pragma: no cover
     HAS_FS = False
+
+try:
+    from arpes.physics.fs_gamma import detect_gamma_from_fs_map
+    HAS_FS_GAMMA = True
+except Exception:  # pragma: no cover
+    HAS_FS_GAMMA = False
 
 
 @unittest.skipUnless(HAS_FS, "arpes.physics.fs indisponible")
@@ -69,6 +77,18 @@ def _make_kxky_volume(n_kx=20, n_ky=18, n_e=12, ef_idx=6, peak=(0.0, 0.0)):
     for i, e in enumerate(ev):
         vol[:, :, i] = fs_at_ef * np.exp(-(e ** 2) / (2 * 0.030 ** 2))
     return kx, ky, ev, vol
+
+
+def _make_shifted_ring_map(center=(0.18, -0.11), n_kx=81, n_ky=75, *, asym=False):
+    kx = np.linspace(-1.0, 1.0, n_kx)
+    ky = np.linspace(-0.9, 0.9, n_ky)
+    KX, KY = np.meshgrid(kx, ky)
+    cx, cy = center
+    r = np.sqrt((KX - cx) ** 2 + (KY - cy) ** 2)
+    fs = np.exp(-((r - 0.45) ** 2) / (2 * 0.035 ** 2))
+    if asym:
+        fs = fs * np.where((KX > cx) & (KY > cy), 0.18, 1.0)
+    return kx, ky, fs
 
 
 @unittest.skipUnless(HAS_FS, "arpes.physics.fs indisponible")
@@ -158,6 +178,62 @@ class TestExtractFSMap(unittest.TestCase):
         p1 = FSParams(ef_window=0.030, smooth_sigma=0.5, normalize_profile=False)
         p2 = FSParams(ef_window=0.050, smooth_sigma=0.5, normalize_profile=False)
         self.assertNotEqual(_fs_cache_key(raw, p1), _fs_cache_key(raw, p2))
+
+
+@unittest.skipUnless(HAS_FS_GAMMA, "arpes.physics.fs_gamma indisponible")
+class TestFSGammaDetection(unittest.TestCase):
+    def test_detect_gamma_recovers_shifted_symmetric_ring(self):
+        kx, ky, fs = _make_shifted_ring_map(center=(0.18, -0.11))
+        params = SimpleNamespace(klim=0.8, kx_center=0.0, ky_center=0.0)
+
+        res = detect_gamma_from_fs_map(kx, ky, fs, params)
+
+        self.assertAlmostEqual(res.kx, 0.18, delta=0.035)
+        self.assertAlmostEqual(res.ky, -0.11, delta=0.035)
+        self.assertGreaterEqual(len(res.gamma_kx_list), 10)
+        self.assertGreaterEqual(len(res.gamma_ky_list), 10)
+        self.assertEqual(res.quality, "high")
+        self.assertGreater(res.symmetry_score, 0.8)
+        self.assertAlmostEqual(res.kx_axis_center, 0.0, delta=1e-12)
+        self.assertAlmostEqual(res.ky_axis_center, 0.0, delta=1e-12)
+        self.assertAlmostEqual(res.gamma_delta_kx, res.kx - res.kx_axis_center, delta=1e-12)
+        self.assertAlmostEqual(res.gamma_delta_ky, res.ky - res.ky_axis_center, delta=1e-12)
+
+    def test_detect_gamma_reports_lower_quality_for_asymmetric_intensity(self):
+        kx, ky, fs_good = _make_shifted_ring_map(center=(0.18, -0.11))
+        _, _, fs_bad = _make_shifted_ring_map(center=(0.18, -0.11), asym=True)
+        params = SimpleNamespace(klim=0.8, kx_center=0.0, ky_center=0.0)
+
+        good = detect_gamma_from_fs_map(kx, ky, fs_good, params)
+        bad = detect_gamma_from_fs_map(kx, ky, fs_bad, params)
+
+        self.assertLess(bad.symmetry_score, good.symmetry_score)
+        self.assertIn(bad.quality, {"medium", "low"})
+
+    def test_canvas_detect_gamma_returns_quality_metrics(self):
+        if not HAS_FS:
+            self.skipTest("arpes.physics.fs indisponible")
+        kx, ky, ring = _make_shifted_ring_map(center=(0.16, -0.08), n_kx=81, n_ky=75)
+        ev = np.linspace(-0.03, 0.03, 7)
+        vol = np.repeat(ring[:, :, None], ev.size, axis=2)
+        raw = {
+            "data": np.zeros((81, 7)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        canvas = FermiSurfaceCanvas()
+
+        res = canvas.detect_gamma(raw, FSParams(ef_window=1.0, smooth_sigma=0.0,
+                                                normalize_profile=False, klim=0.8))
+
+        self.assertAlmostEqual(res["kx"], 0.16, delta=0.04)
+        self.assertAlmostEqual(res["ky"], -0.08, delta=0.04)
+        self.assertIn("symmetry_score", res)
+        self.assertIn("quality", res)
+        self.assertIn("gamma_delta_kx", res)
+        self.assertIn("kx_axis_center", res)
 
 
 @unittest.skipUnless(HAS_FS and QApplication is not None, "FS Qt indisponible")

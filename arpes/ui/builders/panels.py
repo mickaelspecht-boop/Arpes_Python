@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from arpes.physics.fs import FermiSurfaceCanvas, FSControlPanel
+from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.ui.widgets.help_panel import HelpPanel
 from arpes.ui.widgets.kz import KzCanvas, KzControlPanel
 from arpes.ui.widgets.plots.fs_compare import FsCompareCanvas
