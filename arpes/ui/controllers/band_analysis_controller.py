@@ -88,6 +88,17 @@ class BandAnalysisController:
             g_inv_A = g_inv_A[mask] if g_inv_A.size == mask.size else None
         return E, k_inv_A, g_inv_A
 
+    def _after_run_refresh(self, entry) -> None:
+        """Persist band_analysis and refresh status row + summary."""
+        try:
+            self._session.save()
+        except Exception:
+            pass
+        try:
+            self._refresh_band_analysis_panel()
+        except Exception:
+            pass
+
     def _ensure_band_analysis(self, entry) -> dict:
         ba = getattr(entry, "band_analysis", None) or {}
         if not isinstance(ba, dict):
@@ -174,6 +185,7 @@ class BandAnalysisController:
         panel.show_tb_result(ba["tb"], k=k, E=E,
                              E_fit=tb_fit.evaluate_tb_model(res, k,
                                   ky=np.zeros_like(k) if res.lattice_type != "chain" else None))
+        self._after_run_refresh(entry)
 
     # ------------------------------------------------------------------
     # Kink
@@ -224,6 +236,7 @@ class BandAnalysisController:
             "notes": res.notes,
         }
         panel.show_kink_result(ba["kink"])
+        self._after_run_refresh(entry)
 
     # ------------------------------------------------------------------
     # Gap
@@ -305,6 +318,7 @@ class BandAnalysisController:
             "I_fit": res.I_fit.tolist(),
         }
         panel.show_gap_result(ba["gap"])
+        self._after_run_refresh(entry)
 
     # ------------------------------------------------------------------
     # Restore on file switch
@@ -316,9 +330,8 @@ class BandAnalysisController:
         if panel is None:
             return
         entry = self._current_entry()
-        ba = getattr(entry, "band_analysis", None) if entry else None
-        panel.restore(ba or {})
-        # Prerequisite badges + Run enable + Paire# visibility
+        ba = (getattr(entry, "band_analysis", None) if entry else None) or {}
+        panel.restore(ba)
         fr = getattr(entry, "fit_result", None) if entry else None
         n_pairs = 1
         n_pts = 0
@@ -337,8 +350,75 @@ class BandAnalysisController:
             panel.update_prerequisites(
                 has_fit=bool(fr), n_pairs=n_pairs, n_points=n_pts,
             )
+            panel.update_stage_row(
+                ba, has_fit=bool(fr), n_points=n_pts, n_pairs=n_pairs,
+            )
+            panel.update_summary(
+                ba, has_fit=bool(fr), n_points=n_pts, n_pairs=n_pairs,
+            )
         except Exception:
             pass
+
+    def _export_band_analysis_csv(self) -> None:
+        """Write all metrics from entry.band_analysis to a user-chosen CSV."""
+        entry = self._current_entry()
+        if entry is None:
+            self._warn("Aucun fichier sélectionné.")
+            return
+        ba = getattr(entry, "band_analysis", None) or {}
+        if not ba:
+            self._warn("Aucune analyse à exporter. Lance TB / Kink / Gap d'abord.")
+            return
+        try:
+            from PyQt6.QtWidgets import QFileDialog
+            path, _ = QFileDialog.getSaveFileName(
+                self._parent, "Export analyse bande", "", "CSV (*.csv)",
+            )
+        except Exception:
+            path = ""
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path = path + ".csv"
+        rows: list[tuple[str, str, str, str, str]] = []
+        rows.append(("source", "metric", "value", "error", "unit"))
+        fr = getattr(entry, "fit_result", None) or {}
+        if fr.get("e_fitted") is not None:
+            rows.append(("MDC", "n_points", str(len(fr["e_fitted"])), "", ""))
+        tb = ba.get("tb") or {}
+        for name, v in (tb.get("params") or {}).items():
+            err = (tb.get("perr") or {}).get(name, 0.0)
+            rows.append(("TB", name, f"{v:.6f}", f"{err:.6f}", "eV"))
+        if tb.get("m_eff_over_me") is not None:
+            rows.append(("TB", "m_eff_over_me", f"{tb['m_eff_over_me']:.4f}", "", ""))
+        if tb.get("bandwidth_eV") is not None:
+            rows.append(("TB", "W", f"{tb['bandwidth_eV']:.4f}", "", "eV"))
+        if tb.get("chi2_red") is not None:
+            rows.append(("TB", "chi2_red", f"{tb['chi2_red']:.4e}", "", ""))
+        kink = ba.get("kink") or {}
+        if kink.get("lambda") is not None:
+            err = kink.get("lambda_err") or 0.0
+            rows.append(("Kink", "lambda", f"{kink['lambda']:.4f}", f"{err:.4f}", ""))
+        if kink.get("v_bare") is not None:
+            rows.append(("Kink", "v_bare", f"{kink['v_bare']:.4f}", "", "eV.A"))
+        gap = ba.get("gap") or {}
+        for i, D in enumerate(gap.get("deltas_meV") or []):
+            errs = gap.get("delta_err_meV") or []
+            e = errs[i] if i < len(errs) else 0.0
+            rows.append(("Gap", f"Delta_{i+1}", f"{D:.4f}", f"{e:.4f}", "meV"))
+        for i, G in enumerate(gap.get("gammas_meV") or []):
+            rows.append(("Gap", f"Gamma_{i+1}", f"{G:.4f}", "", "meV"))
+        if gap.get("k_F_inv_A") is not None:
+            rows.append(("Gap", "k_F", f"{gap['k_F_inv_A']:.6f}", "", "A^-1"))
+        if gap.get("chi2_red") is not None:
+            rows.append(("Gap", "chi2_red", f"{gap['chi2_red']:.4e}", "", ""))
+        try:
+            import csv
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerows(rows)
+            self._info(f"Export OK : {path}")
+        except Exception as exc:
+            self._warn(f"Échec export CSV : {exc}")
 
     # ------------------------------------------------------------------
     # Auto-fill defaults from current context

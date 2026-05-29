@@ -85,21 +85,82 @@ class BandAnalysisPanel(QWidget):
     kink_run_requested = pyqtSignal()
     gap_fit_requested = pyqtSignal()
     autofill_requested = pyqtSignal(str)  # tab name: "tb" | "kink" | "gap"
+    preset_requested = pyqtSignal(str)    # material name
+    csv_export_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._build()
         self._n_pairs = 1
         self._has_fit = False
+        self._last_ba: dict = {}
+        self._last_n_points: int = 0
 
     def _build(self):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(2)
+        lay.addWidget(self._build_status_row())
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_tb_tab(), "TB fit")
         self.tabs.addTab(self._build_kink_tab(), "Kink Σ(E)")
         self.tabs.addTab(self._build_gap_tab(), "Gap Δ")
+        self.tabs.addTab(self._build_summary_tab(), "Résumé")
         lay.addWidget(self.tabs)
+
+    # ------------------------------------------------------------------
+    # Top status row (multi-stage progress + presets)
+    # ------------------------------------------------------------------
+
+    PRESETS = {
+        "Custom": {},
+        "BaNi2P2": {"a": 4.143, "lattice": "square", "omega_max_meV": 25.0},
+        "Bi2212":  {"a": 5.40,  "lattice": "square", "omega_max_meV": 80.0},
+        "FeSe":    {"a": 3.77,  "lattice": "square", "omega_max_meV": 15.0},
+        "Cu(111)": {"a": 2.56,  "lattice": "hex",    "omega_max_meV": 5.0},
+    }
+
+    def _build_status_row(self) -> QWidget:
+        w = QWidget()
+        row = QHBoxLayout(w)
+        row.setContentsMargins(2, 2, 2, 2)
+        row.setSpacing(4)
+        self.stage_mdc = QLabel("○ MDC")
+        self.stage_tb = QLabel("○ TB")
+        self.stage_kink = QLabel("○ Kink")
+        self.stage_gap = QLabel("○ Gap")
+        for lbl in (self.stage_mdc, self.stage_tb, self.stage_kink, self.stage_gap):
+            lbl.setStyleSheet(
+                "color:#aaa; background:#222; padding:2px 6px;"
+                " border-radius:3px; font-size:10px;"
+            )
+            lbl.setMinimumWidth(60)
+            row.addWidget(lbl)
+        row.addStretch(1)
+        row.addWidget(QLabel("Preset:"))
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(list(self.PRESETS.keys()))
+        self.preset_combo.setToolTip(
+            "Pré-remplit tous les paramètres pour un matériau standard "
+            "(crystal a, lattice, ω_max gap)."
+        )
+        self.preset_combo.currentTextChanged.connect(self._on_preset_changed)
+        row.addWidget(self.preset_combo)
+        return w
+
+    def _on_preset_changed(self, name: str) -> None:
+        if name == "Custom":
+            return
+        preset = self.PRESETS.get(name, {})
+        if "a" in preset:
+            self.tb_a.setValue(float(preset["a"]))
+        if "lattice" in preset:
+            idx = self.tb_lattice.findText(preset["lattice"])
+            if idx >= 0:
+                self.tb_lattice.setCurrentIndex(idx)
+        if "omega_max_meV" in preset:
+            self.gap_omega_max.setValue(float(preset["omega_max_meV"]))
+        self.preset_requested.emit(name)
 
     # ------------------------------------------------------------------
     # Common helpers
@@ -512,6 +573,206 @@ class BandAnalysisPanel(QWidget):
         self.gap_canvas.redraw()
         notes = gap.get("notes") or []
         self.gap_notes.setHtml("<br>".join(f"⚠ {n}" for n in notes) if notes else "")
+
+    # ------------------------------------------------------------------
+    # Summary tab
+    # ------------------------------------------------------------------
+
+    def _build_summary_tab(self) -> QWidget:
+        w = QWidget()
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(2, 2, 2, 2)
+        outer.addWidget(self._header(
+            "Résumé consolidé : MDC + TB + Kink + Gap. Cohérence m*↔(1+λ). "
+            "Export CSV.",
+            "<b>Résumé</b><br>Toutes les métriques en une vue.<br><br>"
+            "<b>Cohérence m*/m vs (1+λ)</b> : Migdal-Eliashberg prédit "
+            "<i>m*/m_bare ≈ 1 + λ</i>. Écart &gt;30 %% signale soit un "
+            "couplage non phononique, soit une bare-band mal choisie.<br><br>"
+            "<b>CSV</b> : 1 ligne par métrique avec valeur, erreur, unité, source."
+        ))
+        self.summary_text = QTextBrowser()
+        self.summary_text.setStyleSheet(
+            "background:#1a1a1a; color:#ddd; font-family:monospace; font-size:11px;"
+        )
+        outer.addWidget(self.summary_text, 1)
+        btn_row = QHBoxLayout()
+        self.summary_csv_btn = QPushButton("Export CSV")
+        self.summary_csv_btn.setToolTip(
+            "Sauve un fichier CSV avec toutes les métriques mesurées."
+        )
+        self.summary_csv_btn.clicked.connect(self.csv_export_requested.emit)
+        btn_row.addWidget(self.summary_csv_btn)
+        btn_row.addStretch(1)
+        outer.addLayout(btn_row)
+        return w
+
+    def update_summary(self, ba: dict, *, has_fit: bool, n_points: int,
+                       n_pairs: int) -> None:
+        """Rebuild the summary text + cross-validation note."""
+        lines: list[str] = []
+        lines.append("<table cellpadding='3' style='font-size:11px;'>")
+        lines.append("<tr><th align='left'>Source</th><th align='left'>Métrique</th>"
+                     "<th align='left'>Valeur</th><th align='left'>Note</th></tr>")
+        if has_fit:
+            lines.append(
+                f"<tr><td>MDC</td><td>points</td><td>{n_points}</td>"
+                f"<td>{n_pairs} paire(s)</td></tr>"
+            )
+        else:
+            lines.append("<tr><td colspan='4'><i>Aucun fit MDC. Lance le fit "
+                         "MDC pour activer les analyses.</i></td></tr>")
+            lines.append("</table>")
+            self.summary_text.setHtml("\n".join(lines))
+            return
+        tb = ba.get("tb") or {}
+        kink = ba.get("kink") or {}
+        gap = ba.get("gap") or {}
+        if tb:
+            params = tb.get("params", {})
+            perr = tb.get("perr", {})
+            for name, v in params.items():
+                err = perr.get(name, 0.0)
+                lines.append(
+                    f"<tr><td>TB</td><td>{name}</td>"
+                    f"<td>{v:+.4f} ± {err:.4f} eV</td><td></td></tr>"
+                )
+            if tb.get("m_eff_over_me") is not None:
+                lines.append(
+                    f"<tr><td>TB</td><td>m*/m</td>"
+                    f"<td>{tb['m_eff_over_me']:.3f}</td><td></td></tr>"
+                )
+            if tb.get("bandwidth_eV") is not None:
+                lines.append(
+                    f"<tr><td>TB</td><td>W (bandwidth)</td>"
+                    f"<td>{tb['bandwidth_eV']:.3f} eV</td><td></td></tr>"
+                )
+            lines.append(
+                f"<tr><td>TB</td><td>χ²_red</td>"
+                f"<td>{tb.get('chi2_red', 0.0):.2e}</td>"
+                f"<td>N={tb.get('n_points', 0)}</td></tr>"
+            )
+        if kink:
+            lam = kink.get("lambda")
+            err = kink.get("lambda_err")
+            vb = kink.get("v_bare")
+            if lam is not None:
+                note = ""
+                if lam < 0:
+                    note = "⚠ λ&lt;0 non physique"
+                elif lam > 2.5:
+                    note = "⚠ λ très élevé"
+                lines.append(
+                    f"<tr><td>Kink</td><td>λ</td>"
+                    f"<td>{lam:.3f}"
+                    + (f" ± {err:.3f}" if err else "")
+                    + f"</td><td>{note}</td></tr>"
+                )
+            if vb is not None:
+                lines.append(
+                    f"<tr><td>Kink</td><td>v_bare</td>"
+                    f"<td>{vb:.3f} eV·Å</td><td></td></tr>"
+                )
+        if gap:
+            for i, D in enumerate(gap.get("deltas_meV") or []):
+                errs = gap.get("delta_err_meV") or []
+                e = errs[i] if i < len(errs) else 0.0
+                lines.append(
+                    f"<tr><td>Gap</td><td>Δ<sub>{i+1}</sub></td>"
+                    f"<td>{D:.2f} ± {e:.2f} meV</td><td></td></tr>"
+                )
+            for i, G in enumerate(gap.get("gammas_meV") or []):
+                lines.append(
+                    f"<tr><td>Gap</td><td>Γ<sub>{i+1}</sub></td>"
+                    f"<td>{G:.2f} meV</td><td></td></tr>"
+                )
+            lines.append(
+                f"<tr><td>Gap</td><td>k_F</td>"
+                f"<td>{gap.get('k_F_inv_A', 0.0):.3f} Å⁻¹</td><td></td></tr>"
+            )
+            lines.append(
+                f"<tr><td>Gap</td><td>χ²_red</td>"
+                f"<td>{gap.get('chi2_red', 0.0):.2e}</td><td></td></tr>"
+            )
+        lines.append("</table>")
+        # Cross-validation block
+        cross = self._cross_validation_block(tb, kink)
+        if cross:
+            lines.append("<br><b>Cohérence:</b><br>")
+            lines.append(cross)
+        # All warnings consolidated
+        all_notes: list[str] = []
+        for label, payload in (("TB", tb), ("Kink", kink), ("Gap", gap)):
+            for n in payload.get("notes") or []:
+                all_notes.append(f"<b>[{label}]</b> {n}")
+        if all_notes:
+            lines.append("<br><br><b>Warnings:</b><br>")
+            lines.append("<br>".join(f"⚠ {n}" for n in all_notes))
+        self.summary_text.setHtml("\n".join(lines))
+
+    def _cross_validation_block(self, tb: dict, kink: dict) -> str | None:
+        m_over_me = tb.get("m_eff_over_me") if tb else None
+        lam = kink.get("lambda") if kink else None
+        if m_over_me is None or lam is None:
+            return None
+        predicted = 1.0 + lam
+        ratio = m_over_me / predicted if predicted > 0 else float("nan")
+        flag = ""
+        if abs(ratio - 1.0) > 0.3:
+            flag = " ⚠ écart &gt;30 % : revoir bare-band (kink) ou modèle TB."
+        return (
+            f"m*/m = {m_over_me:.3f} vs (1+λ) prédit = {predicted:.3f}"
+            f" — ratio = {ratio:.2f}.{flag}"
+        )
+
+    # ------------------------------------------------------------------
+    # Status row update (multi-stage badges)
+    # ------------------------------------------------------------------
+
+    def _stage_style(self, *, done: bool) -> str:
+        if done:
+            return (
+                "color:#86efac; background:#14532d; padding:2px 6px;"
+                " border-radius:3px; font-size:10px;"
+            )
+        return (
+            "color:#aaa; background:#222; padding:2px 6px;"
+            " border-radius:3px; font-size:10px;"
+        )
+
+    def update_stage_row(self, ba: dict, *, has_fit: bool, n_points: int,
+                         n_pairs: int) -> None:
+        if has_fit:
+            self.stage_mdc.setText(f"✓ MDC {n_points} pts × {n_pairs}")
+            self.stage_mdc.setStyleSheet(self._stage_style(done=True))
+        else:
+            self.stage_mdc.setText("○ MDC")
+            self.stage_mdc.setStyleSheet(self._stage_style(done=False))
+        tb = ba.get("tb") or {}
+        if tb and tb.get("params"):
+            t_val = tb["params"].get("t")
+            txt = f"✓ TB t={t_val:+.3f}" if t_val is not None else "✓ TB"
+            self.stage_tb.setText(txt)
+            self.stage_tb.setStyleSheet(self._stage_style(done=True))
+        else:
+            self.stage_tb.setText("○ TB")
+            self.stage_tb.setStyleSheet(self._stage_style(done=False))
+        kink = ba.get("kink") or {}
+        lam = kink.get("lambda")
+        if lam is not None:
+            self.stage_kink.setText(f"✓ Kink λ={lam:.2f}")
+            self.stage_kink.setStyleSheet(self._stage_style(done=True))
+        else:
+            self.stage_kink.setText("○ Kink")
+            self.stage_kink.setStyleSheet(self._stage_style(done=False))
+        gap = ba.get("gap") or {}
+        Ds = gap.get("deltas_meV") or []
+        if Ds:
+            self.stage_gap.setText(f"✓ Gap Δ={Ds[0]:.1f}")
+            self.stage_gap.setStyleSheet(self._stage_style(done=True))
+        else:
+            self.stage_gap.setText("○ Gap")
+            self.stage_gap.setStyleSheet(self._stage_style(done=False))
 
     # ------------------------------------------------------------------
     # Prerequisite + n_pairs UI sync

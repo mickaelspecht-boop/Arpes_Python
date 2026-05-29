@@ -154,6 +154,7 @@ PROXY_MAP = {
     "_run_gap_fit": "_band_analysis_ctrl",
     "_refresh_band_analysis_panel": "_band_analysis_ctrl",
     "_autofill_band_analysis": "_band_analysis_ctrl",
+    "_export_band_analysis_csv": "_band_analysis_ctrl",
     # FitZonesController (single verb dispatch keeps the map small)
     "fit_zone_action": "_fit_zones_ctrl",
     "_refresh_zones_strip": "_fit_runner_ctrl",

@@ -281,6 +281,10 @@ def wire_ui_signals(window) -> None:
         window._band_panel.gap_fit_requested.connect(window._run_gap_fit)
         if hasattr(window._band_panel, "autofill_requested"):
             window._band_panel.autofill_requested.connect(window._autofill_band_analysis)
+        if hasattr(window._band_panel, "csv_export_requested"):
+            window._band_panel.csv_export_requested.connect(
+                window._export_band_analysis_csv
+            )
 
     if hasattr(window._params, "zones_strip"):
         zs = window._params.zones_strip
