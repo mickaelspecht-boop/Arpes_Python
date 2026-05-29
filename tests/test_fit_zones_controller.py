@@ -165,3 +165,76 @@ class TestPalette:
     def test_palette_has_distinct_colors(self):
         assert len(set(ZONE_PALETTE)) == len(ZONE_PALETTE)
         assert len(ZONE_PALETTE) >= 10
+
+
+class TestStoreResultSyncsFitParams:
+    """HIGH-4: store_result must snapshot current FitParams into the zone."""
+
+    def test_store_result_snapshots_fit_params(self, tmp_path):
+        sess = Session(folder=tmp_path)
+        key = "file.h5"
+        sess.get_or_create(key)
+        captured = FitParams(k_min=-0.42, k_max=0.42, n_pairs=2)
+
+        class P:
+            def __init__(self):
+                self._session = sess
+                self._current_path = tmp_path / key
+                self._params = _StubParams(captured)
+
+            def _status(self, m):
+                pass
+
+        ctrl = FitZonesController(P())
+        zid = ctrl.fit_zone_action(
+            "add", {"fit_params": FitParams(k_min=0.0, k_max=0.0, n_pairs=1)},
+        )["zone_id"]
+        new_fr = {"e_fitted": [0.0, -0.1], "kF_minus": [[0.05, 0.06]],
+                  "kF_plus": [[-0.05, -0.06]]}
+        ctrl.store_result(zid, new_fr)
+        entry = sess.files[key]
+        assert entry.fit_zones[0]["fit_result"] is new_fr
+        # fit_params snapshot from current spinboxes (captured) overwrote the
+        # original add-time params.
+        assert entry.fit_zones[0]["fit_params"]["k_min"] == -0.42
+        assert entry.fit_zones[0]["fit_params"]["n_pairs"] == 2
+
+
+class TestSaveErrorSurface:
+    """HIGH-3: save failures must reach the status bar instead of being swallowed."""
+
+    def test_save_failure_calls_status(self, tmp_path):
+        from types import SimpleNamespace
+
+        class FailingSession:
+            def __init__(self):
+                self.folder = tmp_path
+                self.files = {"f.h5": SimpleNamespace(
+                    fit_zones=[], active_zone_id=None,
+                )}
+
+            def get_or_create(self, k):
+                return self.files[k]
+
+            def key_for_path(self, p):
+                return "f.h5"
+
+            def save(self):
+                raise OSError("disk full")
+
+        sess = FailingSession()
+        messages: list[str] = []
+
+        class P:
+            def __init__(self):
+                self._session = sess
+                self._current_path = tmp_path / "f.h5"
+                self._params = _StubParams()
+
+            def _status(self, m):
+                messages.append(m)
+
+        ctrl = FitZonesController(P())
+        ctrl._save()
+        assert any("Sauvegarde session échouée" in m for m in messages)
+        assert any("disk full" in m for m in messages)

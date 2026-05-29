@@ -260,6 +260,12 @@ class FitRunnerController:
                     hv=p._raw_data["hv"],
                 )
                 fr["params_hash"] = self._current_fit_params_hash(entry)
+                from arpes.physics.distortion import is_distortion_active
+                fr["distorted"] = bool(
+                    entry.bm_distortion
+                    and is_distortion_active(entry.bm_distortion)
+                )
+                fr["grid_active"] = bool((entry.grid_correction or {}).get("enabled"))
                 self._session.set_fit_result(name, fr)
                 p._browser.refresh_item(name)
                 self._refresh_helper_buttons()
@@ -372,6 +378,15 @@ class FitRunnerController:
                 )
                 # F: empreinte des params au moment du fit -> détection stale
                 fr["params_hash"] = self._current_fit_params_hash(entry)
+                # Tag the axis state used during the fit so the overlay can
+                # refuse to plot when the user later toggles grid/distortion
+                # off (fit_result kF lives in the *original* warped axis).
+                from arpes.physics.distortion import is_distortion_active
+                fr["distorted"] = bool(
+                    entry.bm_distortion
+                    and is_distortion_active(entry.bm_distortion)
+                )
+                fr["grid_active"] = bool((entry.grid_correction or {}).get("enabled"))
                 self._session.set_fit_result(name, fr)
                 # Mirror to active zone if one exists (multi-zone workflow).
                 zctrl = getattr(p, "_fit_zones_ctrl", None)
@@ -664,6 +679,12 @@ class FitRunnerController:
                 fr["params_hash"] = self._current_fit_params_hash(entry)
                 fr["zone_id"] = zone["id"]
                 fr["zone_label"] = zone.get("label")
+                from arpes.physics.distortion import is_distortion_active
+                fr["distorted"] = bool(
+                    entry.bm_distortion
+                    and is_distortion_active(entry.bm_distortion)
+                )
+                fr["grid_active"] = bool((entry.grid_correction or {}).get("enabled"))
                 # Asymmetric warning (gamma_center heuristic from sp_cx)
                 if zctrl is not None:
                     try:

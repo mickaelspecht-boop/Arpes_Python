@@ -153,13 +153,24 @@ class FitZonesController:
 
     # ---------------------------------------------------------- result update
     def store_result(self, zone_id: str, fr: dict) -> None:
-        """Called by fit_runner after a per-zone fit completes."""
+        """Called by fit_runner after a per-zone fit completes.
+
+        Also snapshots current FitParams into the zone so the spinboxes,
+        overlay rect and fit_result stay coherent (HIGH-4 from audit).
+        """
         entry = self._entry()
         if entry is None:
             return
+        fp_snapshot: dict | None = None
+        try:
+            fp_snapshot = _params_to_dict(self._parent._params.get_fit_params())
+        except Exception:
+            fp_snapshot = None
         for z in entry.fit_zones:
             if z.get("id") == zone_id:
                 z["fit_result"] = fr
+                if fp_snapshot is not None:
+                    z["fit_params"] = fp_snapshot
                 break
         if entry.active_zone_id == zone_id:
             entry.fit_result = fr
@@ -205,8 +216,10 @@ class FitZonesController:
     def _save(self) -> None:
         try:
             self._parent._session.save()
-        except Exception:
-            pass
+        except Exception as exc:
+            self._status(
+                f"⚠ Sauvegarde session échouée ({exc}). Zones non persistées."
+            )
 
     def color_for_zone(self, zone: dict) -> str:
         idx = int(zone.get("color_idx", 0)) % len(ZONE_PALETTE)

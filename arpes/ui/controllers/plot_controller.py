@@ -525,6 +525,16 @@ class PlotController:
             self._draw_zone_overlays(ax)
             return
         fr = self._fit_res
+        if self._axis_state_mismatch(fr):
+            ax.text(
+                0.5, 0.02,
+                "⚠ fit_result axes mismatch (grid/distortion changed) — "
+                "relancer le fit MDC",
+                transform=ax.transAxes, ha="center", va="bottom",
+                color="#fb923c", fontsize=8, alpha=0.95,
+            )
+            self._draw_zone_overlays(ax)
+            return
         n  = self._params.sp_np.value()
         ev_f = np.asarray(fr["e_fitted"])
         chi2 = np.asarray(fr.get("chi2_red", []), dtype=float)
@@ -590,6 +600,36 @@ class PlotController:
                            edgecolors="#fbbf24", linewidths=1.6, zorder=7)
         self._draw_fit_annotations(ax, fr)
         self._draw_zone_overlays(ax)
+
+    def _axis_state_mismatch(self, fr: dict) -> bool:
+        """True if fr was fitted under different grid/distortion state than now.
+
+        kF arrays in fr live in the (k, E) axis active at fit time. If the
+        user toggles distortion/grid since then, the BM is drawn on a different
+        axis and overlay points end up at the wrong physical k.
+        """
+        if not isinstance(fr, dict):
+            return False
+        fit_dist = fr.get("distorted")
+        fit_grid = fr.get("grid_active")
+        if fit_dist is None and fit_grid is None:
+            # Legacy fit_result without tags — assume consistent (back-compat).
+            return False
+        p = self._parent
+        if not getattr(p, "_current_path", None):
+            return False
+        entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
+        from arpes.physics.distortion import is_distortion_active
+        cur_dist = bool(
+            getattr(entry, "bm_distortion", None)
+            and is_distortion_active(entry.bm_distortion)
+        )
+        cur_grid = bool((getattr(entry, "grid_correction", None) or {}).get("enabled"))
+        if fit_dist is not None and bool(fit_dist) != cur_dist:
+            return True
+        if fit_grid is not None and bool(fit_grid) != cur_grid:
+            return True
+        return False
 
     def _draw_zone_overlays(self, ax) -> None:
         """Overlay kF for every zone's fit_result (except active, already drawn)."""

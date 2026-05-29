@@ -111,11 +111,31 @@ class BandAnalysisController:
         if entry is None:
             self._warn("Aucun fichier sélectionné.")
             return None, None
+        # Multi-zone: if the user has selected a zone in the strip combo
+        # different from active_zone_id, sync it before running so band
+        # analysis always operates on the visually-selected zone.
+        self._sync_active_zone_with_strip(entry)
         fr = getattr(entry, "fit_result", None)
         if not fr:
             self._warn("Lance d'abord un fit MDC sur le fichier courant.")
             return None, None
         return entry, fr
+
+    def _sync_active_zone_with_strip(self, entry) -> None:
+        p = self._parent
+        strip = getattr(getattr(p, "_params", None), "zones_strip", None)
+        if strip is None:
+            return
+        zid_strip = strip.current_zone_id() if hasattr(strip, "current_zone_id") else None
+        if not zid_strip or zid_strip == entry.active_zone_id:
+            return
+        zctrl = getattr(p, "_fit_zones_ctrl", None)
+        if zctrl is None:
+            return
+        try:
+            zctrl.fit_zone_action("set_active", {"zone_id": zid_strip})
+        except Exception:
+            pass
 
     def _warn(self, msg: str):
         try:
