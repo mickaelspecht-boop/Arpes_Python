@@ -431,7 +431,23 @@ class GammaController:
         if entry is not None:
             entry.fit_params.center_init = float(resolved.fit_center_init)
 
-        # 3. Marker FS (si applicable)
+        # 3. Shift axe k si delta non nul (réutilise le chemin existant pour
+        #    bénéficier du remap fit_result + snapshot meta + sel_k update).
+        #    Important : faire le shift AVANT de poser le marker FS, sinon
+        #    set_center(kx_abs) + shift fs_kx → double-soustraction au draw
+        #    (graph décalé de 2*delta, marker pas au centre).
+        axis_was_shifted = False
+        if resolved.mode == "axis_shifted" and abs(resolved.axis_shift_delta) > 1e-12:
+            axis_was_shifted = self._center_current_bm_axis_on_gamma(
+                float(resolved.axis_shift_target),
+                ref=({**ref, "ky": float(resolved.fs_marker_ky)}
+                     if ref and resolved.is_fs and np.isfinite(resolved.fs_marker_ky)
+                     else ref),
+            )
+
+        # 4. Marker FS (si applicable). Après shift, Γ est à (0,0) dans le
+        #    repère affiché → centre d'affichage = (0,0). Sans shift, marker
+        #    reste à la position absolue du Γ projeté.
         if (
             resolved.is_fs
             and FSControlPanel is not None
@@ -439,21 +455,15 @@ class GammaController:
             and np.isfinite(resolved.fs_marker_kx)
             and np.isfinite(resolved.fs_marker_ky)
         ):
-            self._fs_controls.set_center(float(resolved.fs_marker_kx),
-                                         float(resolved.fs_marker_ky))
+            if axis_was_shifted:
+                marker_kx, marker_ky = 0.0, 0.0
+            else:
+                marker_kx = float(resolved.fs_marker_kx)
+                marker_ky = float(resolved.fs_marker_ky)
+            self._fs_controls.set_center(marker_kx, marker_ky)
             if entry is not None:
-                entry.fs_center_kx = float(resolved.fs_marker_kx)
-                entry.fs_center_ky = float(resolved.fs_marker_ky)
-
-        # 4. Shift axe k si delta non nul (réutilise le chemin existant pour
-        #    bénéficier du remap fit_result + snapshot meta + sel_k update).
-        if resolved.mode == "axis_shifted" and abs(resolved.axis_shift_delta) > 1e-12:
-            self._center_current_bm_axis_on_gamma(
-                float(resolved.axis_shift_target),
-                ref=({**ref, "ky": float(resolved.fs_marker_ky)}
-                     if ref and resolved.is_fs and np.isfinite(resolved.fs_marker_ky)
-                     else ref),
-            )
+                entry.fs_center_kx = marker_kx
+                entry.fs_center_ky = marker_ky
 
         # 5. Persistance
         if save_entry:
