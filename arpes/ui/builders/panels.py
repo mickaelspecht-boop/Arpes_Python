@@ -234,7 +234,16 @@ def _build_fs_tab(window) -> QWidget:
         window._fs_canvas = FermiSurfaceCanvas()
     else:
         window._fs_canvas = QWidget()
-    fs_tabs.addTab(window._fs_canvas, "Carte FS")
+    # A.5 — wrapper canvas + liste BMs reliées (O3 minimaliste).
+    from arpes.ui.widgets.fs_linked_bms import FsLinkedBmsList
+    fs_map_container = QWidget()
+    _lay = QVBoxLayout(fs_map_container)
+    _lay.setContentsMargins(0, 0, 0, 0)
+    _lay.setSpacing(2)
+    _lay.addWidget(window._fs_canvas, 4)
+    window._fs_linked_bms = FsLinkedBmsList()
+    _lay.addWidget(window._fs_linked_bms, 1)
+    fs_tabs.addTab(fs_map_container, "Carte FS")
     window._fs_compare = FsCompareCanvas()
     fs_tabs.addTab(window._fs_compare, "Compare pol")
     return fs_tabs
@@ -323,6 +332,10 @@ def wire_ui_signals(window) -> None:
             window._fs_controls.bm_cuts_visibility_changed.connect(
                 lambda v: window._pairing_action("toggle_cuts", {"visible": bool(v)})
             )
+    if hasattr(window, "_fs_linked_bms"):
+        window._fs_linked_bms.bm_load_requested.connect(
+            lambda path: window._load_ctrl.load(path)
+        )
         if hasattr(window._fs_controls, "bz_preset_requested"):
             window._fs_controls.bz_preset_requested.connect(window._choose_bz_preset)
         if hasattr(window._fs_controls, "bz_crystal_overlay_changed"):

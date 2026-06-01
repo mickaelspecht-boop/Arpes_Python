@@ -79,14 +79,27 @@ class FSController:
         # Badge orange visible si propagation FS active.
         self._draw_fs_distortion_badge(propagated)
         # B.4 — overlay BM cuts si toggle actif (after main draw).
+        cuts_collected: list = []
         if getattr(self, "_show_bm_cuts", False):
             try:
-                cuts = self._pairing_action("collect_cuts", {
+                cuts_collected = self._pairing_action("collect_cuts", {
                     "fs_metadata": (self._raw_data or {}).get("metadata", {}),
-                })
-                self._fs_canvas.draw_bm_cuts(cuts or [])
+                }) or []
+                self._fs_canvas.draw_bm_cuts(cuts_collected)
             except Exception as exc:
                 self._status(f"Attention: BM cuts overlay : {exc}")
+        # A.5 — refresh liste « BMs reliées » (toujours, indépendant du toggle).
+        if hasattr(self, "_fs_linked_bms"):
+            try:
+                cuts_for_list = cuts_collected or (
+                    self._pairing_action("collect_cuts", {
+                        "fs_metadata": (self._raw_data or {}).get("metadata", {}),
+                    }) or []
+                )
+                self._fs_linked_bms.refresh(self._pairing_action("active_fs"),
+                                            cuts_for_list)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     #  Overlay BZ cristal (Materials Project)
