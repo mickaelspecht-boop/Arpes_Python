@@ -61,6 +61,7 @@ PROXY_MAP = {
     "_apply_stored_gamma_to_current_file": "_gamma_ctrl",
     "_estimate_gamma_bm": "_gamma_ctrl",
     "_apply_gamma_reference_to_bm": "_gamma_ctrl",
+    "_forget_gamma": "_gamma_ctrl",
     # NormController
     "_load_grid_controls": "_norm_ctrl",
     "_display_grid_config": "_norm_ctrl",
@@ -108,6 +109,7 @@ PROXY_MAP = {
     "_clear_kf": "_fit_runner_ctrl",
     "_calculate_im_self_energy": "_fit_runner_ctrl",
     "_fit_ensemble": "_fit_runner_ctrl",
+    "_fit_run_all_zones": "_fit_runner_ctrl",
     "_on_kf_init_drag": "_plot_ctrl",
     "_schedule_live_guess": "_interaction_ctrl",
     "_on_live_fit_guess": "_interaction_ctrl",

@@ -295,5 +295,95 @@ class TestGammaDetectorsGuard(unittest.TestCase):
                          "click pick a muté la réf malgré axe centré")
 
 
+@unittest.skipUnless(QT_AVAILABLE, "PyQt6 indisponible — bloc C skip")
+class TestForgetGamma(unittest.TestCase):
+    """Audit P2.bis : `_forget_gamma` doit inverser le shift d'axe et clear
+    tous les flags, permettant de re-détecter Γ après une garde.
+    """
+
+    _qt_app = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls._qt_app = QApplication.instance() or QApplication([])
+
+    def test_forget_after_shift_restores_kpar_and_clears_state(self):
+        class FakeSpin:
+            def __init__(self, v=0.0):
+                self.value_seen = v
+
+            def setValue(self, v):
+                self.value_seen = float(v)
+
+            def blockSignals(self, b):
+                return False
+
+        class FakeControls:
+            def __init__(self):
+                self.center = (0.3, 0.0)
+
+            def set_center(self, kx, ky):
+                self.center = (float(kx), float(ky))
+
+        class Parent:
+            def __init__(self):
+                # kpar déjà shifté de 0.3 (post auto-Γ-BM)
+                self._raw_data = {
+                    "path": "/tmp/bm04",
+                    "hv": 60.0,
+                    "kpar": np.array([-1.3, -0.3, 0.7]),
+                    "metadata": {
+                        "scan_kind": "BM",
+                        "bm_gamma_axis_centered": True,
+                        "bm_gamma_axis_shift": 0.3,
+                    },
+                }
+                self._current_path = "/tmp/bm04"
+                self._session = Session(Path("/tmp"))
+                self._session.gamma_reference = {"kx": 0.3, "ky": 0.0, "path": "/tmp/bm04"}
+                self._session.angle_offsets = {"theta0_deg": 1.0}
+                self._fs_controls = FakeControls()
+                self._sp_cx = FakeSpin(0.0)
+                self._params = SimpleNamespace(sp_cx=self._sp_cx)
+
+            def _current_entry(self):
+                e = self._session.get_or_create(self._session.key_for_path(self._current_path))
+                e.meta_gamma_state = {"bm_gamma_axis_centered": True, "bm_gamma_axis_shift": 0.3}
+                e.fs_center_kx = 0.3
+                e.fs_center_ky = 0.0
+                e.fit_params.center_init = 0.0
+                # fit_result déjà shifté
+                e.fit_result = {"kF_minus": [[-0.8]], "kF_plus": [[0.2]], "gamma_corrige": [[-0.3]]}
+                return e
+
+            def _status(self, text):
+                pass
+
+            def _draw_current_view(self):
+                pass
+
+        parent = Parent()
+        # warm up entry
+        parent._current_entry()
+        ctrl = GammaController(parent)
+
+        ctrl._forget_gamma()
+
+        # kpar restauré
+        np.testing.assert_allclose(parent._raw_data["kpar"], [-1.0, 0.0, 1.0])
+        # session vide
+        self.assertEqual(parent._session.gamma_reference, {})
+        self.assertEqual(parent._session.angle_offsets, {})
+        # entry vide
+        e = parent._current_entry()
+        self.assertEqual(e.meta_gamma_state, {})
+        self.assertIsNone(e.fs_center_kx)
+        # fit_result remappé (delta -0.3 → kF += 0.3)
+        self.assertAlmostEqual(e.fit_result["kF_minus"][0][0], -0.5, places=10)
+        self.assertAlmostEqual(e.fit_result["kF_plus"][0][0], 0.5, places=10)
+        # meta flags effacés
+        self.assertFalse(parent._raw_data["metadata"].get("bm_gamma_axis_centered"))
+
+
 if __name__ == "__main__":
     unittest.main()

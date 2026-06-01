@@ -194,6 +194,31 @@ Si `angle_offsets_applied=True`, désactiver "Mesurer Γ ici" et afficher inline
 
 ---
 
+## Statut P2.bis (livré)
+
+- Câblage `_detect_fs_gamma`, `_on_fs_map_click`, `_estimate_gamma_bm`,
+  `_apply_gamma_reference_to_bm` via `apply_resolved_gamma` → 4 sites
+  mutateurs collapsés sur le single-setter.
+- Nouveau handler `_forget_gamma` (PROXY_MAP `_gamma_ctrl`) : porte de
+  sortie aux gardes `_is_axis_locked`. Inverse le shift d'axe, remap
+  `fit_result`, clear session.gamma_reference / session.angle_offsets /
+  entry.meta_gamma_state / entry.fs_center_kx/ky, reset sp_cx.
+- Test `TestForgetGamma` (Qt) couvre l'inversion + clear complet.
+
+## Reste à faire (P2.ter, séparable)
+
+- Supprimer `session.angle_offsets` (recalculable depuis
+  `gamma_reference` + meta). Bloquant car `distortion_controller` hash
+  ce dict pour invalider le cache distortion.
+- Supprimer `entry.fs_center_kx/ky` — état UI persisté du panel FS
+  distinct de Γ, **à garder** (révision recommandation Architect : ce
+  champ n'est pas dérivable, c'est le centre d'affichage persisté).
+- Déplacer `arpes/app_angle_offsets.py` → `arpes/io/gamma_load_offsets.py`.
+- Bump `Session.VERSION` → 2 + migration read-only ancien format.
+- Éliminer 5 wrappers triviaux (`_k_to_angle_offset_deg`, etc.) via
+  `GammaContext` immutable.
+- Indexer `gamma_reference` par `sample_key` (multi-échantillon).
+
 ## Recommandation finale
 
 | Quand | Action |

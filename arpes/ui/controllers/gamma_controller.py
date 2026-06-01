@@ -40,9 +40,9 @@ def _is_axis_locked(meta: dict | None) -> tuple[bool, str]:
     if not meta:
         return False, ""
     if meta.get("angle_offsets_applied"):
-        return True, "Γ déjà appliqué par offset angulaire loader. Utilise 'Oublier Γ' pour réinitialiser."
+        return True, "Γ déjà appliqué par offset angulaire loader. Utilise « Oublier Γ » (menu Γ ou _forget_gamma) pour réinitialiser."
     if meta.get("bm_gamma_axis_centered") or meta.get("fs_gamma_axis_centered"):
-        return True, "Γ déjà appliqué (axe recentré). Utilise 'Oublier Γ' pour réinitialiser."
+        return True, "Γ déjà appliqué (axe recentré). Utilise « Oublier Γ » (menu Γ ou _forget_gamma) pour réinitialiser."
     return False, ""
 
 
@@ -212,7 +212,9 @@ class GammaController:
         ky = float(params.ky_center + event.ydata)
         self._fs_controls.set_center(kx, ky)
         self._store_fs_center_reference(kx, ky, source="fs_manual")
-        self._sync_current_fs_gamma_to_bm_center(kx)
+        # P2.bis : single-setter — recompose la décision à partir de la nouvelle
+        # ref et applique (shift axe + sp_cx + center_init + save) en une fois.
+        self.apply_resolved_gamma(self._resolve_gamma_for_current(), save_entry=True)
         self._set_fs_center_pick_mode(False)
         self._draw_fs_tab()
         msg = f"Gamma FS manuel : kx={kx:+.4f}, ky={ky:+.4f} π/a"
@@ -237,7 +239,8 @@ class GammaController:
             res = self._fs_canvas.detect_gamma(self._raw_data, params)
             self._fs_controls.set_center(res["kx"], res["ky"])
             self._store_fs_center_reference(res["kx"], res["ky"], source="fs_auto")
-            self._sync_current_fs_gamma_to_bm_center(res["kx"])
+            # P2.bis : single-setter (cf _on_fs_map_click).
+            self.apply_resolved_gamma(self._resolve_gamma_for_current(), save_entry=True)
             self._draw_fs_tab()
             score = res.get("symmetry_score")
             score_txt = ""
@@ -462,6 +465,92 @@ class GammaController:
         if resolved.reason:
             self._status(resolved.reason)
 
+    def _forget_gamma(self) -> None:
+        """P2.bis — réinitialise tout l'état Γ (session + entry + raw_data).
+
+        Porte de sortie aux gardes `_is_axis_locked` : permet de repartir
+        d'un axe brut et re-détecter Γ. Inverse le shift d'axe en utilisant
+        la valeur courante de `bm_gamma_axis_shift`, remap `fit_result` en
+        sens inverse, puis efface tous les flags Γ + références session.
+        """
+        meta = self._raw_data.get("metadata", {}) if self._raw_data else {}
+        try:
+            previous_shift = float(meta.get("bm_gamma_axis_shift", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            previous_shift = 0.0
+        was_centered = bool(
+            meta.get("bm_gamma_axis_centered") or meta.get("fs_gamma_axis_centered")
+        )
+
+        # 1. Inverse shift kpar / fs_kx / fs_ky si axe centré
+        if self._raw_data is not None and was_centered and abs(previous_shift) > 1e-12:
+            kpar = np.asarray(self._raw_data.get("kpar"), dtype=float)
+            if kpar.size:
+                self._raw_data["kpar"] = kpar + previous_shift
+            if meta.get("fs_data") is not None:
+                fs_kx = meta.get("fs_kx")
+                if fs_kx is not None:
+                    meta["fs_kx"] = np.asarray(fs_kx, dtype=float) + previous_shift
+                try:
+                    previous_ky = float(meta.get("fs_gamma_axis_shift_ky", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    previous_ky = 0.0
+                if abs(previous_ky) > 1e-12:
+                    fs_ky = meta.get("fs_ky")
+                    if fs_ky is not None:
+                        meta["fs_ky"] = np.asarray(fs_ky, dtype=float) + previous_ky
+            self._remap_fit_results_by_delta(-previous_shift)
+            if hasattr(self, "_sel_k"):
+                self._sel_k = float(self._sel_k + previous_shift)
+
+        # 2. Clear tous les flags meta Γ
+        if self._raw_data is not None:
+            for k in _GAMMA_META_KEYS:
+                meta.pop(k, None)
+
+        # 3. Clear session-level state
+        self._session.gamma_reference = {}
+        self._session.angle_offsets = {}
+
+        # 4. Clear entry-level state (current file)
+        entry = self._current_entry()
+        if entry is not None:
+            entry.meta_gamma_state = {}
+            entry.fs_center_kx = None
+            entry.fs_center_ky = None
+            entry.fit_params.center_init = 0.0
+
+        # 5. Reset sp_cx
+        sp_cx = getattr(self._params, "sp_cx", None)
+        if sp_cx is not None and hasattr(sp_cx, "setValue"):
+            had_block = sp_cx.blockSignals(True) if hasattr(sp_cx, "blockSignals") else False
+            try:
+                sp_cx.setValue(0.0)
+            finally:
+                if hasattr(sp_cx, "blockSignals"):
+                    try:
+                        sp_cx.blockSignals(had_block)
+                    except Exception:
+                        pass
+
+        # 6. Reset FS marker
+        if FSControlPanel is not None and hasattr(self, "_fs_controls"):
+            try:
+                self._fs_controls.set_center(0.0, 0.0)
+            except Exception:
+                pass
+
+        try:
+            self._session.save()
+        except Exception as exc:
+            self._status(f"Attention: sauvegarde après reset Γ échouée : {exc}")
+
+        self._status("Γ réinitialisé : références session, axes et flags effacés.")
+        try:
+            self._draw_current_view()
+        except Exception:
+            pass
+
     def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
         """Auto-apply Γ stocké sur le fichier courant (chemin load / switch).
 
@@ -504,7 +593,6 @@ class GammaController:
                     "Ajuste la plage d'énergie, k_min/k_max ou centre_init."
                 )
                 return
-            self._params.sp_cx.setValue(gamma)
             entry_now = self._current_entry()
             azi_ref = entry_now.meta.azi if (entry_now and entry_now.meta.azi is not None) else None
             meta_now = self._raw_data.get("metadata", {}) or {}
@@ -527,10 +615,9 @@ class GammaController:
                 )
                 if offsets:
                     self._session.angle_offsets = offsets
-            if self._current_path:
-                entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-                entry.fit_params.center_init = float(gamma)
-            self._session.save()
+            # P2.bis : single-setter — pose sp_cx + center_init + shift axe
+            # + remap fit_result + save en une fois via la décision resolver.
+            self.apply_resolved_gamma(self._resolve_gamma_for_current(), save_entry=True)
             self._params.lbl_res.setText(
                 f"Γ BM = {gamma:+.4f} π/a\n"
                 f"n={res['n']}  MAD={res['mad']:.4f}"
@@ -544,47 +631,37 @@ class GammaController:
             self._status(f"Attention: Auto Γ BM : {exc}")
 
     def _apply_gamma_reference_to_bm(self):
+        """Bouton « Γ FS → BM ».
+
+        P2.bis : délègue intégralement au resolver + single-setter. Le mode et
+        le message de feedback viennent de `ResolvedGamma.mode` / `.reason`.
+        """
         ref = self._stored_gamma_reference()
         if not ref:
-            QMessageBox.warning(self._parent, "Γ FS → BM", "Aucun Γ de référence. Va sur l'onglet FS et clique d'abord sur Détecter Γ FS.")
+            QMessageBox.warning(
+                self._parent, "Γ FS → BM",
+                "Aucun Γ de référence. Va sur l'onglet FS et clique d'abord sur Détecter Γ FS.",
+            )
             return
         if self._raw_data is None:
             return
-        meta = self._raw_data.get("metadata", {}) or {}
-        if meta.get("angle_offsets_applied"):
-            self._params.sp_cx.setValue(0.0)
-            if self._current_path:
-                entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-                entry.fit_params.center_init = 0.0
-                self._session.save()
-            self._params.lbl_res.setText("Γ déjà appliqué par offset angulaire loader")
-            if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done("Γ FS appliqué par offset loader")
-            self._draw_current_view()
-            self._status("Γ FS appliqué : offset angulaire loader déjà actif")
-            return
-        gamma_bm, correction = self._gamma_reference_to_bm_center(ref)
-        if not np.isfinite(gamma_bm):
+        resolved = self._resolve_gamma_for_current()
+        if resolved.mode == "none":
             QMessageBox.warning(self._parent, "Γ FS → BM", "La référence Γ stockée est invalide.")
             return
-        angular_applied = bool(meta.get("angle_offsets_applied"))
-        axis_centered = False if angular_applied else self._center_current_bm_axis_on_gamma(float(gamma_bm), ref)
-        self._params.sp_cx.setValue(0.0 if (axis_centered or angular_applied) else gamma_bm)
-        if self._current_path:
-            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-            entry.fit_params.center_init = 0.0 if (axis_centered or angular_applied) else float(gamma_bm)
-            self._session.save()
-        mode_msg = "offset angulaire loader" if angular_applied else ("axe k recentré" if axis_centered else "centre fit seul")
-        self._params.lbl_res.setText(
-            f"Γ FS→BM = {gamma_bm:+.4f} π/a\n"
-            f"corr polar={correction:+.4f}\n"
-            f"{mode_msg}"
+        self.apply_resolved_gamma(resolved, save_entry=True)
+        mode_msg = (
+            "offset angulaire loader" if resolved.mode == "loader_baked"
+            else ("axe k recentré" if abs(resolved.axis_shift_delta) > 1e-12
+                  else "axe déjà à jour")
         )
+        if hasattr(self._params, "lbl_res"):
+            self._params.lbl_res.setText(
+                f"Γ FS→BM appliqué\n"
+                f"target={resolved.axis_shift_target:+.4f} π/a\n"
+                f"{mode_msg}"
+            )
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done(f"Γ FS appliqué à la BM ({gamma_bm:+.4f} π/a)")
+            self._params.mark_action_done(f"Γ FS appliqué à la BM ({resolved.axis_shift_target:+.4f} π/a)")
         self._update_display_data()
         self._draw_current_view()
-        self._status(
-            f"Γ FS appliqué à la BM : {gamma_bm:+.4f} π/a  correction={correction:+.4f}"
-            f"  |  {mode_msg}"
-        )
