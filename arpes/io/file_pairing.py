@@ -277,23 +277,58 @@ def group_files_by_fs(
     return tree, orphans
 
 
+def _iter_data_candidates(folder: Path, *, max_depth: int = 1) -> Iterable[Path]:
+    """Yield fichiers/dossiers data-like sous `folder`.
+
+    Pour chaque CLS BM = un fichier sans extension nommé `BMxx`, pour CLS FS
+    = un dossier nommé `FSxx` contenant des fichiers _Cycle_Step. Autres
+    formats (.pxt, .ibw, .zip Solaris) traités comme fichiers.
+
+    Skip : fichiers cachés, `*_param.txt` (sidecars CLS), dossiers `.arpes_*`.
+    """
+    if not folder or not folder.exists() or not folder.is_dir():
+        return
+    SKIP_DIRS = {".arpes_cache", ".arpes_theory_cache", ".git"}
+    DATA_SUFFIXES = {".pxt", ".ibw", ".zip", ".h5", ".hdf5"}
+    for entry in folder.iterdir():
+        if entry.name.startswith("."):
+            continue
+        if entry.name in SKIP_DIRS:
+            continue
+        if entry.is_file():
+            if entry.name.endswith("_param.txt"):
+                continue
+            # Fichier sans extension OU avec extension data → candidat
+            if not entry.suffix or entry.suffix.lower() in DATA_SUFFIXES:
+                yield entry
+            continue
+        if entry.is_dir():
+            # Dossier CLS-FS ou similaire → candidat direct
+            yield entry
+            if max_depth > 1:
+                yield from _iter_data_candidates(entry, max_depth=max_depth - 1)
+
+
 def build_pseudo_entries_from_logbook(
     session,
     *,
     scan_kind_resolver: Callable[[str], str] | None = None,
 ) -> dict:
-    """Construit des FileEntry minimaux depuis `session.logbook_records`.
+    """Construit des FileEntry minimaux pour les fichiers du dossier session
+    qui apparaissent dans le logbook mais ne sont pas encore chargés.
 
-    Pour chaque ligne du logbook qui pointe vers un fichier non encore chargé
-    dans `session.files`, synthétise un FileEntry avec les champs hv/azi/
-    polar/polarization/formula/mp_id depuis `LogbookManager.values_for_path`,
-    plus un scan_kind inféré via `scan_kind_resolver` (défaut : detect_scan_kind
-    qui peek le format du fichier).
+    Stratégie : scanne `session.folder` pour les paths data-like, puis pour
+    chaque path appelle `LogbookManager.values_for_path` (qui gère le
+    matching fuzzy BM1↔BM01 via les heuristiques internes). Si values
+    présentes et path non chargé → pseudo entry.
+
+    Permet de combler le pairing BM↔FS quand l'utilisateur n'a chargé que
+    la FS de référence mais que les BMs candidates existent dans le dossier
+    (cf BM_FS_ORGANIZATION_PLAN.md, feedback user 2026-06-01).
 
     Returns:
-        dict {key (path résolu) → FileEntry pseudo}.
+        dict {key → FileEntry pseudo}.
     """
-    # Imports locaux pour éviter cycles : core.session ← io.file_pairing
     from arpes.core.session import FileEntry, FileMeta
     from arpes.io.logbook import LogbookManager
     if scan_kind_resolver is None:
@@ -311,37 +346,20 @@ def build_pseudo_entries_from_logbook(
         if isinstance(meta, dict) and meta.get("mapping"):
             scoped[str(rel)] = meta["mapping"]
     folder = getattr(session, "folder", None)
+    if not folder:
+        return {}
     manager = LogbookManager(records, mapping, folder, scoped)
+    loaded_keys = set((getattr(session, "files", {}) or {}).keys())
 
     out: dict = {}
-    seen_keys: set = set()
-    file_col = mapping.get("file", "")
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        rec_file = record.get(file_col, "") if file_col else ""
-        if not rec_file:
-            continue
-        rec_path = str(rec_file).strip()
-        if not rec_path:
-            continue
-        # Résolution path : si relatif, on le préfixe par folder
-        try:
-            p = Path(rec_path)
-            if not p.is_absolute() and folder is not None:
-                p = Path(folder) / p
-            abs_path = str(p)
-        except Exception:
-            continue
+    for path in _iter_data_candidates(Path(folder), max_depth=1):
+        abs_path = str(path)
         try:
             key = session.key_for_path(abs_path)
         except Exception:
             key = abs_path
-        if key in seen_keys:
+        if key in loaded_keys or key in out:
             continue
-        seen_keys.add(key)
-        if key in (getattr(session, "files", {}) or {}):
-            continue  # vrai entry > pseudo
         try:
             values = manager.values_for_path(abs_path)
         except Exception:

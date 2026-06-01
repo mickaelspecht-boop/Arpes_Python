@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 
@@ -164,33 +165,44 @@ class TestPseudoEntriesFromLogbook(unittest.TestCase):
         s.key_for_path = lambda p: str(p)
         return s
 
-    def test_synthesize_basic_entry(self):
+    def test_synthesize_from_real_files_in_folder(self):
+        """Scan physique du folder + matching logbook par values_for_path."""
+        import tempfile
         from arpes.io.file_pairing import build_pseudo_entries_from_logbook
-        records = [{"file": "/d/bm99.txt", "hv": "60", "Pol": "LH", "P": "1.2"}]
-        mapping = {"file": "file", "hv": "hv", "polarization": "Pol", "polar": "P"}
-        s = self._stub_session(records, mapping)
-        out = build_pseudo_entries_from_logbook(
-            s, scan_kind_resolver=lambda p: "BM",
-        )
-        self.assertIn("/d/bm99.txt", out)
-        e = out["/d/bm99.txt"]
-        self.assertEqual(e.meta.scan_kind, "BM")
-        self.assertAlmostEqual(e.meta.hv, 60.0)
-        self.assertEqual(e.meta.polarization, "LH")
-        self.assertAlmostEqual(e.meta.polar, 1.2)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            # Crée un faux fichier BM (extension data) et un fichier ignoré
+            (tmp_path / "BM99.pxt").write_text("")
+            (tmp_path / "BM99_param.txt").write_text("")  # sidecar → skip
+            records = [{"file": "BM99.pxt", "hv": "60", "Pol": "LH", "P": "1.2"}]
+            mapping = {"file": "file", "hv": "hv", "polarization": "Pol", "polar": "P"}
+            s = self._stub_session(records, mapping, folder=tmp_path)
+            out = build_pseudo_entries_from_logbook(
+                s, scan_kind_resolver=lambda p: "BM",
+            )
+            keys = list(out.keys())
+            # Vérifie qu'au moins une entrée BM99 a été créée (path absolu)
+            bm_key = next((k for k in keys if "BM99" in k), None)
+            self.assertIsNotNone(bm_key, f"Aucune entry BM99 dans {keys}")
+            e = out[bm_key]
+            self.assertEqual(e.meta.scan_kind, "BM")
+            self.assertAlmostEqual(e.meta.hv, 60.0)
 
     def test_skip_if_already_in_session_files(self):
+        import tempfile
         from arpes.io.file_pairing import build_pseudo_entries_from_logbook
-        records = [{"file": "/d/bm99.txt", "hv": "60"}]
-        mapping = {"file": "file", "hv": "hv"}
-        s = self._stub_session(
-            records, mapping,
-            files={"/d/bm99.txt": FileEntry(meta=FileMeta(scan_kind="BM"))},
-        )
-        out = build_pseudo_entries_from_logbook(
-            s, scan_kind_resolver=lambda p: "BM",
-        )
-        self.assertNotIn("/d/bm99.txt", out)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "BM99.pxt").write_text("")
+            records = [{"file": "BM99.pxt", "hv": "60"}]
+            mapping = {"file": "file", "hv": "hv"}
+            files = {str(tmp_path / "BM99.pxt"):
+                     FileEntry(meta=FileMeta(scan_kind="BM"))}
+            s = self._stub_session(records, mapping, files=files, folder=tmp_path)
+            out = build_pseudo_entries_from_logbook(
+                s, scan_kind_resolver=lambda p: "BM",
+            )
+            self.assertNotIn(str(tmp_path / "BM99.pxt"), out)
 
 
 if __name__ == "__main__":

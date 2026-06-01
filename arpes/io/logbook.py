@@ -468,7 +468,9 @@ def _infer_logbook_mapping(columns: list[str], df=None) -> dict[str, str]:
             ["photon", "polarization"], ["photon", "polarisation"],
             ["e", "vector"], ["e-vector"], ["lv"], ["lh"],
         ]),
-        "azi": _pick_column(columns, [
+        "azi": _pick_exact_column(columns, {
+            "az", "Az", "AZ",
+        }) or _pick_column(columns, [
             ["azi"], ["azimuth"], ["azimut"], ["phi", "azimuth"],
         ]),
         "polar": _pick_exact_column(columns, {
@@ -572,103 +574,21 @@ def _drop_implausible_mappings(mapping: dict[str, str], df) -> dict[str, str]:
     return out
 
 
-def _path_match_tokens(path: str | Path, session_folder: Path | None) -> list[str]:
-    p = Path(path)
-    tokens = [p.name, p.stem]
-    if session_folder is not None:
-        try:
-            rel = p.resolve().relative_to(session_folder.resolve())
-            tokens.extend([str(rel), rel.name, rel.stem])
-        except Exception:
-            pass
-    return sorted({t for t in tokens if t}, key=len, reverse=True)
-
-
-def _extract_measurement_numbers(text: str) -> set[int]:
-    out: set[int] = set()
-    if not text:
-        return out
-    for pat in (r"(\d{3,4})w", r"_(\d{1,4})(?:\D|$)"):
-        for m in re.finditer(pat, text):
-            try:
-                out.add(int(m.group(1)))
-            except ValueError:
-                pass
-    return out
-
-
-def _path_measurement_numbers(path: str | Path) -> set[int]:
-    p = Path(path)
-    out: set[int] = set()
-    for text in (p.name, p.stem):
-        out |= _extract_measurement_numbers(text)
-    return out
-
-
-def _record_in_subfolder_scope(record: Any, path: str | Path, session_folder: Path | None) -> bool:
-    """Si le record a un champ `_subfolder_rel`, vérifie que `path` y est inclus.
-
-    Permet d'attacher des logbooks à un sous-dossier précis (ex: CA041 vs CA046)
-    sans confusion entre fichiers de même nom dans deux subdirs.
-    """
-    if not isinstance(record, dict):
-        return True
-    subfolder = str(record.get("_subfolder_rel") or "").strip()
-    if not subfolder:
-        return True
-    if session_folder is None:
-        return True
-    try:
-        p_resolved = Path(path).resolve()
-        scope_resolved = (Path(session_folder) / subfolder).resolve()
-    except Exception:
-        return True
-    try:
-        p_resolved.relative_to(scope_resolved)
-        return True
-    except ValueError:
-        return False
-
-
-_ALNUM_KEY_RE = re.compile(r"^\s*([A-Za-z]+)\s*0*(\d+)\s*$")
-
-
-def _alnum_label_key(text: Any) -> tuple[str, int] | None:
-    """('BM3' | 'BM03' | 'bm 3') -> ('bm', 3). Sinon None.
-
-    Permet de matcher un nom de scan logbook ('BM3') avec un fichier disque
-    zéro-paddé ('BM03') ou inversement — convention fréquente côté beamline.
-    """
-    m = _ALNUM_KEY_RE.match(str(text or ""))
-    if not m:
-        return None
-    try:
-        return m.group(1).lower(), int(m.group(2))
-    except ValueError:
-        return None
+from arpes.io.logbook_matching import (  # noqa: E402
+    _alnum_label_key,
+    _extract_measurement_numbers,
+    _path_match_tokens,
+    _path_measurement_numbers,
+    _record_in_subfolder_scope,
+    _record_matches_path as _record_matches_path_impl,
+)
 
 
 def _record_matches_path(record_value: Any, path: str | Path, session_folder: Path | None) -> bool:
-    value = _cell_text(record_value)
-    if not value:
-        return False
-    path_nums = _path_measurement_numbers(path)
-    num = _cell_float(record_value)
-    if num is not None and abs(num - round(num)) < 1e-9:
-        if int(round(num)) in path_nums:
-            return True
-    cell_nums = _extract_measurement_numbers(value)
-    if cell_nums and path_nums and (cell_nums & path_nums):
-        return True
-    value_norm = value.lower()
-    value_key = _alnum_label_key(value)
-    for token in _path_match_tokens(path, session_folder):
-        token_norm = token.lower()
-        if value_norm == token_norm:
-            return True
-        if value_key is not None and _alnum_label_key(token) == value_key:
-            return True
-        pat = r"(?<![A-Za-z0-9])" + re.escape(token_norm) + r"(?![A-Za-z0-9])"
-        if re.search(pat, value_norm):
-            return True
-    return False
+    return _record_matches_path_impl(
+        record_value,
+        path,
+        session_folder,
+        cell_text=_cell_text,
+        cell_float=_cell_float,
+    )
