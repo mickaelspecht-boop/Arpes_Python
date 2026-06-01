@@ -91,6 +91,7 @@ class LoaderOrchestrator:
 
     def apply_loaded_metadata(self, data: dict, entry: Any) -> dict:
         """Met a jour FileEntry depuis les metadata du loader."""
+        from arpes.io.scan_kind_inference import infer_scan_kind
         md = data.get("metadata", {}) or {}
         source_format = str(data.get("source_format") or md.get("source_format") or "")
         entry.meta.source_format = source_format
@@ -102,6 +103,12 @@ class LoaderOrchestrator:
             t_md = None
         if t_md is not None and np.isfinite(t_md) and t_md > 0:
             entry.meta.temperature = t_md
+        # A.1 — persiste le scan_kind dans entry.meta (survit save/load).
+        data_ndim = None
+        primary = data.get("data")
+        if primary is not None and hasattr(primary, "ndim"):
+            data_ndim = int(primary.ndim)
+        entry.meta.scan_kind = infer_scan_kind(md, data_ndim=data_ndim)
         return md
 
     def resolve_hv_after_load(

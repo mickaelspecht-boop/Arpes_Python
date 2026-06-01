@@ -55,6 +55,9 @@ class FileMeta:
     mp_id: str = ""
     crystal_a_angstrom: float = 0.0
     tags: list[str] = field(default_factory=list)
+    # A.1 — type de scan inféré au load (BM/FS/KZ/EDC/unknown). Source de
+    # vérité unique pour pairing BM↔FS (cf BM_FS_ORGANIZATION_PLAN.md).
+    scan_kind: str = "unknown"
 
 
 @dataclass
