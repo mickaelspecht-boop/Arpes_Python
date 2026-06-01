@@ -5,17 +5,15 @@ import re
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import Qt, QStringListModel, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QCompleter,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -23,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from arpes.core.session import Session, normalize_tags, session_tags
+from arpes.core.session import Session, normalize_tags
 from arpes.io.loaders import detect_format, detect_scan_kind, loader_label
 from arpes.io.logbook import (
     LogbookManager,
@@ -79,15 +77,14 @@ class FileBrowserPanel(QWidget):
         self._lbl_summary.setStyleSheet("font-size:10px; color:#aaa;")
         lay.addWidget(self._lbl_summary)
 
-        self._tag_filter = QLineEdit()
-        self._tag_filter.setPlaceholderText("Filtre tag")
-        self._tag_filter.setToolTip("Filtre l'affichage aux fichiers contenant ce tag.")
-        self._tag_filter_model = QStringListModel([])
-        filter_completer = QCompleter(self._tag_filter_model, self._tag_filter)
-        filter_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self._tag_filter.setCompleter(filter_completer)
-        self._tag_filter.textChanged.connect(self._on_tag_filter_changed)
-        lay.addWidget(self._tag_filter)
+        # Filtre « Seuls chargés » : masque les fichiers du logbook non chargés.
+        self._chk_loaded_only = QCheckBox("Seuls chargés")
+        self._chk_loaded_only.setToolTip(
+            "Masque les fichiers du dossier/logbook qui ne sont pas encore "
+            "chargés dans la session."
+        )
+        self._chk_loaded_only.toggled.connect(lambda _v: self._populate())
+        lay.addWidget(self._chk_loaded_only)
 
         mode_row = QVBoxLayout()
         mode_title = QLabel("Organiser par:")
@@ -220,12 +217,8 @@ class FileBrowserPanel(QWidget):
         self._populate()
 
     def refresh_tag_completions(self):
-        tags = session_tags(self._session)
-        if hasattr(self, "_tag_filter_model"):
-            self._tag_filter_model.setStringList(tags)
-
-    def _on_tag_filter_changed(self, _text: str):
-        self._populate()
+        """No-op (filtre tag supprimé). Conservé pour compatibilité callers."""
+        return None
 
     def _is_cls_dataset_dir(self, p: Path) -> bool:
         if not p.is_dir():
@@ -337,15 +330,16 @@ class FileBrowserPanel(QWidget):
             return []
         return normalize_tags(getattr(entry.meta, "tags", []))
 
-    def _tag_filter_text(self) -> str:
-        return self._tag_filter.text().strip() if hasattr(self, "_tag_filter") else ""
-
-    def _tag_filter_matches(self, path: str | Path) -> bool:
-        wanted = [tag.casefold() for tag in normalize_tags(self._tag_filter_text())]
-        if not wanted:
+    def _loaded_only_matches(self, path: str | Path) -> bool:
+        """True si le filtre « Seuls chargés » est satisfait pour ce path."""
+        if not hasattr(self, "_chk_loaded_only") or not self._chk_loaded_only.isChecked():
             return True
-        have = {tag.casefold() for tag in self._tags_for_path(path)}
-        return all(tag in have for tag in wanted)
+        key = self._session.key_for_path(str(path))
+        entry = self._session.files.get(key)
+        if entry is None:
+            return False
+        status = getattr(entry, "status", "unloaded")
+        return status in ("loaded", "fitted")
 
     def _scoped_mappings(self) -> dict[str, dict]:
         return {
@@ -536,58 +530,8 @@ class FileBrowserPanel(QWidget):
         )
 
     def _describe_item(self, item: QListWidgetItem | None) -> str:
-        if item is None:
-            return "Sélectionne un fichier à charger"
-        group = item.data(Qt.ItemDataRole.UserRole + 2)
-        if group is not None:
-            return "Dossier de groupe : double-clic ou Charger pour ouvrir/réduire"
-        path_txt = item.data(Qt.ItemDataRole.UserRole)
-        if not path_txt:
-            return "Sélectionne un fichier à charger"
-        p = Path(path_txt)
-        key = item.data(Qt.ItemDataRole.UserRole + 1) or self._session.key_for_path(p)
-        status = self._file_status(key)
-        entry = self._session.files.get(key)
-        loader = self._loader_label_for_path(p, key) or "inconnu"
-        kind = "FS" if self._fs_suffix_for_path(p) else "BM"
-        try:
-            rel = str(p.relative_to(self._folder)) if self._folder else str(p)
-        except Exception:
-            rel = str(p)
-        bits = [f"{p.name}", rel, f"{kind} {loader}", f"état: {status}"]
-        hv, hv_src = self._meta_value_for_path(p, "hv")
-        temp, temp_src = self._meta_value_for_path(p, "temperature")
-        pol, pol_src = self._meta_value_for_path(p, "polarization")
-        direction, dir_src = self._meta_value_for_path(p, "direction")
-        azi, azi_src = self._meta_value_for_path(p, "azi")
-        polar, p_src = self._meta_value_for_path(p, "polar")
-        tilt, t_src = self._meta_value_for_path(p, "tilt")
-        if hv is not None:
-            bits.append(f"hν={float(hv):.1f} eV ({hv_src})")
-        if temp is not None:
-            bits.append(f"T={float(temp):.1f} K ({temp_src})")
-        if pol:
-            bits.append(f"pol={pol} ({pol_src})")
-        if direction:
-            bits.append(f"direction={direction} ({dir_src})")
-        geom = []
-        if azi is not None and abs(float(azi)) > 1e-9:
-            geom.append(f"azi={float(azi):.1f}°")
-        if polar is not None and abs(float(polar)) > 1e-9:
-            geom.append(f"polar={float(polar):.1f}°")
-        if tilt is not None and abs(float(tilt)) > 1e-9:
-            geom.append(f"tilt={float(tilt):.1f}°")
-        if geom:
-            sources = sorted({s for s in (azi_src, p_src, t_src) if s})
-            src_txt = f" ({'+'.join(sources)})" if sources else ""
-            bits.append("géom: " + ", ".join(geom) + src_txt)
-        if entry is not None:
-            if entry.fit_result:
-                bits.append("fit enregistré")
-            tags = self._tags_for_path(p, key)
-            if tags:
-                bits.append("tags: " + ", ".join(tags))
-        return "\n".join(bits)
+        from arpes.ui.widgets.browsers.file_describer import describe_item
+        return describe_item(self, item)
 
     def _refresh_selection_state(self):
         item = self._list.currentItem()

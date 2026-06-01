@@ -4,13 +4,17 @@ A.2 du plan BM↔FS (cf BM_FS_ORGANIZATION_PLAN.md). Modèle M4 hybride :
 - Override manuel via `entry.parent_fs_path` (priorité absolue).
 - Sinon filtrage par dossier + hv (±5%) + azi (±2°) + polarization.
 
-Pure : sans Qt, sans I/O, sans dépendance UI. Testable headless.
+L'auto-discovery itère aussi les records du logbook (BMs candidates non
+chargées) — synthétise un FileEntry minimal depuis chaque record pour
+les passer aux mêmes filtres. Cf `build_pseudo_entries_from_logbook`.
+
+Pure : sans Qt, I/O optionnel uniquement pour `detect_scan_kind`.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 import math
 
@@ -271,3 +275,92 @@ def group_files_by_fs(
         orphans.append((path, entry))
     orphans.sort(key=lambda kv: kv[0])
     return tree, orphans
+
+
+def build_pseudo_entries_from_logbook(
+    session,
+    *,
+    scan_kind_resolver: Callable[[str], str] | None = None,
+) -> dict:
+    """Construit des FileEntry minimaux depuis `session.logbook_records`.
+
+    Pour chaque ligne du logbook qui pointe vers un fichier non encore chargé
+    dans `session.files`, synthétise un FileEntry avec les champs hv/azi/
+    polar/polarization/formula/mp_id depuis `LogbookManager.values_for_path`,
+    plus un scan_kind inféré via `scan_kind_resolver` (défaut : detect_scan_kind
+    qui peek le format du fichier).
+
+    Returns:
+        dict {key (path résolu) → FileEntry pseudo}.
+    """
+    # Imports locaux pour éviter cycles : core.session ← io.file_pairing
+    from arpes.core.session import FileEntry, FileMeta
+    from arpes.io.logbook import LogbookManager
+    if scan_kind_resolver is None:
+        try:
+            from arpes.io.loaders import detect_scan_kind as _detect
+            scan_kind_resolver = lambda p: _detect(p)
+        except Exception:
+            scan_kind_resolver = lambda _p: "unknown"
+
+    records = getattr(session, "logbook_records", None) or []
+    mapping = getattr(session, "logbook_mapping", None) or {}
+    scoped = {}
+    raw_scoped = getattr(session, "scoped_logbooks", None) or {}
+    for rel, meta in raw_scoped.items():
+        if isinstance(meta, dict) and meta.get("mapping"):
+            scoped[str(rel)] = meta["mapping"]
+    folder = getattr(session, "folder", None)
+    manager = LogbookManager(records, mapping, folder, scoped)
+
+    out: dict = {}
+    seen_keys: set = set()
+    file_col = mapping.get("file", "")
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        rec_file = record.get(file_col, "") if file_col else ""
+        if not rec_file:
+            continue
+        rec_path = str(rec_file).strip()
+        if not rec_path:
+            continue
+        # Résolution path : si relatif, on le préfixe par folder
+        try:
+            p = Path(rec_path)
+            if not p.is_absolute() and folder is not None:
+                p = Path(folder) / p
+            abs_path = str(p)
+        except Exception:
+            continue
+        try:
+            key = session.key_for_path(abs_path)
+        except Exception:
+            key = abs_path
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        if key in (getattr(session, "files", {}) or {}):
+            continue  # vrai entry > pseudo
+        try:
+            values = manager.values_for_path(abs_path)
+        except Exception:
+            continue
+        if not values.has_any():
+            continue
+        try:
+            sk = str(scan_kind_resolver(abs_path) or "unknown")
+        except Exception:
+            sk = "unknown"
+        meta = FileMeta(
+            hv=float(values.hv) if values.hv is not None else 0.0,
+            azi=values.azi,
+            polar=values.polar,
+            tilt=values.tilt,
+            polarization=str(values.polarization or ""),
+            formula=str(values.formula or ""),
+            mp_id=str(values.mp_id or ""),
+            scan_kind=sk,
+        )
+        out[key] = FileEntry(meta=meta)
+    return out

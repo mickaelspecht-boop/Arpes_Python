@@ -4,6 +4,8 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+
+
 from arpes.core.session import FileEntry, FileMeta
 from arpes.io.file_pairing import (
     PairingCriteria,
@@ -147,6 +149,48 @@ class TestGroupFilesByFs(unittest.TestCase):
         # orphans : bm_orphan + kz_scan
         orphan_paths = sorted([p for p, _ in orphans])
         self.assertEqual(orphan_paths, ["/d/bm_orphan.txt", "/d/kz_scan.txt"])
+
+
+class TestPseudoEntriesFromLogbook(unittest.TestCase):
+    """Synthèse FileEntry depuis logbook records (BMs candidates non chargées)."""
+
+    def _stub_session(self, records, mapping, files=None, folder=None):
+        s = SimpleNamespace()
+        s.logbook_records = records
+        s.logbook_mapping = mapping
+        s.scoped_logbooks = {}
+        s.files = files or {}
+        s.folder = folder
+        s.key_for_path = lambda p: str(p)
+        return s
+
+    def test_synthesize_basic_entry(self):
+        from arpes.io.file_pairing import build_pseudo_entries_from_logbook
+        records = [{"file": "/d/bm99.txt", "hv": "60", "Pol": "LH", "P": "1.2"}]
+        mapping = {"file": "file", "hv": "hv", "polarization": "Pol", "polar": "P"}
+        s = self._stub_session(records, mapping)
+        out = build_pseudo_entries_from_logbook(
+            s, scan_kind_resolver=lambda p: "BM",
+        )
+        self.assertIn("/d/bm99.txt", out)
+        e = out["/d/bm99.txt"]
+        self.assertEqual(e.meta.scan_kind, "BM")
+        self.assertAlmostEqual(e.meta.hv, 60.0)
+        self.assertEqual(e.meta.polarization, "LH")
+        self.assertAlmostEqual(e.meta.polar, 1.2)
+
+    def test_skip_if_already_in_session_files(self):
+        from arpes.io.file_pairing import build_pseudo_entries_from_logbook
+        records = [{"file": "/d/bm99.txt", "hv": "60"}]
+        mapping = {"file": "file", "hv": "hv"}
+        s = self._stub_session(
+            records, mapping,
+            files={"/d/bm99.txt": FileEntry(meta=FileMeta(scan_kind="BM"))},
+        )
+        out = build_pseudo_entries_from_logbook(
+            s, scan_kind_resolver=lambda p: "BM",
+        )
+        self.assertNotIn("/d/bm99.txt", out)
 
 
 if __name__ == "__main__":

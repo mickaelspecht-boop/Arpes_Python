@@ -14,10 +14,21 @@ from __future__ import annotations
 
 from arpes.io.file_pairing import (
     PairingCriteria,
+    build_pseudo_entries_from_logbook,
     find_bms_for_fs,
     find_fs_for_bm,
 )
 from arpes.physics.bm_cut_overlay import compute_bm_cut_in_fs_frame
+
+
+def _augmented_files(session) -> dict:
+    """Retourne session.files étendu avec les records logbook non chargés.
+
+    Les vrais FileEntry priment via dict merge (session.files override
+    les pseudo-entries du logbook s'il y a conflit de clé).
+    """
+    pseudo = build_pseudo_entries_from_logbook(session)
+    return {**pseudo, **(session.files or {})}
 
 
 class PairingController:
@@ -64,7 +75,7 @@ class PairingController:
             return None
         if getattr(entry.meta, "scan_kind", "") != "BM":
             return None
-        matches = find_fs_for_bm(entry, path, self._session.files, criteria)
+        matches = find_fs_for_bm(entry, path, _augmented_files(self._session), criteria)
         if not matches:
             return None
         # Prend la première (manual prioritaire, sinon plus proche)
@@ -101,7 +112,8 @@ class PairingController:
         fs_entry = self._session.files.get(self._session.key_for_path(fs_path))
         if fs_entry is None:
             return []
-        return find_bms_for_fs(fs_entry, fs_path, self._session.files, criteria)
+        return find_bms_for_fs(fs_entry, fs_path,
+                               _augmented_files(self._session), criteria)
 
     # ---------------------------------------------------------------
     # Collect BM cuts pour overlay Phase B (B.2).
@@ -139,7 +151,8 @@ class PairingController:
                 work_func = float(self._params.sp_phi.value())
             except Exception:
                 work_func = 4.031
-        bms = find_bms_for_fs(fs_entry, fs_path, self._session.files, criteria)
+        bms = find_bms_for_fs(fs_entry, fs_path,
+                              _augmented_files(self._session), criteria)
         cuts = []
         for match in bms:
             cut = compute_bm_cut_in_fs_frame(
