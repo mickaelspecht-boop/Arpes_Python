@@ -99,7 +99,7 @@ def _classify_quality(
         azi_diff = 0.0  # bénéfice du doute si non renseigné
     else:
         try:
-            azi_diff = abs(float(azi_bm) - float(azi_fs))
+            azi_diff = abs(_angle_delta_deg(float(azi_fs), float(azi_bm)))
         except (TypeError, ValueError):
             azi_diff = 0.0
     azi_close = azi_diff <= azi_tol_deg
@@ -114,6 +114,11 @@ def _classify_quality(
         f"Δhv={hv_bm - hv_fs:+.1f} eV, Δazi={azi_diff:+.1f}° → "
         "projection composite (à interpréter avec prudence)"
     )
+
+
+def _angle_delta_deg(dst: float, src: float) -> float:
+    """Signed shortest angular delta dst-src in degrees, in [-180, 180)."""
+    return (float(dst) - float(src) + 180.0) % 360.0 - 180.0
 
 
 def compute_bm_cut_in_fs_frame(
@@ -197,7 +202,7 @@ def compute_bm_cut_in_fs_frame(
     # Rotation par delta_azi autour de Γ si azi diffère
     if azi_bm is not None and azi_fs is not None:
         try:
-            delta_azi_rad = np.radians(float(azi_fs) - float(azi_bm))
+            delta_azi_rad = np.radians(_angle_delta_deg(float(azi_fs), float(azi_bm)))
         except (TypeError, ValueError):
             delta_azi_rad = 0.0
     else:

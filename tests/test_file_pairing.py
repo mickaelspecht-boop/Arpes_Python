@@ -68,6 +68,14 @@ class TestFindBmsForFs(unittest.TestCase):
         out = find_bms_for_fs(files["/d/fs.txt"], "/d/fs.txt", files)
         self.assertEqual([m.path for m in out], ["/d/bm_a.txt"])
 
+    def test_azi_wraparound_is_compatible(self):
+        files = {
+            "/d/fs.txt": _entry(scan_kind="FS", azi=1.0),
+            "/d/bm_wrap.txt": _entry(scan_kind="BM", azi=359.0),
+        }
+        out = find_bms_for_fs(files["/d/fs.txt"], "/d/fs.txt", files)
+        self.assertEqual([m.path for m in out], ["/d/bm_wrap.txt"])
+
     def test_filter_different_folder_rejected(self):
         files = {
             "/d/sample_A/fs.txt": _entry(scan_kind="FS"),

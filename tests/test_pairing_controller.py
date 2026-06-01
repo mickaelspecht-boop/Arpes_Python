@@ -50,7 +50,7 @@ class TestPairingController(unittest.TestCase):
         ctrl = PairingController(parent)
 
         ctrl._pin_fs_path("/d/fs1.txt")
-        self.assertEqual(parent._pinned_fs_path, "/d/fs1.txt")
+        self.assertEqual(parent._pinned_fs_path, "fs1.txt")
         self.assertTrue(any("FS contexte" in m for m in parent._status_msgs))
 
         ctrl._unpin_fs_path()
@@ -64,6 +64,13 @@ class TestPairingController(unittest.TestCase):
         ctrl = PairingController(parent)
 
         self.assertEqual(ctrl._active_fs_path(), "/d/fs1.txt")
+
+    def test_active_fs_uses_session_key_for_absolute_current_path(self):
+        s = _make_session({"fs1.txt": _fs()})
+        parent = _StubParent(s, current_path="/tmp/pairing_test/fs1.txt")
+        ctrl = PairingController(parent)
+
+        self.assertEqual(ctrl._active_fs_path(), "fs1.txt")
 
     def test_active_fs_falls_back_to_pinned_when_current_is_bm(self):
         s = _make_session({"/d/fs1.txt": _fs(), "/d/bm.txt": _bm()})
@@ -83,16 +90,15 @@ class TestPairingController(unittest.TestCase):
 
     def test_auto_pin_finds_fs_for_current_bm(self):
         s = _make_session({
-            "/d/fs1.txt": _fs(hv=60.0, azi=0.0),
-            "/d/bm.txt": _bm(hv=60.0, azi=0.0),
+            "fs1.txt": _fs(hv=60.0, azi=0.0),
+            "bm.txt": _bm(hv=60.0, azi=0.0),
         })
-        s.key_for_path = lambda p: p
-        parent = _StubParent(s, current_path="/d/bm.txt")
+        parent = _StubParent(s, current_path="/tmp/pairing_test/bm.txt")
         ctrl = PairingController(parent)
 
         chosen = ctrl._auto_pin_fs_for_current_bm()
-        self.assertEqual(chosen, "/d/fs1.txt")
-        self.assertEqual(parent._pinned_fs_path, "/d/fs1.txt")
+        self.assertEqual(chosen, "fs1.txt")
+        self.assertEqual(parent._pinned_fs_path, "fs1.txt")
 
     def test_auto_pin_respects_manual_override(self):
         s = _make_session({

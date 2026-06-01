@@ -94,7 +94,8 @@ def _azi_diff_deg(azi_a, azi_b) -> float:
     if azi_a is None or azi_b is None:
         return math.inf
     try:
-        return abs(float(azi_a) - float(azi_b))
+        diff = (float(azi_a) - float(azi_b) + 180.0) % 360.0 - 180.0
+        return abs(diff)
     except (TypeError, ValueError):
         return math.inf
 

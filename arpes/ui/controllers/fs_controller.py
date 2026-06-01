@@ -70,7 +70,8 @@ class FSController:
         self._inject_fs_lattice_into_raw()
         # GF redteam : applique distortion BM au volume FS si opt-in actif.
         propagated = self._apply_distortion_to_fs_volume_if_enabled()
-        info = self._fs_canvas.draw_fs(self._raw_data, self._fs_controls.params())
+        fs_params = self._fs_controls.params()
+        info = self._fs_canvas.draw_fs(self._raw_data, fs_params)
         try:
             self._fs_controls.lbl_info.setText(info)
         except Exception:
@@ -80,10 +81,11 @@ class FSController:
         self._draw_fs_distortion_badge(propagated)
         # B.4 — overlay BM cuts si toggle actif (after main draw).
         cuts_collected: list = []
-        if getattr(self, "_show_bm_cuts", False):
+        if getattr(self, "_show_bm_cuts", False) and self._current_is_fs():
             try:
                 cuts_collected = self._pairing_action("collect_cuts", {
                     "fs_metadata": (self._raw_data or {}).get("metadata", {}),
+                    "a_lattice": fs_params.a_lattice,
                 }) or []
                 self._fs_canvas.draw_bm_cuts(cuts_collected)
             except Exception as exc:
@@ -94,6 +96,7 @@ class FSController:
                 cuts_for_list = cuts_collected or (
                     self._pairing_action("collect_cuts", {
                         "fs_metadata": (self._raw_data or {}).get("metadata", {}),
+                        "a_lattice": fs_params.a_lattice,
                     }) or []
                 )
                 self._fs_linked_bms.refresh(self._pairing_action("active_fs"),

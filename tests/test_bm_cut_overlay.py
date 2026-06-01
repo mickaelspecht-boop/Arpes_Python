@@ -90,6 +90,15 @@ class TestComputeBmCut(unittest.TestCase):
         self.assertEqual(out.quality, "rotated")
         self.assertIn("Δazi", out.warning)
 
+    def test_quality_exact_for_azi_wraparound(self):
+        bm = _bm_entry(azi=359.0)
+        fs = _fs_entry(azi=1.0)
+        out = compute_bm_cut_in_fs_frame(
+            bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
+            work_func=self.WF, azi_tolerance_deg=2.1,
+        )
+        self.assertEqual(out.quality, "exact")
+
     def test_quality_scaled_for_hv_diff(self):
         bm = _bm_entry(hv=60.0)
         fs = _fs_entry(hv=80.0)

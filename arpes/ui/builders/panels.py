@@ -1,6 +1,8 @@
 """Builders for the ArpesExplorer main window panels."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -334,7 +336,7 @@ def wire_ui_signals(window) -> None:
             )
     if hasattr(window, "_fs_linked_bms"):
         window._fs_linked_bms.bm_load_requested.connect(
-            lambda path: window._load_ctrl.load(path)
+            lambda path: window._load_ctrl.load(_resolve_session_path(window, path))
         )
         if hasattr(window._fs_controls, "bz_preset_requested"):
             window._fs_controls.bz_preset_requested.connect(window._choose_bz_preset)
@@ -373,6 +375,16 @@ def _connect_map_canvas(canvas_widget, window) -> None:
     canvas_widget.canvas.mpl_connect("motion_notify_event", window._on_fit_annotation_motion)
     canvas_widget.canvas.mpl_connect("button_release_event", window._on_fit_select_release)
     canvas_widget.canvas.mpl_connect("scroll_event", window._on_scroll_zoom)
+
+
+def _resolve_session_path(window, path: str) -> str:
+    p = Path(path)
+    if p.is_absolute():
+        return str(p)
+    folder = getattr(getattr(window, "_session", None), "folder", None)
+    if folder:
+        return str(Path(folder) / p)
+    return str(p)
 
 
 def wire_param_signals(window) -> None:

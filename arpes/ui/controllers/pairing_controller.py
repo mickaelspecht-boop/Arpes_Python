@@ -31,6 +31,18 @@ def _augmented_files(session) -> dict:
     return {**pseudo, **(session.files or {})}
 
 
+def _normalized_augmented_files(session) -> dict:
+    files = _augmented_files(session)
+    for entry in files.values():
+        parent = getattr(entry, "parent_fs_path", None)
+        if parent:
+            try:
+                entry.parent_fs_path = session.key_for_path(parent)
+            except Exception:
+                pass
+    return files
+
+
 class PairingController:
     def __init__(self, parent):
         object.__setattr__(self, "_parent", parent)
@@ -47,8 +59,17 @@ class PairingController:
     # ---------------------------------------------------------------
     # Pin / unpin
     # ---------------------------------------------------------------
+    def _session_key(self, path: str | None) -> str | None:
+        if not path:
+            return None
+        try:
+            return self._session.key_for_path(path)
+        except Exception:
+            return path
+
     def _pin_fs_path(self, path: str | None) -> None:
         """Épingle une FS comme contexte pour l'overlay BM cuts."""
+        path = self._session_key(path)
         self._parent._pinned_fs_path = path
         if hasattr(self._parent, "_status") and path:
             self._status(f"FS contexte épinglée : {path}")
@@ -70,12 +91,15 @@ class PairingController:
         path = getattr(self._parent, "_current_path", None)
         if not path:
             return None
-        entry = self._session.files.get(self._session.key_for_path(path))
+        bm_key = self._session_key(path)
+        entry = self._session.files.get(bm_key)
         if entry is None:
             return None
         if getattr(entry.meta, "scan_kind", "") != "BM":
             return None
-        matches = find_fs_for_bm(entry, path, _augmented_files(self._session), criteria)
+        matches = find_fs_for_bm(
+            entry, bm_key, _normalized_augmented_files(self._session), criteria
+        )
         if not matches:
             return None
         # Prend la première (manual prioritaire, sinon plus proche)
@@ -94,9 +118,10 @@ class PairingController:
         """
         path = getattr(self._parent, "_current_path", None)
         if path:
-            entry = self._session.files.get(self._session.key_for_path(path))
+            key = self._session_key(path)
+            entry = self._session.files.get(key)
             if entry is not None and getattr(entry.meta, "scan_kind", "") == "FS":
-                return path
+                return key
         return getattr(self._parent, "_pinned_fs_path", None)
 
     # ---------------------------------------------------------------
@@ -112,8 +137,9 @@ class PairingController:
         fs_entry = self._session.files.get(self._session.key_for_path(fs_path))
         if fs_entry is None:
             return []
-        return find_bms_for_fs(fs_entry, fs_path,
-                               _augmented_files(self._session), criteria)
+        return find_bms_for_fs(
+            fs_entry, fs_path, _normalized_augmented_files(self._session), criteria
+        )
 
     # ---------------------------------------------------------------
     # Collect BM cuts pour overlay Phase B (B.2).
@@ -151,8 +177,9 @@ class PairingController:
                 work_func = float(self._params.sp_phi.value())
             except Exception:
                 work_func = 4.031
-        bms = find_bms_for_fs(fs_entry, fs_path,
-                              _augmented_files(self._session), criteria)
+        bms = find_bms_for_fs(
+            fs_entry, fs_path, _normalized_augmented_files(self._session), criteria
+        )
         cuts = []
         for match in bms:
             cut = compute_bm_cut_in_fs_frame(
@@ -190,7 +217,11 @@ class PairingController:
         if verb == "bound_bms":
             return self._bound_bms_for_active_fs()
         if verb == "collect_cuts":
-            return self._collect_bm_cuts_for_active_fs(payload.get("fs_metadata"))
+            return self._collect_bm_cuts_for_active_fs(
+                payload.get("fs_metadata"),
+                work_func=payload.get("work_func"),
+                a_lattice=float(payload.get("a_lattice", 3.96)),
+            )
         if verb == "toggle_cuts":
             visible = bool(payload.get("visible", False))
             self._parent._show_bm_cuts = visible

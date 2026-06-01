@@ -349,6 +349,7 @@ class FermiSurfaceCanvas(QWidget):
         self._mesh_signature = None
         self._overlay_artists: list = []
         self._bm_cut_artists: list = []
+        self._bm_cut_center = (0.0, 0.0)
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
         self.toolbar = NavToolbar(self.canvas, self)
         act = self.toolbar.addAction("⤢ Vue init")
@@ -375,6 +376,7 @@ class FermiSurfaceCanvas(QWidget):
         self.fig.set_facecolor("#2b2b2b"); self.ax.set_facecolor("#1a1a1a")
 
     def draw_fs(self, raw_data: dict[str, Any] | None, params: FSParams):
+        self._clear_bm_cut_artists()
         if raw_data is None:
             self.ax.cla(); self._dark()
             self._mesh = None
@@ -398,6 +400,7 @@ class FermiSurfaceCanvas(QWidget):
             fs_kind = meta.get("fs_kind", "")
             x = kx - params.kx_center
             y = ky - params.ky_center
+            self._bm_cut_center = (float(params.kx_center), float(params.ky_center))
             # Center explicitly in signature : redondant avec _axis_signature(x/y)
             # mais immune aux collisions et explicite à la relecture. Garantit
             # qu'un changement de Γ (via set_center / detect_gamma) force toujours
@@ -460,6 +463,14 @@ class FermiSurfaceCanvas(QWidget):
                          ha="center", va="center", color="tomato", wrap=True)
             self.canvas.draw_idle(); return f"Erreur FS: {exc}"
 
+    def _clear_bm_cut_artists(self) -> None:
+        for art in list(self._bm_cut_artists):
+            try:
+                art.remove()
+            except Exception:
+                pass
+        self._bm_cut_artists = []
+
     def draw_bm_cuts(self, cuts: list) -> None:
         """B.3 — overlay des lignes BM cuts sur la FS courante.
 
@@ -467,13 +478,7 @@ class FermiSurfaceCanvas(QWidget):
         Couleurs : cyan (exact), orange (rotated azi), rouge pointillé (scaled hv).
         Lignes pickables (5 px) — attach `bm_cut_path` pour interaction click.
         """
-        # Clear previous BM cut artists
-        for art in self._bm_cut_artists:
-            try:
-                art.remove()
-            except Exception:
-                pass
-        self._bm_cut_artists = []
+        self._clear_bm_cut_artists()
         if not cuts:
             self.canvas.draw_idle()
             return
@@ -483,13 +488,16 @@ class FermiSurfaceCanvas(QWidget):
             "scaled": "#ff5544",
             "incompatible": "#888888",
         }
+        cx, cy = getattr(self, "_bm_cut_center", (0.0, 0.0))
         for cut in cuts:
             if cut.kx_points.size == 0:
                 continue
+            kx_plot = cut.kx_points - cx
+            ky_plot = cut.ky_points - cy
             color = COLOR.get(cut.quality, "white")
             linestyle = "--" if cut.quality == "scaled" else "-"
             line, = self.ax.plot(
-                cut.kx_points, cut.ky_points,
+                kx_plot, ky_plot,
                 color=color, linestyle=linestyle,
                 linewidth=1.2, alpha=0.78,
                 picker=True, pickradius=5,
@@ -502,7 +510,7 @@ class FermiSurfaceCanvas(QWidget):
             # Annotation près de l'extrémité gauche du segment
             ann = self.ax.annotate(
                 cut.label,
-                (cut.kx_points[0], cut.ky_points[0]),
+                (kx_plot[0], ky_plot[0]),
                 color=color, fontsize=7, alpha=0.85,
                 xytext=(4, 4), textcoords="offset points",
                 zorder=9,
