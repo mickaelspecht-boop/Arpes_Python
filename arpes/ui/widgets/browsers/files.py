@@ -427,24 +427,22 @@ class FileBrowserPanel(QWidget):
             return self._loader_label_for_path(path) or "Labo inconnu"
         if field == "Type":
             return self._file_kind_for_path(path)
+        # Fix : ne PAS inclure la source (session/logbook/...) dans la clé de
+        # groupe, sinon les fichiers avec même hv mais source différente
+        # tombent dans deux headers distincts. Source reste visible via le
+        # tooltip / describe_item.
         if field == "hν":
-            hv, source = self._meta_value_for_path(path, "hv")
-            group = self._fmt_float_group("hν", hv, "eV", step=0.1)
-            return f"{group} ({source})" if source and group != "Métadonnées inconnues" else group
+            hv, _src = self._meta_value_for_path(path, "hv")
+            return self._fmt_float_group("hν", hv, "eV", step=0.1)
         if field == "Température":
-            temp, source = self._meta_value_for_path(path, "temperature")
-            group = self._fmt_float_group("T", temp, "K", step=0.1)
-            return f"{group} ({source})" if source and group != "Métadonnées inconnues" else group
+            temp, _src = self._meta_value_for_path(path, "temperature")
+            return self._fmt_float_group("T", temp, "K", step=0.1)
         if field in {"Chemin", "Géométrie"}:
-            direction, source = self._meta_value_for_path(path, "direction")
-            if not direction:
-                return "Chemin inconnu"
-            return f"{direction} ({source})" if source else str(direction)
+            direction, _src = self._meta_value_for_path(path, "direction")
+            return str(direction) if direction else "Chemin inconnu"
         if field == "Polarisation":
-            pol, source = self._meta_value_for_path(path, "polarization")
-            if not pol:
-                return "Polarisation inconnue"
-            return f"Pol {pol} ({source})" if source else f"Pol {pol}"
+            pol, _src = self._meta_value_for_path(path, "polarization")
+            return f"Pol {pol}" if pol else "Polarisation inconnue"
         return "."
 
     def _file_kind_for_path(self, path: str | Path) -> str:
