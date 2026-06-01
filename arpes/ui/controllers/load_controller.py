@@ -548,6 +548,11 @@ class LoadController:
             self._parent._refresh_zones_strip()
         except Exception:
             pass
+        # A.4 — auto-pin FS contexte si on charge une BM (overlay Phase B).
+        try:
+            self._parent._pairing_action("auto_pin_bm")
+        except Exception:
+            pass
 
     def _refresh_ui(self, d, prepared, path, *, entry_dirty: bool = False):
         entry = prepared.entry

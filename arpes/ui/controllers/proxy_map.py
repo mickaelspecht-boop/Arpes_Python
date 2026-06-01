@@ -64,6 +64,9 @@ PROXY_MAP = {
     "_forget_gamma": "_gamma_ctrl",
     "_forget_gamma_with_confirm": "_gamma_ctrl",
     "_update_gamma_status_badge": "_gamma_ctrl",
+    # PairingController (A.4 — pin FS pour overlay BM cuts).
+    # Verb-dispatch unique : ctrl._pairing_action(verb, payload).
+    "_pairing_action": "_pairing_ctrl",
     # NormController
     "_load_grid_controls": "_norm_ctrl",
     "_display_grid_config": "_norm_ctrl",

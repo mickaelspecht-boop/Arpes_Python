@@ -148,6 +148,11 @@ class ArpesExplorer(QMainWindow):
         self.ap = _load_ap()
         self._session     = Session()
         self._current_path: str | None = None
+        # A.4 — FS épinglée pour overlay BM cuts (cf BM_FS_ORGANIZATION_PLAN.md).
+        # Quand on charge une BM, le pin peut pointer vers la FS « contexte »
+        # de cette BM (auto ou manual via parent_fs_path) → utilisé par
+        # l'overlay Phase B pour savoir sur quelle FS dessiner les lignes.
+        self._pinned_fs_path: str | None = None
         self._raw_data:   dict | None  = None   # chargé depuis fichier
         self._data_disp:  np.ndarray | None = None  # données affichées (mode)
         self._grid_display_info: dict = {}
@@ -200,6 +205,8 @@ class ArpesExplorer(QMainWindow):
         self._band_analysis_ctrl = BandAnalysisController(self)
         from arpes.ui.controllers.fit_zones_controller import FitZonesController
         self._fit_zones_ctrl = FitZonesController(self)
+        from arpes.ui.controllers.pairing_controller import PairingController
+        self._pairing_ctrl = PairingController(self)
 
         # Debouncers : évitent N redraws quand l'utilisateur clique-clique
         # rapidement sur un spinbox ou tape une valeur.
