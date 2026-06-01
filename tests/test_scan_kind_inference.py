@@ -69,5 +69,36 @@ class TestScanKindRoundtripInSession(unittest.TestCase):
         self.assertEqual(meta.scan_kind, "unknown")
 
 
+class TestParentFsPathRoundtrip(unittest.TestCase):
+    """A.3 — entry.parent_fs_path survit save/load JSON."""
+
+    def test_default_is_none(self):
+        self.assertIsNone(FileEntry().parent_fs_path)
+
+    def test_explicit_path_persists(self):
+        session = Session(Path("/tmp/parent_fs_test"))
+        bm = session.get_or_create("bm04")
+        bm.parent_fs_path = "/data/bna_s2/fs1.txt"
+
+        payload = session.to_payload()
+        reloaded = Session(Path("/tmp/parent_fs_test"))
+        reloaded.load_from_payload(json.loads(json.dumps(payload)))
+
+        self.assertEqual(reloaded.files["bm04"].parent_fs_path,
+                         "/data/bna_s2/fs1.txt")
+
+    def test_legacy_payload_without_field_loads(self):
+        session = Session(Path("/tmp/parent_fs_legacy"))
+        session.get_or_create("bm04")
+        payload = session.to_payload()
+        # Simule ancien JSON : retire le champ
+        for entry_dict in payload["files"].values():
+            entry_dict.pop("parent_fs_path", None)
+
+        reloaded = Session(Path("/tmp/parent_fs_legacy"))
+        reloaded.load_from_payload(json.loads(json.dumps(payload)))
+        self.assertIsNone(reloaded.files["bm04"].parent_fs_path)
+
+
 if __name__ == "__main__":
     unittest.main()

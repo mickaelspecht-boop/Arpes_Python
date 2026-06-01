@@ -90,6 +90,10 @@ class FileEntry:
     # (bm_gamma_axis_centered, bm_gamma_axis_shift, fs_gamma_axis_*,
     # bm_gamma_reference_*). Restauré dans raw_data["metadata"] au load.
     meta_gamma_state: dict = field(default_factory=dict)
+    # A.3 — override manuel pairing BM↔FS (cf BM_FS_ORGANIZATION_PLAN.md).
+    # Si défini : force le rattachement de cette BM à la FS au path donné,
+    # court-circuitant l'auto-discovery par métadonnées.
+    parent_fs_path: Optional[str] = None
 
     @property
     def status(self) -> str:
@@ -278,6 +282,7 @@ class Session:
                 active_zone_id=edict.get("active_zone_id"),
                 annotations=edict.get("annotations", {}) or {},
                 meta_gamma_state=dict(edict.get("meta_gamma_state", {}) or {}),
+                parent_fs_path=edict.get("parent_fs_path"),
             )
             self.files[name] = entry
 
