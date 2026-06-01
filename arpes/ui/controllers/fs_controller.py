@@ -78,6 +78,15 @@ class FSController:
         self._update_fs_kz_label()
         # Badge orange visible si propagation FS active.
         self._draw_fs_distortion_badge(propagated)
+        # B.4 — overlay BM cuts si toggle actif (after main draw).
+        if getattr(self, "_show_bm_cuts", False):
+            try:
+                cuts = self._pairing_action("collect_cuts", {
+                    "fs_metadata": (self._raw_data or {}).get("metadata", {}),
+                })
+                self._fs_canvas.draw_bm_cuts(cuts or [])
+            except Exception as exc:
+                self._status(f"Attention: BM cuts overlay : {exc}")
 
     # ------------------------------------------------------------------
     #  Overlay BZ cristal (Materials Project)

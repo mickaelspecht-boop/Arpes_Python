@@ -153,6 +153,8 @@ class ArpesExplorer(QMainWindow):
         # de cette BM (auto ou manual via parent_fs_path) → utilisé par
         # l'overlay Phase B pour savoir sur quelle FS dessiner les lignes.
         self._pinned_fs_path: str | None = None
+        # B.4 — toggle overlay BM cuts (False par défaut, off-screen safe).
+        self._show_bm_cuts: bool = False
         self._raw_data:   dict | None  = None   # chargé depuis fichier
         self._data_disp:  np.ndarray | None = None  # données affichées (mode)
         self._grid_display_info: dict = {}

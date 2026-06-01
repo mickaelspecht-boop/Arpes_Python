@@ -17,6 +17,7 @@ from arpes.io.file_pairing import (
     find_bms_for_fs,
     find_fs_for_bm,
 )
+from arpes.physics.bm_cut_overlay import compute_bm_cut_in_fs_frame
 
 
 class PairingController:
@@ -103,6 +104,53 @@ class PairingController:
         return find_bms_for_fs(fs_entry, fs_path, self._session.files, criteria)
 
     # ---------------------------------------------------------------
+    # Collect BM cuts pour overlay Phase B (B.2).
+    # ---------------------------------------------------------------
+    def _collect_bm_cuts_for_active_fs(
+        self,
+        fs_metadata: dict | None = None,
+        *,
+        criteria: PairingCriteria | None = None,
+        work_func: float | None = None,
+        a_lattice: float = 3.96,
+    ) -> list:
+        """Pour la FS active, calcule la projection de toutes les BMs liées.
+
+        Args:
+            fs_metadata: dict raw_data["metadata"] de la FS active. Si None,
+                tente self._raw_data["metadata"] (cas où la FS est current).
+            criteria: filtre auto-discovery (defaults si None).
+            work_func: φ. Si None, lu depuis self._params.sp_phi.
+
+        Returns:
+            list[BMCutLine].
+        """
+        fs_path = self._active_fs_path()
+        if not fs_path:
+            return []
+        fs_entry = self._session.files.get(self._session.key_for_path(fs_path))
+        if fs_entry is None:
+            return []
+        if fs_metadata is None:
+            raw = getattr(self._parent, "_raw_data", None)
+            fs_metadata = (raw or {}).get("metadata", {}) if raw else {}
+        if work_func is None:
+            try:
+                work_func = float(self._params.sp_phi.value())
+            except Exception:
+                work_func = 4.031
+        bms = find_bms_for_fs(fs_entry, fs_path, self._session.files, criteria)
+        cuts = []
+        for match in bms:
+            cut = compute_bm_cut_in_fs_frame(
+                match.entry, match.path, fs_entry, fs_path, fs_metadata,
+                work_func=float(work_func), a_lattice=float(a_lattice),
+            )
+            if cut is not None:
+                cuts.append(cut)
+        return cuts
+
+    # ---------------------------------------------------------------
     # Verb-dispatch unique pour le proxy (CLAUDE.md plafond 150).
     # ---------------------------------------------------------------
     def _pairing_action(self, verb: str, payload: dict | None = None):
@@ -128,4 +176,14 @@ class PairingController:
             return self._active_fs_path()
         if verb == "bound_bms":
             return self._bound_bms_for_active_fs()
+        if verb == "collect_cuts":
+            return self._collect_bm_cuts_for_active_fs(payload.get("fs_metadata"))
+        if verb == "toggle_cuts":
+            visible = bool(payload.get("visible", False))
+            self._parent._show_bm_cuts = visible
+            try:
+                self._draw_fs_tab()
+            except Exception:
+                pass
+            return None
         raise ValueError(f"_pairing_action: verb inconnu '{verb}'")

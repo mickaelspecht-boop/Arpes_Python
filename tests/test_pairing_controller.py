@@ -19,8 +19,10 @@ def _make_session(files: dict[str, FileEntry]) -> Session:
     return s
 
 
-def _bm(*, hv=60.0, azi=0.0, pol="LH", parent=None) -> FileEntry:
-    e = FileEntry(meta=FileMeta(hv=hv, azi=azi, polarization=pol, scan_kind="BM"))
+def _bm(*, hv=60.0, azi=0.0, polar=0.0, pol="LH", parent=None) -> FileEntry:
+    e = FileEntry(meta=FileMeta(
+        hv=hv, azi=azi, polar=polar, polarization=pol, scan_kind="BM",
+    ))
     e.parent_fs_path = parent
     return e
 
@@ -127,6 +129,36 @@ class TestPairingController(unittest.TestCase):
         self.assertEqual([m.path for m in bms], ["/d/bm_a.txt"])
 
 
+class TestCollectBmCuts(unittest.TestCase):
+    """B.2 — agrégation des projections BM dans le repère FS."""
+
+    def test_collect_returns_cuts_for_bound_bms(self):
+        s = _make_session({
+            "/d/fs1.txt": _fs(hv=60.0, azi=0.0),
+            "/d/bm_a.txt": _bm(hv=60.0, azi=0.0),
+            "/d/bm_far.txt": _bm(hv=120.0, azi=30.0),  # exclu
+        })
+        s.key_for_path = lambda p: p
+        parent = _StubParent(s, current_path="/d/fs1.txt")
+        parent._raw_data = {"metadata": {"fs_scan_axis_deg": {"center": 0.0}}}
+        parent._params = type("P", (), {
+            "sp_phi": type("S", (), {"value": staticmethod(lambda: 4.5)})()
+        })()
+        ctrl = PairingController(parent)
+
+        cuts = ctrl._collect_bm_cuts_for_active_fs()
+        labels = [c.label for c in cuts]
+        self.assertEqual(labels, ["bm_a"])
+        self.assertEqual(cuts[0].quality, "exact")
+
+    def test_collect_empty_when_no_active_fs(self):
+        s = _make_session({"/d/bm.txt": _bm()})
+        s.key_for_path = lambda p: p
+        parent = _StubParent(s, current_path="/d/bm.txt")
+        ctrl = PairingController(parent)
+        self.assertEqual(ctrl._collect_bm_cuts_for_active_fs(), [])
+
+
 class TestPairingVerbDispatch(unittest.TestCase):
     def test_verbs_dispatch(self):
         s = _make_session({
@@ -149,6 +181,18 @@ class TestPairingVerbDispatch(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             ctrl._pairing_action("bogus")
+
+    def test_toggle_cuts_sets_flag(self):
+        s = _make_session({})
+        s.key_for_path = lambda p: p
+        parent = _StubParent(s)
+        parent._show_bm_cuts = False
+        parent._draw_fs_tab = lambda: None  # stub
+        ctrl = PairingController(parent)
+        ctrl._pairing_action("toggle_cuts", {"visible": True})
+        self.assertTrue(parent._show_bm_cuts)
+        ctrl._pairing_action("toggle_cuts", {"visible": False})
+        self.assertFalse(parent._show_bm_cuts)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ class FSControlPanel(QScrollArea):
     gamma_requested = pyqtSignal()
     manual_center_requested = pyqtSignal(bool)
     forget_gamma_requested = pyqtSignal()
+    bm_cuts_visibility_changed = pyqtSignal(bool)
     bz_preset_requested = pyqtSignal()
     distortion_fs_toggled = pyqtSignal(bool)
     # --- Overlay BZ cristal (MP) -----------------------------------------
@@ -263,6 +264,14 @@ class FSControlPanel(QScrollArea):
         )
         btn_forget.clicked.connect(self.forget_gamma_requested)
         lay.addWidget(btn_forget)
+        self.chk_show_bm_cuts = QCheckBox("Afficher BM cuts")
+        self.chk_show_bm_cuts.setToolTip(
+            "Projette toutes les BMs compatibles (auto-discovery ou pinned)\n"
+            "comme lignes sur la FS. Couleurs : cyan=exact, orange=Δazi,\n"
+            "rouge pointillé=Δhv."
+        )
+        self.chk_show_bm_cuts.toggled.connect(self.bm_cuts_visibility_changed)
+        lay.addWidget(self.chk_show_bm_cuts)
         lay.addStretch(1)
 
     def params(self) -> FSParams:
@@ -339,6 +348,7 @@ class FermiSurfaceCanvas(QWidget):
         self._mesh = None
         self._mesh_signature = None
         self._overlay_artists: list = []
+        self._bm_cut_artists: list = []
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
         self.toolbar = NavToolbar(self.canvas, self)
         act = self.toolbar.addAction("⤢ Vue init")
@@ -449,6 +459,56 @@ class FermiSurfaceCanvas(QWidget):
             self.ax.text(0.5, 0.5, str(exc), transform=self.ax.transAxes,
                          ha="center", va="center", color="tomato", wrap=True)
             self.canvas.draw_idle(); return f"Erreur FS: {exc}"
+
+    def draw_bm_cuts(self, cuts: list) -> None:
+        """B.3 — overlay des lignes BM cuts sur la FS courante.
+
+        cuts : list[BMCutLine] (cf arpes/physics/bm_cut_overlay.py).
+        Couleurs : cyan (exact), orange (rotated azi), rouge pointillé (scaled hv).
+        Lignes pickables (5 px) — attach `bm_cut_path` pour interaction click.
+        """
+        # Clear previous BM cut artists
+        for art in self._bm_cut_artists:
+            try:
+                art.remove()
+            except Exception:
+                pass
+        self._bm_cut_artists = []
+        if not cuts:
+            self.canvas.draw_idle()
+            return
+        COLOR = {
+            "exact": "#00d4ff",
+            "rotated": "#ffae42",
+            "scaled": "#ff5544",
+            "incompatible": "#888888",
+        }
+        for cut in cuts:
+            if cut.kx_points.size == 0:
+                continue
+            color = COLOR.get(cut.quality, "white")
+            linestyle = "--" if cut.quality == "scaled" else "-"
+            line, = self.ax.plot(
+                cut.kx_points, cut.ky_points,
+                color=color, linestyle=linestyle,
+                linewidth=1.2, alpha=0.78,
+                picker=True, pickradius=5,
+                zorder=8,
+            )
+            # Tag pour pick handler
+            setattr(line, "bm_cut_path", cut.bm_path)
+            setattr(line, "bm_cut_label", cut.label)
+            self._bm_cut_artists.append(line)
+            # Annotation près de l'extrémité gauche du segment
+            ann = self.ax.annotate(
+                cut.label,
+                (cut.kx_points[0], cut.ky_points[0]),
+                color=color, fontsize=7, alpha=0.85,
+                xytext=(4, 4), textcoords="offset points",
+                zorder=9,
+            )
+            self._bm_cut_artists.append(ann)
+        self.canvas.draw_idle()
 
     def detect_gamma(self, raw_data: dict[str, Any] | None, params: FSParams):
         kx, ky, fs, _ = extract_fs_map(raw_data, params)
