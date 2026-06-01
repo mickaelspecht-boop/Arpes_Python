@@ -15,6 +15,55 @@ from arpes.physics.gamma import (
     project_gamma_by_azi as _gamma_project_by_azi,
     stored_gamma_reference as _gamma_stored_reference,
 )
+from arpes.physics.gamma_resolver import ResolvedGamma, resolve as _gamma_resolve
+
+
+_GAMMA_META_KEYS = (
+    "bm_gamma_axis_centered", "bm_gamma_axis_shift", "bm_gamma_axis_note",
+    "fs_gamma_axis_centered", "fs_gamma_axis_shift_kx", "fs_gamma_axis_shift_ky",
+    "bm_gamma_reference_source", "bm_gamma_reference_path", "bm_gamma_reference_azi",
+)
+
+
+def _snapshot_meta_gamma(meta: dict | None) -> dict:
+    if not meta:
+        return {}
+    return {k: meta[k] for k in _GAMMA_META_KEYS if k in meta}
+
+
+def _is_axis_locked(meta: dict | None) -> tuple[bool, str]:
+    """Renvoie (locked, raison_user) si l'axe Γ est déjà déterminé.
+
+    Une fois locked, les détecteurs Γ (auto BM / auto FS / pick manuel) doivent
+    refuser de re-écrire la référence pour éviter drift cumulé / double-shift.
+    """
+    if not meta:
+        return False, ""
+    if meta.get("angle_offsets_applied"):
+        return True, "Γ déjà appliqué par offset angulaire loader. Utilise 'Oublier Γ' pour réinitialiser."
+    if meta.get("bm_gamma_axis_centered") or meta.get("fs_gamma_axis_centered"):
+        return True, "Γ déjà appliqué (axe recentré). Utilise 'Oublier Γ' pour réinitialiser."
+    return False, ""
+
+
+def _shift_fit_result_in_place(fr: dict | None, delta: float) -> None:
+    """Apply -delta to all kF / Γ entries of a fit_result dict (mutates in place).
+
+    Why: axis recenter (kpar -= delta) leaves stale kF in fit_result, overlay drifts.
+    """
+    if not fr or abs(delta) < 1e-12:
+        return
+    for key in ("kF_minus", "kF_plus", "gamma_corrige"):
+        pairs = fr.get(key)
+        if not pairs:
+            continue
+        new_pairs = []
+        for series in pairs:
+            new_pairs.append([
+                (float(v) - delta) if v is not None and np.isfinite(v) else v
+                for v in series
+            ])
+        fr[key] = new_pairs
 
 
 class GammaController:
@@ -153,6 +202,11 @@ class GammaController:
             return
         if event.xdata is None or event.ydata is None:
             return
+        locked, reason = _is_axis_locked(self._raw_data.get("metadata", {}))
+        if locked:
+            self._set_fs_center_pick_mode(False)
+            self._status(reason)
+            return
         params = self._fs_controls.params()
         kx = float(params.kx_center + event.xdata)
         ky = float(params.ky_center + event.ydata)
@@ -173,6 +227,11 @@ class GammaController:
     def _detect_fs_gamma(self):
         if FermiSurfaceCanvas is None or FSControlPanel is None:
             return
+        if self._raw_data is not None:
+            locked, reason = _is_axis_locked(self._raw_data.get("metadata", {}))
+            if locked:
+                self._status(reason)
+                return
         try:
             params = self._fs_controls.params()
             res = self._fs_canvas.detect_gamma(self._raw_data, params)
@@ -229,85 +288,196 @@ class GammaController:
         )
 
     def _center_current_bm_axis_on_gamma(self, gamma_bm: float, ref: dict | None = None) -> bool:
-        """Center the current BM display axis from an explicit Γ action."""
+        """Center the current BM display axis from an explicit Γ action.
+
+        Si raw est une FS, propage `allow_fs=True` + gamma_ky pour garder le
+        marker FS aligné (bug P1.3). Snapshot ensuite l'état meta vers
+        `entry.meta_gamma_state` pour survivre save/load (P1.1).
+        """
         if self._raw_data is None:
             return False
-        applied = _gamma_apply_bm_axis_shift(self._raw_data, gamma_bm, ref=ref)
-        if applied and hasattr(self, "_sel_k"):
-            self._sel_k = float(self._sel_k - float(gamma_bm))
-        return applied
+        meta_before = self._raw_data.get("metadata", {}) or {}
+        try:
+            previous_shift = float(meta_before.get("bm_gamma_axis_shift", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            previous_shift = 0.0
+        is_fs = meta_before.get("fs_data") is not None
+        gamma_ky = 0.0
+        if is_fs and ref is not None:
+            try:
+                gamma_ky = float(ref.get("ky", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                gamma_ky = 0.0
+        applied = _gamma_apply_bm_axis_shift(
+            self._raw_data, gamma_bm, ref=ref,
+            allow_fs=is_fs, gamma_ky=gamma_ky,
+        )
+        if not applied:
+            return False
+        meta_after = self._raw_data.get("metadata", {}) or {}
+        try:
+            new_shift = float(meta_after.get("bm_gamma_axis_shift", previous_shift) or previous_shift)
+        except (TypeError, ValueError):
+            new_shift = previous_shift
+        delta = new_shift - previous_shift
+        if hasattr(self, "_sel_k"):
+            self._sel_k = float(self._sel_k - delta)
+        if abs(delta) > 1e-12:
+            self._remap_fit_results_by_delta(delta)
+        self._snapshot_gamma_meta_to_entry()
+        return True
 
-    def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
-        if self._raw_data is None:
+    def _snapshot_gamma_meta_to_entry(self) -> None:
+        """P1.1 — persiste les flags meta gamma sur l'entry pour survivre reload."""
+        entry = self._current_entry()
+        if entry is None or self._raw_data is None:
             return
-
         meta = self._raw_data.get("metadata", {}) or {}
-        is_fs = meta.get("fs_data") is not None
+        entry.meta_gamma_state = _snapshot_meta_gamma(meta)
 
-        if is_fs and FSControlPanel is not None and hasattr(self, "_fs_controls"):
-            entry = self._current_entry()
-            ref = self._stored_gamma_reference()
-            if meta.get("angle_offsets_applied"):
-                self._fs_controls.set_center(0.0, 0.0)
-                if save_entry and entry is not None:
-                    entry.fs_center_kx = 0.0
-                    entry.fs_center_ky = 0.0
-                    self._session.save()
-                return
-            if ref:
-                same = self._same_path(ref.get("path"), self._raw_data.get("path"))
-                if same:
-                    kx_fs = float(ref["kx"])
-                    ky_fs = float(ref.get("ky", 0.0) or 0.0)
-                else:
-                    azi_fs = entry.meta.azi if (entry and entry.meta.azi is not None) else None
-                    kx_fs, ky_fs = self._project_gamma_by_azi(
-                        ref, azi_fs, warn_label="Γ référence → FS"
-                    )
-                    if not np.isfinite(kx_fs) or not np.isfinite(ky_fs):
-                        return
-                self._fs_controls.set_center(float(kx_fs), float(ky_fs))
-                self._sync_current_fs_gamma_to_bm_center(float(kx_fs))
-                if save_entry and entry is not None:
-                    entry.fs_center_kx = float(kx_fs)
-                    entry.fs_center_ky = float(ky_fs)
-                    self._session.save()
-                if not same:
-                    self._status(f"Γ FS propagé par azimut : kx={kx_fs:+.4f}, ky={ky_fs:+.4f} π/a")
-                return
-            if entry is not None and entry.fs_center_kx is not None and entry.fs_center_ky is not None:
-                self._fs_controls.set_center(float(entry.fs_center_kx), float(entry.fs_center_ky))
-                return
+    def _restore_gamma_meta_from_entry(self) -> None:
+        """P1.1 — restaure les flags meta gamma depuis entry vers raw_data.
 
-        ref = self._stored_gamma_reference()
-        if not ref:
+        Appelé par load_controller juste avant `_apply_stored_gamma_to_current_file`
+        pour éviter le drift au reload (le code applicateur voit `previous_shift`
+        cohérent et n'applique aucun delta supplémentaire).
+        """
+        entry = self._current_entry()
+        if entry is None or self._raw_data is None:
             return
-
-        if meta.get("angle_offsets_applied"):
-            self._params.sp_cx.setValue(0.0)
-            if save_entry and self._current_path:
-                entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-                entry.fit_params.center_init = 0.0
-                self._session.save()
-            self._status("Γ mémorisé appliqué par offset angulaire : centre fit=0")
+        state = getattr(entry, "meta_gamma_state", None) or {}
+        if not state:
             return
+        meta = self._raw_data.setdefault("metadata", {})
+        for k, v in state.items():
+            meta.setdefault(k, v)
 
-        gamma_bm, correction = self._gamma_reference_to_bm_center(ref)
-        if not np.isfinite(gamma_bm):
+    def _remap_fit_results_by_delta(self, delta: float) -> None:
+        """Shift kF/Γ entries in fit_result (+ all fit_zones) by -delta after axis recenter.
+
+        P1.6 — snapshot avant mutation, restore si save() échoue, pour éviter
+        divergence mémoire/disque.
+        """
+        entry = self._current_entry()
+        if entry is None:
             return
-
-        axis_centered = self._center_current_bm_axis_on_gamma(float(gamma_bm), ref)
-        self._params.sp_cx.setValue(0.0 if axis_centered else float(gamma_bm))
-        if save_entry and self._current_path:
-            entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
-            entry.fit_params.center_init = 0.0 if axis_centered else float(gamma_bm)
+        import copy
+        backup_fit = copy.deepcopy(getattr(entry, "fit_result", None))
+        backup_zones = copy.deepcopy(getattr(entry, "fit_zones", None) or [])
+        _shift_fit_result_in_place(getattr(entry, "fit_result", None), delta)
+        for z in getattr(entry, "fit_zones", None) or []:
+            _shift_fit_result_in_place(z.get("fit_result"), delta)
+        try:
             self._session.save()
-        axis_msg = "axe k recentré" if axis_centered else "centre fit seul"
-        self._status(
-            f"Γ mémorisé appliqué : {gamma_bm:+.4f} π/a  correction={correction:+.4f}  |  {axis_msg}"
+        except Exception as exc:
+            entry.fit_result = backup_fit
+            entry.fit_zones = backup_zones
+            self._status(f"Attention: sauvegarde après remap Γ échouée : {exc} — état restauré")
+
+    # ---------------------------------------------------------------
+    # P2 — chemin resolver/single-setter
+    # ---------------------------------------------------------------
+    def _resolve_gamma_for_current(self) -> ResolvedGamma:
+        """Pure : appelle le resolver Γ avec les attributs courants."""
+        entry = self._current_entry()
+        azi = entry.meta.azi if (entry and entry.meta.azi is not None) else None
+        work_func = (
+            float(self._params.sp_phi.value())
+            if hasattr(self._params, "sp_phi") else 4.031
+        )
+        ref = self._stored_gamma_reference()
+        return _gamma_resolve(
+            self._raw_data, ref,
+            work_func=work_func,
+            bm_hv=self._raw_data.get("hv") if self._raw_data else None,
+            entry_azi=azi,
         )
 
+    def apply_resolved_gamma(self, resolved: ResolvedGamma, *, save_entry: bool = False) -> None:
+        """Single-setter Γ : seul point qui mute `sp_cx`, `entry.fit_params.center_init`,
+        l'axe k de raw_data, le marker FS, `_sel_k`, et déclenche le remap fit_result.
+
+        Tous les handlers Γ (auto BM, auto FS, click manuel, auto-apply load, FS→BM)
+        doivent passer par ici. C'est l'analogue de `set_fit_result` pour Γ.
+        """
+        if resolved.mode == "none":
+            return
+        ref = self._stored_gamma_reference()
+        entry = self._current_entry()
+
+        # 1. Push display center (sp_cx) avec blockSignals pour éviter cascade
+        sp_cx = getattr(self._params, "sp_cx", None)
+        if sp_cx is not None and hasattr(sp_cx, "setValue"):
+            had_block = False
+            if hasattr(sp_cx, "blockSignals"):
+                try:
+                    had_block = sp_cx.blockSignals(True)
+                except Exception:
+                    had_block = False
+            try:
+                sp_cx.setValue(float(resolved.display_center))
+            finally:
+                if hasattr(sp_cx, "blockSignals"):
+                    try:
+                        sp_cx.blockSignals(had_block)
+                    except Exception:
+                        pass
+
+        # 2. Push fit_center_init dans l'entry
+        if entry is not None:
+            entry.fit_params.center_init = float(resolved.fit_center_init)
+
+        # 3. Marker FS (si applicable)
+        if (
+            resolved.is_fs
+            and FSControlPanel is not None
+            and hasattr(self, "_fs_controls")
+            and np.isfinite(resolved.fs_marker_kx)
+            and np.isfinite(resolved.fs_marker_ky)
+        ):
+            self._fs_controls.set_center(float(resolved.fs_marker_kx),
+                                         float(resolved.fs_marker_ky))
+            if entry is not None:
+                entry.fs_center_kx = float(resolved.fs_marker_kx)
+                entry.fs_center_ky = float(resolved.fs_marker_ky)
+
+        # 4. Shift axe k si delta non nul (réutilise le chemin existant pour
+        #    bénéficier du remap fit_result + snapshot meta + sel_k update).
+        if resolved.mode == "axis_shifted" and abs(resolved.axis_shift_delta) > 1e-12:
+            self._center_current_bm_axis_on_gamma(
+                float(resolved.axis_shift_target),
+                ref=({**ref, "ky": float(resolved.fs_marker_ky)}
+                     if ref and resolved.is_fs and np.isfinite(resolved.fs_marker_ky)
+                     else ref),
+            )
+
+        # 5. Persistance
+        if save_entry:
+            try:
+                self._session.save()
+            except Exception as exc:
+                self._status(f"Attention: sauvegarde Γ échouée : {exc}")
+
+        # 6. Feedback
+        if resolved.reason:
+            self._status(resolved.reason)
+
+    def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
+        """Auto-apply Γ stocké sur le fichier courant (chemin load / switch).
+
+        P2 : délègue intégralement au resolver + single-setter.
+        """
+        if self._raw_data is None:
+            return
+        resolved = self._resolve_gamma_for_current()
+        self.apply_resolved_gamma(resolved, save_entry=save_entry)
+
     def _estimate_gamma_bm(self):
+        if self._raw_data is not None:
+            locked, reason = _is_axis_locked(self._raw_data.get("metadata", {}))
+            if locked:
+                self._status(reason)
+                return
         try:
             import arpes.ui.widgets.plots as ap
         except Exception:

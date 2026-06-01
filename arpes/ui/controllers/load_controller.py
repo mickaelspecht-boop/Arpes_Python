@@ -501,7 +501,30 @@ class LoadController:
         self._params.sp_crystal_a.setValue(a_val)
         self._params.sp_crystal_a.blockSignals(False)
         self._parent._restore_theory_overlay_for_entry()
-        self._parent._apply_stored_gamma_to_current_file(save_entry=True)
+        # P1.1/P1.7 : restaure meta_gamma_state AVANT l'apply, et bloque les
+        # signaux sp_cx pour éviter redraw partiel mid-load. L'apply voit
+        # alors `previous_shift` correct → delta=0 → pas de drift fit_result.
+        gamma_ctrl = getattr(self._parent, "_gamma_ctrl", None)
+        if gamma_ctrl is not None and hasattr(gamma_ctrl, "_restore_gamma_meta_from_entry"):
+            try:
+                gamma_ctrl._restore_gamma_meta_from_entry()
+            except Exception:
+                pass
+        sp_cx = getattr(self._params, "sp_cx", None)
+        had_block = False
+        if sp_cx is not None and hasattr(sp_cx, "blockSignals"):
+            try:
+                had_block = sp_cx.blockSignals(True)
+            except Exception:
+                had_block = False
+        try:
+            self._parent._apply_stored_gamma_to_current_file(save_entry=True)
+        finally:
+            if sp_cx is not None and hasattr(sp_cx, "blockSignals"):
+                try:
+                    sp_cx.blockSignals(had_block)
+                except Exception:
+                    pass
         # Restore BZ-crystal overlay settings from session entry into FSControlPanel
         try:
             self._parent._restore_fs_crystal_settings_from_entry(entry)

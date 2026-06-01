@@ -83,6 +83,10 @@ class FileEntry:
     # each zone : {id, label, color_idx, active, fit_params, fit_result|None}
     active_zone_id: Optional[str] = None
     annotations: dict[str, list[dict]] = field(default_factory=dict)
+    # Survit save/load : flags meta gamma déposés par apply_bm_gamma_axis_shift
+    # (bm_gamma_axis_centered, bm_gamma_axis_shift, fs_gamma_axis_*,
+    # bm_gamma_reference_*). Restauré dans raw_data["metadata"] au load.
+    meta_gamma_state: dict = field(default_factory=dict)
 
     @property
     def status(self) -> str:
@@ -270,6 +274,7 @@ class Session:
                 fit_zones=list(edict.get("fit_zones", []) or []),
                 active_zone_id=edict.get("active_zone_id"),
                 annotations=edict.get("annotations", {}) or {},
+                meta_gamma_state=dict(edict.get("meta_gamma_state", {}) or {}),
             )
             self.files[name] = entry
 

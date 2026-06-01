@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
@@ -213,6 +215,195 @@ class TestUiSmoke(unittest.TestCase):
         self.assertAlmostEqual(entry.fs_center_ky, -0.17)
         self.assertFalse(parent._raw_data["metadata"].get("fs_gamma_axis_centered", False))
         self.assertEqual(parent._draws, 1)
+
+    def test_manual_fs_gamma_updates_bm_center_parameter(self):
+        class FakeSpin:
+            def __init__(self):
+                self.value_seen = None
+
+            def setValue(self, value):
+                self.value_seen = float(value)
+
+        class FakeControls:
+            def __init__(self):
+                self.center = (0.10, -0.05)
+                self.lbl_info = SimpleNamespace(setText=lambda text: None)
+
+            def params(self):
+                return SimpleNamespace(kx_center=self.center[0], ky_center=self.center[1])
+
+            def set_center(self, kx, ky):
+                self.center = (float(kx), float(ky))
+
+        class FakeCanvas:
+            ax = object()
+
+        class Parent:
+            def __init__(self):
+                self._raw_data = {
+                    "path": "/tmp/fs-manual",
+                    "hv": 60.0,
+                    "kpar": [-1.0, 0.0, 1.0],
+                    "metadata": {
+                        "fs_data": object(),
+                        "fs_kx": [-1.0, 0.0, 1.0],
+                        "fs_ky": [-1.0, 0.0, 1.0],
+                        "fs_kind": "kxky",
+                    },
+                }
+                self._current_path = "/tmp/fs-manual"
+                self._session = Session(Path("/tmp"))
+                self._fs_pick_center_active = True
+                self._fs_controls = FakeControls()
+                self._fs_canvas = FakeCanvas()
+                self._sp_cx = FakeSpin()
+                self._params = SimpleNamespace(
+                    sp_hv=SimpleNamespace(value=lambda: 60.0),
+                    sp_phi=SimpleNamespace(value=lambda: 4.5),
+                    sp_cx=self._sp_cx,
+                    mark_action_done=lambda text: None,
+                )
+                self._draws = 0
+
+            def _current_entry(self):
+                return self._session.get_or_create(self._session.key_for_path(self._current_path))
+
+            def _current_is_fs(self):
+                return True
+
+            def _draw_fs_tab(self):
+                self._draws += 1
+
+            def _status(self, text):
+                pass
+
+        parent = Parent()
+        ctrl = GammaController(parent)
+        event = SimpleNamespace(inaxes=parent._fs_canvas.ax, xdata=0.20, ydata=0.10)
+
+        ctrl._on_fs_map_click(event)
+
+        self.assertEqual(parent._fs_controls.center, (0.30, 0.05))
+        self.assertAlmostEqual(parent._sp_cx.value_seen, 0.30)
+        self.assertAlmostEqual(parent._current_entry().fit_params.center_init, 0.30)
+        self.assertEqual(parent._draws, 1)
+
+    def test_stored_gamma_on_fs_does_not_shift_average_bm_axis(self):
+        class FakeSpin:
+            def __init__(self):
+                self.value_seen = None
+
+            def setValue(self, value):
+                self.value_seen = float(value)
+
+        class FakeControls:
+            def __init__(self):
+                self.center = (0.0, 0.0)
+
+            def set_center(self, kx, ky):
+                self.center = (float(kx), float(ky))
+
+        class Parent:
+            def __init__(self):
+                self._raw_data = {
+                    "path": "/tmp/fs-stored",
+                    "hv": 60.0,
+                    "kpar": np.array([-1.0, 0.0, 1.0]),
+                    "metadata": {
+                        "fs_data": object(),
+                        "fs_kx": np.array([-1.0, 0.0, 1.0]),
+                        "fs_ky": np.array([-0.5, 0.5]),
+                        "fs_kind": "kxky",
+                    },
+                }
+                self._current_path = "/tmp/fs-stored"
+                self._session = Session(Path("/tmp"))
+                self._session.gamma_reference = {
+                    "kx": 0.25,
+                    "ky": -0.10,
+                    "path": "/tmp/fs-stored",
+                    "source": "fs_manual",
+                    "polar": 0.0,
+                    "polar_already_applied_to_kx": False,
+                }
+                self._fs_controls = FakeControls()
+                self._params = SimpleNamespace(sp_cx=FakeSpin())
+
+            def _current_entry(self):
+                return self._session.get_or_create(self._session.key_for_path(self._current_path))
+
+            def _same_path(self, a, b):
+                return a == b
+
+            def _status(self, text):
+                pass
+
+        parent = Parent()
+        ctrl = GammaController(parent)
+
+        ctrl._apply_stored_gamma_to_current_file(save_entry=True)
+
+        # P1.4 / P2 : la branche FS shifte maintenant l'axe k AUSSI pour
+        # éviter le drift au reload. L'axe brut (kpar, fs_kx) est translaté
+        # de -kx_ref, fs_gamma_axis_centered devient True, et sp_cx affiche 0
+        # (centre fit relatif au nouvel axe centré sur Γ).
+        np.testing.assert_allclose(parent._raw_data["kpar"], [-1.25, -0.25, 0.75])
+        np.testing.assert_allclose(parent._raw_data["metadata"]["fs_kx"], [-1.25, -0.25, 0.75])
+        self.assertTrue(parent._raw_data["metadata"].get("fs_gamma_axis_centered", False))
+        self.assertEqual(parent._fs_controls.center, (0.25, -0.10))
+        self.assertAlmostEqual(parent._params.sp_cx.value_seen, 0.0)
+
+    def test_stored_gamma_on_bm_centers_display_axis(self):
+        class FakeSpin:
+            def __init__(self):
+                self.value_seen = None
+
+            def setValue(self, value):
+                self.value_seen = float(value)
+
+        class Parent:
+            def __init__(self):
+                self._raw_data = {
+                    "path": "/tmp/bm04",
+                    "hv": 66.0,
+                    "kpar": np.array([-0.86, 0.0, 3.05]),
+                    "metadata": {
+                        "scan_kind": "BM",
+                        "polar": -13.6,
+                        "polar_already_applied_to_kx": True,
+                    },
+                }
+                self._current_path = "/tmp/bm04"
+                self._session = Session(Path("/tmp"))
+                self._session.gamma_reference = {
+                    "kx": 0.12,
+                    "ky": 0.0,
+                    "path": "/tmp/fs3",
+                    "source": "fs_auto",
+                    "polar": 0.0,
+                    "azi": 0.0,
+                    "polar_already_applied_to_kx": True,
+                }
+                self._params = SimpleNamespace(
+                    sp_cx=FakeSpin(),
+                    sp_phi=SimpleNamespace(value=lambda: 4.031),
+                )
+
+            def _current_entry(self):
+                return self._session.get_or_create(self._session.key_for_path(self._current_path))
+
+            def _status(self, text):
+                pass
+
+        parent = Parent()
+        ctrl = GammaController(parent)
+
+        ctrl._apply_stored_gamma_to_current_file(save_entry=True)
+
+        np.testing.assert_allclose(parent._raw_data["kpar"], [-0.98, -0.12, 2.93])
+        self.assertTrue(parent._raw_data["metadata"].get("bm_gamma_axis_centered", False))
+        self.assertAlmostEqual(parent._params.sp_cx.value_seen, 0.0)
+        self.assertAlmostEqual(parent._current_entry().fit_params.center_init, 0.0)
 
 
 if __name__ == "__main__":
