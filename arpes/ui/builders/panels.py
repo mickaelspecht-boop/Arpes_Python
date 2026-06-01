@@ -317,6 +317,8 @@ def wire_ui_signals(window) -> None:
             window._fs_controls.gamma_requested.connect(window._detect_fs_gamma)
         if hasattr(window._fs_controls, "manual_center_requested"):
             window._fs_controls.manual_center_requested.connect(window._set_fs_center_pick_mode)
+        if hasattr(window._fs_controls, "forget_gamma_requested"):
+            window._fs_controls.forget_gamma_requested.connect(window._forget_gamma_with_confirm)
         if hasattr(window._fs_controls, "bz_preset_requested"):
             window._fs_controls.bz_preset_requested.connect(window._choose_bz_preset)
         if hasattr(window._fs_controls, "bz_crystal_overlay_changed"):

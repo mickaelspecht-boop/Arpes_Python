@@ -233,7 +233,7 @@ class ArpesExplorer(QMainWindow):
     _PROXY_MAP = PROXY_MAP
 
     def __getattr__(self, name: str):
-        if name.startswith("_") and name in self._PROXY_MAP:
+        if name in self._PROXY_MAP:
             ctrl = object.__getattribute__(self, self._PROXY_MAP[name])
             return getattr(ctrl, name)
         raise AttributeError(name)
@@ -329,6 +329,11 @@ class ArpesExplorer(QMainWindow):
         self.setCentralWidget(central)
         self._wire_signals()
         self.setStatusBar(QStatusBar())
+        # P3 — badge état Γ permanent à droite de la statusbar
+        from PyQt6.QtWidgets import QLabel as _QLabel
+        self._gamma_status_label = _QLabel("Γ ∅")
+        self._gamma_status_label.setToolTip("État Γ courant (référence + axe).")
+        self.statusBar().addPermanentWidget(self._gamma_status_label)
 
     def _wire_signals(self):
         from arpes.ui.builders.panels import wire_ui_signals
@@ -406,74 +411,8 @@ class ArpesExplorer(QMainWindow):
         )
 
     def _angle_offsets_for_load(self, path: str | Path, entry: FileEntry | None, hv: float | None) -> dict:
-        """Retourne les offsets angulaires a injecter dans le loader CLS."""
-        ref = self._stored_gamma_reference()
-        if not ref:
-            return self._session.angle_offsets or {}
-
-        # Pour les BM, on projette le Γ FS dans la direction de fente du fichier
-        # courant avec azi_ref/azi_bm, puis on convertit ce k en theta0.
-        p = Path(path)
-        is_cls_bm_file = p.is_file() and (p.parent / f"{p.name}_param.txt").exists()
-        is_cls_fs_dir = p.is_dir()
-        geom = self._cls_geometry_for_path(p, entry)
-        if is_cls_bm_file:
-            azi_bm = geom.get("azi", entry.meta.azi if (entry and entry.meta.azi is not None) else None)
-            gamma_bm, _ = self._project_gamma_by_azi(
-                ref, azi_bm, warn_label="Γ référence → BM"
-            )
-            if not np.isfinite(gamma_bm):
-                return {}
-            offsets = self._angle_offsets_from_k_center(
-                float(gamma_bm), 0.0,
-                hv=hv,
-                source="gamma_reference_projected_to_bm",
-                ref_path=ref.get("path"),
-                azi=azi_bm,
-            )
-            if offsets:
-                offsets["gamma_bm_pi_over_a"] = float(gamma_bm)
-                offsets["gamma_ref_source"] = ref.get("source", "")
-                offsets["target_polar"] = geom.get("polar")
-                offsets["target_tilt"] = geom.get("tilt")
-                p_ref = ref.get("polar")
-                p_target = geom.get("polar")
-                if p_ref is not None and p_target is not None:
-                    offsets["theta0_deg"] = (
-                        float(offsets.get("theta0_deg", 0.0) or 0.0)
-                        + float(p_ref)
-                        - float(p_target)
-                    )
-                    offsets["source"] = "gamma_reference_projected_to_bm_raw_polar"
-                    offsets["ref_polar"] = float(p_ref)
-                return offsets
-
-        # Pour une autre FS CLS, on recentre les deux axes via la même rotation
-        # azimutale. Le dessin affichera ensuite le centre à (0, 0), car le
-        # loader aura déjà appliqué theta0/tilt0.
-        if is_cls_fs_dir:
-            azi_fs = geom.get("azi", entry.meta.azi if (entry and entry.meta.azi is not None) else None)
-            gamma_kx, gamma_ky = self._project_gamma_by_azi(
-                ref, azi_fs, warn_label="Γ référence → FS"
-            )
-            if not np.isfinite(gamma_kx) or not np.isfinite(gamma_ky):
-                return {}
-            offsets = self._angle_offsets_from_k_center(
-                float(gamma_kx), float(gamma_ky),
-                hv=hv,
-                source="gamma_reference_projected_to_fs",
-                ref_path=ref.get("path"),
-                azi=azi_fs,
-            )
-            if offsets:
-                offsets["gamma_fs_kx_pi_over_a"] = float(gamma_kx)
-                offsets["gamma_fs_ky_pi_over_a"] = float(gamma_ky)
-                offsets["gamma_ref_source"] = ref.get("source", "")
-                offsets["target_polar"] = geom.get("polar")
-                offsets["target_tilt"] = geom.get("tilt")
-                return offsets
-
-        return {}
+        from arpes.app_angle_offsets import angle_offsets_for_load
+        return angle_offsets_for_load(self, path, entry, hv)
 
     def _angle_offset_candidates_for_load(
         self,
@@ -482,36 +421,12 @@ class ArpesExplorer(QMainWindow):
         hv: float | None,
         primary: dict,
     ) -> list[dict]:
-        """Wrapper UI : délègue à `arpes_gamma.angle_offset_candidates_for_load`."""
-        target_geom = (
-            self._cls_geometry_for_path(path, entry)
-            if (entry is not None and Path(path).is_file()) else None
-        )
-        target_azi_fallback = (
-            entry.meta.azi if (entry is not None and entry.meta.azi is not None) else None
-        )
-        return _gamma_angle_offset_candidates(
-            primary=primary,
-            is_file=Path(path).is_file(),
-            ref=self._stored_gamma_reference() or None,
-            target_geom=target_geom,
-            target_azi_fallback=target_azi_fallback,
-            hv=hv,
-            work_func=float(self._params.sp_phi.value()),
-        )
+        from arpes.app_angle_offsets import angle_offset_candidates_for_load
+        return angle_offset_candidates_for_load(self, path, entry, hv, primary)
 
     def _score_bm_gamma_residual(self, d: dict) -> float:
-        """Wrapper UI : délègue à `arpes_gamma.score_bm_gamma_residual`."""
-        if self.ap is None:
-            return float("inf")
-        return _gamma_score_bm_residual(
-            d,
-            ev_range=(self._params.sp_evs.value(), self._params.sp_eve.value()),
-            k_range=(self._params.sp_kmin.value(), self._params.sp_kmax.value()),
-            center_window=self._params.sp_xg.value() * 2.0,
-            smooth_sigma=self._params.sp_sfd.value(),
-            estimate_fn=self.ap.estimate_gamma_bm_mdc,
-        )
+        from arpes.app_angle_offsets import score_bm_gamma_residual
+        return score_bm_gamma_residual(self, d)
 
     def _load_with_best_angle_offsets(
         self,
@@ -520,61 +435,8 @@ class ArpesExplorer(QMainWindow):
         hv_for_load: float,
         angle_offsets: dict,
     ) -> tuple[dict | None, dict]:
-        """Charge une BM CLS avec la convention d'offset qui centre le mieux Γ."""
-        candidates = self._angle_offset_candidates_for_load(path, entry, hv_for_load, angle_offsets)
-        if len(candidates) <= 1:
-            d = load_arpes_file(
-                path, self._params.sp_phi.value(), self._params.sp_ef.value(),
-                hv=hv_for_load,
-                temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
-                azi=entry.meta.azi,
-                pol=entry.meta.polarization,
-                angle_offsets=angle_offsets,
-                bessy_energy_reference=self._bessy_energy_reference_mode(),
-            )
-            return d, angle_offsets
-
-        best_d = None
-        best_cfg = candidates[0]
-        best_score = float("inf")
-        for cfg in candidates:
-            d_try = load_arpes_file(
-                path, self._params.sp_phi.value(), self._params.sp_ef.value(),
-                hv=hv_for_load,
-                temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
-                azi=entry.meta.azi,
-                pol=entry.meta.polarization,
-                angle_offsets=cfg,
-                bessy_energy_reference=self._bessy_energy_reference_mode(),
-            )
-            if d_try is None:
-                continue
-            score = self._score_bm_gamma_residual(d_try)
-            if score < best_score:
-                best_score = score
-                best_d = d_try
-                best_cfg = cfg
-
-        if best_d is not None and np.isfinite(best_score):
-            try:
-                md = best_d.get("metadata", {}) or {}
-                md["angle_offset_candidate_score"] = float(best_score)
-                md["angle_offset_candidate"] = best_cfg.get("candidate", "")
-                best_d["metadata"] = md
-            except Exception:
-                pass
-            return best_d, best_cfg
-
-        d = load_arpes_file(
-            path, self._params.sp_phi.value(), self._params.sp_ef.value(),
-            hv=hv_for_load,
-            temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
-            azi=entry.meta.azi,
-            pol=entry.meta.polarization,
-            angle_offsets=angle_offsets,
-            bessy_energy_reference=self._bessy_energy_reference_mode(),
-        )
-        return d, angle_offsets
+        from arpes.app_angle_offsets import load_with_best_angle_offsets
+        return load_with_best_angle_offsets(self, path, entry, hv_for_load, angle_offsets)
 
     def _bessy_energy_reference_mode(self) -> str:
         """Mode BESSY exposé à l'app principale.

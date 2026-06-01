@@ -16,6 +16,7 @@ from arpes.physics.gamma import (
     stored_gamma_reference as _gamma_stored_reference,
 )
 from arpes.physics.gamma_resolver import ResolvedGamma, resolve as _gamma_resolve
+from arpes.ui.controllers import gamma_lifecycle as _gamma_life
 
 
 _GAMMA_META_KEYS = (
@@ -464,92 +465,19 @@ class GammaController:
         # 6. Feedback
         if resolved.reason:
             self._status(resolved.reason)
+        self._update_gamma_status_badge()
+
+    def _format_gamma_badge_text(self) -> str:
+        return _gamma_life.format_badge_text(self)
+
+    def _update_gamma_status_badge(self) -> None:
+        _gamma_life.update_badge(self)
+
+    def _forget_gamma_with_confirm(self) -> None:
+        _gamma_life.forget_with_confirm(self, _GAMMA_META_KEYS)
 
     def _forget_gamma(self) -> None:
-        """P2.bis — réinitialise tout l'état Γ (session + entry + raw_data).
-
-        Porte de sortie aux gardes `_is_axis_locked` : permet de repartir
-        d'un axe brut et re-détecter Γ. Inverse le shift d'axe en utilisant
-        la valeur courante de `bm_gamma_axis_shift`, remap `fit_result` en
-        sens inverse, puis efface tous les flags Γ + références session.
-        """
-        meta = self._raw_data.get("metadata", {}) if self._raw_data else {}
-        try:
-            previous_shift = float(meta.get("bm_gamma_axis_shift", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            previous_shift = 0.0
-        was_centered = bool(
-            meta.get("bm_gamma_axis_centered") or meta.get("fs_gamma_axis_centered")
-        )
-
-        # 1. Inverse shift kpar / fs_kx / fs_ky si axe centré
-        if self._raw_data is not None and was_centered and abs(previous_shift) > 1e-12:
-            kpar = np.asarray(self._raw_data.get("kpar"), dtype=float)
-            if kpar.size:
-                self._raw_data["kpar"] = kpar + previous_shift
-            if meta.get("fs_data") is not None:
-                fs_kx = meta.get("fs_kx")
-                if fs_kx is not None:
-                    meta["fs_kx"] = np.asarray(fs_kx, dtype=float) + previous_shift
-                try:
-                    previous_ky = float(meta.get("fs_gamma_axis_shift_ky", 0.0) or 0.0)
-                except (TypeError, ValueError):
-                    previous_ky = 0.0
-                if abs(previous_ky) > 1e-12:
-                    fs_ky = meta.get("fs_ky")
-                    if fs_ky is not None:
-                        meta["fs_ky"] = np.asarray(fs_ky, dtype=float) + previous_ky
-            self._remap_fit_results_by_delta(-previous_shift)
-            if hasattr(self, "_sel_k"):
-                self._sel_k = float(self._sel_k + previous_shift)
-
-        # 2. Clear tous les flags meta Γ
-        if self._raw_data is not None:
-            for k in _GAMMA_META_KEYS:
-                meta.pop(k, None)
-
-        # 3. Clear session-level state
-        self._session.gamma_reference = {}
-        self._session.angle_offsets = {}
-
-        # 4. Clear entry-level state (current file)
-        entry = self._current_entry()
-        if entry is not None:
-            entry.meta_gamma_state = {}
-            entry.fs_center_kx = None
-            entry.fs_center_ky = None
-            entry.fit_params.center_init = 0.0
-
-        # 5. Reset sp_cx
-        sp_cx = getattr(self._params, "sp_cx", None)
-        if sp_cx is not None and hasattr(sp_cx, "setValue"):
-            had_block = sp_cx.blockSignals(True) if hasattr(sp_cx, "blockSignals") else False
-            try:
-                sp_cx.setValue(0.0)
-            finally:
-                if hasattr(sp_cx, "blockSignals"):
-                    try:
-                        sp_cx.blockSignals(had_block)
-                    except Exception:
-                        pass
-
-        # 6. Reset FS marker
-        if FSControlPanel is not None and hasattr(self, "_fs_controls"):
-            try:
-                self._fs_controls.set_center(0.0, 0.0)
-            except Exception:
-                pass
-
-        try:
-            self._session.save()
-        except Exception as exc:
-            self._status(f"Attention: sauvegarde après reset Γ échouée : {exc}")
-
-        self._status("Γ réinitialisé : références session, axes et flags effacés.")
-        try:
-            self._draw_current_view()
-        except Exception:
-            pass
+        _gamma_life.forget(self, _GAMMA_META_KEYS)
 
     def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
         """Auto-apply Γ stocké sur le fichier courant (chemin load / switch).

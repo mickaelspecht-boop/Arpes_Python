@@ -62,6 +62,8 @@ PROXY_MAP = {
     "_estimate_gamma_bm": "_gamma_ctrl",
     "_apply_gamma_reference_to_bm": "_gamma_ctrl",
     "_forget_gamma": "_gamma_ctrl",
+    "_forget_gamma_with_confirm": "_gamma_ctrl",
+    "_update_gamma_status_badge": "_gamma_ctrl",
     # NormController
     "_load_grid_controls": "_norm_ctrl",
     "_display_grid_config": "_norm_ctrl",

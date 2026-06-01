@@ -205,6 +205,29 @@ Si `angle_offsets_applied=True`, désactiver "Mesurer Γ ici" et afficher inline
   entry.meta_gamma_state / entry.fs_center_kx/ky, reset sp_cx.
 - Test `TestForgetGamma` (Qt) couvre l'inversion + clear complet.
 
+## Statut P3 (livré)
+
+- Bouton « Oublier Γ » dans `FSControlPanel` (signal `forget_gamma_requested`)
+  câblé via `_forget_gamma_with_confirm` (dialog confirm, impact N fichiers).
+- Badge permanent statusbar `_gamma_status_label` (QLabel via
+  `addPermanentWidget`) format `Γ kx=±.XXX ky=±.XXX · source · état`
+  ou `Γ ∅` / `Γ loader-offset θ0=±.XXX°`. Mis à jour à chaque
+  `apply_resolved_gamma` et `_forget_gamma`.
+- Split `gamma_controller.py` (720 → 595 LOC) via `gamma_lifecycle.py`
+  (144 LOC) — free functions `forget`, `forget_with_confirm`,
+  `format_badge_text`, `update_badge` prenant `ctrl` en paramètre.
+- PROXY_MAP +3 entrées (147/150).
+
+## Reste à faire (P3.bis, optionnel)
+
+- Fusion contextuelle « Détecter Γ FS » + « Auto Γ BM » → bouton unique
+  « Mesurer Γ ici » qui dispatche selon l'onglet actif.
+- Renommer « Viser Γ manuel » → « Pointer Γ ».
+- Désactiver visuellement « Auto Γ BM » quand `angle_offsets_applied` est
+  actif (au lieu du refus runtime).
+- Badge enrichi : tag `(propagé via Δazi=12°)` si même session, fichier
+  différent.
+
 ## Reste à faire (P2.ter, séparable)
 
 - Supprimer `session.angle_offsets` (recalculable depuis

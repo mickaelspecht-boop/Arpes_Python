@@ -22,7 +22,13 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
 from matplotlib.figure import Figure
 
 from arpes.physics.bz import bz_high_symmetry_points, bz_polygon, resolve_bz_preset
-from arpes.physics.fs import FSParams  # re-export FSParams from the physics module
+from arpes.physics.fs import (
+    FSParams,
+    _axis_signature,
+    _fs_cache_key,
+    detect_gamma_from_fs_map,
+    extract_fs_map,
+)
 from arpes.ui.widgets._qt_helpers import compact_button
 
 
@@ -31,6 +37,7 @@ class FSControlPanel(QScrollArea):
     redraw_requested = pyqtSignal()
     gamma_requested = pyqtSignal()
     manual_center_requested = pyqtSignal(bool)
+    forget_gamma_requested = pyqtSignal()
     bz_preset_requested = pyqtSignal()
     distortion_fs_toggled = pyqtSignal(bool)
     # --- Overlay BZ cristal (MP) -----------------------------------------
@@ -249,6 +256,13 @@ class FSControlPanel(QScrollArea):
         )
         self.btn_pick_center.toggled.connect(self.manual_center_requested)
         lay.addWidget(self.btn_pick_center)
+        btn_forget = compact_button(QPushButton("Oublier Γ"), max_width=160)
+        btn_forget.setToolTip(
+            "Réinitialise tout l'état Γ (référence session, axe, fit_result).\n"
+            "À utiliser pour repartir d'un axe brut et re-détecter Γ après une garde."
+        )
+        btn_forget.clicked.connect(self.forget_gamma_requested)
+        lay.addWidget(btn_forget)
         lay.addStretch(1)
 
     def params(self) -> FSParams:
