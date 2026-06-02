@@ -80,6 +80,7 @@ class FSControlPanel(QScrollArea):
         group: QGroupBox,
         *,
         open_default: bool,
+        highlight: bool = False,
     ) -> QPushButton:
         group.setTitle("")
         group.setFlat(True)
@@ -89,12 +90,21 @@ class FSControlPanel(QScrollArea):
         lay.setSpacing(2)
         btn = QPushButton()
         btn.setCheckable(True)
-        btn.setStyleSheet(
-            "QPushButton { background:#3a3a4a; color:#cde; padding:6px 8px;"
-            " border-radius:3px; font-weight:bold; text-align:left; }"
-            "QPushButton:checked { background:#4a4a6a; color:#fff; }"
-            "QPushButton:hover { background:#454560; }"
-        )
+        if highlight:
+            btn.setStyleSheet(
+                "QPushButton { background:#5a3a18; color:#ffd089; padding:8px 10px;"
+                " border:1px solid #ffae42; border-radius:4px; font-weight:bold;"
+                " text-align:left; font-size:13px; }"
+                "QPushButton:checked { background:#7a4e22; color:#fff; }"
+                "QPushButton:hover { background:#6c4520; }"
+            )
+        else:
+            btn.setStyleSheet(
+                "QPushButton { background:#3a3a4a; color:#cde; padding:6px 8px;"
+                " border-radius:3px; font-weight:bold; text-align:left; }"
+                "QPushButton:checked { background:#4a4a6a; color:#fff; }"
+                "QPushButton:hover { background:#454560; }"
+            )
         lay.addWidget(btn)
         lay.addWidget(group)
 
@@ -126,7 +136,7 @@ class FSControlPanel(QScrollArea):
         fl.addRow("b (Å):", self.sp_b)
         fl.addRow("centre kx:", self.sp_kx0)
         fl.addRow("centre ky:", self.sp_ky0)
-        lay.addWidget(grp_lat)
+        self._add_collapsible_group(lay, "Réseau / unités π/a", grp_lat, open_default=False)
 
         grp_fs = QGroupBox("Carte FS")
         fl2 = QFormLayout(grp_fs)
@@ -153,7 +163,7 @@ class FSControlPanel(QScrollArea):
         fl2.addRow("Lissage σ:", self.sp_sm)
         fl2.addRow("Colormap:", self.cmb_cmap)
         fl2.addRow(self.chk_norm)
-        lay.addWidget(grp_fs)
+        self._add_collapsible_group(lay, "Carte FS", grp_fs, open_default=False)
 
         grp_bz = QGroupBox("ZDB théorique")
         fl3 = QFormLayout(grp_bz)
@@ -197,37 +207,21 @@ class FSControlPanel(QScrollArea):
         )
         self.btn_mp_fetch.clicked.connect(self.mp_lattice_fetch_requested)
         self.sp_v0 = self._dspin(12.0, 0.5, 50.0, 0.5, dec=2)
-        self.sp_v0.setToolTip(
-            "Potentiel interne V0 (eV) utilisé dans le modèle d'électron libre\n"
-            "pour calculer kz. NE PAS confondre avec le travail de sortie φ.\n"
-            "Valeurs typiques : 8–15 eV. Défaut : 12 eV."
-        )
-        self.cmb_kz_plane = QComboBox()
-        self.cmb_kz_plane.addItems(["Auto", "Gamma", "Z"])
-        self.cmb_kz_plane.setToolTip(
-            "Plan kz utilisé pour les labels HS (Γ/X/M vs Z/R/A).\n"
-            "Auto : déduit du calcul kz(hν, V0) replié dans la 1ère BZ."
-        )
+        self.sp_v0.setToolTip("V0 (eV) modèle électron libre pour kz. ≠ φ. Typique 8–15 eV.")
+        self.cmb_kz_plane = QComboBox(); self.cmb_kz_plane.addItems(["Auto", "Gamma", "Z"])
+        self.cmb_kz_plane.setToolTip("Plan kz pour labels HS (Γ/X/M ou Z/R/A). Auto = via kz(hν,V0).")
         self.cmb_kz_plane.currentIndexChanged.connect(self.bz_crystal_overlay_changed)
         self.sp_phi_c = self._dspin(0.0, -180.0, 180.0, 0.5, dec=2)
-        self.sp_phi_c.setToolTip(
-            "Rotation entre l'axe a* du cristal et l'axe kx du détecteur.\n"
-            "Δazi du manipulateur est déjà géré via la référence Γ FS."
-        )
-        # _dspin connecte déjà valueChanged → params_changed ; on cascade :
+        self.sp_phi_c.setToolTip("Rotation a* cristal vs kx détecteur. Δazi manip géré via Γ FS.")
         self.sp_phi_c.valueChanged.connect(self.bz_crystal_overlay_changed)
         self.sp_v0.valueChanged.connect(self.bz_crystal_overlay_changed)
-        self.chk_bz_xtal = QCheckBox("Contours BZ cristal")
-        self.chk_bz_xtal.setChecked(False)
+        self.chk_bz_xtal = QCheckBox("Contours BZ cristal"); self.chk_bz_xtal.setChecked(False)
         self.chk_bz_xtal.stateChanged.connect(self.bz_crystal_overlay_changed)
-        self.chk_hs_xtal = QCheckBox("Points HS cristal")
+        self.chk_hs_xtal = QCheckBox("Points HS cristal"); self.chk_hs_xtal.setChecked(False)
         self.chk_hs_xtal.setToolTip("Γ/X/M (plan Γ) ou Z/R/A (plan Z), depuis lattice MP.")
-        self.chk_hs_xtal.setChecked(False)
         self.chk_hs_xtal.stateChanged.connect(self.bz_crystal_overlay_changed)
         self.lbl_kz = QLabel("kz : — | cristal : —")
-        self.lbl_kz.setStyleSheet("color:#aaa; font-size:10px;")
-        self.lbl_kz.setWordWrap(True)
-        self.lbl_kz.setMaximumWidth(240)
+        self.lbl_kz.setStyleSheet("color:#aaa; font-size:10px;"); self.lbl_kz.setWordWrap(True); self.lbl_kz.setMaximumWidth(240)
         # Labels courts → garde la colonne form étroite, évite que le panel
         # déborde sur le canvas central et coupe le panneau droit.
         fx.addRow("MP :", self.ed_mp_id)
@@ -265,26 +259,28 @@ class FSControlPanel(QScrollArea):
         btn = compact_button(QPushButton("Redessiner FS"), max_width=160)
         btn.clicked.connect(self.redraw_requested)
         lay.addWidget(btn)
-        btn_g = compact_button(QPushButton("Détecter Γ FS"), max_width=160)
+
+        grp_gamma = QGroupBox()
+        gv = QVBoxLayout(grp_gamma); gv.setContentsMargins(6, 6, 6, 6); gv.setSpacing(4)
+        btn_g = compact_button(QPushButton("Détecter Γ FS"), max_width=200)
         btn_g.setToolTip("Détecte Γ par milieux de paires MDC sur la FS et recentre la carte.")
         btn_g.clicked.connect(self.gamma_requested)
-        lay.addWidget(btn_g)
-        self.btn_pick_center = compact_button(QPushButton("Viser Γ manuel"), max_width=160)
+        gv.addWidget(btn_g)
+        self.btn_pick_center = compact_button(QPushButton("Viser Γ manuel"), max_width=200)
         self.btn_pick_center.setCheckable(True)
         self.btn_pick_center.setToolTip(
-            "Active un curseur sur la carte FS.\n"
-            "Clique sur le point qui doit devenir Γ : la carte est recentrée sur ce point "
-            "et le centre est sauvegardé pour ce fichier."
+            "Active un curseur sur la FS. Clique sur le point qui doit devenir Γ : "
+            "recentre la carte + sauve le centre pour ce fichier."
         )
         self.btn_pick_center.toggled.connect(self.manual_center_requested)
-        lay.addWidget(self.btn_pick_center)
-        btn_forget = compact_button(QPushButton("Oublier Γ"), max_width=160)
-        btn_forget.setToolTip(
-            "Réinitialise tout l'état Γ (référence session, axe, fit_result).\n"
-            "À utiliser pour repartir d'un axe brut et re-détecter Γ après une garde."
-        )
+        gv.addWidget(self.btn_pick_center)
+        btn_forget = compact_button(QPushButton("Oublier Γ"), max_width=200)
+        btn_forget.setToolTip("Réinitialise tout l'état Γ (référence session, axe, fit_result).")
         btn_forget.clicked.connect(self.forget_gamma_requested)
-        lay.addWidget(btn_forget)
+        gv.addWidget(btn_forget)
+        self._add_collapsible_group(
+            lay, "★  Centrage Γ  ★", grp_gamma, open_default=True, highlight=True,
+        )
         self.chk_show_bm_cuts = QCheckBox("Afficher BM cuts")
         self.chk_show_bm_cuts.setToolTip(
             "Projette toutes les BMs compatibles (auto-discovery ou pinned)\n"
