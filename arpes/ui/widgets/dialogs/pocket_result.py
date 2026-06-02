@@ -58,6 +58,22 @@ class PocketResultDialog(QDialog):
         if pocket.get("mp_label"):
             form.addRow("MP :", QLabel(str(pocket.get("mp_label"))))
         lay.addLayout(form)
+        dft = pocket.get("dft_compare") or {}
+        if dft:
+            sep = QLabel("— DFT 3D vs ARPES —")
+            sep.setStyleSheet("color:#9cf; font-size:11px; font-weight:bold;")
+            lay.addWidget(sep)
+            f2 = QFormLayout()
+            f2.addRow("ΔkF moyen :", QLabel(_fmt(dft.get("delta_kF_mean_pct"), "{:+.2f} %")))
+            f2.addRow("Δ aire :", QLabel(_fmt(dft.get("delta_area_pct"), "{:+.2f} %")))
+            f2.addRow("Hausdorff :", QLabel(_fmt(dft.get("hausdorff"), "{:.4f} π/a")))
+            f2.addRow("Δ centre :", QLabel(_fmt(dft.get("centroid_shift"), "{:.4f} π/a")))
+            f2.addRow("kz utilisé :", QLabel(_fmt(dft.get("kz_used_1_per_ang"), "{:.4f} 1/Å")))
+            lay.addLayout(f2)
+        elif pocket.get("dft_compare_error"):
+            err = QLabel(str(pocket.get("dft_compare_error")))
+            err.setStyleSheet("color:#fa6; font-size:10px;")
+            lay.addWidget(err)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         if allow_delete:

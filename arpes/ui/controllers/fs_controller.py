@@ -80,6 +80,10 @@ class FSController:
                 self._fs_controls.set_pocket_count(len(pockets))
         elif hasattr(self._fs_controls, "set_pocket_count"):
             self._fs_controls.set_pocket_count(0)
+        if entry is not None and hasattr(self._fs_controls, "set_dft_status"):
+            from pathlib import Path as _P
+            dp = str(getattr(entry, "dft_grid_path", "") or "")
+            self._fs_controls.set_dft_status(_P(dp).name if dp else "")
         try:
             self._fs_controls.lbl_info.setText(info)
         except Exception:

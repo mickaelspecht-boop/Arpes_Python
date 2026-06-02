@@ -47,6 +47,8 @@ class FSControlPanel(QScrollArea):
     # --- Overlay BZ cristal (MP) -----------------------------------------
     mp_lattice_fetch_requested = pyqtSignal()   # bouton "Récup symétrie MP"
     bz_crystal_overlay_changed = pyqtSignal()   # toggles / V0 / plan / phi_c
+    dft_grid_load_requested = pyqtSignal()      # bouton "Charger DFT 3D"
+    dft_grid_clear_requested = pyqtSignal()     # bouton "Oublier DFT"
 
     def __init__(self):
         super().__init__()
@@ -236,6 +238,13 @@ class FSControlPanel(QScrollArea):
         fx.addRow(self.chk_bz_xtal)
         fx.addRow(self.chk_hs_xtal)
         fx.addRow(self.lbl_kz)
+        self.btn_dft_load = compact_button(QPushButton("Charger DFT 3D npz..."), max_width=180)
+        self.btn_dft_load.setToolTip("npz : kx, ky, kz (1/Å), energies (n_kz,n_ky,n_kx) eV, optionnel a_lattice.")
+        self.btn_dft_load.clicked.connect(self.dft_grid_load_requested)
+        self.btn_dft_clear = compact_button(QPushButton("Oublier DFT"), max_width=120)
+        self.btn_dft_clear.clicked.connect(self.dft_grid_clear_requested)
+        self.lbl_dft = QLabel("DFT : aucun"); self.lbl_dft.setStyleSheet("color:#aaa; font-size:10px;")
+        fx.addRow(self.btn_dft_load); fx.addRow(self.btn_dft_clear); fx.addRow(self.lbl_dft)
         self._add_collapsible_group(
             lay, "Mapping BZ cristal (Materials Project)", grp_xb, open_default=False
         )
@@ -358,13 +367,10 @@ class FSControlPanel(QScrollArea):
         fp.addRow(self.chk_pocket_bootstrap)
         fp.addRow("Bootstrap N :", self.sp_pocket_bootstrap_n)
         btn_export_pockets = compact_button(QPushButton("Exporter poches CSV"), max_width=160)
-        btn_export_pockets.setToolTip("Exporte les poches FS caractérisées du fichier courant en CSV.")
         btn_export_pockets.clicked.connect(self.pockets_export_requested)
-        fp.addRow(btn_export_pockets)
         btn_clear_pockets = compact_button(QPushButton("Effacer poches FS"), max_width=160)
-        btn_clear_pockets.setToolTip("Supprime toutes les poches FS caractérisées pour ce fichier.")
         btn_clear_pockets.clicked.connect(self.pockets_clear_requested)
-        fp.addRow(btn_clear_pockets)
+        fp.addRow(btn_export_pockets); fp.addRow(btn_clear_pockets)
         self._add_collapsible_group(lay, "Poches FS", grp_pocket, open_default=True)
         lay.addStretch(1)
 
@@ -393,6 +399,9 @@ class FSControlPanel(QScrollArea):
         self.sp_kx0.setValue(float(kx)); self.sp_ky0.setValue(float(ky))
         self.sp_kx0.blockSignals(False); self.sp_ky0.blockSignals(False)
         self.params_changed.emit()
+
+    def set_dft_status(self, label: str) -> None:
+        self.lbl_dft.setText(f"DFT : {label}" if label else "DFT : aucun")
 
     def set_manual_center_active(self, active: bool):
         self.btn_pick_center.blockSignals(True)

@@ -342,6 +342,14 @@ def wire_ui_signals(window) -> None:
             window._fs_controls.pockets_export_requested.connect(
                 lambda: window._pocket_action("export_csv", {})
             )
+        if hasattr(window._fs_controls, "dft_grid_load_requested"):
+            window._fs_controls.dft_grid_load_requested.connect(
+                lambda: window._pocket_action("load_dft", {})
+            )
+        if hasattr(window._fs_controls, "dft_grid_clear_requested"):
+            window._fs_controls.dft_grid_clear_requested.connect(
+                lambda: window._pocket_action("clear_dft", {})
+            )
         if hasattr(window._fs_canvas, "pocket_requested"):
             window._fs_canvas.pocket_requested.connect(
                 lambda kx, ky: window._pocket_action(

@@ -84,6 +84,7 @@ class FileEntry:
     theory_overlay: dict = field(default_factory=dict)
     band_analysis: dict = field(default_factory=dict)  # TB fit / kink / gap results
     fs_pockets: list[dict] = field(default_factory=list)
+    dft_grid_path: str = ""  # chemin npz DFT 3D pour comparaison poches
     fit_zones: list[dict] = field(default_factory=list)
     # each zone : {id, label, color_idx, active, fit_params, fit_result|None}
     active_zone_id: Optional[str] = None
@@ -282,6 +283,7 @@ class Session:
                 theory_overlay=edict.get("theory_overlay", {}) or {},
                 band_analysis=edict.get("band_analysis", {}) or {},
                 fs_pockets=list(edict.get("fs_pockets", []) or []),
+                dft_grid_path=str(edict.get("dft_grid_path", "") or ""),
                 fit_zones=list(edict.get("fit_zones", []) or []),
                 active_zone_id=edict.get("active_zone_id"),
                 annotations=edict.get("annotations", {}) or {},

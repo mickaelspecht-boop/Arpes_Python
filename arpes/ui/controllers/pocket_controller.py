@@ -9,6 +9,12 @@ from PyQt6.QtWidgets import QFileDialog
 
 from arpes.physics.bz import bz_high_symmetry_points, bz_polygon
 from arpes.physics.fs import extract_fs_map
+from arpes.io.dft_grid import load_dft_grid_npz
+from arpes.physics.dft_slice import (
+    isocontour_at_energy,
+    kz_from_hv,
+    slice_grid_at_kz,
+)
 from arpes.physics.pocket import (
     characterize_pocket,
     characterize_pocket_bootstrap,
@@ -17,6 +23,7 @@ from arpes.physics.pocket import (
     smooth_closed_contour,
     smooth_fs_image,
 )
+from arpes.physics.pocket_compare import compare_pocket_contours
 from arpes.ui.widgets.dialogs.pocket_result import PocketResultDialog
 
 
@@ -55,7 +62,84 @@ class PocketController:
             return self._clear_pockets()
         if verb == "export_csv":
             return self._export_csv(payload)
+        if verb == "load_dft":
+            return self._load_dft(payload)
+        if verb == "clear_dft":
+            return self._clear_dft()
         raise ValueError(f"pocket action inconnue: {verb}")
+
+    def _load_dft(self, payload: dict):
+        entry = self._current_entry()
+        if entry is None:
+            self._status("DFT : aucun fichier courant.")
+            return None
+        path = payload.get("path")
+        if not path:
+            path, _filter = QFileDialog.getOpenFileName(
+                self._parent,
+                "Charger grille DFT 3D (npz)",
+                str(getattr(self._session, "folder", "") or ""),
+                "DFT 3D (*.npz)",
+            )
+        if not path:
+            return None
+        try:
+            params = self._fs_controls.params()
+            grid = load_dft_grid_npz(path, a_lattice_fallback=float(params.a_lattice))
+        except Exception as exc:
+            self._status(f"DFT : {exc}")
+            return None
+        entry.dft_grid_path = str(path)
+        self._session.save()
+        if hasattr(self._fs_controls, "set_dft_status"):
+            self._fs_controls.set_dft_status(Path(path).name)
+        self._status(
+            f"DFT chargé : {Path(path).name} | "
+            f"a={grid.a_lattice:.3f} Å, grid={grid.energies.shape}."
+        )
+        return str(path)
+
+    def _clear_dft(self):
+        entry = self._current_entry()
+        if entry is None:
+            return None
+        entry.dft_grid_path = ""
+        self._session.save()
+        if hasattr(self._fs_controls, "set_dft_status"):
+            self._fs_controls.set_dft_status("")
+        self._status("DFT : grille oubliée.")
+        return None
+
+    def _attach_dft_compare(self, pocket: dict, entry, params) -> None:
+        path = str(getattr(entry, "dft_grid_path", "") or "")
+        if not path or not Path(path).exists():
+            return
+        meta = (self._raw_data or {}).get("metadata", {}) or {}
+        hv = meta.get("photon_energy") or meta.get("hv")
+        if hv is None:
+            pocket["dft_compare_error"] = "DFT : pas de hν dans metadata."
+            return
+        try:
+            grid = load_dft_grid_npz(path, a_lattice_fallback=float(params.a_lattice))
+            kz = kz_from_hv(float(hv), float(params.v0_eV))
+            slice_ = slice_grid_at_kz(grid.kx, grid.ky, grid.kz, grid.energies, kz)
+            seed_1_per_ang = (
+                float(pocket["centroid_kx"]) * float(np.pi) / float(params.a_lattice),
+                float(pocket["centroid_ky"]) * float(np.pi) / float(params.a_lattice),
+            )
+            contour_dft_1_per_ang = isocontour_at_energy(
+                slice_, energy_eV=0.0, seed_point_1_per_ang=seed_1_per_ang,
+            )
+            scale = float(params.a_lattice) / float(np.pi)
+            contour_dft_pi_a = contour_dft_1_per_ang * scale
+            contour_exp = np.asarray(pocket.get("contour") or [], dtype=float)
+            res = compare_pocket_contours(contour_exp, contour_dft_pi_a)
+            d = res.asdict()
+            d["kz_used_1_per_ang"] = float(slice_.kz_used)
+            d["dft_path"] = path
+            pocket["dft_compare"] = d
+        except Exception as exc:
+            pocket["dft_compare_error"] = f"DFT : {exc}"
 
     def _preview_start(self, payload: dict):
         if self._raw_data is None or not self._current_is_fs():
@@ -216,6 +300,7 @@ class PocketController:
             mp_label = self._mp_label_for(pocket)
             if mp_label:
                 pocket["mp_label"] = mp_label
+            self._attach_dft_compare(pocket, entry, params)
             if float(pocket.get("area_pct_bz", 0.0) or 0.0) < settings["min_area_pct_bz"]:
                 self._status(
                     f"Poche FS rejetée : aire {pocket['area_pct_bz']:.2f}% BZ "
