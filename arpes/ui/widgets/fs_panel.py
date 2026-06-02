@@ -594,100 +594,20 @@ class FermiSurfaceCanvas(QWidget):
         self.pocket_open_requested.emit(int(idx))
 
     def _clear_pocket_artists(self) -> None:
-        for art in list(self._pocket_artists):
-            try:
-                art.remove()
-            except Exception:
-                pass
-        self._pocket_artists = []
+        from arpes.ui.widgets.fs_panel_pockets import clear_pocket_artists
+        clear_pocket_artists(self)
 
     def draw_pockets(self, pockets: list[dict] | None) -> None:
-        self._clear_pocket_artists()
-        for idx, pocket in enumerate(pockets or [], start=1):
-            contour = np.asarray(pocket.get("contour") or [], dtype=float)
-            if contour.ndim != 2 or contour.shape[1] != 2 or contour.shape[0] < 3:
-                continue
-            line, = self.ax.plot(
-                contour[:, 0], contour[:, 1],
-                color="#39ff88", lw=1.5, alpha=0.9, zorder=10,
-                picker=True, pickradius=5,
-            )
-            setattr(line, "pocket_index", idx - 1)
-            label = str(pocket.get("hs_label_nearest") or f"P{idx}")
-            cx = float(pocket.get("centroid_kx", np.nan)) - self._bm_cut_center[0]
-            cy = float(pocket.get("centroid_ky", np.nan)) - self._bm_cut_center[1]
-            if not (np.isfinite(cx) and np.isfinite(cy)):
-                cx = float(np.nanmean(contour[:, 0]))
-                cy = float(np.nanmean(contour[:, 1]))
-            ann = self.ax.annotate(
-                label,
-                (cx, cy),
-                xytext=(5, 5),
-                textcoords="offset points",
-                color="#39ff88",
-                fontsize=9,
-                fontweight="bold",
-                zorder=11,
-                picker=True,
-            )
-            setattr(ann, "pocket_index", idx - 1)
-            self._pocket_artists.extend([line, ann])
-        self.canvas.draw_idle()
+        from arpes.ui.widgets.fs_panel_pockets import draw_pockets
+        draw_pockets(self, pockets)
 
     def _clear_bm_cut_artists(self) -> None:
-        for art in list(self._bm_cut_artists):
-            try:
-                art.remove()
-            except Exception:
-                pass
-        self._bm_cut_artists = []
+        from arpes.ui.widgets.fs_panel_bm_cuts import clear_bm_cut_artists
+        clear_bm_cut_artists(self)
 
     def draw_bm_cuts(self, cuts: list) -> None:
-        """B.3 — overlay des lignes BM cuts sur la FS courante.
-
-        cuts : list[BMCutLine] (cf arpes/physics/bm_cut_overlay.py).
-        Couleurs : cyan (exact), orange (rotated azi), rouge pointillé (scaled hv).
-        Lignes pickables (5 px) — attach `bm_cut_path` pour interaction click.
-        """
-        self._clear_bm_cut_artists()
-        if not cuts:
-            self.canvas.draw_idle()
-            return
-        COLOR = {
-            "exact": "#00d4ff",
-            "rotated": "#ffae42",
-            "scaled": "#ff5544",
-            "incompatible": "#888888",
-        }
-        cx, cy = getattr(self, "_bm_cut_center", (0.0, 0.0))
-        for cut in cuts:
-            if cut.kx_points.size == 0:
-                continue
-            kx_plot = cut.kx_points - cx
-            ky_plot = cut.ky_points - cy
-            color = COLOR.get(cut.quality, "white")
-            linestyle = "--" if cut.quality == "scaled" else "-"
-            line, = self.ax.plot(
-                kx_plot, ky_plot,
-                color=color, linestyle=linestyle,
-                linewidth=1.2, alpha=0.78,
-                picker=True, pickradius=5,
-                zorder=8,
-            )
-            # Tag pour pick handler
-            setattr(line, "bm_cut_path", cut.bm_path)
-            setattr(line, "bm_cut_label", cut.label)
-            self._bm_cut_artists.append(line)
-            # Annotation près de l'extrémité gauche du segment
-            ann = self.ax.annotate(
-                cut.label,
-                (kx_plot[0], ky_plot[0]),
-                color=color, fontsize=7, alpha=0.85,
-                xytext=(4, 4), textcoords="offset points",
-                zorder=9,
-            )
-            self._bm_cut_artists.append(ann)
-        self.canvas.draw_idle()
+        from arpes.ui.widgets.fs_panel_bm_cuts import draw_bm_cuts
+        draw_bm_cuts(self, cuts)
 
     def detect_gamma(self, raw_data: dict[str, Any] | None, params: FSParams):
         kx, ky, fs, _ = extract_fs_map(raw_data, params)
@@ -699,68 +619,8 @@ class FermiSurfaceCanvas(QWidget):
         return detect_gamma_from_fs_map(kx, ky, fs, params).as_dict()
 
     def _overlay_bz_crystal(self, p: FSParams, raw_data):
-        """Overlay polygone BZ cristal + labels HS depuis lattice MP.
-
-        Lit ``raw_data["metadata"]["fs_lattice"]`` (dict cache MP) si présent.
-        Sans lattice MP, ne dessine rien : un polygone heuristique serait
-        physiquement trompeur pour la caractérisation des poches.
-        """
-        from arpes.physics.bz import Lattice3D
-        from arpes.physics.bz_overlay import project_hs_points
-
-        meta = (raw_data or {}).get("metadata", {}) or {}
-        lat_dict = meta.get("fs_lattice") or {}
-        if not lat_dict:
-            msg = (
-                "Pas de lattice MP : récupère la symétrie MP avant "
-                "d'afficher la BZ cristal."
-            )
-            self.ax.text(
-                0.02, 0.02, msg,
-                transform=self.ax.transAxes,
-                color="#ffcc66", fontsize=8,
-                bbox=dict(boxstyle="round,pad=0.25", facecolor="#1a1a1a",
-                          edgecolor="#ffcc66", alpha=0.75),
-                zorder=8,
-            )
-            return
-        lat = Lattice3D(
-            a=float(lat_dict.get("a", p.a_lattice)),
-            b=float(lat_dict.get("b", p.b_lattice)),
-            c=float(lat_dict.get("c", 1.0) or 1.0),
-            alpha_deg=float(lat_dict.get("alpha_deg", 90.0)),
-            beta_deg=float(lat_dict.get("beta_deg", 90.0)),
-            gamma_deg=float(lat_dict.get("gamma_deg", 90.0)),
-            bravais=str(lat_dict.get("bravais", "tetragonal")),
-            space_group=str(lat_dict.get("space_group", "")),
-            mp_id=str(lat_dict.get("mp_id", p.mp_id)),
-        )
-
-        plane = p.kz_plane if p.kz_plane in ("Gamma", "Z") else "Gamma"
-        proj, poly = project_hs_points(
-            lat,
-            plane=plane,
-            phi_c_deg=float(p.phi_c_deg),
-            gamma_kx=0.0, gamma_ky=0.0,  # Γ déjà centré par params.kx/ky_center
-        )
-        if p.overlay_bz_crystal:
-            line, = self.ax.plot(
-                poly[:, 0], poly[:, 1],
-                color="orange", lw=1.4, ls="-", alpha=0.85,
-            )
-            self._overlay_artists.append(line)
-        if p.overlay_hs_crystal:
-            for pt in proj:
-                scat = self.ax.scatter(
-                    [pt.kx], [pt.ky], c=pt.color or "orange",
-                    s=45, zorder=6, edgecolors="black", linewidths=0.5,
-                )
-                ann = self.ax.annotate(
-                    pt.label, (pt.kx, pt.ky), xytext=(5, 5),
-                    textcoords="offset points",
-                    color="orange", fontsize=10, fontweight="bold",
-                )
-                self._overlay_artists.extend([scat, ann])
+        from arpes.ui.widgets.fs_panel_bz_crystal import overlay_bz_crystal
+        overlay_bz_crystal(self, p, raw_data)
 
     def _overlay_bz(self, p: FSParams):
         if not p.overlay_bz: return
