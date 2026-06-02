@@ -11,6 +11,7 @@ from arpes.physics.bz import bz_high_symmetry_points, bz_polygon
 from arpes.physics.fs import extract_fs_map
 from arpes.physics.pocket import (
     characterize_pocket,
+    characterize_pocket_bootstrap,
     extract_fs_contour,
     simplify_closed_contour,
     smooth_closed_contour,
@@ -165,22 +166,15 @@ class PocketController:
                 seed_plot[1] + float(params.ky_center),
             )
             kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
-            fs_pocket = smooth_fs_image(
-                fs,
-                sigma=(settings["smooth_sigma_y"], settings["smooth_sigma_x"]),
-            )
+            sigma = (settings["smooth_sigma_y"], settings["smooth_sigma_x"])
+            fs_pocket = smooth_fs_image(fs, sigma=sigma)
             level_source = payload.get("level", None)
             if level_source is None:
                 level_source = settings.get("level", None)
             level = float(level_source if level_source is not None else self._auto_level(fs_pocket, seed_raw, kx, ky))
             bz_raw = self._bz_polygon_raw(params)
             hs_raw = self._hs_points_raw(params)
-            props = characterize_pocket(
-                fs_pocket, kx, ky,
-                seed_point=seed_raw,
-                level=level,
-                bz_polygon=bz_raw,
-                hs_points=hs_raw,
+            char_kwargs = dict(
                 contour_window=int(settings["contour_window"]),
                 n_bands=int(settings.get("n_bands", 1)),
                 spin=int(settings.get("spin", 2)),
@@ -188,7 +182,28 @@ class PocketController:
                 hs_dir_m_deg=float(settings.get("hs_dir_m_deg", 45.0)),
                 hs_dir_tol_deg=float(settings.get("hs_dir_tol_deg", 10.0)),
             )
-            pocket = props.asdict()
+            if bool(settings.get("bootstrap", False)):
+                bs = characterize_pocket_bootstrap(
+                    fs, kx, ky,
+                    seed_point=seed_raw,
+                    level=level,
+                    bz_polygon=bz_raw,
+                    hs_points=hs_raw,
+                    smooth_sigma=sigma,
+                    n_bootstrap=int(settings.get("bootstrap_n", 20)),
+                    **char_kwargs,
+                )
+                pocket = bs.asdict()
+            else:
+                props = characterize_pocket(
+                    fs_pocket, kx, ky,
+                    seed_point=seed_raw,
+                    level=level,
+                    bz_polygon=bz_raw,
+                    hs_points=hs_raw,
+                    **char_kwargs,
+                )
+                pocket = props.asdict()
             pocket["level"] = level
             pocket["contour"] = self._contour_for_storage(fs_pocket, kx, ky, level, seed_raw, params)
             pocket["processing"] = {
@@ -369,6 +384,8 @@ class PocketController:
             "hs_dir_x_deg": float(raw.get("hs_dir_x_deg", defaults["hs_dir_x_deg"])),
             "hs_dir_m_deg": float(raw.get("hs_dir_m_deg", defaults["hs_dir_m_deg"])),
             "hs_dir_tol_deg": float(raw.get("hs_dir_tol_deg", defaults["hs_dir_tol_deg"])),
+            "bootstrap": bool(raw.get("bootstrap", False)),
+            "bootstrap_n": int(raw.get("bootstrap_n", 20)),
         }
 
     def _nearest_value(self, fs, kx, ky, point) -> float:

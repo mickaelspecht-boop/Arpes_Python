@@ -8,6 +8,7 @@ import numpy as np
 from arpes.physics.pocket import (
     assign_hs_label,
     characterize_pocket,
+    characterize_pocket_bootstrap,
     extract_fs_contour,
     fit_pocket_ellipse,
     kf_along_direction,
@@ -282,6 +283,54 @@ class TestPocketEnrichment(unittest.TestCase):
         )
         self.assertEqual(props.topology, "electron")
         self.assertGreater(props.topology_rays_used, 2)
+
+
+class TestPocketBootstrap(unittest.TestCase):
+    def test_bootstrap_produces_finite_central_and_stds(self):
+        img, kx, ky = _electron_disk()
+        bz = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+        rng = np.random.default_rng(123)
+        bs = characterize_pocket_bootstrap(
+            img, kx, ky,
+            seed_point=(0.0, 0.0),
+            level=0.5,
+            bz_polygon=bz,
+            hs_points={"Gamma": (0.0, 0.0)},
+            smooth_sigma=(1.0, 2.0),
+            n_bootstrap=12,
+            level_rel_jitter=0.10,
+            smooth_rel_jitter=0.20,
+            rng=rng,
+        )
+        self.assertGreater(bs.n_valid, 6)
+        self.assertEqual(bs.n_total, 12)
+        self.assertEqual(bs.central.topology, "electron")
+        self.assertTrue(math.isfinite(bs.central.kF_mean))
+        self.assertGreaterEqual(bs.std["kF_mean"], 0.0)
+        self.assertGreater(bs.std["area_pct_bz"], 0.0)
+        d = bs.asdict()
+        self.assertIn("uncertainty", d)
+        self.assertIn("kF_mean", d["uncertainty"])
+        self.assertEqual(d["n_bootstrap_valid"], bs.n_valid)
+
+    def test_bootstrap_zero_jitter_has_zero_std(self):
+        img, kx, ky = _electron_disk()
+        bz = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+        bs = characterize_pocket_bootstrap(
+            img, kx, ky,
+            seed_point=(0.0, 0.0),
+            level=0.5,
+            bz_polygon=bz,
+            hs_points={"Gamma": (0.0, 0.0)},
+            smooth_sigma=(1.0, 2.0),
+            n_bootstrap=5,
+            level_rel_jitter=0.0,
+            smooth_rel_jitter=0.0,
+            rng=np.random.default_rng(0),
+        )
+        self.assertEqual(bs.n_valid, 5)
+        self.assertEqual(bs.std["kF_mean"], 0.0)
+        self.assertEqual(bs.std["area_inv_a2"], 0.0)
 
 
 if __name__ == "__main__":

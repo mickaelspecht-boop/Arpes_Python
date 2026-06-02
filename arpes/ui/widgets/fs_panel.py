@@ -316,6 +316,14 @@ class FSControlPanel(QScrollArea):
         self.sp_pocket_hs_m_deg.setToolTip("Direction Γ-M (deg) dans le plan FS. Défaut : 45°.")
         self.sp_pocket_hs_tol_deg = self._dspin(10.0, 1.0, 45.0, 1.0, dec=1)
         self.sp_pocket_hs_tol_deg.setToolTip("Tolérance angulaire (±deg) pour mesurer kF(Γ-X) et kF(Γ-M).")
+        self.chk_pocket_bootstrap = QCheckBox("Bootstrap incertitude")
+        self.chk_pocket_bootstrap.setChecked(False)
+        self.chk_pocket_bootstrap.setToolTip(
+            "Active le bootstrap : N tirages (level ±10%, smoothing ±25%) → "
+            "médiane + écart-type par champ. Coût ≈ N× temps caractérisation."
+        )
+        self.sp_pocket_bootstrap_n = self._ispin(20, 4, 100, 1)
+        self.sp_pocket_bootstrap_n.setToolTip("Nombre de tirages bootstrap. Défaut : 20.")
         self.chk_pocket_level_manual = QCheckBox("Level manuel")
         self.chk_pocket_level_manual.setToolTip("Utilise le level ci-dessous pour le prochain clic droit au lieu du seuil auto.")
         # Level slider : signal dédié (pas params_changed) pour preview live sans
@@ -347,6 +355,8 @@ class FSControlPanel(QScrollArea):
         fp.addRow("Γ-X (°) :", self.sp_pocket_hs_x_deg)
         fp.addRow("Γ-M (°) :", self.sp_pocket_hs_m_deg)
         fp.addRow("Tol HS (°) :", self.sp_pocket_hs_tol_deg)
+        fp.addRow(self.chk_pocket_bootstrap)
+        fp.addRow("Bootstrap N :", self.sp_pocket_bootstrap_n)
         btn_export_pockets = compact_button(QPushButton("Exporter poches CSV"), max_width=160)
         btn_export_pockets.setToolTip("Exporte les poches FS caractérisées du fichier courant en CSV.")
         btn_export_pockets.clicked.connect(self.pockets_export_requested)
@@ -404,6 +414,8 @@ class FSControlPanel(QScrollArea):
             "hs_dir_x_deg": float(self.sp_pocket_hs_x_deg.value()),
             "hs_dir_m_deg": float(self.sp_pocket_hs_m_deg.value()),
             "hs_dir_tol_deg": float(self.sp_pocket_hs_tol_deg.value()),
+            "bootstrap": bool(self.chk_pocket_bootstrap.isChecked()),
+            "bootstrap_n": int(self.sp_pocket_bootstrap_n.value()),
         }
 
     def set_pocket_count(self, count: int) -> None:
