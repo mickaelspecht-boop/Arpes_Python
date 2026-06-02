@@ -298,10 +298,12 @@ def characterize_pocket(
     level: float,
     bz_polygon,
     hs_points: dict[str, tuple[float, float]],
+    contour_window: int = 9,
 ) -> PocketProperties:
     """Complete pocket characterization pipeline."""
     contour = smooth_closed_contour(
-        extract_fs_contour(image, kx, ky, level, seed_point=seed_point)
+        extract_fs_contour(image, kx, ky, level, seed_point=seed_point),
+        window=contour_window,
     )
     center = _centroid(contour)
     area = abs(pocket_area(contour))

@@ -57,6 +57,8 @@ class TestPocketController(unittest.TestCase):
                 self.assertEqual(entry.fs_pockets[0]["topology"], "electron")
                 self.assertGreater(entry.fs_pockets[0]["area_pct_bz"], 1.0)
                 self.assertGreater(len(entry.fs_pockets[0]["contour"]), 10)
+                self.assertEqual(entry.fs_pockets[0]["processing"]["quality"], "Stable")
+                self.assertEqual(entry.fs_pockets[0]["processing"]["contour_window"], 13)
                 self.assertEqual(parent.draws, 1)
         finally:
             pocket_controller_mod.PocketResultDialog = old_dialog
@@ -159,7 +161,15 @@ class _Parent:
             bz_half_x=1.0,
             bz_half_y=1.0,
             bz_angle_deg=90.0,
-        ))
+        ), pocket_settings=lambda: {
+            "quality": "Stable",
+            "smooth_sigma_y": 1.5,
+            "smooth_sigma_x": 4.0,
+            "contour_window": 13,
+            "simplify_step": 0.025,
+            "min_area_pct_bz": 0.2,
+            "level": None,
+        })
         self.draws = 0
         self.statuses = []
 

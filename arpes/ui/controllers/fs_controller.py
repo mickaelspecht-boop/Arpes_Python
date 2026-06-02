@@ -74,7 +74,12 @@ class FSController:
         info = self._fs_canvas.draw_fs(self._raw_data, fs_params)
         entry = self._current_entry()
         if entry is not None and hasattr(self._fs_canvas, "draw_pockets"):
-            self._fs_canvas.draw_pockets(getattr(entry, "fs_pockets", []) or [])
+            pockets = getattr(entry, "fs_pockets", []) or []
+            self._fs_canvas.draw_pockets(pockets)
+            if hasattr(self._fs_controls, "set_pocket_count"):
+                self._fs_controls.set_pocket_count(len(pockets))
+        elif hasattr(self._fs_controls, "set_pocket_count"):
+            self._fs_controls.set_pocket_count(0)
         try:
             self._fs_controls.lbl_info.setText(info)
         except Exception:

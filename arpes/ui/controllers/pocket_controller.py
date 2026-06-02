@@ -53,12 +53,17 @@ class PocketController:
             return None
         try:
             params = self._fs_controls.params()
+            settings = self._pocket_settings()
             kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
             seed_raw = (
                 float(payload["kx"]) + float(params.kx_center),
                 float(payload["ky"]) + float(params.ky_center),
             )
-            default = self._auto_level(fs, seed_raw, kx, ky)
+            fs_pocket = smooth_fs_image(
+                fs,
+                sigma=(settings["smooth_sigma_y"], settings["smooth_sigma_x"]),
+            )
+            default = self._auto_level(fs_pocket, seed_raw, kx, ky)
             level, ok = QInputDialog.getDouble(
                 self._parent,
                 "Niveau iso-intensité",
@@ -92,13 +97,20 @@ class PocketController:
                 float(payload["ky"]),
             )
             params = self._fs_controls.params()
+            settings = self._pocket_settings()
             seed_raw = (
                 seed_plot[0] + float(params.kx_center),
                 seed_plot[1] + float(params.ky_center),
             )
             kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
-            fs_pocket = smooth_fs_image(fs)
-            level = float(payload.get("level", self._auto_level(fs_pocket, seed_raw, kx, ky)))
+            fs_pocket = smooth_fs_image(
+                fs,
+                sigma=(settings["smooth_sigma_y"], settings["smooth_sigma_x"]),
+            )
+            level_source = payload.get("level", None)
+            if level_source is None:
+                level_source = settings.get("level", None)
+            level = float(level_source if level_source is not None else self._auto_level(fs_pocket, seed_raw, kx, ky))
             bz_raw = self._bz_polygon_raw(params)
             hs_raw = self._hs_points_raw(params)
             props = characterize_pocket(
@@ -107,14 +119,27 @@ class PocketController:
                 level=level,
                 bz_polygon=bz_raw,
                 hs_points=hs_raw,
+                contour_window=int(settings["contour_window"]),
             )
             pocket = props.asdict()
             pocket["level"] = level
             pocket["contour"] = self._contour_for_storage(fs_pocket, kx, ky, level, seed_raw, params)
-            pocket["processing"] = {"smooth_sigma_yx": [1.0, 3.0]}
+            pocket["processing"] = {
+                "quality": settings.get("quality", "Standard"),
+                "smooth_sigma_yx": [settings["smooth_sigma_y"], settings["smooth_sigma_x"]],
+                "contour_window": int(settings["contour_window"]),
+                "simplify_step": settings["simplify_step"],
+                "min_area_pct_bz": settings["min_area_pct_bz"],
+            }
             mp_label = self._mp_label_for(pocket)
             if mp_label:
                 pocket["mp_label"] = mp_label
+            if float(pocket.get("area_pct_bz", 0.0) or 0.0) < settings["min_area_pct_bz"]:
+                self._status(
+                    f"Poche FS rejetée : aire {pocket['area_pct_bz']:.2f}% BZ "
+                    f"< min {settings['min_area_pct_bz']:.2f}%."
+                )
+                return None
             entry.fs_pockets = list(getattr(entry, "fs_pockets", []) or []) + [pocket]
             self._session.save()
             self._draw_fs_tab()
@@ -243,6 +268,35 @@ class PocketController:
             return float(med + 0.5 * (seed_i - med))
         return float(lo + 0.5 * (med - lo))
 
+    def _pocket_settings(self) -> dict[str, float | None]:
+        controls = getattr(self, "_fs_controls", None)
+        if controls is not None and hasattr(controls, "pocket_settings"):
+            try:
+                raw = controls.pocket_settings()
+                return {
+                    "smooth_sigma_y": float(raw.get("smooth_sigma_y", 1.0)),
+                    "smooth_sigma_x": float(raw.get("smooth_sigma_x", 3.0)),
+                    "contour_window": int(raw.get("contour_window", 9)),
+                    "simplify_step": float(raw.get("simplify_step", 0.015)),
+                    "min_area_pct_bz": float(raw.get("min_area_pct_bz", 0.20)),
+                    "quality": str(raw.get("quality", "Standard") or "Standard"),
+                    "level": (
+                        None if raw.get("level", None) is None
+                        else float(raw.get("level"))
+                    ),
+                }
+            except Exception:
+                pass
+        return {
+            "smooth_sigma_y": 1.0,
+            "smooth_sigma_x": 3.0,
+            "contour_window": 9,
+            "simplify_step": 0.015,
+            "min_area_pct_bz": 0.20,
+            "quality": "Standard",
+            "level": None,
+        }
+
     def _nearest_value(self, fs, kx, ky, point) -> float:
         ix = int(np.argmin(np.abs(np.asarray(kx) - float(point[0]))))
         iy = int(np.argmin(np.abs(np.asarray(ky) - float(point[1]))))
@@ -275,7 +329,11 @@ class PocketController:
         from arpes.physics.pocket import extract_fs_contour
 
         contour = extract_fs_contour(fs, kx, ky, level, seed_point=seed_raw)
-        contour = simplify_closed_contour(smooth_closed_contour(contour), min_step=0.015)
+        settings = self._pocket_settings()
+        contour = simplify_closed_contour(
+            smooth_closed_contour(contour, window=int(settings["contour_window"])),
+            min_step=float(settings["simplify_step"]),
+        )
         shifted = np.asarray(contour, dtype=float).copy()
         shifted[:, 0] -= float(params.kx_center)
         shifted[:, 1] -= float(params.ky_center)

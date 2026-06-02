@@ -16,7 +16,7 @@ from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
     QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QSpinBox, QVBoxLayout, QWidget,
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
@@ -60,6 +60,13 @@ class FSControlPanel(QScrollArea):
     def _dspin(self, value, lo, hi, step, dec=3):
         sp = QDoubleSpinBox()
         sp.setRange(lo, hi); sp.setSingleStep(step); sp.setDecimals(dec); sp.setValue(value)
+        sp.setKeyboardTracking(False)
+        sp.valueChanged.connect(self.params_changed)
+        return sp
+
+    def _ispin(self, value, lo, hi, step=1):
+        sp = QSpinBox()
+        sp.setRange(lo, hi); sp.setSingleStep(step); sp.setValue(value)
         sp.setKeyboardTracking(False)
         sp.valueChanged.connect(self.params_changed)
         return sp
@@ -277,14 +284,50 @@ class FSControlPanel(QScrollArea):
         )
         self.chk_show_bm_cuts.toggled.connect(self.bm_cuts_visibility_changed)
         lay.addWidget(self.chk_show_bm_cuts)
+
+        grp_pocket = QGroupBox("Poches FS")
+        fp = QFormLayout(grp_pocket)
+        self.lbl_pocket_count = QLabel("0 poche")
+        self.lbl_pocket_count.setStyleSheet("color:#aaa; font-size:10px;")
+        self.cmb_pocket_quality = QComboBox()
+        self.cmb_pocket_quality.addItems(["Fin", "Standard", "Stable"])
+        self.cmb_pocket_quality.setCurrentText("Standard")
+        self.cmb_pocket_quality.setToolTip(
+            "Qualité du contour : Fin suit plus les détails, Stable résiste mieux aux stries/bruit."
+        )
+        self.cmb_pocket_quality.currentIndexChanged.connect(self._on_pocket_quality_changed)
+        self.sp_pocket_smooth_y = self._dspin(1.0, 0.0, 6.0, 0.25, dec=2)
+        self.sp_pocket_smooth_y.setToolTip("Lissage contour dans l'axe ky avant extraction. Augmenter si contour haché.")
+        self.sp_pocket_smooth_x = self._dspin(3.0, 0.0, 12.0, 0.25, dec=2)
+        self.sp_pocket_smooth_x.setToolTip("Lissage contour dans l'axe kx avant extraction. Utile contre les stries verticales CLS.")
+        self.sp_pocket_contour_window = self._ispin(9, 3, 25, 2)
+        self.sp_pocket_contour_window.setToolTip("Fenêtre de lissage du contour fermé. Valeur impaire appliquée automatiquement.")
+        self.sp_pocket_simplify = self._dspin(0.015, 0.0, 0.100, 0.005, dec=3)
+        self.sp_pocket_simplify.setToolTip("Distance minimale entre points du contour stocké. Augmenter pour un contour plus propre.")
+        self.sp_pocket_min_area = self._dspin(0.20, 0.0, 20.0, 0.10, dec=2)
+        self.sp_pocket_min_area.setToolTip("Aire minimale en % BZ. Rejette les petits contours parasites.")
+        self.chk_pocket_level_manual = QCheckBox("Level manuel")
+        self.chk_pocket_level_manual.setToolTip("Utilise le level ci-dessous pour le prochain clic droit au lieu du seuil auto.")
+        self.sp_pocket_level = self._dspin(0.50, 0.0, 1.0, 0.01, dec=3)
+        self.sp_pocket_level.setToolTip("Seuil iso-intensité utilisé si Level manuel est coché.")
+        fp.addRow(self.lbl_pocket_count)
+        fp.addRow("Qualité :", self.cmb_pocket_quality)
+        fp.addRow(self.chk_pocket_level_manual)
+        fp.addRow("Level :", self.sp_pocket_level)
+        fp.addRow("Lissage ky :", self.sp_pocket_smooth_y)
+        fp.addRow("Lissage kx :", self.sp_pocket_smooth_x)
+        fp.addRow("Contour :", self.sp_pocket_contour_window)
+        fp.addRow("Simplifier :", self.sp_pocket_simplify)
+        fp.addRow("Aire min :", self.sp_pocket_min_area)
         btn_export_pockets = compact_button(QPushButton("Exporter poches CSV"), max_width=160)
         btn_export_pockets.setToolTip("Exporte les poches FS caractérisées du fichier courant en CSV.")
         btn_export_pockets.clicked.connect(self.pockets_export_requested)
-        lay.addWidget(btn_export_pockets)
+        fp.addRow(btn_export_pockets)
         btn_clear_pockets = compact_button(QPushButton("Effacer poches FS"), max_width=160)
         btn_clear_pockets.setToolTip("Supprime toutes les poches FS caractérisées pour ce fichier.")
         btn_clear_pockets.clicked.connect(self.pockets_clear_requested)
-        lay.addWidget(btn_clear_pockets)
+        fp.addRow(btn_clear_pockets)
+        self._add_collapsible_group(lay, "Poches FS", grp_pocket, open_default=True)
         lay.addStretch(1)
 
     def params(self) -> FSParams:
@@ -317,6 +360,40 @@ class FSControlPanel(QScrollArea):
         self.btn_pick_center.blockSignals(True)
         self.btn_pick_center.setChecked(bool(active))
         self.btn_pick_center.blockSignals(False)
+
+    def pocket_settings(self) -> dict[str, float | bool | None]:
+        manual = bool(self.chk_pocket_level_manual.isChecked())
+        return {
+            "quality": self.cmb_pocket_quality.currentText(),
+            "smooth_sigma_y": float(self.sp_pocket_smooth_y.value()),
+            "smooth_sigma_x": float(self.sp_pocket_smooth_x.value()),
+            "contour_window": int(self.sp_pocket_contour_window.value()),
+            "simplify_step": float(self.sp_pocket_simplify.value()),
+            "min_area_pct_bz": float(self.sp_pocket_min_area.value()),
+            "level": float(self.sp_pocket_level.value()) if manual else None,
+        }
+
+    def set_pocket_count(self, count: int) -> None:
+        n = int(count)
+        self.lbl_pocket_count.setText(f"{n} poche" + ("" if n <= 1 else "s"))
+
+    def _on_pocket_quality_changed(self, _idx: int = 0) -> None:
+        presets = {
+            "Fin": (0.5, 1.0, 5, 0.008),
+            "Standard": (1.0, 3.0, 9, 0.015),
+            "Stable": (1.5, 4.0, 13, 0.025),
+        }
+        y, x, window, step = presets.get(self.cmb_pocket_quality.currentText(), presets["Standard"])
+        widgets_values = (
+            (self.sp_pocket_smooth_y, y),
+            (self.sp_pocket_smooth_x, x),
+            (self.sp_pocket_contour_window, window),
+            (self.sp_pocket_simplify, step),
+        )
+        for widget, value in widgets_values:
+            old = widget.blockSignals(True)
+            widget.setValue(value)
+            widget.blockSignals(old)
 
     def apply_bz_preset(self, key: str) -> None:
         preset = resolve_bz_preset(key)
