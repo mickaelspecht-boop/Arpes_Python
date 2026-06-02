@@ -356,6 +356,12 @@ def wire_ui_signals(window) -> None:
                     "characterize", {"kx": float(kx), "ky": float(ky)}
                 )
             )
+        if hasattr(window._fs_canvas, "pocket_mdc_requested"):
+            window._fs_canvas.pocket_mdc_requested.connect(
+                lambda kx, ky: window._pocket_action(
+                    "characterize_mdc", {"kx": float(kx), "ky": float(ky)}
+                )
+            )
         if hasattr(window._fs_canvas, "pocket_preview_requested"):
             window._fs_canvas.pocket_preview_requested.connect(
                 lambda kx, ky: window._pocket_action(

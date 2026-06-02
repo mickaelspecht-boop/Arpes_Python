@@ -305,26 +305,16 @@ class FSControlPanel(QScrollArea):
             "Qualité du contour : Fin suit plus les détails, Stable résiste mieux aux stries/bruit."
         )
         self.cmb_pocket_quality.currentIndexChanged.connect(self._on_pocket_quality_changed)
-        self.sp_pocket_smooth_y = self._dspin(1.0, 0.0, 6.0, 0.25, dec=2)
-        self.sp_pocket_smooth_y.setToolTip("Lissage contour dans l'axe ky avant extraction. Augmenter si contour haché.")
-        self.sp_pocket_smooth_x = self._dspin(3.0, 0.0, 12.0, 0.25, dec=2)
-        self.sp_pocket_smooth_x.setToolTip("Lissage contour dans l'axe kx avant extraction. Utile contre les stries verticales CLS.")
-        self.sp_pocket_contour_window = self._ispin(9, 3, 25, 2)
-        self.sp_pocket_contour_window.setToolTip("Fenêtre de lissage du contour fermé. Valeur impaire appliquée automatiquement.")
-        self.sp_pocket_simplify = self._dspin(0.015, 0.0, 0.100, 0.005, dec=3)
-        self.sp_pocket_simplify.setToolTip("Distance minimale entre points du contour stocké. Augmenter pour un contour plus propre.")
-        self.sp_pocket_min_area = self._dspin(0.20, 0.0, 20.0, 0.10, dec=2)
-        self.sp_pocket_min_area.setToolTip("Aire minimale en % BZ. Rejette les petits contours parasites.")
-        self.sp_pocket_n_bands = self._ispin(1, 1, 12, 1)
-        self.sp_pocket_n_bands.setToolTip("Nombre de bandes occupant la poche (Luttinger). Défaut : 1.")
-        self.sp_pocket_spin = self._ispin(2, 1, 2, 1)
-        self.sp_pocket_spin.setToolTip("Dégénérescence spin (1 si polarisé, 2 sinon).")
-        self.sp_pocket_hs_x_deg = self._dspin(0.0, -180.0, 180.0, 1.0, dec=1)
-        self.sp_pocket_hs_x_deg.setToolTip("Direction Γ-X (deg) dans le plan FS. Défaut : 0° (axe kx).")
-        self.sp_pocket_hs_m_deg = self._dspin(45.0, -180.0, 180.0, 1.0, dec=1)
-        self.sp_pocket_hs_m_deg.setToolTip("Direction Γ-M (deg) dans le plan FS. Défaut : 45°.")
-        self.sp_pocket_hs_tol_deg = self._dspin(10.0, 1.0, 45.0, 1.0, dec=1)
-        self.sp_pocket_hs_tol_deg.setToolTip("Tolérance angulaire (±deg) pour mesurer kF(Γ-X) et kF(Γ-M).")
+        self.sp_pocket_smooth_y = self._dspin(1.0, 0.0, 6.0, 0.25, dec=2); self.sp_pocket_smooth_y.setToolTip("Lissage ky avant extraction.")
+        self.sp_pocket_smooth_x = self._dspin(3.0, 0.0, 12.0, 0.25, dec=2); self.sp_pocket_smooth_x.setToolTip("Lissage kx avant extraction (anti-stries CLS).")
+        self.sp_pocket_contour_window = self._ispin(9, 3, 25, 2); self.sp_pocket_contour_window.setToolTip("Fenêtre lissage contour fermé (impair).")
+        self.sp_pocket_simplify = self._dspin(0.015, 0.0, 0.100, 0.005, dec=3); self.sp_pocket_simplify.setToolTip("Distance minimale entre points du contour stocké.")
+        self.sp_pocket_min_area = self._dspin(0.20, 0.0, 20.0, 0.10, dec=2); self.sp_pocket_min_area.setToolTip("Aire minimale en % BZ.")
+        self.sp_pocket_n_bands = self._ispin(1, 1, 12, 1); self.sp_pocket_n_bands.setToolTip("Luttinger : nombre de bandes occupant la poche. Défaut : 1.")
+        self.sp_pocket_spin = self._ispin(2, 1, 2, 1); self.sp_pocket_spin.setToolTip("Dégénérescence spin (1 polarisé, 2 sinon).")
+        self.sp_pocket_hs_x_deg = self._dspin(0.0, -180.0, 180.0, 1.0, dec=1); self.sp_pocket_hs_x_deg.setToolTip("Γ-X (deg).")
+        self.sp_pocket_hs_m_deg = self._dspin(45.0, -180.0, 180.0, 1.0, dec=1); self.sp_pocket_hs_m_deg.setToolTip("Γ-M (deg).")
+        self.sp_pocket_hs_tol_deg = self._dspin(10.0, 1.0, 45.0, 1.0, dec=1); self.sp_pocket_hs_tol_deg.setToolTip("Tolérance secteur kF(Γ-X/M).")
         self.chk_pocket_bootstrap = QCheckBox("Bootstrap incertitude")
         self.chk_pocket_bootstrap.setChecked(False)
         self.chk_pocket_bootstrap.setToolTip(
@@ -333,6 +323,10 @@ class FSControlPanel(QScrollArea):
         )
         self.sp_pocket_bootstrap_n = self._ispin(20, 4, 100, 1)
         self.sp_pocket_bootstrap_n.setToolTip("Nombre de tirages bootstrap. Défaut : 20.")
+        self.sp_pocket_mdc_n = self._ispin(36, 8, 180, 4)
+        self.sp_pocket_mdc_n.setToolTip("MDC-radial : nombre de directions échantillonnées (deg = 360/N).")
+        self.sp_pocket_mdc_r2 = self._dspin(0.5, 0.0, 1.0, 0.05, dec=2)
+        self.sp_pocket_mdc_r2.setToolTip("MDC-radial : R² minimum pour valider un fit Lorentzien.")
         self.chk_pocket_level_manual = QCheckBox("Level manuel")
         self.chk_pocket_level_manual.setToolTip("Utilise le level ci-dessous pour le prochain clic droit au lieu du seuil auto.")
         # Level slider : signal dédié (pas params_changed) pour preview live sans
@@ -366,6 +360,8 @@ class FSControlPanel(QScrollArea):
         fp.addRow("Tol HS (°) :", self.sp_pocket_hs_tol_deg)
         fp.addRow(self.chk_pocket_bootstrap)
         fp.addRow("Bootstrap N :", self.sp_pocket_bootstrap_n)
+        fp.addRow("MDC dirs :", self.sp_pocket_mdc_n)
+        fp.addRow("MDC R²min :", self.sp_pocket_mdc_r2)
         btn_export_pockets = compact_button(QPushButton("Exporter poches CSV"), max_width=160)
         btn_export_pockets.clicked.connect(self.pockets_export_requested)
         btn_clear_pockets = compact_button(QPushButton("Effacer poches FS"), max_width=160)
@@ -425,6 +421,8 @@ class FSControlPanel(QScrollArea):
             "hs_dir_tol_deg": float(self.sp_pocket_hs_tol_deg.value()),
             "bootstrap": bool(self.chk_pocket_bootstrap.isChecked()),
             "bootstrap_n": int(self.sp_pocket_bootstrap_n.value()),
+            "mdc_n_directions": int(self.sp_pocket_mdc_n.value()),
+            "mdc_r2_min": float(self.sp_pocket_mdc_r2.value()),
         }
 
     def set_pocket_count(self, count: int) -> None:
@@ -477,6 +475,7 @@ class FSControlPanel(QScrollArea):
 
 class FermiSurfaceCanvas(QWidget):
     pocket_requested = pyqtSignal(float, float)
+    pocket_mdc_requested = pyqtSignal(float, float)
     pocket_level_requested = pyqtSignal(float, float)
     pocket_preview_requested = pyqtSignal(float, float)
     pocket_preview_validate_requested = pyqtSignal()
