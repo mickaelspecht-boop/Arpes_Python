@@ -134,6 +134,7 @@ def compute_bm_cut_in_fs_frame(
     n_points: int = 80,
     azi_tolerance_deg: float = 0.5,
     hv_tolerance_rel: float = 0.02,
+    overlay_max_hv_rel: float = 0.05,
 ) -> BMCutLine | None:
     """Projette une BM dans le repère (kx, ky) d'une FS.
 
@@ -158,19 +159,30 @@ def compute_bm_cut_in_fs_frame(
     if getattr(bm_entry.meta, "scan_kind", "") != "BM":
         return None
     polar_bm_raw = getattr(bm_entry.meta, "polar", None)
-    if polar_bm_raw is None:
-        return None
+    hv_bm_raw = getattr(bm_entry.meta, "hv", None)
     try:
-        polar_bm = float(polar_bm_raw)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(polar_bm):
-        return None
-    try:
-        hv_bm = float(getattr(bm_entry.meta, "hv", 0.0) or 0.0)
+        hv_bm = float(hv_bm_raw or 0.0)
         hv_fs = float(getattr(fs_entry.meta, "hv", 0.0) or 0.0)
     except (TypeError, ValueError):
-        return None
+        hv_bm = 0.0; hv_fs = 0.0
+    polar_bm = None
+    if polar_bm_raw is not None:
+        try:
+            v = float(polar_bm_raw)
+            if np.isfinite(v):
+                polar_bm = v
+        except (TypeError, ValueError):
+            pass
+    if polar_bm is None:
+        return BMCutLine(
+            label=_short_label(bm_path), bm_path=bm_path,
+            polar_bm=float("nan"),
+            azi_bm=getattr(bm_entry.meta, "azi", None),
+            hv_bm=hv_bm,
+            kx_points=np.array([]), ky_points=np.array([]),
+            quality="incompatible",
+            warning="polar BM absent (logbook ou metadata) → pas d'overlay",
+        )
     azi_bm = getattr(bm_entry.meta, "azi", None)
     azi_fs = getattr(fs_entry.meta, "azi", None)
 
@@ -220,6 +232,19 @@ def compute_bm_cut_in_fs_frame(
         hv_tol_rel=hv_tolerance_rel,
         azi_tol_deg=azi_tolerance_deg,
     )
+    # Garde stricte overlay : si Δhv/max > overlay_max_hv_rel, on liste la BM
+    # mais on supprime la projection (kz différent → projection trompeuse).
+    hv_diff_rel = (abs(hv_bm - hv_fs) / max(hv_bm, hv_fs)) if (hv_bm > 0 and hv_fs > 0) else float("inf")
+    if hv_diff_rel > float(overlay_max_hv_rel):
+        return BMCutLine(
+            label=_short_label(bm_path), bm_path=bm_path,
+            polar_bm=polar_bm,
+            azi_bm=(float(azi_bm) if azi_bm is not None else None),
+            hv_bm=hv_bm,
+            kx_points=np.array([]), ky_points=np.array([]),
+            quality="incompatible",
+            warning=f"Δhv/max = {hv_diff_rel*100:.1f}% > {overlay_max_hv_rel*100:.0f}% → overlay masqué (kz différent)",
+        )
 
     return BMCutLine(
         label=_short_label(bm_path),

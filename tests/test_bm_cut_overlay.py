@@ -105,9 +105,21 @@ class TestComputeBmCut(unittest.TestCase):
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
             work_func=self.WF,
+            overlay_max_hv_rel=1.0,  # désactive garde stricte pour test scaled
         )
         self.assertEqual(out.quality, "scaled")
         self.assertIn("Δhv", out.warning)
+
+    def test_overlay_masked_above_strict_hv_threshold(self):
+        bm = _bm_entry(hv=60.0)
+        fs = _fs_entry(hv=80.0)
+        out = compute_bm_cut_in_fs_frame(
+            bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
+            work_func=self.WF, overlay_max_hv_rel=0.05,
+        )
+        self.assertEqual(out.quality, "incompatible")
+        self.assertEqual(out.kx_points.size, 0)
+        self.assertIn("overlay masqué", out.warning)
 
     def test_rotation_90deg_swaps_axes(self):
         bm = _bm_entry(polar=1.0, azi=0.0)
