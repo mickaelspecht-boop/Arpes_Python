@@ -142,6 +142,33 @@ class TestPocketController(unittest.TestCase):
         self.assertEqual(len(canvas._pocket_artists), 2)
         self.assertEqual(getattr(canvas._pocket_artists[0], "pocket_index"), 0)
 
+    def test_canvas_draw_pockets_uses_points_and_distinct_colors(self):
+        canvas = FermiSurfaceCanvas()
+        pockets = [
+            {
+                "contour": [[0.0, 0.0], [0.2, 0.0], [0.2, 0.2], [0.0, 0.0]],
+                "centroid_kx": 0.1,
+                "centroid_ky": 0.1,
+                "hs_label_nearest": "Γ",
+            },
+            {
+                "contour": [[0.5, 0.5], [0.7, 0.5], [0.7, 0.7], [0.5, 0.5]],
+                "centroid_kx": 0.6,
+                "centroid_ky": 0.6,
+                "hs_label_nearest": "X",
+            },
+        ]
+
+        canvas.draw_pockets(pockets)
+
+        first, second = canvas._pocket_artists[0], canvas._pocket_artists[2]
+        self.assertEqual(first.__class__.__name__, "PathCollection")
+        self.assertEqual(second.__class__.__name__, "PathCollection")
+        self.assertNotEqual(
+            tuple(first.get_facecolors()[0]),
+            tuple(second.get_facecolors()[0]),
+        )
+
 
 class _Parent:
     def __init__(self, folder: Path):

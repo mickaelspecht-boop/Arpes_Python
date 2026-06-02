@@ -4,6 +4,22 @@ from __future__ import annotations
 import numpy as np
 
 
+_POCKET_COLORS = (
+    "#22d3ee",  # cyan
+    "#f97316",  # orange
+    "#a3e635",  # lime
+    "#f472b6",  # pink
+    "#c084fc",  # violet
+    "#facc15",  # yellow
+    "#60a5fa",  # blue
+    "#fb7185",  # rose
+)
+
+
+def _pocket_color(idx: int) -> str:
+    return _POCKET_COLORS[int(idx) % len(_POCKET_COLORS)]
+
+
 def handle_canvas_right_click(canvas, event) -> None:
     """Open right-click pocket menu and emit the selected canvas signal."""
     from PyQt6.QtWidgets import QMenu
@@ -64,12 +80,12 @@ def draw_pocket_preview(canvas, contour) -> None:
         canvas.canvas.draw_idle()
         return
     cx, cy = getattr(canvas, "_bm_cut_center", (0.0, 0.0))
-    line, = canvas.ax.plot(
+    pts = canvas.ax.scatter(
         arr[:, 0] - cx, arr[:, 1] - cy,
-        color="#00ffff", lw=1.8, linestyle=(0, (4, 3)),
-        alpha=0.95, zorder=12,
+        s=16, marker="o", color="#00ffff", alpha=0.95,
+        linewidths=0.0, zorder=12,
     )
-    canvas._pocket_preview_artists.append(line)
+    canvas._pocket_preview_artists.append(pts)
     canvas.canvas.draw_idle()
 
 
@@ -88,12 +104,15 @@ def draw_pockets(canvas, pockets: list[dict] | None) -> None:
         contour = np.asarray(pocket.get("contour") or [], dtype=float)
         if contour.ndim != 2 or contour.shape[1] != 2 or contour.shape[0] < 3:
             continue
-        line, = canvas.ax.plot(
+        color = _pocket_color(idx - 1)
+        pts = canvas.ax.scatter(
             contour[:, 0], contour[:, 1],
-            color="#39ff88", lw=1.5, alpha=0.9, zorder=10,
-            picker=True, pickradius=5,
+            s=18, marker="o", color=color, alpha=0.9,
+            linewidths=0.0, zorder=10,
+            picker=True,
         )
-        setattr(line, "pocket_index", idx - 1)
+        pts.set_pickradius(5)
+        setattr(pts, "pocket_index", idx - 1)
         label = str(pocket.get("hs_label_nearest") or f"P{idx}")
         cx = float(pocket.get("centroid_kx", np.nan)) - canvas._bm_cut_center[0]
         cy = float(pocket.get("centroid_ky", np.nan)) - canvas._bm_cut_center[1]
@@ -105,12 +124,12 @@ def draw_pockets(canvas, pockets: list[dict] | None) -> None:
             (cx, cy),
             xytext=(5, 5),
             textcoords="offset points",
-            color="#39ff88",
+            color=color,
             fontsize=9,
             fontweight="bold",
             zorder=11,
             picker=True,
         )
         setattr(ann, "pocket_index", idx - 1)
-        canvas._pocket_artists.extend([line, ann])
+        canvas._pocket_artists.extend([pts, ann])
     canvas.canvas.draw_idle()
