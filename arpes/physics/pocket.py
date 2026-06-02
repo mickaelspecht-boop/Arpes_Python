@@ -13,6 +13,11 @@ import contourpy
 import numpy as np
 from matplotlib.path import Path as MplPath
 
+try:
+    from scipy.ndimage import gaussian_filter
+except Exception:  # pragma: no cover - scipy is present in the app env
+    gaussian_filter = None
+
 
 PocketTopology = Literal["electron", "hole", "unclear"]
 
@@ -65,6 +70,57 @@ def _close_contour(contour: np.ndarray) -> np.ndarray:
     if np.linalg.norm(c[0] - c[-1]) > 1e-10:
         c = np.vstack([c, c[0]])
     return c
+
+
+def smooth_fs_image(image: np.ndarray, sigma: tuple[float, float] = (1.0, 3.0)) -> np.ndarray:
+    """Return a denoised FS map for contour extraction.
+
+    Experimental FS maps often have many detector/normalization stripes.  The
+    displayed image can stay sharp, but pocket contours need a more stable
+    scalar field or contourpy follows pixel noise.
+    """
+    z = np.asarray(image, dtype=float)
+    if gaussian_filter is None or z.ndim != 2:
+        return z
+    finite = np.isfinite(z)
+    if not finite.any():
+        return z
+    fill = float(np.nanmedian(z[finite]))
+    work = np.where(finite, z, fill)
+    smoothed = gaussian_filter(work, sigma=sigma, mode="nearest")
+    return np.where(finite, smoothed, np.nan)
+
+
+def smooth_closed_contour(contour: np.ndarray, window: int = 9) -> np.ndarray:
+    """Smooth a closed contour with circular moving average."""
+    c = _close_contour(contour)
+    if c.shape[0] < max(8, window + 2):
+        return c
+    w = max(3, int(window))
+    if w % 2 == 0:
+        w += 1
+    pts = c[:-1]
+    pad = w // 2
+    ext = np.vstack([pts[-pad:], pts, pts[:pad]])
+    kernel = np.ones(w, dtype=float) / float(w)
+    xs = np.convolve(ext[:, 0], kernel, mode="valid")
+    ys = np.convolve(ext[:, 1], kernel, mode="valid")
+    out = np.column_stack([xs, ys])
+    return _close_contour(out)
+
+
+def simplify_closed_contour(contour: np.ndarray, min_step: float = 0.015) -> np.ndarray:
+    """Drop near-duplicate contour points while preserving closure."""
+    c = _close_contour(contour)
+    if c.shape[0] < 5:
+        return c
+    kept = [c[0]]
+    for p in c[1:-1]:
+        if np.linalg.norm(p - kept[-1]) >= float(min_step):
+            kept.append(p)
+    if len(kept) < 4:
+        return c
+    return _close_contour(np.asarray(kept, dtype=float))
 
 
 def extract_fs_contour(
@@ -244,7 +300,9 @@ def characterize_pocket(
     hs_points: dict[str, tuple[float, float]],
 ) -> PocketProperties:
     """Complete pocket characterization pipeline."""
-    contour = extract_fs_contour(image, kx, ky, level, seed_point=seed_point)
+    contour = smooth_closed_contour(
+        extract_fs_contour(image, kx, ky, level, seed_point=seed_point)
+    )
     center = _centroid(contour)
     area = abs(pocket_area(contour))
     bz = np.asarray(bz_polygon, dtype=float)

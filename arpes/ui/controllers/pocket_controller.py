@@ -9,7 +9,12 @@ from PyQt6.QtWidgets import QFileDialog, QInputDialog
 
 from arpes.physics.bz import bz_high_symmetry_points, bz_polygon
 from arpes.physics.fs import extract_fs_map
-from arpes.physics.pocket import characterize_pocket
+from arpes.physics.pocket import (
+    characterize_pocket,
+    simplify_closed_contour,
+    smooth_closed_contour,
+    smooth_fs_image,
+)
 from arpes.ui.widgets.dialogs.pocket_result import PocketResultDialog
 
 
@@ -92,11 +97,12 @@ class PocketController:
                 seed_plot[1] + float(params.ky_center),
             )
             kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
-            level = float(payload.get("level", self._auto_level(fs, seed_raw, kx, ky)))
+            fs_pocket = smooth_fs_image(fs)
+            level = float(payload.get("level", self._auto_level(fs_pocket, seed_raw, kx, ky)))
             bz_raw = self._bz_polygon_raw(params)
             hs_raw = self._hs_points_raw(params)
             props = characterize_pocket(
-                fs, kx, ky,
+                fs_pocket, kx, ky,
                 seed_point=seed_raw,
                 level=level,
                 bz_polygon=bz_raw,
@@ -104,7 +110,8 @@ class PocketController:
             )
             pocket = props.asdict()
             pocket["level"] = level
-            pocket["contour"] = self._contour_for_storage(fs, kx, ky, level, seed_raw, params)
+            pocket["contour"] = self._contour_for_storage(fs_pocket, kx, ky, level, seed_raw, params)
+            pocket["processing"] = {"smooth_sigma_yx": [1.0, 3.0]}
             mp_label = self._mp_label_for(pocket)
             if mp_label:
                 pocket["mp_label"] = mp_label
@@ -268,6 +275,7 @@ class PocketController:
         from arpes.physics.pocket import extract_fs_contour
 
         contour = extract_fs_contour(fs, kx, ky, level, seed_point=seed_raw)
+        contour = simplify_closed_contour(smooth_closed_contour(contour), min_step=0.015)
         shifted = np.asarray(contour, dtype=float).copy()
         shifted[:, 0] -= float(params.kx_center)
         shifted[:, 1] -= float(params.ky_center)

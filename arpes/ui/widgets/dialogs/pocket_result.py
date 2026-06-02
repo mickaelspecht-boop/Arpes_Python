@@ -24,6 +24,7 @@ class PocketResultDialog(QDialog):
 
         form = QFormLayout()
         form.addRow("Topologie :", QLabel(_topology_text(pocket)))
+        form.addRow("Level :", QLabel(_fmt(pocket.get("level"), "{:.4f}")))
         form.addRow("Aire BZ :", QLabel(_fmt(pocket.get("area_pct_bz"), "{:.2f} %")))
         form.addRow("Aire :", QLabel(_fmt(pocket.get("area_inv_a2"), "{:.4f} (π/a)^2")))
         form.addRow("kF moyen :", QLabel(_fmt(pocket.get("kF_mean"), "{:.4f} π/a")))

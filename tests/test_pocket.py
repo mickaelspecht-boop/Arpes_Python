@@ -12,6 +12,9 @@ from arpes.physics.pocket import (
     fit_pocket_ellipse,
     pocket_area,
     pocket_topology,
+    simplify_closed_contour,
+    smooth_closed_contour,
+    smooth_fs_image,
 )
 
 
@@ -140,6 +143,26 @@ class TestPocketGeometry(unittest.TestCase):
 
         self.assertEqual(label, "")
         self.assertTrue(math.isnan(distance))
+
+    def test_smooth_and_simplify_closed_contour_preserves_area_scale(self):
+        contour = _rotated_ellipse(0.6, 0.25, 20.0, n=721)
+        noisy = contour.copy()
+        noisy[:, 0] += 0.015 * np.sin(np.linspace(0, 80, noisy.shape[0]))
+
+        smooth = smooth_closed_contour(noisy, window=11)
+        simple = simplify_closed_contour(smooth, min_step=0.025)
+
+        self.assertLess(simple.shape[0], smooth.shape[0])
+        self.assertAlmostEqual(abs(pocket_area(simple)), abs(pocket_area(contour)), delta=0.08)
+
+    def test_smooth_fs_image_reduces_stripe_noise(self):
+        img, _kx, _ky = _electron_disk()
+        stripes = img.copy()
+        stripes[:, ::2] += 0.2
+
+        smooth = smooth_fs_image(stripes, sigma=(1.0, 2.0))
+
+        self.assertLess(np.nanstd(smooth - img), np.nanstd(stripes - img))
 
 
 class TestCharacterizePocket(unittest.TestCase):
