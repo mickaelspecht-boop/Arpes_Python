@@ -476,6 +476,7 @@ class FSControlPanel(QScrollArea):
 class FermiSurfaceCanvas(QWidget):
     pocket_requested = pyqtSignal(float, float)
     pocket_mdc_requested = pyqtSignal(float, float)
+    pocket_wizard_requested = pyqtSignal(float, float)
     pocket_level_requested = pyqtSignal(float, float)
     pocket_preview_requested = pyqtSignal(float, float)
     pocket_preview_validate_requested = pyqtSignal()

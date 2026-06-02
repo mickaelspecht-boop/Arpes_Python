@@ -27,6 +27,8 @@ from arpes.physics.pocket_compare import compare_pocket_contours
 from arpes.physics.pocket_mdc_radial import characterize_pocket_mdc_radial
 from arpes.physics.pocket_quality import run_pocket_guards
 from arpes.ui.widgets.dialogs.pocket_result import PocketResultDialog
+from arpes.ui.widgets.dialogs.pocket_wizard import PocketWizardDialog
+from arpes.physics.pocket_quality import local_snr
 
 
 class PocketController:
@@ -50,6 +52,8 @@ class PocketController:
             return self._characterize_at(payload)
         if verb == "characterize_mdc":
             return self._characterize_mdc_at(payload)
+        if verb == "wizard":
+            return self._run_wizard(payload)
         if verb == "preview_start":
             return self._preview_start(payload)
         if verb == "preview_update":
@@ -145,126 +149,70 @@ class PocketController:
         except Exception as exc:
             pocket["dft_compare_error"] = f"DFT : {exc}"
 
-    def _characterize_mdc_at(self, payload: dict):
-        """Characterize a pocket via radial MDC Lorentzian fits (publication-grade)."""
+    def _run_wizard(self, payload: dict):
+        """Open 3-step wizard, then run iso or MDC pipeline with chosen settings."""
         if self._raw_data is None or not self._current_is_fs():
-            self._status("Poche MDC : charge une carte FS d'abord.")
+            self._status("Wizard poche : charge une carte FS d'abord.")
             return None
-        entry = self._current_entry()
-        if entry is None:
+        seed_plot = (float(payload["kx"]), float(payload["ky"]))
+        params0 = self._fs_controls.params()
+        seed_raw = (seed_plot[0] + float(params0.kx_center),
+                    seed_plot[1] + float(params0.ky_center))
+        defaults = self._pocket_settings()
+        defaults["ef_window"] = float(params0.ef_window)
+
+        def _snr(sy, sx, ef_win):
+            old_win = self._fs_controls.sp_win.value()
+            self._fs_controls.sp_win.blockSignals(True)
+            self._fs_controls.sp_win.setValue(float(ef_win))
+            self._fs_controls.sp_win.blockSignals(False)
+            try:
+                params = self._fs_controls.params()
+                kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
+                fs_p = smooth_fs_image(fs, sigma=(float(sy), float(sx)))
+                dx = float(kx[1] - kx[0]) if kx.size >= 2 else 0.0
+                dy = float(ky[1] - ky[0]) if ky.size >= 2 else 0.0
+                return local_snr(fs_p, kx, ky, seed_raw,
+                                 radius=2.0 * max(abs(dx), abs(dy)))
+            finally:
+                self._fs_controls.sp_win.blockSignals(True)
+                self._fs_controls.sp_win.setValue(old_win)
+                self._fs_controls.sp_win.blockSignals(False)
+
+        wiz = PocketWizardDialog(self._parent,
+                                 seed_plot=seed_plot, defaults=defaults,
+                                 snr_provider=_snr)
+        if wiz.exec() != wiz.DialogCode.Accepted:
             return None
-        try:
-            seed_plot = (float(payload["kx"]), float(payload["ky"]))
-            params = self._fs_controls.params()
-            settings = self._pocket_settings()
-            seed_raw = (seed_plot[0] + float(params.kx_center),
-                        seed_plot[1] + float(params.ky_center))
-            kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
-            sigma = (settings["smooth_sigma_y"], settings["smooth_sigma_x"])
-            fs_pocket = smooth_fs_image(fs, sigma=sigma)
-            n_dirs = int(payload.get("n_directions",
-                                     settings.get("mdc_n_directions", 36)))
-            contour_raw, results, center = characterize_pocket_mdc_radial(
-                fs_pocket, kx, ky,
-                seed_point=seed_raw,
-                n_directions=n_dirs,
-                r2_min=float(payload.get("r2_min",
-                                         settings.get("mdc_r2_min", 0.5))),
-            )
-            bz_raw = self._bz_polygon_raw(params)
-            hs_raw = self._hs_points_raw(params)
-            from arpes.physics.pocket import (
-                _close_contour as _cc,
-                fit_pocket_ellipse,
-                kf_along_direction,
-                luttinger_count,
-                pocket_area,
-                pocket_curvature,
-                pocket_topology,
-                assign_hs_label,
-            )
-            contour_closed = _cc(contour_raw)
-            area = abs(pocket_area(contour_closed))
-            bz_area = abs(pocket_area(_cc(bz_raw)))
-            kf_a, kf_b, angle = fit_pocket_ellipse(contour_closed)
-            kf_per_dir = [r.kF for r in results if r.ok]
-            kf_std_per_dir = [r.kF_std for r in results if r.ok and np.isfinite(r.kF_std)]
-            kf_mean = float(np.nanmean(kf_per_dir)) if kf_per_dir else float("nan")
-            kf_std_aggregate = float(np.sqrt(np.nanmean(np.asarray(kf_std_per_dir) ** 2))) \
-                if kf_std_per_dir else float("nan")
-            topology, conf, rays = pocket_topology(fs_pocket, kx, ky, contour_closed)
-            hs_label, hs_dist = assign_hs_label(center, hs_raw)
-            curv_mean, curv_var = pocket_curvature(contour_closed)
-            kf_gx = kf_along_direction(contour_closed, center,
-                                       float(settings.get("hs_dir_x_deg", 0.0)),
-                                       float(settings.get("hs_dir_tol_deg", 10.0)))
-            kf_gm = kf_along_direction(contour_closed, center,
-                                       float(settings.get("hs_dir_m_deg", 45.0)),
-                                       float(settings.get("hs_dir_tol_deg", 10.0)))
-            ratio = (max(kf_a, kf_b) / max(min(kf_a, kf_b), 1e-12)) if kf_a > 0 and kf_b > 0 else float("nan")
-            ecc = float(np.sqrt(max(0.0, 1.0 - (min(kf_a, kf_b) / max(kf_a, kf_b)) ** 2))) \
-                if kf_a > 0 and kf_b > 0 else float("nan")
-            n_carriers = luttinger_count(area, bz_area,
-                                         n_bands=int(settings.get("n_bands", 1)),
-                                         spin=int(settings.get("spin", 2)))
-            shifted = contour_closed.copy()
-            shifted[:, 0] -= float(params.kx_center)
-            shifted[:, 1] -= float(params.ky_center)
-            pocket = {
-                "centroid_kx": float(center[0]),
-                "centroid_ky": float(center[1]),
-                "area_inv_a2": float(area),
-                "area_pct_bz": float(100.0 * area / bz_area) if bz_area > 0 else float("nan"),
-                "kF_mean": kf_mean,
-                "kF_mean_std": kf_std_aggregate,
-                "kF_a": kf_a, "kF_b": kf_b,
-                "ellipse_angle_deg": float(angle),
-                "topology": topology, "topology_confidence": float(conf),
-                "topology_rays_used": int(rays),
-                "hs_label_nearest": hs_label, "hs_distance": float(hs_dist),
-                "kF_gamma_x": float(kf_gx), "kF_gamma_m": float(kf_gm),
-                "aspect_ratio": float(ratio), "eccentricity": float(ecc),
-                "curvature_mean": float(curv_mean), "curvature_var": float(curv_var),
-                "n_carriers_2D": float(n_carriers),
-                "contour": shifted.tolist(),
-                "level": float("nan"),
-                "algo": "mdc_radial",
-                "n_directions": int(n_dirs),
-                "n_valid_directions": int(sum(1 for r in results if r.ok)),
-                "per_direction": [r.asdict() for r in results],
-                "processing": {
-                    "smooth_sigma_yx": [sigma[0], sigma[1]],
-                    "r2_min": float(payload.get("r2_min", settings.get("mdc_r2_min", 0.5))),
-                },
-            }
-            guards = run_pocket_guards(
-                image=fs_pocket, kx=kx, ky=ky, seed_point=seed_raw,
-                contour=contour_closed, sigma_pixels=sigma, kf_mean=kf_mean,
-            )
-            pocket["quality_checks"] = [g.__dict__ for g in guards]
-            blocking = [g for g in guards if not g.ok]
-            if blocking:
-                msgs = " | ".join(g.message for g in blocking if g.message)
-                self._status(f"Poche MDC rejetée : {msgs}")
-                return None
-            self._attach_dft_compare(pocket, entry, params)
-            entry.fs_pockets = list(getattr(entry, "fs_pockets", []) or []) + [pocket]
-            self._session.save()
-            self._draw_fs_tab()
-            idx = len(entry.fs_pockets) - 1
-            dialog = PocketResultDialog(self._parent, pocket, allow_delete=True)
-            dialog.exec()
-            if getattr(dialog, "delete_requested", False):
-                self._delete_pocket({"index": idx})
-                return None
-            self._status(
-                f"Poche MDC : {hs_label or '?'} kF={kf_mean:.3f}±{kf_std_aggregate:.3f} "
-                f"({pocket['n_valid_directions']}/{n_dirs} dirs), {topology}."
-            )
-            return pocket
-        except Exception as exc:
-            self._status(f"Poche MDC : {exc}")
-            return None
+        result = wiz.result_settings()
+        # Apply chosen settings into the panel so they persist + drive pipeline
+        ctrls = self._fs_controls
+        for attr, key in (
+            ("sp_pocket_smooth_y", "smooth_sigma_y"),
+            ("sp_pocket_smooth_x", "smooth_sigma_x"),
+            ("sp_win", "ef_window"),
+            ("sp_pocket_mdc_n", "mdc_n_directions"),
+            ("sp_pocket_mdc_r2", "mdc_r2_min"),
+            ("sp_pocket_level", "level"),
+            ("sp_pocket_hs_x_deg", "hs_dir_x_deg"),
+            ("sp_pocket_hs_m_deg", "hs_dir_m_deg"),
+            ("sp_pocket_hs_tol_deg", "hs_dir_tol_deg"),
+        ):
+            sp = getattr(ctrls, attr, None)
+            if sp is None or key not in result:
+                continue
+            sp.blockSignals(True); sp.setValue(result[key]); sp.blockSignals(False)
+        if result.get("algo") == "mdc":
+            return self._characterize_mdc_at({"kx": seed_plot[0], "ky": seed_plot[1]})
+        ctrls.chk_pocket_level_manual.setChecked(True)
+        return self._characterize_at({
+            "kx": seed_plot[0], "ky": seed_plot[1],
+            "level": float(result["level"]),
+        })
+
+    def _characterize_mdc_at(self, payload: dict):
+        from arpes.ui.controllers.pocket_controller_mdc import characterize_mdc_at
+        return characterize_mdc_at(self, payload)
 
     def _preview_start(self, payload: dict):
         if self._raw_data is None or not self._current_is_fs():

@@ -10,6 +10,7 @@ def handle_canvas_right_click(canvas, event) -> None:
     from PyQt6.QtGui import QCursor
 
     menu = QMenu(canvas)
+    act_wiz = menu.addAction("Caractérisation guidée (wizard)")
     act = menu.addAction("Caractériser poche ici (iso-contour)")
     act_mdc = menu.addAction("Caractériser par MDC radial (publication)")
     act_preview = menu.addAction("Aperçu poche ici (slider)")
@@ -24,7 +25,9 @@ def handle_canvas_right_click(canvas, event) -> None:
     act_clear = menu.addAction("Effacer poches")
     chosen = menu.exec(QCursor.pos())
     x, y = float(event.xdata), float(event.ydata)
-    if chosen == act:
+    if chosen == act_wiz:
+        canvas.pocket_wizard_requested.emit(x, y)
+    elif chosen == act:
         canvas.pocket_requested.emit(x, y)
     elif chosen == act_mdc:
         canvas.pocket_mdc_requested.emit(x, y)
