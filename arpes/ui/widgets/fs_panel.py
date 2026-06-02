@@ -12,10 +12,9 @@ from typing import Any
 import numpy as np
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
-    QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy,
+    QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
     QSpinBox, QVBoxLayout, QWidget,
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -42,6 +41,7 @@ class FSControlPanel(QScrollArea):
     bm_cuts_visibility_changed = pyqtSignal(bool)
     pockets_clear_requested = pyqtSignal()
     pockets_export_requested = pyqtSignal()
+    pocket_preview_level_changed = pyqtSignal(float)
     bz_preset_requested = pyqtSignal()
     distortion_fs_toggled = pyqtSignal(bool)
     # --- Overlay BZ cristal (MP) -----------------------------------------
@@ -318,8 +318,21 @@ class FSControlPanel(QScrollArea):
         self.sp_pocket_hs_tol_deg.setToolTip("Tolérance angulaire (±deg) pour mesurer kF(Γ-X) et kF(Γ-M).")
         self.chk_pocket_level_manual = QCheckBox("Level manuel")
         self.chk_pocket_level_manual.setToolTip("Utilise le level ci-dessous pour le prochain clic droit au lieu du seuil auto.")
-        self.sp_pocket_level = self._dspin(0.50, 0.0, 1.0, 0.01, dec=3)
-        self.sp_pocket_level.setToolTip("Seuil iso-intensité utilisé si Level manuel est coché.")
+        # Level slider : signal dédié (pas params_changed) pour preview live sans
+        # déclencher un redraw complet de la FS à chaque pas du slider.
+        self.sp_pocket_level = QDoubleSpinBox()
+        self.sp_pocket_level.setRange(0.0, 1.0)
+        self.sp_pocket_level.setSingleStep(0.01)
+        self.sp_pocket_level.setDecimals(3)
+        self.sp_pocket_level.setValue(0.50)
+        self.sp_pocket_level.setKeyboardTracking(False)
+        self.sp_pocket_level.setToolTip(
+            "Seuil iso-intensité. Slider live : pilote le contour preview "
+            "quand une poche est en mode aperçu."
+        )
+        self.sp_pocket_level.valueChanged.connect(
+            lambda v: self.pocket_preview_level_changed.emit(float(v))
+        )
         fp.addRow(self.lbl_pocket_count)
         fp.addRow("Qualité :", self.cmb_pocket_quality)
         fp.addRow(self.chk_pocket_level_manual)
@@ -444,6 +457,9 @@ class FSControlPanel(QScrollArea):
 class FermiSurfaceCanvas(QWidget):
     pocket_requested = pyqtSignal(float, float)
     pocket_level_requested = pyqtSignal(float, float)
+    pocket_preview_requested = pyqtSignal(float, float)
+    pocket_preview_validate_requested = pyqtSignal()
+    pocket_preview_cancel_requested = pyqtSignal()
     pockets_clear_requested = pyqtSignal()
     pockets_export_requested = pyqtSignal()
     pocket_open_requested = pyqtSignal(int)
@@ -467,6 +483,8 @@ class FermiSurfaceCanvas(QWidget):
         self._bm_cut_artists: list = []
         self._pocket_artists: list = []
         self._bm_cut_center = (0.0, 0.0)
+        self._pocket_preview_artists: list = []
+        self._pocket_preview_active = False
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
         self.toolbar = NavToolbar(self.canvas, self)
         act = self.toolbar.addAction("⤢ Vue init")
@@ -590,21 +608,8 @@ class FermiSurfaceCanvas(QWidget):
             return
         if event.inaxes is not self.ax or event.xdata is None or event.ydata is None:
             return
-        menu = QMenu(self)
-        act = menu.addAction("Caractériser poche ici")
-        act_level = menu.addAction("Caractériser avec niveau...")
-        menu.addSeparator()
-        act_export = menu.addAction("Exporter poches CSV")
-        act_clear = menu.addAction("Effacer poches")
-        chosen = menu.exec(QCursor.pos())
-        if chosen == act:
-            self.pocket_requested.emit(float(event.xdata), float(event.ydata))
-        elif chosen == act_level:
-            self.pocket_level_requested.emit(float(event.xdata), float(event.ydata))
-        elif chosen == act_export:
-            self.pockets_export_requested.emit()
-        elif chosen == act_clear:
-            self.pockets_clear_requested.emit()
+        from arpes.ui.widgets.fs_panel_pockets import handle_canvas_right_click
+        handle_canvas_right_click(self, event)
 
     def _on_pick_event(self, event) -> None:
         artist = getattr(event, "artist", None)
@@ -620,6 +625,16 @@ class FermiSurfaceCanvas(QWidget):
     def draw_pockets(self, pockets: list[dict] | None) -> None:
         from arpes.ui.widgets.fs_panel_pockets import draw_pockets
         draw_pockets(self, pockets)
+
+    def draw_pocket_preview(self, contour) -> None:
+        from arpes.ui.widgets.fs_panel_pockets import draw_pocket_preview
+        draw_pocket_preview(self, contour)
+        self._pocket_preview_active = True
+
+    def clear_pocket_preview(self) -> None:
+        from arpes.ui.widgets.fs_panel_pockets import clear_pocket_preview
+        clear_pocket_preview(self)
+        self._pocket_preview_active = False
 
     def _clear_bm_cut_artists(self) -> None:
         from arpes.ui.widgets.fs_panel_bm_cuts import clear_bm_cut_artists

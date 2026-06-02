@@ -5,12 +5,13 @@ import csv
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtWidgets import QFileDialog, QInputDialog
+from PyQt6.QtWidgets import QFileDialog
 
 from arpes.physics.bz import bz_high_symmetry_points, bz_polygon
 from arpes.physics.fs import extract_fs_map
 from arpes.physics.pocket import (
     characterize_pocket,
+    extract_fs_contour,
     simplify_closed_contour,
     smooth_closed_contour,
     smooth_fs_image,
@@ -21,6 +22,8 @@ from arpes.ui.widgets.dialogs.pocket_result import PocketResultDialog
 class PocketController:
     def __init__(self, parent):
         object.__setattr__(self, "_parent", parent)
+        object.__setattr__(self, "_preview_seed_raw", None)
+        object.__setattr__(self, "_preview_seed_plot", None)
 
     def __getattr__(self, name):
         return getattr(self._parent, name)
@@ -35,8 +38,14 @@ class PocketController:
         payload = payload or {}
         if verb == "characterize":
             return self._characterize_at(payload)
-        if verb == "characterize_with_level":
-            return self._characterize_with_level(payload)
+        if verb == "preview_start":
+            return self._preview_start(payload)
+        if verb == "preview_update":
+            return self._preview_update(payload)
+        if verb == "preview_validate":
+            return self._preview_validate()
+        if verb == "preview_cancel":
+            return self._preview_cancel()
         if verb == "show":
             return self._show_pocket(payload)
         if verb == "delete":
@@ -47,40 +56,93 @@ class PocketController:
             return self._export_csv(payload)
         raise ValueError(f"pocket action inconnue: {verb}")
 
-    def _characterize_with_level(self, payload: dict):
+    def _preview_start(self, payload: dict):
         if self._raw_data is None or not self._current_is_fs():
-            self._status("Poche FS : charge une carte FS d'abord.")
+            self._status("Aperçu poche : charge une carte FS d'abord.")
             return None
         try:
             params = self._fs_controls.params()
             settings = self._pocket_settings()
             kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
+            seed_plot = (float(payload["kx"]), float(payload["ky"]))
             seed_raw = (
-                float(payload["kx"]) + float(params.kx_center),
-                float(payload["ky"]) + float(params.ky_center),
+                seed_plot[0] + float(params.kx_center),
+                seed_plot[1] + float(params.ky_center),
             )
             fs_pocket = smooth_fs_image(
                 fs,
                 sigma=(settings["smooth_sigma_y"], settings["smooth_sigma_x"]),
             )
-            default = self._auto_level(fs_pocket, seed_raw, kx, ky)
-            level, ok = QInputDialog.getDouble(
-                self._parent,
-                "Niveau iso-intensité",
-                "level :",
-                float(default),
-                0.0,
-                1.0,
-                4,
+            level = self._auto_level(fs_pocket, seed_raw, kx, ky)
+            self._fs_controls.sp_pocket_level.blockSignals(True)
+            self._fs_controls.sp_pocket_level.setValue(float(level))
+            self._fs_controls.sp_pocket_level.blockSignals(False)
+            self._fs_controls.chk_pocket_level_manual.setChecked(True)
+            object.__setattr__(self, "_preview_seed_raw", seed_raw)
+            object.__setattr__(self, "_preview_seed_plot", seed_plot)
+            self._draw_preview_at(level)
+            self._status(
+                f"Aperçu poche : ajuste le slider Level (auto={level:.3f}). "
+                "Clic droit → Valider ou Annuler."
             )
-            if not ok:
-                return None
-            payload = dict(payload)
-            payload["level"] = float(level)
-            return self._characterize_at(payload)
         except Exception as exc:
-            self._status(f"Poche FS : {exc}")
+            self._status(f"Aperçu poche : {exc}")
+        return None
+
+    def _preview_update(self, payload: dict):
+        if self._preview_seed_raw is None:
             return None
+        try:
+            level = float(payload.get("level", self._fs_controls.sp_pocket_level.value()))
+            self._draw_preview_at(level)
+        except Exception as exc:
+            self._status(f"Aperçu poche : {exc}")
+        return None
+
+    def _preview_cancel(self):
+        object.__setattr__(self, "_preview_seed_raw", None)
+        object.__setattr__(self, "_preview_seed_plot", None)
+        if hasattr(self._fs_canvas, "clear_pocket_preview"):
+            self._fs_canvas.clear_pocket_preview()
+        self._status("Aperçu poche annulé.")
+        return None
+
+    def _preview_validate(self):
+        if self._preview_seed_plot is None:
+            return None
+        seed = self._preview_seed_plot
+        level = float(self._fs_controls.sp_pocket_level.value())
+        if hasattr(self._fs_canvas, "clear_pocket_preview"):
+            self._fs_canvas.clear_pocket_preview()
+        object.__setattr__(self, "_preview_seed_raw", None)
+        object.__setattr__(self, "_preview_seed_plot", None)
+        return self._characterize_at({"kx": seed[0], "ky": seed[1], "level": level})
+
+    def _draw_preview_at(self, level: float) -> None:
+        if self._preview_seed_raw is None or not hasattr(self._fs_canvas, "draw_pocket_preview"):
+            return
+        params = self._fs_controls.params()
+        settings = self._pocket_settings()
+        kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
+        fs_pocket = smooth_fs_image(
+            fs,
+            sigma=(settings["smooth_sigma_y"], settings["smooth_sigma_x"]),
+        )
+        try:
+            raw_contour = extract_fs_contour(
+                fs_pocket, kx, ky, level, seed_point=self._preview_seed_raw,
+            )
+        except ValueError:
+            self._fs_canvas.clear_pocket_preview()
+            return
+        contour = simplify_closed_contour(
+            smooth_closed_contour(raw_contour, window=int(settings["contour_window"])),
+            min_step=float(settings["simplify_step"]),
+        )
+        shifted = np.asarray(contour, dtype=float).copy()
+        shifted[:, 0] -= float(params.kx_center)
+        shifted[:, 1] -= float(params.ky_center)
+        self._fs_canvas.draw_pocket_preview(shifted)
 
     def _characterize_at(self, payload: dict):
         if self._raw_data is None or not self._current_is_fs():

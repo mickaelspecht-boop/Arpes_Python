@@ -4,6 +4,65 @@ from __future__ import annotations
 import numpy as np
 
 
+def handle_canvas_right_click(canvas, event) -> None:
+    """Open right-click pocket menu and emit the selected canvas signal."""
+    from PyQt6.QtWidgets import QMenu
+    from PyQt6.QtGui import QCursor
+
+    menu = QMenu(canvas)
+    act = menu.addAction("Caractériser poche ici")
+    act_preview = menu.addAction("Aperçu poche ici (slider)")
+    act_validate = None
+    act_cancel = None
+    if canvas._pocket_preview_active:
+        menu.addSeparator()
+        act_validate = menu.addAction("Valider l'aperçu")
+        act_cancel = menu.addAction("Annuler l'aperçu")
+    menu.addSeparator()
+    act_export = menu.addAction("Exporter poches CSV")
+    act_clear = menu.addAction("Effacer poches")
+    chosen = menu.exec(QCursor.pos())
+    x, y = float(event.xdata), float(event.ydata)
+    if chosen == act:
+        canvas.pocket_requested.emit(x, y)
+    elif chosen == act_preview:
+        canvas.pocket_preview_requested.emit(x, y)
+    elif chosen is not None and chosen is act_validate:
+        canvas.pocket_preview_validate_requested.emit()
+    elif chosen is not None and chosen is act_cancel:
+        canvas.pocket_preview_cancel_requested.emit()
+    elif chosen == act_export:
+        canvas.pockets_export_requested.emit()
+    elif chosen == act_clear:
+        canvas.pockets_clear_requested.emit()
+
+
+def clear_pocket_preview(canvas) -> None:
+    for art in list(canvas._pocket_preview_artists):
+        try:
+            art.remove()
+        except Exception:
+            pass
+    canvas._pocket_preview_artists = []
+    canvas.canvas.draw_idle()
+
+
+def draw_pocket_preview(canvas, contour) -> None:
+    clear_pocket_preview(canvas)
+    arr = np.asarray(contour or [], dtype=float)
+    if arr.ndim != 2 or arr.shape[1] != 2 or arr.shape[0] < 3:
+        canvas.canvas.draw_idle()
+        return
+    cx, cy = getattr(canvas, "_bm_cut_center", (0.0, 0.0))
+    line, = canvas.ax.plot(
+        arr[:, 0] - cx, arr[:, 1] - cy,
+        color="#00ffff", lw=1.8, linestyle=(0, (4, 3)),
+        alpha=0.95, zorder=12,
+    )
+    canvas._pocket_preview_artists.append(line)
+    canvas.canvas.draw_idle()
+
+
 def clear_pocket_artists(canvas) -> None:
     for art in list(canvas._pocket_artists):
         try:

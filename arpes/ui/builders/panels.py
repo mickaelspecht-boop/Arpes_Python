@@ -348,11 +348,23 @@ def wire_ui_signals(window) -> None:
                     "characterize", {"kx": float(kx), "ky": float(ky)}
                 )
             )
-        if hasattr(window._fs_canvas, "pocket_level_requested"):
-            window._fs_canvas.pocket_level_requested.connect(
+        if hasattr(window._fs_canvas, "pocket_preview_requested"):
+            window._fs_canvas.pocket_preview_requested.connect(
                 lambda kx, ky: window._pocket_action(
-                    "characterize_with_level", {"kx": float(kx), "ky": float(ky)}
+                    "preview_start", {"kx": float(kx), "ky": float(ky)}
                 )
+            )
+        if hasattr(window._fs_canvas, "pocket_preview_validate_requested"):
+            window._fs_canvas.pocket_preview_validate_requested.connect(
+                lambda: window._pocket_action("preview_validate", {})
+            )
+        if hasattr(window._fs_canvas, "pocket_preview_cancel_requested"):
+            window._fs_canvas.pocket_preview_cancel_requested.connect(
+                lambda: window._pocket_action("preview_cancel", {})
+            )
+        if hasattr(window._fs_controls, "pocket_preview_level_changed"):
+            window._fs_controls.pocket_preview_level_changed.connect(
+                lambda lvl: window._pocket_action("preview_update", {"level": float(lvl)})
             )
         if hasattr(window._fs_canvas, "pockets_clear_requested"):
             window._fs_canvas.pockets_clear_requested.connect(

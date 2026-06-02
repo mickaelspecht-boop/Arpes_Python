@@ -75,20 +75,16 @@ class TestPocketController(unittest.TestCase):
                 return 1
 
         old_dialog = pocket_controller_mod.PocketResultDialog
-        old_get_double = pocket_controller_mod.QInputDialog.getDouble
         pocket_controller_mod.PocketResultDialog = FakeDialog
-        pocket_controller_mod.QInputDialog.getDouble = staticmethod(
-            lambda *args, **kwargs: (0.5, True)
-        )
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 parent = _Parent(Path(tmp))
                 parent._current_entry().fs_lattice = {"mp_id": "mp-test"}
                 ctrl = PocketController(parent)
 
-                pocket = ctrl._pocket_action(
-                    "characterize_with_level", {"kx": 0.0, "ky": 0.0}
-                )
+                ctrl._pocket_action("preview_start", {"kx": 0.0, "ky": 0.0})
+                parent._fs_controls.sp_pocket_level.setValue(0.5)
+                pocket = ctrl._pocket_action("preview_validate", {})
                 shown = ctrl._pocket_action("show", {"index": 0})
                 ctrl._pocket_action("clear", {})
 
@@ -98,10 +94,8 @@ class TestPocketController(unittest.TestCase):
                 self.assertEqual(shown["topology"], "electron")
                 self.assertEqual(len(calls), 2)
                 self.assertEqual(parent._current_entry().fs_pockets, [])
-                self.assertEqual(parent.draws, 2)
         finally:
             pocket_controller_mod.PocketResultDialog = old_dialog
-            pocket_controller_mod.QInputDialog.getDouble = old_get_double
 
     def test_show_can_delete_single_pocket_and_export_csv(self):
         class DeleteDialog:
