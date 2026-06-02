@@ -64,7 +64,6 @@ from arpes.ui.controllers.distortion_controller import DistortionController
 from arpes.ui.controllers.gamma_controller import GammaController
 from arpes.ui.controllers.norm_controller import NormController
 from arpes.ui.controllers.fs_controller import FSController
-from arpes.ui.controllers.fs_compare_controller import FsCompareController
 from arpes.ui.controllers.interaction_controller import InteractionController
 from arpes.ui.controllers.fit_runner_controller import FitRunnerController
 from arpes.ui.controllers.kz_controller import KzController
@@ -196,7 +195,6 @@ class ArpesExplorer(QMainWindow):
         self._norm_ctrl = NormController(self)
         self._distortion_ctrl = DistortionController(self)
         self._fs_ctrl = FSController(self)
-        self._fs_compare_ctrl = FsCompareController(self)
         self._pocket_ctrl = PocketController(self)
         self._interaction_ctrl = InteractionController(self)
         self._fit_runner_ctrl = FitRunnerController(self)

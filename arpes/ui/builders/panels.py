@@ -20,7 +20,6 @@ from PyQt6.QtWidgets import (
 from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.ui.widgets.help_panel import HelpPanel
 from arpes.ui.widgets.kz import KzCanvas, KzControlPanel
-from arpes.ui.widgets.plots.fs_compare import FsCompareCanvas
 from arpes.ui.widgets.band_analysis_panel import BandAnalysisPanel
 
 
@@ -246,8 +245,6 @@ def _build_fs_tab(window) -> QWidget:
     window._fs_linked_bms = FsLinkedBmsList()
     _lay.addWidget(window._fs_linked_bms, 1)
     fs_tabs.addTab(fs_map_container, "Carte FS")
-    window._fs_compare = FsCompareCanvas()
-    fs_tabs.addTab(window._fs_compare, "Compare pol")
     return fs_tabs
 
 
@@ -420,10 +417,6 @@ def wire_ui_signals(window) -> None:
             window._fs_controls.distortion_fs_toggled.connect(
                 window._on_propagate_distortion_fs_toggled
             )
-
-    if hasattr(window, "_fs_compare"):
-        window._fs_compare.pair_load_requested.connect(window._on_fs_compare_pair_load)
-        window._fs_compare.auto_suggest_requested.connect(window._on_fs_compare_auto_suggest)
 
     window._kz_controls.folder_requested.connect(window._open_kz_folder)
     if hasattr(window._kz_controls, "kz_logbook_requested"):

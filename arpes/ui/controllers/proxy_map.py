@@ -22,13 +22,6 @@ PROXY_MAP = {
     "_restore_fs_data_original": "_fs_ctrl",
     "_draw_fs_distortion_badge": "_fs_ctrl",
     "_fs_distortion_cache_invalidate": "_fs_ctrl",
-    # FsCompareController
-    "_refresh_fs_compare_selectors": "_fs_compare_ctrl",
-    "_fs_compare_label_for": "_fs_compare_ctrl",
-    "_fs_compare_record_for_key": "_fs_compare_ctrl",
-    "_on_fs_compare_pair_load": "_fs_compare_ctrl",
-    "_on_fs_compare_auto_suggest": "_fs_compare_ctrl",
-    "_fs_compare_load_minimal": "_fs_compare_ctrl",
     # PocketController
     "_pocket_action": "_pocket_ctrl",
     # PlotController

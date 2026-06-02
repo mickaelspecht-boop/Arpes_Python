@@ -530,11 +530,6 @@ class LoadController:
             self._parent._restore_fs_crystal_settings_from_entry(entry)
         except Exception:
             pass
-        # Re-populate combo selectors du tab Compare pol (nouveau fichier dans session.files)
-        try:
-            self._parent._refresh_fs_compare_selectors()
-        except Exception:
-            pass
         try:
             self._parent._check_distortion_consistency_on_load()
             self._parent._apply_calib_for_current_if_any()

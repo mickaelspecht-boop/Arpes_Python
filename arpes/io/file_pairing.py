@@ -26,7 +26,7 @@ class PairingCriteria:
     Defaults documentés dans BM_FS_ORGANIZATION_PLAN.md Q2.
     """
     same_folder: bool = True
-    folder_depth: int = 1            # 0 = même dossier strict, 1 = même parent direct
+    folder_depth: int = 0            # 0 = même dossier strict (évite cross-sample BNA_S1↔BNA_S2)
     hv_tolerance_rel: float = 0.05   # ±5 %
     azi_tolerance_deg: float = 2.0
     require_polarization: bool = True
