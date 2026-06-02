@@ -240,6 +240,54 @@ def _loadtxt_float32(path: Path) -> np.ndarray:
     return np.loadtxt(path, dtype=np.float32)
 
 
+def static_polar_for_kx(
+    polar: float | None,
+    scan_values,
+    *,
+    is_fs: bool,
+    motor_present: bool = True,
+) -> tuple[float, float, bool]:
+    """Return `(polar_for_kx, raw_polar, ignored_scan_polar)`.
+
+    In FS scans, the manipulator axis used as the second momentum coordinate
+    may be recorded both as a scan list and as the instantaneous motor
+    position at loop start. If that raw motor value belongs to the scan list,
+    it is a scanned coordinate, not a static analyzer polar offset for
+    theta→kx.
+    """
+    raw = float(polar or 0.0)
+    if not is_fs or not motor_present or scan_values is None:
+        return raw, raw, False
+    vals = np.asarray(scan_values, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0 or not np.isfinite(raw):
+        return raw, raw, False
+    unique = np.unique(vals)
+    step = abs(float(np.nanmedian(np.diff(unique)))) if unique.size > 1 else 0.0
+    tol = max(1e-6, 0.25 * step)
+    lo, hi = float(np.nanmin(vals)), float(np.nanmax(vals))
+    if (lo - tol) <= raw <= (hi + tol) or np.nanmin(np.abs(vals - raw)) <= tol:
+        return 0.0, raw, True
+    return raw, raw, False
+
+
+def scan_axis_summary(scan_values) -> dict[str, float | int] | None:
+    vals = np.asarray(scan_values, dtype=float) if scan_values is not None else np.asarray([], dtype=float)
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return None
+    unique = np.unique(vals)
+    step = float(np.nanmedian(np.diff(unique))) if unique.size > 1 else 0.0
+    lo, hi = float(np.nanmin(vals)), float(np.nanmax(vals))
+    return {
+        "min": lo,
+        "max": hi,
+        "center": 0.5 * (lo + hi),
+        "step": step,
+        "n": int(vals.size),
+    }
+
+
 def _valid_positive_float(value: Any) -> float | None:
     try:
         out = float(value)
@@ -429,4 +477,3 @@ def loader_label(source_format: str | None, metadata: dict | None = None) -> str
     if not fmt:
         return ""
     return fmt.replace("_", " ").replace("-", " ").title()
-

@@ -213,9 +213,20 @@ def debug_mdc_fit(
 
     # Annotation compacte (remplace la légende dans le panel)
     if success:
-        info = (f"xg={xg_out:.3f}\n"
-                f"k0={[f'{v:.3f}' for v in k0_out]}\n"
-                f"rms={residual:.3f}")
+        gamma_txt = []
+        for g in gamma_out:
+            if isinstance(g, (tuple, list, np.ndarray)):
+                gamma_txt.append("(" + ",".join(f"{float(v):.3f}" for v in g) + ")")
+            else:
+                gamma_txt.append(f"{float(g):.3f}")
+        info = (
+            f"slice E={energy_actual:+.3f} eV\n"
+            f"k fit=[{k_lo:+.3f},{k_hi:+.3f}]\n"
+            f"xg={xg_out:+.3f}  contrainte ±{xg_range:.3f}\n"
+            f"k0={[f'{v:.3f}' for v in k0_out]}\n"
+            f"γ={gamma_txt}\n"
+            f"rms={residual:.3f}"
+        )
         ax.text(0.02, 0.97, info, transform=ax.transAxes, fontsize=6,
                 va='top', bbox=dict(boxstyle='round,pad=0.2',
                                     facecolor='lightyellow', alpha=0.8))

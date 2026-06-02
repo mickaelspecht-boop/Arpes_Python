@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from arpes.physics.plot_compute import build_model_pairs
+from arpes.ui.controllers.plot_model_helpers import build_model_pairs
 from arpes.ui.controllers.fit_overlay_drawer import PAIR_COLORS
 
 
@@ -23,6 +23,10 @@ def draw_mdc_edc(ctrl) -> None:
         ctrl._edc_canvas._dark()
 
     params = ctrl._params
+    show_logic = bool(
+        getattr(params, "chk_fit_slice_inspector", None) is None
+        or params.chk_fit_slice_inspector.isChecked()
+    )
 
     res = ctrl._get_mdc()
     if res is not None:
@@ -38,22 +42,24 @@ def draw_mdc_edc(ctrl) -> None:
         ax_mdc.axvspan(kpar.min(), kmin, alpha=0.15, color="gray", zorder=0)
         ax_mdc.axvspan(kmax, kpar.max(), alpha=0.15, color="gray", zorder=0)
 
-        pairs, mdc_smooth = build_model_pairs(
-            kpar, mdc_n,
-            n_pairs=params.sp_np.value(),
-            gamma_init=params.sp_gi.value(),
-            k_min=kmin, k_max=kmax,
-            center_init=params.sp_cx.value(),
-            smooth_sigma=params.sp_sfd.value(),
-        )
-
-        ax_mdc.plot(kpar, mdc_smooth, color="#aaa", lw=0.8, ls="-",
-                    alpha=0.55, label=f"lissé-det (σ={params.sp_sfd.value():.1f})",
-                    zorder=2)
+        pairs = []
+        if show_logic:
+            pairs, mdc_smooth = build_model_pairs(
+                kpar, mdc_n,
+                n_pairs=params.sp_np.value(),
+                gamma_init=params.sp_gi.value(),
+                k_min=kmin, k_max=kmax,
+                center_init=params.sp_cx.value(),
+                smooth_sigma=params.sp_sfd.value(),
+            )
+            ax_mdc.plot(kpar, mdc_smooth, color="#aaa", lw=0.8, ls="-",
+                        alpha=0.55,
+                        label=f"lissé-det (σ={params.sp_sfd.value():.1f})",
+                        zorder=2)
 
         sff = params.sp_sff.value()
         sfd = params.sp_sfd.value()
-        if sff > 0.5 and abs(sff - sfd) > 0.3:
+        if show_logic and sff > 0.5 and abs(sff - sfd) > 0.3:
             _mdc_fit_sm = gaussian_filter1d(np.nan_to_num(mdc_n.copy()),
                                              sigma=max(0.5, sff))
             ax_mdc.plot(kpar, _mdc_fit_sm, color="#ffa040", lw=0.8, ls="-",
@@ -75,6 +81,14 @@ def draw_mdc_edc(ctrl) -> None:
 
         n_p = params.sp_np.value()
         ctrl._kf_drag_lines = []
+        logic_lines = [
+            f"slice E={ctrl._sel_ev:+.3f} eV  int=±{params.sp_int_win.value()*1000:.0f} meV",
+            f"fit k=[{kmin:+.3f},{kmax:+.3f}]  scan E=[{params.sp_evs.value():+.3f},{params.sp_eve.value():+.3f}]",
+            f"xg={cx:+.3f}±{xgr:.3f}  γ0={params.sp_gi.value():.3f}  γmax={params.sp_gm.value():.3f}",
+            f"σfit={params.sp_sff.value():.1f}  σdetect={params.sp_sfd.value():.1f}"
+            f"  Amin={params.sp_ma.value():.2f}  jump={params.sp_mj.value():.2f}",
+        ]
+        pair_line_parts = []
         for pi, pp in enumerate(params._pair_params[:n_p]):
             kf = pp.get("kF_init", 0.30)
             pc = PAIR_COLORS[pi % len(PAIR_COLORS)]
@@ -86,7 +100,16 @@ def draw_mdc_edc(ctrl) -> None:
             ln_m._kf_meta = (pi, -1)
             ctrl._kf_drag_lines.append((pi, +1, ln_p))
             ctrl._kf_drag_lines.append((pi, -1, ln_m))
+            pair_line_parts.append(f"P{pi+1}:kF0={float(kf):.3f}")
         ctrl._install_kf_drag_handlers()
+        if pair_line_parts:
+            logic_lines.append("  ".join(pair_line_parts))
+        plot_logic_lines = [
+            logic_lines[0],
+            f"k=[{kmin:+.2f},{kmax:+.2f}]  Γ={cx:+.3f}±{xgr:.3f}",
+        ]
+        if pair_line_parts:
+            plot_logic_lines.append("  ".join(pair_line_parts))
 
         gmax = params.sp_gm.value()
         total = np.zeros_like(mdc_n)
@@ -107,7 +130,7 @@ def draw_mdc_edc(ctrl) -> None:
                                     color=c, lw=0.7, ls=":", alpha=0.55,
                                     zorder=3)
                 total += np.where(valid, curve, 0.)
-        if n_p > 1:
+        if show_logic and n_p > 1:
             ax_mdc.plot(kpar, total, color="white", lw=0.8, ls=":",
                         alpha=0.45, label="Σ", zorder=4)
 
@@ -119,11 +142,28 @@ def draw_mdc_edc(ctrl) -> None:
             f"MDC  E={ctrl._sel_ev:.3f} eV  ±{int_win * 1000:.0f} meV"
             f"  |  {ctrl._ef_offset_text()}",
             fontsize=8, color="w")
+        if show_logic:
+            ax_mdc.text(
+                0.015, 0.965, "\n".join(plot_logic_lines),
+                transform=ax_mdc.transAxes,
+                va="top", ha="left", fontsize=6.5, color="#dbeafe",
+                bbox=dict(boxstyle="round,pad=0.25", facecolor="#111827",
+                          edgecolor="#334155", alpha=0.82),
+                zorder=10,
+            )
+        lbl_logic = getattr(params, "lbl_fit_slice_logic", None)
+        if lbl_logic is not None:
+            lbl_logic.setText("\n".join(logic_lines))
         ax_mdc.tick_params(colors="w", labelsize=7)
-        ax_mdc.legend(fontsize=7, facecolor="#333", labelcolor="w",
-                      loc="upper right", framealpha=0.7, ncol=2)
+        if show_logic:
+            ax_mdc.legend(fontsize=7, facecolor="#333", labelcolor="w",
+                          loc="upper right", framealpha=0.7, ncol=2)
         for sp in ax_mdc.spines.values():
             sp.set_edgecolor("#555")
+    else:
+        lbl_logic = getattr(params, "lbl_fit_slice_logic", None)
+        if lbl_logic is not None:
+            lbl_logic.setText("")
 
     res2 = ctrl._get_edc()
     if ax_edc is not None and res2 is not None:

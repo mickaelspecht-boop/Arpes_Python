@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QFrame,
     QVBoxLayout,
     QWidget,
 )
@@ -117,6 +118,7 @@ def build_fit_controls(panel, lay) -> None:
     _build_roi_group(panel, _fcl)
     _build_preset_combo(panel, _fcl)
     _build_init_section(panel, _fcl)
+    _build_slice_inspector_section(panel, _fcl)
     _build_constraint_section(panel, _fcl)
     _build_detect_section(panel, _fcl)
     _build_resolution_section(panel, _fcl)
@@ -206,7 +208,7 @@ def _build_init_section(panel, _fcl) -> None:
         "Voir les zones colorées translucides autour des pics dans le graphique MDC."
     )
     for w in (panel.sp_kfi, panel.sp_gi, panel.sp_gm):
-        w.valueChanged.connect(panel.fit_only_changed)
+        w.valueChanged.connect(panel._on_pair_param_changed)
     fl.addRow("Nb paires:", panel.sp_np)
     fl.addRow(panel._pair_lbl)
     fl.addRow("kF init (π/a):", panel.sp_kfi)
@@ -375,7 +377,7 @@ def _build_resolution_section(panel, _fcl) -> None:
 def _build_waterfall_group(panel, _fcl) -> None:
     panel._waterfall_controls_widget = QGroupBox("Waterfall MDC")
     fl_wf = QFormLayout(panel._waterfall_controls_widget)
-    panel.sp_wf_n = ispin(32, 10, 80)
+    panel.sp_wf_n = ispin(24, 10, 80)
     panel.sp_wf_n.setToolTip(
         "Nombre cible de MDCs affichées dans le waterfall.\n"
         "Moins de courbes = plus de relief et moins de surcharge."
@@ -391,6 +393,31 @@ def _build_waterfall_group(panel, _fcl) -> None:
     fl_wf.addRow("Relief:", panel.sp_wf_relief)
     panel._waterfall_controls_widget.setVisible(False)
     _fcl.addWidget(panel._waterfall_controls_widget)
+
+
+def _build_slice_inspector_section(panel, _fcl) -> None:
+    grp, fl = _make_collapsible(
+        panel, "Inspecteur slice", "slice_inspector", open_default=False
+    )
+    panel.chk_fit_slice_inspector = QCheckBox("Overlay graphe")
+    panel.chk_fit_slice_inspector.setChecked(False)
+    panel.chk_fit_slice_inspector.setToolTip(
+        "Affiche le résumé des paramètres directement sur le graphe MDC."
+    )
+    panel.chk_fit_slice_inspector.stateChanged.connect(panel.fit_only_changed)
+    panel.lbl_fit_slice_logic = QLabel("")
+    panel.lbl_fit_slice_logic.setWordWrap(True)
+    panel.lbl_fit_slice_logic.setFrameShape(QFrame.Shape.StyledPanel)
+    panel.lbl_fit_slice_logic.setStyleSheet(
+        "color:#d8e8ff;background:#202631;border:1px solid #3b4a60;"
+        "border-radius:3px;padding:5px;font-family:monospace;font-size:10px;"
+    )
+    panel.lbl_fit_slice_logic.setToolTip(
+        "Résumé live des paramètres actifs sur la slice MDC ouverte."
+    )
+    fl.addRow(panel.chk_fit_slice_inspector)
+    fl.addRow(panel.lbl_fit_slice_logic)
+    _fcl.addWidget(grp)
 
 
 def _build_fit_buttons(panel, _fcl) -> None:
@@ -438,6 +465,14 @@ def _build_fit_buttons(panel, _fcl) -> None:
     gamma_lay.addStretch(1)
     actions_lay_root.addWidget(panel._gamma_tools_widget)
 
+    advanced_content = QWidget()
+    advanced_lay = QVBoxLayout(advanced_content)
+    advanced_lay.setContentsMargins(0, 0, 0, 0)
+    advanced_lay.setSpacing(4)
+    advanced_actions = _ButtonCollapsible(
+        "Actions et affichage avancés", advanced_content, open_default=False
+    )
+
     panel.chk_smooth_kf = QCheckBox("Lisser kF(E) (σ slices)")
     panel.chk_smooth_kf.setToolTip(
         "Lissage gaussien de kF(E) sur fenêtre énergétique (σ slices).\n"
@@ -452,17 +487,18 @@ def _build_fit_buttons(panel, _fcl) -> None:
     _sk_lay.addWidget(panel.chk_smooth_kf)
     _sk_lay.addWidget(panel.sp_smooth_kf_sigma)
     _sk_lay.addStretch(1)
-    actions_lay_root.addWidget(_sk_row)
+    advanced_lay.addWidget(_sk_row)
     panel.chk_smooth_kf.stateChanged.connect(panel.fit_only_changed)
     panel.sp_smooth_kf_sigma.valueChanged.connect(panel.fit_only_changed)
 
-    advanced_content = QWidget()
-    advanced_lay = QVBoxLayout(advanced_content)
-    advanced_lay.setContentsMargins(0, 0, 0, 0)
-    advanced_lay.setSpacing(4)
-    advanced_actions = _ButtonCollapsible(
-        "Actions avancées", advanced_content, open_default=False
+    panel.chk_live_slice_fit = QCheckBox("Fit slice auto")
+    panel.chk_live_slice_fit.setChecked(False)
+    panel.chk_live_slice_fit.setToolTip(
+        "Relance automatiquement le vrai fit de la slice après modification.\n"
+        "Désactivé par défaut pour garder l'interface réactive ; le bouton\n"
+        "Fit slice lance toujours le diagnostic complet à la demande."
     )
+    advanced_lay.addWidget(panel.chk_live_slice_fit)
 
     panel.chk_use_ensemble = QCheckBox("Ensemble fit (perturbe initiaux × N)")
     panel.chk_use_ensemble.setToolTip(

@@ -1,15 +1,4 @@
-"""Band-analysis panel — 3 sub-tabs (TB / Kink / Gap) for the MDC area.
-
-Inserted as a sub-tab inside the existing `_mdc_fit_tabs` widget so that the
-user can chain: fit MDC → TB / kink / gap analysis without changing area.
-
-Each sub-tab has:
-- 2-line header explaining what the tab computes + prerequisites
-- Prerequisite badge (turns red if no MDC fit) + Run button auto-disabled
-- Compact param block with rich tooltips + "Auto" button filling defaults
-- "?" help button opening a short explanation dialog
-- Mpl canvas + summary line + warnings (notes)
-"""
+"""Band-analysis panel: TB, Kink and Gap sub-tabs for the MDC area."""
 from __future__ import annotations
 
 import numpy as np
@@ -539,7 +528,8 @@ class BandAnalysisPanel(QWidget):
     # Status row update (multi-stage badges)
     # ------------------------------------------------------------------
 
-    def _stage_style(self, *, done: bool) -> str:
+    @classmethod
+    def _stage_style(cls, *, done: bool) -> str:
         if done:
             return (
                 "color:#86efac; background:#14532d; padding:2px 6px;"
@@ -591,70 +581,14 @@ class BandAnalysisPanel(QWidget):
     def update_prerequisites(
         self, *, has_fit: bool, n_pairs: int, n_points: int = 0,
     ) -> None:
-        """Refresh badges + enable/disable Run, hide pair spinbox if 1 paire."""
-        self._has_fit = bool(has_fit)
-        self._n_pairs = max(1, int(n_pairs))
-        # Badge + button state
-        if has_fit:
-            badge_txt = f"● MDC ✓ {n_points} pts, {self._n_pairs} paire(s)"
-            badge_css = (
-                "color:#86efac; background:#14532d; padding:2px 6px;"
-                " border-radius:3px; font-size:10px;"
-            )
-            run_enabled = True
-        else:
-            badge_txt = "⚠ MDC non fitté — onglet désactivé"
-            badge_css = (
-                "color:#fca5a5; background:#7f1d1d; padding:2px 6px;"
-                " border-radius:3px; font-size:10px;"
-            )
-            run_enabled = False
-        for badge in (self.tb_badge, self.kink_badge, self.gap_badge):
-            badge.setText(badge_txt)
-            badge.setStyleSheet(badge_css)
-        for btn in (self.tb_run_btn, self.kink_run_btn, self.gap_run_btn):
-            btn.setEnabled(run_enabled)
-        for spin in (self.tb_pair, self.kink_pair, self.gap_pair):
-            spin.setMaximum(max(0, self._n_pairs - 1))
-        # Hide "Paire #" row when only 1 pair
-        show_pair = self._n_pairs > 1
-        for lbl, spin in (
-            self._tb_pair_form_row,
-            self._kink_pair_form_row,
-            self._gap_pair_form_row,
-        ):
-            lbl.setVisible(show_pair)
-            spin.setVisible(show_pair)
+        from arpes.ui.widgets.band_analysis_prereq import update_prerequisites
+        return update_prerequisites(
+            self, has_fit=has_fit, n_pairs=n_pairs, n_points=n_points,
+        )
 
     def apply_autofill(self, target: str, defaults: dict) -> None:
-        """Apply auto-filled defaults to a specific tab's spinboxes."""
-        if target == "tb":
-            if "a" in defaults:
-                self.tb_a.setValue(float(defaults["a"]))
-            if "branch" in defaults:
-                idx = self.tb_branch.findText(str(defaults["branch"]))
-                if idx >= 0:
-                    self.tb_branch.setCurrentIndex(idx)
-        elif target == "kink":
-            if "E_F" in defaults:
-                self.kink_EF.setValue(float(defaults["E_F"]))
-            if "window_lo" in defaults:
-                self.kink_win_lo.setValue(float(defaults["window_lo"]))
-            if "window_hi" in defaults:
-                self.kink_win_hi.setValue(float(defaults["window_hi"]))
-            if "branch" in defaults:
-                idx = self.kink_branch.findText(str(defaults["branch"]))
-                if idx >= 0:
-                    self.kink_branch.setCurrentIndex(idx)
-        elif target == "gap":
-            if "E_F" in defaults:
-                self.gap_EF.setValue(float(defaults["E_F"]))
-            if "omega_max_meV" in defaults:
-                self.gap_omega_max.setValue(float(defaults["omega_max_meV"]))
-            if "branch" in defaults:
-                idx = self.gap_branch.findText(str(defaults["branch"]))
-                if idx >= 0:
-                    self.gap_branch.setCurrentIndex(idx)
+        from arpes.ui.widgets.band_analysis_prereq import apply_autofill
+        return apply_autofill(self, target, defaults)
 
     # ------------------------------------------------------------------
     # Restore from entry

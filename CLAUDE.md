@@ -36,12 +36,13 @@ arpes/
 
 ### Règles dures
 
-1. **Plafond 700 LOC par fichier.** Tout dépassement bloque la prochaine feature. Splitter d'abord.
+1. **Plafond 700 LOC par fichier.** Tout dépassement bloque la prochaine feature. Splitter d'abord (sans compter les lignes en commentaires qui expliquent le code).
 2. **PyQt interdit dans `physics/` et `io/`.** Logique testable headless.
 3. **1 controller = 1 responsabilité.** Pas de fourre-tout. Si feature mélange 2 sujets, 2 méthodes dans 2 controllers.
 4. **Aucun global mutable.** `self.ap` (chargé via `_load_ap()`) remplace l'ancien `AP` global.
 5. **`__init__` de `ArpesExplorer`**: controllers instanciés AVANT `QTimer.timeout.connect(...)` sinon `__getattr__` lève AttributeError.
 6. **Naming**: `*Controller` réservé à `ui/controllers/`. Logique pure → `*Fitter`/`*Manager`/`*Service`/`*Resolver`.
+7. **Loaders extensibles.** L'app doit pouvoir intégrer progressivement de nouveaux backends de chargement ARPES. Ajouter un loader = nouveau module dédié dans `arpes/io/loaders/`, détection/orchestration dans l'API IO commune, tests dédiés, aucun PyQt. Ne pas coder de logique beamline spécifique dans `app.py`, `ui/`, ou les widgets.
 
 ## PROXY_MAP (`arpes/ui/controllers/proxy_map.py`)
 
@@ -185,4 +186,31 @@ python3 -c "from arpes.ui.controllers.proxy_map import PROXY_MAP; print(len(PROX
 
 # Vérifier zones LOC
 wc -l arpes/ui/controllers/*.py arpes/ui/widgets/*.py arpes/physics/*.py | sort -rn | head -15
+
+# Chercher violations directes fit_result
+rg "entry\\.fit_result\\s*=" arpes tests
+
+# Chercher imports PyQt interdits
+rg "PyQt6|QtCore|QtGui|QtWidgets" arpes/physics arpes/io
 ```
+
+## Re-derivation avant gros changement
+
+Avant feature/refactor non trivial:
+
+1. Relire ce fichier + `git status --short`.
+2. Identifier fichiers touchés et compter LOC avant édition.
+3. Vérifier si changement touche: physique, IO, UI controller, session schema, fit_result, fit_zones.
+4. Si physique: isoler calcul dans `physics/`, ajouter tests numpy/scipy headless.
+5. Si UI: garder orchestration dans controller dédié, widget sans logique métier lourde.
+6. Si session/model: préserver compatibilité JSON ou bump `Session.VERSION`.
+7. Si nouveau handler public: ajouter `PROXY_MAP` entry + smoke test.
+8. Finir par tests ciblés, puis suite standard si blast radius large.
+
+## Définition de done
+
+- Aucun fichier modifié >700 LOC sauf dette déjà explicitement connue.
+- Aucun PyQt dans `physics/` ou `io/`.
+- Aucune mutation directe de `entry.fit_result`.
+- Tests pertinents lancés ou impossibilité notée clairement.
+- Changement documenté si schema, workflow utilisateur, ou dette technique changent.

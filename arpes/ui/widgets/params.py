@@ -369,143 +369,32 @@ class FitParamsPanel(QScrollArea):
         }
 
     def theory_overlay_config(self) -> dict:
-        return {
-            "enabled": bool(self.chk_theory.isChecked()),
-            "material_id": self.txt_theory_mpid.text().strip(),
-            "segment": self.cmb_theory_segment.currentText().strip(),
-            "path_convention": self.cmb_theory_convention.currentData() or "mp_bulk",
-            "mu_shift": float(self.sp_theory_mu.value()),
-            "z_scale": float(self.sp_theory_z.value()),
-            "energy_shift": -float(self.sp_theory_mu.value()),
-            "k_shift": float(self.sp_theory_dk.value()),
-            "k_scale": float(self.sp_theory_kscale.value()),
-            "alpha": float(self.sp_theory_alpha.value()),
-            "max_bands": int(self.sp_theory_max.value()),
-            "mirror_gamma": bool(self.chk_theory_mirror.isChecked()),
-            "band_indices": self.txt_theory_bands.text().strip(),
-            "ef_window": (
-                float(self.sp_theory_efwin.value())
-                if self.chk_theory_ef_only.isChecked() else 0.0
-            ),
-            "color_by_band": bool(self.chk_theory_color.isChecked()),
-            "with_projections": bool(self.chk_theory_projections.isChecked()),
-            "crystal_a": float(self.sp_crystal_a.value()),
-        }
+        from arpes.ui.widgets.params_theory_state import theory_overlay_config
+        return theory_overlay_config(self)
 
     def set_theory_overlay_state(self, overlay: dict):
-        data = overlay.get("data") or {}
-        config = overlay.get("config") or {}
-        segments = list(overlay.get("segments") or [])
-        self.chk_theory.blockSignals(True)
-        self.chk_theory.setChecked(bool(overlay.get("enabled", False)))
-        self.chk_theory.blockSignals(False)
-        if data.get("material_id"):
-            self.txt_theory_mpid.setText(str(data.get("material_id")))
-        self.cmb_theory_segment.blockSignals(True)
-        self.cmb_theory_segment.clear()
-        self.cmb_theory_segment.addItem("")
-        self.cmb_theory_segment.addItems(segments)
-        if config.get("segment"):
-            self.cmb_theory_segment.setCurrentText(str(config.get("segment")))
-        self.cmb_theory_segment.blockSignals(False)
-        self.cmb_theory_convention.blockSignals(True)
-        wanted_convention = str(config.get("path_convention") or "mp_bulk")
-        idx = self.cmb_theory_convention.findData(wanted_convention)
-        self.cmb_theory_convention.setCurrentIndex(max(0, idx))
-        self.cmb_theory_convention.blockSignals(False)
-        for sp, key, default in (
-            (self.sp_theory_mu, "mu_shift", -float(config.get("energy_shift", 0.0) or 0.0)),
-            (self.sp_theory_z, "z_scale", 1.0),
-            (self.sp_theory_dk, "k_shift", 0.0),
-            (self.sp_theory_kscale, "k_scale", 1.0),
-            (self.sp_theory_alpha, "alpha", 0.65),
-            (self.sp_theory_max, "max_bands", 10),
-        ):
-            sp.blockSignals(True)
-            sp.setValue(config.get(key, default))
-            sp.blockSignals(False)
-        self.chk_theory_mirror.blockSignals(True)
-        self.chk_theory_mirror.setChecked(bool(config.get("mirror_gamma", False)))
-        self.chk_theory_mirror.blockSignals(False)
-        self.txt_theory_bands.blockSignals(True)
-        self.txt_theory_bands.setText(str(config.get("band_indices", "") or ""))
-        self.txt_theory_bands.blockSignals(False)
-        win = float(config.get("ef_window", 0.0) or 0.0)
-        self.sp_theory_efwin.blockSignals(True)
-        self.sp_theory_efwin.setValue(win if win > 0 else 0.0)
-        self.sp_theory_efwin.blockSignals(False)
-        self.chk_theory_ef_only.blockSignals(True)
-        self.chk_theory_ef_only.setChecked(win > 0.0)
-        self.chk_theory_ef_only.blockSignals(False)
-        self.chk_theory_color.blockSignals(True)
-        self.chk_theory_color.setChecked(bool(config.get("color_by_band", True)))
-        self.chk_theory_color.blockSignals(False)
-        self.chk_theory_projections.blockSignals(True)
-        self.chk_theory_projections.setChecked(bool(config.get("with_projections", False)))
-        self.chk_theory_projections.blockSignals(False)
-        self._populate_theory_band_table(
-            data.get("band_meta") or [],
-            data.get("band_character") or [],
-            str(config.get("band_indices", "") or ""),
-        )
-        warning = overlay.get("warning") or ""
-        mpid = data.get("material_id") or ""
-        if mpid:
-            source = str(data.get("source") or "")
-            prefix = "DFT MP" if source == "materials_project" else "DFT locale"
-            efermi = data.get("efermi")
-            try:
-                ef_txt = f" | DFT E_F={float(efermi):.3f} eV (déjà soustrait)"
-            except (TypeError, ValueError):
-                ef_txt = ""
-            txt = f"{prefix} {mpid}.{ef_txt} Guide visuel, alignement manuel requis."
-            cs = str(data.get("crystal_system") or "")
-            if source == "materials_project":
-                cs_txt = f" {cs}" if cs else ""
-                txt += (
-                    f"\nChemin = ZB BULK 3D{cs_txt} (Setyawan : Γ,X,P,N,Z…). "
-                    "L'overlay FS utilise la ZB SURFACE 2D (Γ,X,M,Y,S) : "
-                    "noms différents normaux (3D bulk ≠ 2D surface)."
-                )
-            if warning:
-                txt += f" Attention: {warning}"
-            comparison = overlay.get("comparison") or []
-            if comparison:
-                best = comparison[0]
-                txt += (
-                    f"\nComparaison: bande {best.get('band_index')} "
-                    f"{best.get('branch')} paire {int(best.get('pair_index', 0)) + 1}, "
-                    f"RMS={float(best.get('rms_e', 0.0)) * 1000:.0f} meV "
-                    f"({int(best.get('n_points', 0))} pts)."
-                )
-        else:
-            txt = "Guide visuel uniquement."
-        self.lbl_theory_status.setText(txt)
+        from arpes.ui.widgets.params_theory_state import set_theory_overlay_state
+        return set_theory_overlay_state(self, overlay)
 
     def _populate_theory_band_table(self, band_meta, band_character, band_indices):
-        """Legacy hook kept for old callers; visual picker replaced table."""
-        return
+        from arpes.ui.widgets.params_theory_state import populate_theory_band_table
+        return populate_theory_band_table(self, band_meta, band_character, band_indices)
 
     def _on_theory_band_table_toggled(self, _item):
-        """Legacy hook kept for sessions/tests from the old table UI."""
-        return
+        from arpes.ui.widgets.params_theory_state import on_theory_band_table_toggled
+        return on_theory_band_table_toggled(self, _item)
 
     def _on_theory_bands_text_edited(self):
-        """Champ texte legacy édité à la main."""
-        self._schedule_theory_overlay_changed()
+        from arpes.ui.widgets.params_theory_state import on_theory_bands_text_edited
+        return on_theory_bands_text_edited(self)
 
     def _schedule_theory_overlay_changed(self):
-        """Coalesce live DFT UI edits into one overlay redraw.
-
-        Spinboxes can emit several changes while the user types or holds an
-        arrow key. The DFT overlay redraw is cosmetic, so a short debounce keeps
-        the UI responsive without changing the final state that is saved.
-        """
-        self._theory_overlay_timer.start()
+        from arpes.ui.widgets.params_theory_state import schedule_theory_overlay_changed
+        return schedule_theory_overlay_changed(self)
 
     def _emit_theory_overlay_changed_now(self):
-        self._theory_overlay_timer.stop()
-        self.theory_overlay_changed.emit()
+        from arpes.ui.widgets.params_theory_state import emit_theory_overlay_changed_now
+        return emit_theory_overlay_changed_now(self)
 
     def load_fit_params(self, fp: FitParams):
         for sp, val in [
@@ -564,6 +453,10 @@ class FitParamsPanel(QScrollArea):
                 "gamma_init": self.sp_gi.value(),
                 "gamma_max": self.sp_gm.value(),
             }
+
+    def _on_pair_param_changed(self, _=None):
+        self._save_pair()
+        self.fit_only_changed.emit()
 
     def _load_pair(self, i: int):
         i = max(0, min(i, len(self._pair_params) - 1))

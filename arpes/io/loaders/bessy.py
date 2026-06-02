@@ -13,6 +13,8 @@ from .common import (
     _add_instrument_resolution_metadata,
     _add_loader_diagnostics,
     _cls_angle_to_k_pi_over_a,
+    scan_axis_summary,
+    static_polar_for_kx,
     _valid_positive_float,
     assert_arpes_data_valid,
     register_loader,
@@ -171,7 +173,7 @@ def load_bessy_ses_ibw(path, *, work_func: float = 4.031, ef_offset: float = 0.0
     angle_offsets = angle_offsets or {}
     theta0_deg = float(angle_offsets.get("theta0_deg", 0.0) or 0.0)
     tilt0_deg = float(angle_offsets.get("tilt0_deg", 0.0) or 0.0)
-    polar = float(ses.get("P-Axis", 0.0) or 0.0)
+    polar_raw = float(ses.get("P-Axis", 0.0) or 0.0)
     raw = _load_ibw5_numeric(path, info).astype(np.float32, copy=False)
     n_e, n_theta = info.dims[0], info.dims[1]
     energy_raw = info.sf_b[0] + np.arange(n_e, dtype=float) * info.sf_a[0]
@@ -235,6 +237,12 @@ def load_bessy_ses_ibw(path, *, work_func: float = 4.031, ef_offset: float = 0.0
         energy = -energy_raw + float(ef_offset)
         energy_reference = "ses_binding_axis"
         ef_kin_for_kx = float(ef_kin_from_hv) if ef_kin_from_hv is not None else float(center_energy)
+        p_scan_for_polar = ses.get("P-Axis scan") if raw.ndim == 3 else None
+        polar, polar_raw, ignored_scan_polar = static_polar_for_kx(
+            polar_raw, p_scan_for_polar,
+            is_fs=raw.ndim == 3,
+            motor_present="P-Axis" in ses,
+        )
         kx = _cls_angle_to_k_pi_over_a(theta, ef_kin_for_kx, a_lattice, polar + theta0_deg)
         loader_warnings.append(
             f"Échelle SES en Binding ({energy_scale_raw}) : axe converti en E-EF par flip de signe."
@@ -245,11 +253,21 @@ def load_bessy_ses_ibw(path, *, work_func: float = 4.031, ef_offset: float = 0.0
             )
     else:
         energy = energy_raw - ef_kin_nominal + float(ef_offset)
+        p_scan_for_polar = ses.get("P-Axis scan") if raw.ndim == 3 else None
+        polar, polar_raw, ignored_scan_polar = static_polar_for_kx(
+            polar_raw, p_scan_for_polar,
+            is_fs=raw.ndim == 3,
+            motor_present="P-Axis" in ses,
+        )
         kx = _cls_angle_to_k_pi_over_a(theta, ef_kin_nominal, a_lattice, polar + theta0_deg)
+    kx_axis_midpoint = float(0.5 * (np.nanmin(kx) + np.nanmax(kx))) if kx.size else np.nan
+    kx_center_index = float(kx[len(kx) // 2]) if kx.size else np.nan
     if center_energy_from_fallback:
         loader_warnings.append("Center Energy absent/invalide; E-EF estimé depuis le centre de l'axe énergie brut")
     if hv_val is None:
         loader_warnings.append("hν absent dans le fichier/logbook; conservé comme inconnu pour kz/comparaison hv")
+    if ignored_scan_polar:
+        loader_warnings.append("P-Axis motor position matches the FS scan axis; ignored as static kx polar")
     center_minus_hv_phi = float(center_energy - ef_kin_from_hv) if ef_kin_from_hv is not None else None
     if ef_kin_from_hv is not None and abs(float(center_energy) - ef_kin_from_hv) > 1.0:
         loader_warnings.append(
@@ -293,6 +311,11 @@ def load_bessy_ses_ibw(path, *, work_func: float = 4.031, ef_offset: float = 0.0
         "pol": pol,
         "azi": azi,
         "polar": polar,
+        "polar_raw_motor": polar_raw,
+        "fs_scan_polar_ignored_for_kx": bool(ignored_scan_polar),
+        "fs_static_polar_policy": "ignore_scanned_polar_for_fs_kx",
+        "kx_axis_midpoint": kx_axis_midpoint,
+        "kx_center_index": kx_center_index,
         "lens_mode": ses.get("Lens Mode"),
         "pass_energy": ses.get("Pass Energy"),
         "acquisition_mode": ses.get("Acquisition Mode"),
@@ -331,6 +354,7 @@ def load_bessy_ses_ibw(path, *, work_func: float = 4.031, ef_offset: float = 0.0
             "fs_energy": energy,
             "fs_kind": "kxky",
             "fs_ky_angle_deg": p_scan,
+            "fs_scan_axis_deg": scan_axis_summary(p_scan),
             "fs_ky_angle_center_deg": p_center,
             "fs_ky_angle_from_note": bool(p_scan_from_note),
             "ky_conversion": "p_axis_scan_minus_scan_center_minus_tilt0",
@@ -345,14 +369,14 @@ def load_bessy_ses_ibw(path, *, work_func: float = 4.031, ef_offset: float = 0.0
             "SES energy axis is kinetic and locally referenced by Center Energy",
             "Auto/SES mode uses Center Energy to place E-EF",
             "hν-φ mode is an explicit diagnostic override",
-            "kx uses theta - P-Axis - theta0",
+            "kx uses theta - static P-Axis - theta0; FS scanned P-Axis is not reused as static polar",
             "FS ky uses P-Axis scan recentered on the scan midpoint",
         ],
         warnings_=loader_warnings,
         geometry_confidence="medium",
         axis_sources={
             "energy": "SES Center Energy",
-            "kx": "IBW theta scale and SES P-Axis",
+            "kx": "IBW theta scale and static SES P-Axis, with FS scanned P-Axis ignored when it is the loop coordinate",
             "ky": "SES P-Axis scan for FS, recentered",
             "hv": "logbook/manual, then SES note fallback",
         },

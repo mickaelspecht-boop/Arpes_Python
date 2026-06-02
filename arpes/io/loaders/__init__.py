@@ -17,8 +17,10 @@ convention, indépendante du laboratoire source.
   sont `metadata["fs_ky"]`, `metadata["fs_kx"]`, `metadata["fs_energy"]`.
 - Unités k : les axes `kx`/`ky` sont en `pi/a`. Les angles bruts restent dans
   `metadata` (`theta_par_deg`, `fs_ky_angle_deg`, etc.).
-- Convention CLS actuelle : `kx` est calculé depuis
-  `theta_raw - polar - theta0_deg`; `ky` depuis `tilt_raw - tilt0_deg`.
+- Convention CLS/BESSY actuelle : `kx` est calculé depuis
+  `theta_raw - static_polar - theta0_deg`. Sur les FS, une position moteur P
+  qui correspond à l'axe scanné n'est pas réutilisée comme polar statique.
+  `ky` vient de l'axe scanné (`tilt`/`P-Axis`) avec son recentrage propre.
   Les corrections cristallines `azi`/rotation de ZDB restent des métadonnées
   ou des corrections de visualisation tant qu'elles ne sont pas propagées par
   un modèle géométrique explicite.
@@ -64,6 +66,8 @@ from .common import (
     loader_label,
     register_loader,
     registered_loaders,
+    scan_axis_summary,
+    static_polar_for_kx,
 )
 from .bessy import (
     _IBW5Info,

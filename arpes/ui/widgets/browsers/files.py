@@ -5,13 +5,15 @@ import re
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QStringListModel, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QCompleter,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -85,6 +87,16 @@ class FileBrowserPanel(QWidget):
         )
         self._chk_loaded_only.toggled.connect(lambda _v: self._populate())
         lay.addWidget(self._chk_loaded_only)
+
+        self._tag_filter = QLineEdit()
+        self._tag_filter.setPlaceholderText("Filtrer tag")
+        self._tag_filter.setToolTip("Filtre les fichiers par tag de session.")
+        self._tag_filter_model = QStringListModel([])
+        completer = QCompleter(self._tag_filter_model, self)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._tag_filter.setCompleter(completer)
+        self._tag_filter.textChanged.connect(lambda _text: self._populate())
+        lay.addWidget(self._tag_filter)
 
         mode_row = QVBoxLayout()
         mode_title = QLabel("Organiser par:")
@@ -217,8 +229,13 @@ class FileBrowserPanel(QWidget):
         self._populate()
 
     def refresh_tag_completions(self):
-        """No-op (filtre tag supprimé). Conservé pour compatibilité callers."""
-        return None
+        tags = sorted({
+            tag
+            for entry in getattr(self._session, "files", {}).values()
+            for tag in normalize_tags(getattr(entry.meta, "tags", []))
+        }, key=lambda x: x.casefold())
+        if hasattr(self, "_tag_filter_model"):
+            self._tag_filter_model.setStringList(tags)
 
     def _is_cls_dataset_dir(self, p: Path) -> bool:
         if not p.is_dir():
@@ -341,6 +358,15 @@ class FileBrowserPanel(QWidget):
         status = getattr(entry, "status", "unloaded")
         return status in ("loaded", "fitted")
 
+    def _tag_filter_matches(self, path: str | Path) -> bool:
+        text = ""
+        if hasattr(self, "_tag_filter"):
+            text = self._tag_filter.text().strip().casefold()
+        if not text:
+            return True
+        tags = [t.casefold() for t in self._tags_for_path(path)]
+        return any(text in tag for tag in tags)
+
     def _scoped_mappings(self) -> dict[str, dict]:
         return {
             rel: meta.get("mapping", {})
@@ -427,22 +453,20 @@ class FileBrowserPanel(QWidget):
             return self._loader_label_for_path(path) or "Labo inconnu"
         if field == "Type":
             return self._file_kind_for_path(path)
-        # Fix : ne PAS inclure la source (session/logbook/...) dans la clé de
-        # groupe, sinon les fichiers avec même hv mais source différente
-        # tombent dans deux headers distincts. Source reste visible via le
-        # tooltip / describe_item.
         if field == "hν":
-            hv, _src = self._meta_value_for_path(path, "hv")
-            return self._fmt_float_group("hν", hv, "eV", step=0.1)
+            hv, src = self._meta_value_for_path(path, "hv")
+            label = self._fmt_float_group("hν", hv, "eV", step=0.1)
+            return f"{label} ({src})" if src and label != "Métadonnées inconnues" else label
         if field == "Température":
-            temp, _src = self._meta_value_for_path(path, "temperature")
-            return self._fmt_float_group("T", temp, "K", step=0.1)
+            temp, src = self._meta_value_for_path(path, "temperature")
+            label = self._fmt_float_group("T", temp, "K", step=0.1)
+            return f"{label} ({src})" if src and label != "Métadonnées inconnues" else label
         if field in {"Chemin", "Géométrie"}:
-            direction, _src = self._meta_value_for_path(path, "direction")
-            return str(direction) if direction else "Chemin inconnu"
+            direction, src = self._meta_value_for_path(path, "direction")
+            return f"{direction} ({src})" if direction and src else (str(direction) if direction else "Chemin inconnu")
         if field == "Polarisation":
-            pol, _src = self._meta_value_for_path(path, "polarization")
-            return f"Pol {pol}" if pol else "Polarisation inconnue"
+            pol, src = self._meta_value_for_path(path, "polarization")
+            return f"Pol {pol} ({src})" if pol and src else (f"Pol {pol}" if pol else "Polarisation inconnue")
         return "."
 
     def _file_kind_for_path(self, path: str | Path) -> str:

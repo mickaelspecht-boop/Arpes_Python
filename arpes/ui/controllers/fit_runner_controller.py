@@ -1,11 +1,4 @@
-"""Controller UI exécutant les fits MDC + calibrations EF + propagation params.
-
-Sort de ArpesExplorer :
-- `_get_work_data` (donne données EDC-normalisées au fit)
-- `_fit_guess` / `_fit_full` / `_clear_kf`
-- `_ef_calibrate` / `_apply_ef_calibration_result` / `_apply_ef_reference_to_current`
-- `_refresh_helper_buttons` / `_copy_params`
-"""
+"""Controller UI exécutant fits MDC, calibrations EF et propagation params."""
 from __future__ import annotations
 
 import traceback
@@ -430,26 +423,8 @@ class FitRunnerController:
             traceback.print_exc()
 
     def _clear_kf(self):
-        p = self._parent
-        p._fit_res = None
-        if p._current_path:
-            from arpes.core.fit_result_store import clear_fit_result
-            key = self._session.key_for_path(p._current_path)
-            entry = self._session.get_or_create(key)
-            clear_fit_result(entry)
-            entry.annotations = {}
-            self._session.save()
-            if hasattr(p, "_browser"):
-                p._browser.refresh_item(key)
-        p._fit_selected = []
-        if hasattr(self._params, "update_fit_quality"):
-            self._params.update_fit_quality(None, 5.0)
-        self._update_mdc_tab_label(None)
-        self._redraw_all_fit_views()
-        self._params.lbl_res.setText("kF effacé")
-        results = getattr(p, "_results", None)
-        if results is not None and hasattr(results, "refresh"):
-            results.refresh()
+        from arpes.ui.controllers.fit_clear import clear_kf
+        return clear_kf(self)
 
     # --------------------------------------------------------- EF calibration
     def _ef_calibrate(self):
@@ -607,126 +582,13 @@ class FitRunnerController:
     # Multi-zone (Phase 1 sync; threadpool deferred)
     # =================================================================
     def _refresh_zones_strip(self) -> None:
-        p = self._parent
-        if not hasattr(p._params, "zones_strip"):
-            return
-        if p._current_path:
-            key = self._session.key_for_path(p._current_path)
-            entry = self._session.get_or_create(key)
-            p._params.zones_strip.set_zones(entry.fit_zones, entry.active_zone_id)
-        else:
-            p._params.zones_strip.set_zones([], None)
+        from arpes.ui.controllers.fit_zone_runner import refresh_zones_strip
+        return refresh_zones_strip(self)
 
     def _on_zone_activated(self, zone_id: str) -> None:
-        """Selecting a zone in the strip loads its params into the spinboxes."""
-        p = self._parent
-        if not p._current_path:
-            return
-        key = self._session.key_for_path(p._current_path)
-        entry = self._session.get_or_create(key)
-        for z in entry.fit_zones:
-            if z.get("id") != zone_id:
-                continue
-            try:
-                from arpes.core.session import FitParams
-                fp = FitParams(**{
-                    k: v for k, v in z.get("fit_params", {}).items()
-                    if k in FitParams.__dataclass_fields__
-                })
-                self._params.load_fit_params(fp)
-            except Exception:
-                pass
-            from arpes.core.fit_result_store import set_fit_result
-            fr = z.get("fit_result")
-            p._fit_res = fr
-            set_fit_result(entry, fr, zone_id=zone_id)
-            self._update_mdc_tab_label(fr)
-            self._redraw_all_fit_views()
-            return
+        from arpes.ui.controllers.fit_zone_runner import on_zone_activated
+        return on_zone_activated(self, zone_id)
 
     def _fit_run_all_zones(self) -> None:
-        """Run an independent MDC fit for every active zone, sequentially."""
-        p = self._parent
-        if p.ap is None:
-            self._status("Attention: arpes_plots non chargé")
-            return
-        if not p._current_path:
-            return
-        key = self._session.key_for_path(p._current_path)
-        entry = self._session.get_or_create(key)
-        active = [z for z in entry.fit_zones if z.get("active", True)]
-        if not active:
-            self._status("Aucune zone active. Cliquez '+' pour en créer.")
-            return
-        controller = MdcFitter(p.ap)
-        n_ok = 0
-        n_fail = 0
-        zctrl = getattr(p, "_fit_zones_ctrl", None)
-        # MED-5: snapshot global γ BEFORE the loop so the asymmetric warning
-        # compares each zone against the same Γ instead of its own center_init
-        # (which load_fit_params would overwrite each iteration).
-        try:
-            gamma_global = float(self._params.sp_cx.value())
-        except Exception:
-            gamma_global = 0.0
-        for i, zone in enumerate(active):
-            self._status(f"Fit zone {i + 1}/{len(active)} ({zone.get('label')}) ...")
-            QApplication.processEvents()
-            try:
-                from arpes.core.session import FitParams
-                fp = FitParams(**{
-                    k: v for k, v in zone.get("fit_params", {}).items()
-                    if k in FitParams.__dataclass_fields__
-                })
-                # Each zone may have its own k/E bounds → use them to slice
-                self._params.load_fit_params(fp)
-                data, kpar, ev = self._get_work_data()
-                if data is None:
-                    n_fail += 1
-                    continue
-                fr = controller.run_full_fit(
-                    data, kpar, ev, fp,
-                    resolution_source=getattr(
-                        self._params, "_resolution_source_detail", "",
-                    ),
-                )
-                # MED-6: hash from the zone's own fp, not from the partially
-                # synced UI (sp_kfi / sp_gi only reflect pair 0).
-                fr["params_hash"] = self._current_fit_params_hash(entry, fp=fp)
-                fr["zone_id"] = zone["id"]
-                fr["zone_label"] = zone.get("label")
-                from arpes.physics.distortion import is_distortion_active
-                fr["distorted"] = bool(
-                    entry.bm_distortion
-                    and is_distortion_active(entry.bm_distortion)
-                )
-                fr["grid_active"] = bool((entry.grid_correction or {}).get("enabled"))
-                if zctrl is not None:
-                    try:
-                        warn = zctrl.asymmetric_warning(zone, gamma_global)
-                        if warn:
-                            fr["asymmetric_warning"] = warn
-                            self._status(warn)
-                    except Exception:
-                        pass
-                if zctrl is not None:
-                    zctrl.store_result(zone["id"], fr)
-                n_ok += 1
-            except Exception as exc:
-                traceback.print_exc()
-                n_fail += 1
-                self._status(f"Zone {zone.get('label')} échec : {exc}")
-        # Active zone now drives single-fit views.
-        if zctrl is not None:
-            from arpes.core.fit_result_store import set_fit_result
-            active_z = zctrl.active_zone(entry)
-            if active_z and active_z.get("fit_result"):
-                p._fit_res = active_z["fit_result"]
-                set_fit_result(entry, p._fit_res, zone_id=active_z.get("id"))
-        self._session.save()
-        self._refresh_zones_strip()
-        self._redraw_all_fit_views()
-        self._status(
-            f"Run multi-zones terminé : {n_ok} OK"
-            + (f", {n_fail} échec" if n_fail else "")
-        )
+        from arpes.ui.controllers.fit_zone_runner import fit_run_all_zones
+        return fit_run_all_zones(self)

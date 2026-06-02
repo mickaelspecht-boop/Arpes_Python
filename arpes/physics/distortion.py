@@ -382,56 +382,12 @@ def signal_bbox(
     data: np.ndarray, kpar, ev,
     *, intensity_percentile: float = 50.0, finite_only: bool = True,
 ) -> dict:
-    """Détecte la boîte englobante du signal (intensité > seuil).
-
-    Retourne ``{"k_min", "k_max", "ev_min", "ev_max", "valid": bool}``.
-    Le seuil est défini comme le percentile de l'intensité finie ; les
-    colonnes/lignes dont aucun pixel ne dépasse ce seuil sont considérées
-    comme bords vides et exclues. Si toute la BM est sous le seuil ou
-    NaN, ``valid=False`` et la bbox couvre la fenêtre complète.
-
-    Utilisé par l'overlay live pour ancrer les courbes de distorsion sur
-    le signal effectif (pas sur les bordures noires).
-    """
-    arr = np.asarray(data, dtype=float)
-    kpar_axis = np.asarray(kpar, dtype=float)
-    ev_axis = np.asarray(ev, dtype=float)
-    fallback = {
-        "k_min": float(np.nanmin(kpar_axis)) if kpar_axis.size else 0.0,
-        "k_max": float(np.nanmax(kpar_axis)) if kpar_axis.size else 0.0,
-        "ev_min": float(np.nanmin(ev_axis)) if ev_axis.size else 0.0,
-        "ev_max": float(np.nanmax(ev_axis)) if ev_axis.size else 0.0,
-        "valid": False,
-    }
-    if arr.ndim != 2 or arr.shape != (kpar_axis.size, ev_axis.size):
-        return fallback
-    finite = np.isfinite(arr)
-    if not finite.any():
-        return fallback
-    base = arr[finite] if finite_only else arr.ravel()
-    try:
-        threshold = float(np.nanpercentile(base, intensity_percentile))
-    except Exception:
-        return fallback
-    above = (arr > threshold) & finite
-    if not above.any():
-        return fallback
-    rows_ok = above.any(axis=1)
-    cols_ok = above.any(axis=0)
-    k_lo = int(np.argmax(rows_ok))
-    k_hi = int(rows_ok.size - np.argmax(rows_ok[::-1]) - 1)
-    e_lo = int(np.argmax(cols_ok))
-    e_hi = int(cols_ok.size - np.argmax(cols_ok[::-1]) - 1)
-    if k_hi <= k_lo or e_hi <= e_lo:
-        return fallback
-    return {
-        "k_min": float(kpar_axis[k_lo]),
-        "k_max": float(kpar_axis[k_hi]),
-        "ev_min": float(ev_axis[e_lo]),
-        "ev_max": float(ev_axis[e_hi]),
-        "valid": True,
-        "threshold": threshold,
-    }
+    from arpes.physics.distortion_signal import signal_bbox as _signal_bbox
+    return _signal_bbox(
+        data, kpar, ev,
+        intensity_percentile=intensity_percentile,
+        finite_only=finite_only,
+    )
 
 
 def _crop_to_signal(
@@ -590,48 +546,12 @@ def auto_detect_parabola(
     }
 
 
-def angle_offsets_hash(angle_offsets: dict | None) -> str:
-    """Hash stable des offsets angulaires (pour invalider la calib si changent)."""
-    import hashlib
-    import json
-    payload = {} if not angle_offsets else {
-        k: round(float(v), 6) if isinstance(v, (int, float, np.floating)) else str(v)
-        for k, v in angle_offsets.items()
-        if k in ("theta0_deg", "tilt0_deg", "azi", "polar_already_applied_to_kx")
-    }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
-
-
-def gamma_shift_signature(meta: dict | None) -> dict:
-    """Snapshot du shift Γ au moment de la calibration."""
-    if not meta:
-        return {}
-    return {
-        "bm_gamma_axis_centered": bool(meta.get("bm_gamma_axis_centered", False)),
-        "bm_gamma_axis_shift": float(meta.get("bm_gamma_axis_shift", 0.0) or 0.0),
-        "fs_gamma_axis_shift_kx": float(meta.get("fs_gamma_axis_shift_kx", 0.0) or 0.0),
-    }
-
-
-def calib_key_for_meta(meta: dict | None) -> tuple:
-    """Clé de calibration partagée par mode lentille / E_pass / hν.
-
-    Permet de réutiliser une distorsion mesurée sur Au pour tous les fichiers
-    de la même géométrie d'analyseur.
-    """
-    if not meta:
-        return ("?", "?", "?")
-    lens = str(meta.get("lens_mode") or "?")
-    epass = meta.get("pass_energy")
-    epass_key = f"{float(epass):.1f}" if epass is not None else "?"
-    hv = meta.get("hv")
-    hv_key = f"{float(hv):.1f}" if hv is not None else "?"
-    return (lens, epass_key, hv_key)
-
-
-def is_fs_data(meta: dict | None) -> bool:
-    """True si meta porte un volume FS (correction BM non applicable)."""
-    return bool(meta and meta.get("fs_data") is not None)
+from arpes.physics.distortion_meta import (  # noqa: E402
+    angle_offsets_hash,
+    calib_key_for_meta,
+    gamma_shift_signature,
+    is_fs_data,
+)
 
 
 __all__: list[str] = [
@@ -650,18 +570,5 @@ __all__: list[str] = [
 
 
 def get_cfg_summary(cfg: dict | None) -> str:
-    """Résumé court pour status bar / label UI."""
-    if not is_distortion_active(cfg):
-        return "Distorsion BM : désactivée"
-    bits: list[str] = []
-    trap = cfg.get("trapezoid") or {}
-    para = cfg.get("parabola") or {}
-    if trap.get("enabled"):
-        sl = float(trap.get("slope_left", 0.0) or 0.0)
-        sr = float(trap.get("slope_right", 0.0) or 0.0)
-        bits.append(f"trapèze L={sl:+.3f} R={sr:+.3f}")
-    if para.get("enabled"):
-        a = float(para.get("a", 0.0) or 0.0)
-        k0 = float(para.get("k0", 0.0) or 0.0)
-        bits.append(f"parabole a={a:+.3f} k0={k0:+.3f}")
-    return "Distorsion BM active : " + " | ".join(bits)
+    from arpes.physics.distortion_meta import get_cfg_summary as _get_cfg_summary
+    return _get_cfg_summary(cfg, is_active=is_distortion_active)

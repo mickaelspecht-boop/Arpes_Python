@@ -348,12 +348,14 @@ class TestForgetGamma(unittest.TestCase):
 
             def _current_entry(self):
                 e = self._session.get_or_create(self._session.key_for_path(self._current_path))
-                e.meta_gamma_state = {"bm_gamma_axis_centered": True, "bm_gamma_axis_shift": 0.3}
-                e.fs_center_kx = 0.3
-                e.fs_center_ky = 0.0
-                e.fit_params.center_init = 0.0
-                # fit_result déjà shifté
-                e.fit_result = {"kF_minus": [[-0.8]], "kF_plus": [[0.2]], "gamma_corrige": [[-0.3]]}
+                if not getattr(e, "_test_initialized", False):
+                    e.meta_gamma_state = {"bm_gamma_axis_centered": True, "bm_gamma_axis_shift": 0.3}
+                    e.fs_center_kx = 0.3
+                    e.fs_center_ky = 0.0
+                    e.fit_params.center_init = 0.0
+                    # fit_result déjà shifté
+                    e.fit_result = {"kF_minus": [[-0.8]], "kF_plus": [[0.2]], "gamma_corrige": [[-0.3]]}
+                    e._test_initialized = True
                 return e
 
             def _status(self, text):

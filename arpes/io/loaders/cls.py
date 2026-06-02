@@ -17,12 +17,14 @@ from .common import (
     _add_loader_diagnostics,
     _cls_angle_to_k_pi_over_a,
     _loadtxt_float32,
+    scan_axis_summary,
+    static_polar_for_kx,
     assert_arpes_data_valid,
     register_loader,
 )
 
 
-_CLS_CACHE_VERSION = 2
+_CLS_CACHE_VERSION = 3
 _CYCLE_STEP_RE = re.compile(r"Cycle_(\d+)_Step_(\d+)")
 
 
@@ -42,6 +44,7 @@ def _parse_cls_param(folder: Path, prefix: str) -> dict[str, Any]:
     json_line = next((l for l in lines if l.strip().startswith("{")), None)
     try: motors = json.loads(json_line).get("d", {}) if json_line else {}
     except Exception: motors = {}
+    polar_motor = motors.get("P", {}).get("position")
     return {"energy_min": float(em.group(1)), "energy_delta": float(em.group(2)),
             "angle_min": float(am.group(1)), "angle_delta": float(am.group(2)),
             "pass_energy": fmatch(r"Pass energy:\s*([\d.]+)"),
@@ -50,7 +53,8 @@ def _parse_cls_param(folder: Path, prefix: str) -> dict[str, Any]:
             "dwell_ms": fmatch(r"Dwell Time:\s*([\d.]+)"),
             "acquisition_mode": int(fmatch(r"Acquisition mode:\s*(\d+)") or 0),
             "phi_values": phi_values,
-            "polar": motors.get("P", {}).get("position", 0.0),
+            "polar": polar_motor if polar_motor is not None else 0.0,
+            "polar_motor_present": polar_motor is not None,
             "tilt_ref": motors.get("T", {}).get("position", 0.0),
             "x": motors.get("X", {}).get("position", 0.0),
             "y": motors.get("Y", {}).get("position", 0.0),
@@ -260,8 +264,16 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
     angle_offsets = angle_offsets or {}
     theta0_deg = float(angle_offsets.get("theta0_deg", 0.0) or 0.0)
     tilt0_deg = float(angle_offsets.get("tilt0_deg", 0.0) or 0.0)
-    angular_offset = float(p.get("polar", 0.0) or 0.0) + theta0_deg
+    polar_for_kx, polar_raw_motor, ignored_scan_polar = static_polar_for_kx(
+        p.get("polar"), p.get("phi_values"),
+        is_fs=volume is not None,
+        motor_present=bool(p.get("polar_motor_present", False)),
+    )
+    angular_offset = polar_for_kx + theta0_deg
     kx = _cls_angle_to_k_pi_over_a(theta, ef_kin_nominal, a_lattice, angular_offset)
+    kx_axis_midpoint = float(0.5 * (np.nanmin(kx) + np.nanmax(kx))) if kx.size else np.nan
+    kx_center_index = float(kx[len(kx) // 2]) if kx.size else np.nan
+    fs_scan_axis = scan_axis_summary(p.get("phi_values")) if volume is not None else None
     data = raw.T
     meta: dict[str, Any] = {"lab": "CLS/LNLS", "scan_kind": scan_kind, "fs_source": "cls_txt",
         "loader_label": "CLS",
@@ -278,7 +290,12 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
         "angle_offsets_applied": dict(angle_offsets),
         "theta0_deg": theta0_deg, "tilt0_deg": tilt0_deg,
         "hv": hv_val if np.isfinite(hv_val) else None, "temperature": temp_val, "pol": pol, "azi": azi,
-        "polar": float(p.get("polar",0.0)), "tilt_ref": float(p.get("tilt_ref",0.0)),
+        "polar": float(polar_for_kx), "polar_raw_motor": float(polar_raw_motor),
+        "fs_scan_polar_ignored_for_kx": bool(ignored_scan_polar),
+        "fs_static_polar_policy": "ignore_scanned_polar_for_fs_kx",
+        "kx_axis_midpoint": kx_axis_midpoint,
+        "kx_center_index": kx_center_index,
+        "tilt_ref": float(p.get("tilt_ref",0.0)),
         "x": float(p.get("x",0.0)), "y": float(p.get("y",0.0)), "z": float(p.get("z",0.0)),
         "central_energy": p.get("central_energy"), "pass_energy": p.get("pass_energy"),
         "lens_mode": p.get("lens_mode"), "dwell_ms": p.get("dwell_ms"), "acquisition_mode": p.get("acquisition_mode"),
@@ -291,25 +308,32 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
         ky = _cls_angle_to_k_pi_over_a(tilt_angle, ef_kin_nominal, a_lattice, tilt0_deg)
         meta.update({"fs_data": fs_data, "fs_kx": kx, "fs_ky": ky, "fs_energy": energy,
                      "fs_kind": "kxky", "fs_ky_angle_deg": tilt_angle,
+                     "fs_scan_axis_deg": fs_scan_axis,
                      "ky_conversion": "tilt_minus_tilt0"})
+    geometry_warnings = []
+    if ignored_scan_polar:
+        geometry_warnings.append(
+            "FS P motor position matches the scan axis; ignored as static kx polar"
+        )
     _add_loader_diagnostics(
         meta,
         capability="CLS/LNLS text BM and Cycle/Step FS with matching *_param.txt",
         assumptions=[
             "hν comes from logbook/manual input and is required for E-EF",
             "CLS *_param.txt provides energy/angle scales and manipulator P/T when available",
-            "kx uses theta - polar - theta0",
+            "kx uses theta - static polar - theta0; FS scanned P is not reused as static polar",
             "FS ky uses tilt/phi values from param file when present, otherwise step ids",
         ],
         warnings_=(
             ([] if p.get("phi_values") is not None or volume is None else [
                 "FS tilt/phi values absent in *_param.txt; ky built from step ids"])
             + ([hv_warning] if hv_warning else [])
+            + geometry_warnings
         ),
         geometry_confidence="medium",
         axis_sources={
             "energy": "CLS text energy scale shifted by hν - work_function",
-            "kx": "CLS angle scale and param P motor",
+            "kx": "CLS angle scale and static P motor, with FS scanned P ignored when it is the loop coordinate",
             "ky": "CLS phi_values/tilt steps for FS",
             "hv": "logbook/manual input",
         },

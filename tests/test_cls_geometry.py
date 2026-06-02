@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from arpes.physics.cls_geometry import geometry_for_path, manipulator_from_param
+from arpes.io.loaders.common import scan_axis_summary, static_polar_for_kx
 
 
 def _write_param(path: Path, *, polar: float | None, tilt: float | None) -> None:
@@ -58,6 +59,46 @@ class TestManipulatorFromParam(unittest.TestCase):
             out = manipulator_from_param(sub)
             self.assertAlmostEqual(out["polar"], 12.0)
             self.assertNotIn("tilt", out)
+
+    def test_fs_scan_start_polar_is_not_static_kx_polar(self):
+        polar, raw, ignored = static_polar_for_kx(
+            -15.0, [-15.0, -14.5, -14.0],
+            is_fs=True,
+            motor_present=True,
+        )
+        self.assertAlmostEqual(polar, 0.0)
+        self.assertAlmostEqual(raw, -15.0)
+        self.assertTrue(ignored)
+
+    def test_fs_scan_in_range_polar_is_not_static_kx_polar(self):
+        polar, raw, ignored = static_polar_for_kx(
+            -10.2, [-14.0, -13.5, -13.0, -12.5, -12.0, -11.5, -11.0, -10.5, -10.0],
+            is_fs=True,
+            motor_present=True,
+        )
+        self.assertAlmostEqual(polar, 0.0)
+        self.assertAlmostEqual(raw, -10.2)
+        self.assertTrue(ignored)
+
+    def test_bm_keeps_static_polar(self):
+        polar, raw, ignored = static_polar_for_kx(
+            -15.0, [-15.0, -14.5, -14.0],
+            is_fs=False,
+            motor_present=True,
+        )
+        self.assertAlmostEqual(polar, -15.0)
+        self.assertAlmostEqual(raw, -15.0)
+        self.assertFalse(ignored)
+
+    def test_scan_axis_summary_records_range_center_and_step(self):
+        summary = scan_axis_summary([-14.0, -13.5, -13.0, 10.0])
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertAlmostEqual(summary["min"], -14.0)
+        self.assertAlmostEqual(summary["max"], 10.0)
+        self.assertAlmostEqual(summary["center"], -2.0)
+        self.assertAlmostEqual(summary["step"], 0.5)
+        self.assertEqual(summary["n"], 4)
 
 
 class TestGeometryForPath(unittest.TestCase):
