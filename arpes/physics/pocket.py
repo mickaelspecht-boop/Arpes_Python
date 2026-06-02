@@ -21,6 +21,7 @@ except Exception:  # pragma: no cover - scipy is present in the app env
 
 
 PocketTopology = Literal["electron", "hole", "unclear"]
+HsPointMap = dict[str, tuple[float, float] | list[tuple[float, float]]]
 
 
 @dataclass(frozen=True)
@@ -364,7 +365,7 @@ def fit_pocket_ellipse(contour: np.ndarray) -> tuple[float, float, float]:
 
 def assign_hs_label(
     centroid: tuple[float, float],
-    hs_points,
+    hs_points: HsPointMap | list[tuple[str, float, float] | tuple[str, tuple[float, float]]],
 ) -> tuple[str, float]:
     """Return nearest high-symmetry label and distance.
 
@@ -381,9 +382,11 @@ def assign_hs_label(
     candidates: list[tuple[str, tuple[float, float]]] = []
     if isinstance(hs_points, dict):
         for label, val in hs_points.items():
-            if not val:
+            if val is None:
                 continue
             arr = np.asarray(val, dtype=float)
+            if arr.size == 0:
+                continue
             if arr.ndim == 1 and arr.size == 2:
                 candidates.append((str(label), (float(arr[0]), float(arr[1]))))
             elif arr.ndim == 2 and arr.shape[1] == 2:
@@ -391,7 +394,7 @@ def assign_hs_label(
                     candidates.append((str(label), (float(row[0]), float(row[1]))))
     else:
         for item in hs_points:
-            if not item:
+            if item is None:
                 continue
             if len(item) == 3:
                 lab, x, y = item
@@ -421,7 +424,7 @@ def characterize_pocket(
     seed_point: tuple[float, float],
     level: float,
     bz_polygon,
-    hs_points: dict[str, tuple[float, float]],
+    hs_points: HsPointMap,
     contour_window: int = 9,
     n_bands: int = 1,
     spin: int = 2,
@@ -515,7 +518,7 @@ def characterize_pocket_bootstrap(
     seed_point: tuple[float, float],
     level: float,
     bz_polygon,
-    hs_points: dict[str, tuple[float, float]],
+    hs_points: HsPointMap,
     smooth_sigma: tuple[float, float] = (1.0, 3.0),
     n_bootstrap: int = 20,
     level_rel_jitter: float = 0.10,

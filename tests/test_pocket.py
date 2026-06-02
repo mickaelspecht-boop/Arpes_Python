@@ -170,6 +170,16 @@ class TestPocketGeometry(unittest.TestCase):
         label, _ = assign_hs_label((0.9, 0.95), hs)
         self.assertEqual(label, "M")
 
+    def test_assign_label_accepts_numpy_arrays(self):
+        hs = {
+            "Γ": np.array([0.0, 0.0]),
+            "X": np.array([[1.0, 0.0], [-1.0, 0.0]]),
+        }
+        label, dist = assign_hs_label((-0.95, 0.02), hs)
+
+        self.assertEqual(label, "X")
+        self.assertLess(dist, 0.1)
+
     def test_smooth_and_simplify_closed_contour_preserves_area_scale(self):
         contour = _rotated_ellipse(0.6, 0.25, 20.0, n=721)
         noisy = contour.copy()
