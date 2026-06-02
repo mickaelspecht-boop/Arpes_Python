@@ -364,21 +364,51 @@ def fit_pocket_ellipse(contour: np.ndarray) -> tuple[float, float, float]:
 
 def assign_hs_label(
     centroid: tuple[float, float],
-    hs_points: dict[str, tuple[float, float]],
+    hs_points,
 ) -> tuple[str, float]:
-    """Return nearest high-symmetry label and distance."""
+    """Return nearest high-symmetry label and distance.
+
+    ``hs_points`` accepte 3 formats :
+    - dict[label, (kx, ky)]                : 1 position par label
+    - dict[label, list[(kx, ky)]]          : plusieurs copies du même label
+    - list/iterable of (label, kx, ky)     : forme étendue (sans dédup)
+
+    Indispensable pour les BZ carrée/hexagonale où il y a 4 X, 4 M, etc.
+    """
     if not hs_points:
         return "", float("nan")
     c = np.asarray(centroid, dtype=float)
+    candidates: list[tuple[str, tuple[float, float]]] = []
+    if isinstance(hs_points, dict):
+        for label, val in hs_points.items():
+            if not val:
+                continue
+            arr = np.asarray(val, dtype=float)
+            if arr.ndim == 1 and arr.size == 2:
+                candidates.append((str(label), (float(arr[0]), float(arr[1]))))
+            elif arr.ndim == 2 and arr.shape[1] == 2:
+                for row in arr:
+                    candidates.append((str(label), (float(row[0]), float(row[1]))))
+    else:
+        for item in hs_points:
+            if not item:
+                continue
+            if len(item) == 3:
+                lab, x, y = item
+                candidates.append((str(lab), (float(x), float(y))))
+            elif len(item) == 2:
+                pt = np.asarray(item[1], dtype=float)
+                if pt.shape == (2,):
+                    candidates.append((str(item[0]), (float(pt[0]), float(pt[1]))))
     best_label = ""
     best_dist = float("inf")
-    for label, point in hs_points.items():
+    for label, point in candidates:
         p = np.asarray(point, dtype=float)
         if p.shape != (2,) or not np.all(np.isfinite(p)):
             continue
         d = float(np.linalg.norm(c - p))
         if d < best_dist:
-            best_label = str(label)
+            best_label = label
             best_dist = d
     return best_label, best_dist
 

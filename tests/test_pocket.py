@@ -150,6 +150,26 @@ class TestPocketGeometry(unittest.TestCase):
         self.assertEqual(label, "")
         self.assertTrue(math.isnan(distance))
 
+    def test_assign_label_with_grouped_dict_picks_nearest_copy(self):
+        # Square BZ : 4 X copies, 1 Γ. Pocket à (1.05, 0.02) → nearest X (1, 0), pas Γ.
+        hs = {
+            "Γ": [(0.0, 0.0)],
+            "X": [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)],
+            "M": [(1.0, 1.0), (-1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)],
+        }
+        label, dist = assign_hs_label((1.05, 0.02), hs)
+        self.assertEqual(label, "X")
+        self.assertLess(dist, 0.1)
+        # Pocket à (-1.0, 1.05) → nearest M(-1, 1)
+        label, dist = assign_hs_label((-1.0, 1.05), hs)
+        self.assertEqual(label, "M")
+        self.assertLess(dist, 0.1)
+
+    def test_assign_label_with_iterable_tuples(self):
+        hs = [("Γ", 0.0, 0.0), ("X", 1.0, 0.0), ("M", 1.0, 1.0)]
+        label, _ = assign_hs_label((0.9, 0.95), hs)
+        self.assertEqual(label, "M")
+
     def test_smooth_and_simplify_closed_contour_preserves_area_scale(self):
         contour = _rotated_ellipse(0.6, 0.25, 20.0, n=721)
         noisy = contour.copy()

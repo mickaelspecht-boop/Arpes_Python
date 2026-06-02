@@ -579,17 +579,24 @@ class PocketController:
         offset = np.array([float(params.kx_center), float(params.ky_center)])
         return np.asarray(poly, dtype=float) + offset
 
-    def _hs_points_raw(self, params) -> dict[str, tuple[float, float]]:
+    def _hs_points_raw(self, params) -> dict[str, list[tuple[float, float]]]:
+        """Groupe par label : 4 X / 4 M / etc. (BZ carrée) tous conservés.
+
+        Fix du bug : ancien dict[label, point] écrasait les duplicats →
+        toutes les poches finissaient par "Γ" par défaut.
+        """
         offset = np.array([float(params.kx_center), float(params.ky_center)])
-        out: dict[str, tuple[float, float]] = {}
+        out: dict[str, list[tuple[float, float]]] = {}
         for x, y, name, _color in bz_high_symmetry_points(
             params.bz_shape,
             float(params.bz_half_x),
             float(params.bz_half_y),
             float(params.bz_angle_deg),
         ):
+            if not name:
+                continue
             p = np.array([float(x), float(y)]) + offset
-            out[str(name)] = (float(p[0]), float(p[1]))
+            out.setdefault(str(name), []).append((float(p[0]), float(p[1])))
         return out
 
     def _contour_for_storage(self, fs, kx, ky, level, seed_raw, params):
