@@ -230,4 +230,87 @@ class PairingController:
             except Exception:
                 pass
             return None
+        if verb == "diagnose":
+            return self._diagnose_pairing()
         raise ValueError(f"_pairing_action: verb inconnu '{verb}'")
+
+    # ---------------------------------------------------------------
+    # Diagnostic : pourquoi telle BM ne se relie pas à la FS active.
+    # ---------------------------------------------------------------
+    def _diagnose_pairing(self) -> str:
+        from PyQt6.QtWidgets import QMessageBox
+        from arpes.io.file_pairing import _is_compatible_auto, _same_folder
+
+        fs_path = self._active_fs_path()
+        files = _normalized_augmented_files(self._session)
+        lines: list[str] = []
+        if not fs_path:
+            txt = "Aucune FS active. Charge une FS ou pin une FS via clic droit."
+            QMessageBox.information(self._parent, "Diagnostic pairing", txt)
+            return txt
+        fs_entry = files.get(fs_path) or self._session.files.get(
+            self._session.key_for_path(fs_path)
+        )
+        if fs_entry is None:
+            txt = f"FS active introuvable dans session : {fs_path}"
+            QMessageBox.warning(self._parent, "Diagnostic pairing", txt)
+            return txt
+        c = PairingCriteria()
+        sk_fs = getattr(fs_entry.meta, "scan_kind", "?")
+        lines.append(f"FS : {fs_path}")
+        lines.append(f"  scan_kind={sk_fs}  hv={fs_entry.meta.hv}  "
+                     f"azi={fs_entry.meta.azi}  pol={fs_entry.meta.polarization}")
+        lines.append(f"Critères : folder_depth={c.folder_depth} "
+                     f"hv_tol={c.hv_tolerance_rel*100:.0f}%  azi_tol={c.azi_tolerance_deg}°")
+        lines.append(f"Candidats (hors FS active) dans pool augmenté : {len(files)-1}")
+        lines.append("")
+        per_kind = {"BM": 0, "FS": 0, "unknown": 0, "other": 0}
+        rejects = {"not_bm": 0, "folder": 0, "hv": 0, "azi": 0, "pol_sample": 0}
+        matches = 0
+        details: list[str] = []
+        for path, entry in files.items():
+            if path == fs_path:
+                continue
+            sk = getattr(entry.meta, "scan_kind", "") or "unknown"
+            per_kind[sk] = per_kind.get(sk, 0) + 1 if sk in per_kind else per_kind["other"] + 1
+            if sk != "BM":
+                rejects["not_bm"] += 1
+                continue
+            folder_ok = _same_folder(path, fs_path, depth=c.folder_depth)
+            if not folder_ok:
+                rejects["folder"] += 1
+                details.append(f"  REJET[folder] {path} (hors dossier FS, depth={c.folder_depth})")
+                continue
+            compat, dist = _is_compatible_auto(entry, path, fs_entry, fs_path, c)
+            if not compat:
+                from arpes.io.file_pairing import _relative_hv_diff, _azi_diff_deg
+                hv_d = _relative_hv_diff(entry.meta.hv, fs_entry.meta.hv)
+                azi_d = _azi_diff_deg(entry.meta.azi, fs_entry.meta.azi)
+                if hv_d > c.hv_tolerance_rel:
+                    rejects["hv"] += 1
+                    details.append(f"  REJET[hv] {path} : Δhv/max = {hv_d*100:.2f}% > {c.hv_tolerance_rel*100:.0f}%")
+                elif azi_d > c.azi_tolerance_deg:
+                    rejects["azi"] += 1
+                    details.append(f"  REJET[azi] {path} : Δazi = {azi_d:.2f}° > {c.azi_tolerance_deg}°")
+                else:
+                    rejects["pol_sample"] += 1
+                    details.append(f"  REJET[pol/sample] {path}")
+                continue
+            matches += 1
+            details.append(f"  OK distance={dist:.3f} : {path}")
+        lines.append(f"scan_kind : BM={per_kind['BM']} FS={per_kind['FS']} "
+                     f"unknown={per_kind['unknown']} other={per_kind.get('other',0)}")
+        lines.append(f"Compatibles : {matches}")
+        lines.append(f"Rejets : not_BM={rejects['not_bm']} folder={rejects['folder']} "
+                     f"hv={rejects['hv']} azi={rejects['azi']} pol/sample={rejects['pol_sample']}")
+        lines.append("")
+        lines.extend(details[:30])
+        if len(details) > 30:
+            lines.append(f"... {len(details)-30} candidats supplémentaires omis.")
+        text = "\n".join(lines)
+        msg = QMessageBox(self._parent)
+        msg.setWindowTitle("Diagnostic pairing FS ↔ BMs")
+        msg.setText("Détail dans le contenu déroulant ci-dessous.")
+        msg.setDetailedText(text)
+        msg.exec()
+        return text

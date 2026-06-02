@@ -368,6 +368,10 @@ def wire_ui_signals(window) -> None:
                     "wizard", {"kx": float(kx), "ky": float(ky)}
                 )
             )
+        if hasattr(window._fs_canvas, "pairing_diagnose_requested"):
+            window._fs_canvas.pairing_diagnose_requested.connect(
+                lambda: window._pairing_action("diagnose", {})
+            )
         if hasattr(window._fs_canvas, "pocket_preview_requested"):
             window._fs_canvas.pocket_preview_requested.connect(
                 lambda kx, ky: window._pocket_action(

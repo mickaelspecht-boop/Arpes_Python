@@ -21,6 +21,8 @@ def handle_canvas_right_click(canvas, event) -> None:
         act_validate = menu.addAction("Valider l'aperçu")
         act_cancel = menu.addAction("Annuler l'aperçu")
     menu.addSeparator()
+    act_diag = menu.addAction("Diagnostic pairing FS ↔ BMs")
+    menu.addSeparator()
     act_export = menu.addAction("Exporter poches CSV")
     act_clear = menu.addAction("Effacer poches")
     chosen = menu.exec(QCursor.pos())
@@ -37,6 +39,8 @@ def handle_canvas_right_click(canvas, event) -> None:
         canvas.pocket_preview_validate_requested.emit()
     elif chosen is not None and chosen is act_cancel:
         canvas.pocket_preview_cancel_requested.emit()
+    elif chosen == act_diag:
+        canvas.pairing_diagnose_requested.emit()
     elif chosen == act_export:
         canvas.pockets_export_requested.emit()
     elif chosen == act_clear:
