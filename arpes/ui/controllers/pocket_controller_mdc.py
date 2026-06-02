@@ -19,7 +19,11 @@ from arpes.physics.pocket import (
     pocket_topology,
     smooth_fs_image,
 )
-from arpes.physics.pocket_mdc_radial import characterize_pocket_mdc_radial
+from arpes.physics.pocket_mdc_radial import (
+    arc_coverage_deg,
+    characterize_pocket_mdc_radial,
+)
+from arpes.physics.pocket_quality import contour_touches_border
 from arpes.physics.pocket_quality import run_pocket_guards
 from arpes.ui.widgets.dialogs.pocket_result import PocketResultDialog
 
@@ -72,15 +76,24 @@ def characterize_mdc_at(ctrl, payload: dict):
             ecc = float(np.sqrt(max(0.0, 1.0 - (min(kf_a, kf_b) / max(kf_a, kf_b)) ** 2)))
         else:
             ratio = float("nan"); ecc = float("nan")
-        n_carriers = luttinger_count(area, bz_area,
-                                     n_bands=int(settings.get("n_bands", 1)),
-                                     spin=int(settings.get("spin", 2)))
+        coverage_deg = arc_coverage_deg(results)
+        on_border = contour_touches_border(contour_closed, kx, ky)
+        force_arc = bool(payload.get("force_arc", False))
+        closed = (not on_border) and (coverage_deg >= 355.0) and (not force_arc)
+        n_carriers = (
+            luttinger_count(area, bz_area,
+                            n_bands=int(settings.get("n_bands", 1)),
+                            spin=int(settings.get("spin", 2)))
+            if closed else float("nan")
+        )
         shifted = contour_closed.copy()
         shifted[:, 0] -= float(params.kx_center); shifted[:, 1] -= float(params.ky_center)
         pocket = {
             "centroid_kx": float(center[0]), "centroid_ky": float(center[1]),
-            "area_inv_a2": float(area),
-            "area_pct_bz": float(100.0 * area / bz_area) if bz_area > 0 else float("nan"),
+            "area_inv_a2": float(area) if closed else float("nan"),
+            "area_pct_bz": (float(100.0 * area / bz_area) if (bz_area > 0 and closed) else float("nan")),
+            "closed": bool(closed),
+            "arc_coverage_deg": float(coverage_deg),
             "kF_mean": kf_mean, "kF_mean_std": kf_std_agg,
             "kF_a": kf_a, "kF_b": kf_b, "ellipse_angle_deg": float(angle),
             "topology": topology, "topology_confidence": float(conf),
@@ -101,6 +114,16 @@ def characterize_mdc_at(ctrl, payload: dict):
             image=fs_pocket, kx=kx, ky=ky, seed_point=seed_raw,
             contour=contour_closed, sigma_pixels=sigma, kf_mean=kf_mean,
         )
+        if not closed:
+            # Arc mode : border is expected, downgrade to non-blocking.
+            guards = [
+                (
+                    g.__class__(ok=True, code=g.code + "_arc",
+                                message="(arc mode) " + g.message, metric=g.metric)
+                    if g.code == "border" else g
+                )
+                for g in guards
+            ]
         pocket["quality_checks"] = [g.__dict__ for g in guards]
         blocking = [g for g in guards if not g.ok]
         if blocking:
@@ -117,8 +140,10 @@ def characterize_mdc_at(ctrl, payload: dict):
         if getattr(dialog, "delete_requested", False):
             ctrl._delete_pocket({"index": idx})
             return None
+        badge = "fermée" if closed else f"ARC {coverage_deg:.0f}°"
         ctrl._status(
-            f"Poche MDC : {hs_label or '?'} kF={kf_mean:.3f}±{kf_std_agg:.3f} "
+            f"Poche MDC [{badge}] : {hs_label or '?'} "
+            f"kF={kf_mean:.3f}±{kf_std_agg:.3f} "
             f"({pocket['n_valid_directions']}/{n_dirs} dirs), {topology}."
         )
         return pocket

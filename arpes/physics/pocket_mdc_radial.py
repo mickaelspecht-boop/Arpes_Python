@@ -200,7 +200,7 @@ def characterize_pocket_mdc_radial(
         th = np.radians(r.theta_deg)
         pts.append((center[0] + r.kF * np.cos(th),
                     center[1] + r.kF * np.sin(th)))
-    if len(pts) < 4:
+    if len(pts) < 2:
         raise ValueError(
             f"MDC-radial : seulement {len(pts)} directions valides ; "
             "augmente n_directions ou baisse r2_min."
@@ -208,3 +208,32 @@ def characterize_pocket_mdc_radial(
     arr = np.asarray(pts, dtype=float)
     arr = np.vstack([arr, arr[0]])
     return arr, results, center
+
+
+def arc_coverage_deg(results: list[RadialMDCKf]) -> float:
+    """Couverture angulaire valide (deg) = N_ok / N_total * 360."""
+    if not results:
+        return 0.0
+    n_ok = sum(1 for r in results if r.ok)
+    return float(360.0 * n_ok / len(results))
+
+
+def is_arc_gap(results: list[RadialMDCKf], max_gap_deg: float = 30.0) -> bool:
+    """True si la séquence de fits valides présente un trou angulaire > max_gap_deg.
+
+    Trou contigu de directions ratées indique poche tronquée par bord scan.
+    """
+    if not results:
+        return False
+    sorted_r = sorted(results, key=lambda r: r.theta_deg)
+    n = len(sorted_r)
+    step = 360.0 / float(n)
+    gap = 0
+    max_run = 0
+    for r in sorted_r + sorted_r[:1]:  # wrap
+        if not r.ok:
+            gap += 1
+            max_run = max(max_run, gap)
+        else:
+            gap = 0
+    return bool(max_run * step > float(max_gap_deg))

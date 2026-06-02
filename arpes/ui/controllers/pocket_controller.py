@@ -203,7 +203,10 @@ class PocketController:
                 continue
             sp.blockSignals(True); sp.setValue(result[key]); sp.blockSignals(False)
         if result.get("algo") == "mdc":
-            return self._characterize_mdc_at({"kx": seed_plot[0], "ky": seed_plot[1]})
+            return self._characterize_mdc_at({
+                "kx": seed_plot[0], "ky": seed_plot[1],
+                "force_arc": bool(result.get("force_arc", False)),
+            })
         ctrls.chk_pocket_level_manual.setChecked(True)
         return self._characterize_at({
             "kx": seed_plot[0], "ky": seed_plot[1],

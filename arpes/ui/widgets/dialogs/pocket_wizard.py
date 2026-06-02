@@ -114,6 +114,17 @@ class _AlgoPage(QWizardPage):
         form.addRow("MDC : directions :", self.sp_mdc_n)
         form.addRow("MDC : R² min :", self.sp_mdc_r2)
         form.addRow("Iso : level :", self.sp_iso_level)
+        from PyQt6.QtWidgets import QComboBox
+        self.cmb_mode = QComboBox()
+        self.cmb_mode.addItems([
+            "Auto (fermée si possible, arc sinon)",
+            "Arc forcé (poche coupée par bord scan)",
+        ])
+        self.cmb_mode.setToolTip(
+            "Mode poche. Arc forcé : ne tente pas de fermer ; rapporte kF par "
+            "direction + arc_coverage_deg. Aucune aire ni Luttinger."
+        )
+        form.addRow("Mode :", self.cmb_mode)
         lay.addLayout(form)
         note = QLabel(
             "MDC : fit Lorentzien sur chaque rayon, incertitude par direction "
@@ -128,6 +139,7 @@ class _AlgoPage(QWizardPage):
             "mdc_n_directions": int(self.sp_mdc_n.value()),
             "mdc_r2_min": float(self.sp_mdc_r2.value()),
             "level": float(self.sp_iso_level.value()),
+            "force_arc": bool(self.cmb_mode.currentIndex() == 1),
         }
 
 

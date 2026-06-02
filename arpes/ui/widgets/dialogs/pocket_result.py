@@ -21,6 +21,14 @@ class PocketResultDialog(QDialog):
         title = QLabel(str(pocket.get("hs_label_nearest") or "Poche"))
         title.setStyleSheet("font-size:18px; font-weight:bold;")
         lay.addWidget(title)
+        if pocket.get("closed") is False:
+            arc = float(pocket.get("arc_coverage_deg") or 0.0)
+            badge = QLabel(f"ARC {arc:.0f}° — poche non fermée. Aire / Luttinger non rapportés.")
+            badge.setStyleSheet(
+                "color:#ffd089; background:#5a3a18; border:1px solid #ffae42; "
+                "border-radius:3px; padding:4px 6px; font-weight:bold;")
+            badge.setWordWrap(True)
+            lay.addWidget(badge)
 
         unc = pocket.get("uncertainty") or {}
         if pocket.get("n_bootstrap_valid"):

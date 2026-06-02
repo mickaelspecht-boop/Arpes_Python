@@ -243,52 +243,36 @@ class FSControlPanel(QScrollArea):
             lay, "Mapping BZ cristal (Materials Project)", grp_xb, open_default=False
         )
 
+        # --- Construit widgets workflow (ajout au layout reporté à la fin) ---
         self.lbl_info = QLabel("Charge un fast map Solaris ou un dossier FS CLS.")
-        self.lbl_info.setWordWrap(True)
-        self.lbl_info.setStyleSheet("color:#aaa; font-size:10px;")
-        lay.addWidget(self.lbl_info)
+        self.lbl_info.setWordWrap(True); self.lbl_info.setStyleSheet("color:#aaa; font-size:10px;")
         self.chk_distortion_fs = QCheckBox("Appliquer distorsion BM au volume FS")
         self.chk_distortion_fs.setChecked(False)
         self.chk_distortion_fs.setToolTip(
-            "Applique au volume FS la calibration de distorsion BM partagée\n"
-            "(trapèze uniquement). La calibration doit venir d'une BM de même\n"
-            "géométrie analyseur : lens/pass energy/hν."
+            "Applique au volume FS la calibration de distorsion BM partagée (trapèze)."
         )
         self.chk_distortion_fs.toggled.connect(self.distortion_fs_toggled)
-        lay.addWidget(self.chk_distortion_fs)
-        btn = compact_button(QPushButton("Redessiner FS"), max_width=160)
-        btn.clicked.connect(self.redraw_requested)
-        lay.addWidget(btn)
-
+        self._btn_redraw_fs = compact_button(QPushButton("Redessiner FS"), max_width=160)
+        self._btn_redraw_fs.clicked.connect(self.redraw_requested)
         grp_gamma = QGroupBox()
         gv = QVBoxLayout(grp_gamma); gv.setContentsMargins(6, 6, 6, 6); gv.setSpacing(4)
         btn_g = compact_button(QPushButton("Détecter Γ FS"), max_width=200)
         btn_g.setToolTip("Détecte Γ par milieux de paires MDC sur la FS et recentre la carte.")
-        btn_g.clicked.connect(self.gamma_requested)
-        gv.addWidget(btn_g)
+        btn_g.clicked.connect(self.gamma_requested); gv.addWidget(btn_g)
         self.btn_pick_center = compact_button(QPushButton("Viser Γ manuel"), max_width=200)
         self.btn_pick_center.setCheckable(True)
-        self.btn_pick_center.setToolTip(
-            "Active un curseur sur la FS. Clique sur le point qui doit devenir Γ : "
-            "recentre la carte + sauve le centre pour ce fichier."
-        )
+        self.btn_pick_center.setToolTip("Active curseur. Clique = nouveau Γ recentré et sauvé.")
         self.btn_pick_center.toggled.connect(self.manual_center_requested)
         gv.addWidget(self.btn_pick_center)
         btn_forget = compact_button(QPushButton("Oublier Γ"), max_width=200)
         btn_forget.setToolTip("Réinitialise tout l'état Γ (référence session, axe, fit_result).")
-        btn_forget.clicked.connect(self.forget_gamma_requested)
-        gv.addWidget(btn_forget)
-        self._add_collapsible_group(
-            lay, "★  Centrage Γ  ★", grp_gamma, open_default=True, highlight=True,
-        )
+        btn_forget.clicked.connect(self.forget_gamma_requested); gv.addWidget(btn_forget)
+        self._grp_gamma = grp_gamma
         self.chk_show_bm_cuts = QCheckBox("Afficher BM cuts")
         self.chk_show_bm_cuts.setToolTip(
-            "Projette toutes les BMs compatibles (auto-discovery ou pinned)\n"
-            "comme lignes sur la FS. Couleurs : cyan=exact, orange=Δazi,\n"
-            "rouge pointillé=Δhv."
+            "Projette les BMs compatibles. Couleurs : cyan=exact, orange=Δazi, rouge=Δhv."
         )
         self.chk_show_bm_cuts.toggled.connect(self.bm_cuts_visibility_changed)
-        lay.addWidget(self.chk_show_bm_cuts)
 
         grp_pocket = QGroupBox("Poches FS")
         fp = QFormLayout(grp_pocket)
@@ -364,6 +348,14 @@ class FSControlPanel(QScrollArea):
         btn_clear_pockets.clicked.connect(self.pockets_clear_requested)
         fp.addRow(btn_export_pockets); fp.addRow(btn_clear_pockets)
         self._add_collapsible_group(lay, "Poches FS", grp_pocket, open_default=True)
+        # --- Workflow ordre user : Γ → distorsion → Redessiner → BM cuts ---
+        lay.addWidget(self.lbl_info)
+        self._add_collapsible_group(
+            lay, "★  Centrage Γ  ★", self._grp_gamma, open_default=True, highlight=True,
+        )
+        lay.addWidget(self.chk_distortion_fs)
+        lay.addWidget(self._btn_redraw_fs)
+        lay.addWidget(self.chk_show_bm_cuts)
         lay.addStretch(1)
 
     def params(self) -> FSParams:
