@@ -334,6 +334,38 @@ def wire_ui_signals(window) -> None:
             window._fs_controls.bm_cuts_visibility_changed.connect(
                 lambda v: window._pairing_action("toggle_cuts", {"visible": bool(v)})
             )
+        if hasattr(window._fs_controls, "pockets_clear_requested"):
+            window._fs_controls.pockets_clear_requested.connect(
+                lambda: window._pocket_action("clear", {})
+            )
+        if hasattr(window._fs_controls, "pockets_export_requested"):
+            window._fs_controls.pockets_export_requested.connect(
+                lambda: window._pocket_action("export_csv", {})
+            )
+        if hasattr(window._fs_canvas, "pocket_requested"):
+            window._fs_canvas.pocket_requested.connect(
+                lambda kx, ky: window._pocket_action(
+                    "characterize", {"kx": float(kx), "ky": float(ky)}
+                )
+            )
+        if hasattr(window._fs_canvas, "pocket_level_requested"):
+            window._fs_canvas.pocket_level_requested.connect(
+                lambda kx, ky: window._pocket_action(
+                    "characterize_with_level", {"kx": float(kx), "ky": float(ky)}
+                )
+            )
+        if hasattr(window._fs_canvas, "pockets_clear_requested"):
+            window._fs_canvas.pockets_clear_requested.connect(
+                lambda: window._pocket_action("clear", {})
+            )
+        if hasattr(window._fs_canvas, "pockets_export_requested"):
+            window._fs_canvas.pockets_export_requested.connect(
+                lambda: window._pocket_action("export_csv", {})
+            )
+        if hasattr(window._fs_canvas, "pocket_open_requested"):
+            window._fs_canvas.pocket_open_requested.connect(
+                lambda idx: window._pocket_action("show", {"index": int(idx)})
+            )
     if hasattr(window, "_fs_linked_bms"):
         window._fs_linked_bms.bm_load_requested.connect(
             lambda path: window._load_ctrl.load(_resolve_session_path(window, path))

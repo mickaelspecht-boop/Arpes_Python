@@ -29,6 +29,8 @@ PROXY_MAP = {
     "_on_fs_compare_pair_load": "_fs_compare_ctrl",
     "_on_fs_compare_auto_suggest": "_fs_compare_ctrl",
     "_fs_compare_load_minimal": "_fs_compare_ctrl",
+    # PocketController
+    "_pocket_action": "_pocket_ctrl",
     # PlotController
     "_on_scroll_zoom": "_plot_ctrl",
     "_update_display_data": "_plot_ctrl",

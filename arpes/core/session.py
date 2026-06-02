@@ -75,6 +75,7 @@ class FileEntry:
     fs_phi_c_deg: float = 0.0               # rotation cristal/détecteur (deg)
     fs_bz_crystal_visible: bool = False     # overlay BZ cristal MP
     fs_hs_crystal_visible: bool = False     # labels HS cristal (Γ/X/M ou Z/R/A)
+    fs_bz_crystal_force_override: bool = False  # override mismatch a_ARPES/a_MP > 2%
     fs_lattice: dict = field(default_factory=dict)  # cache lattice MP {a,b,c,alpha,beta,gamma,bravais,space_group,mp_id}
     propagate_distortion_to_fs: bool = False  # opt-in : applique distortion BM aux coupes du volume FS
     grid_correction: dict = field(default_factory=dict)
@@ -82,6 +83,7 @@ class FileEntry:
     bm_distortion: dict = field(default_factory=dict)
     theory_overlay: dict = field(default_factory=dict)
     band_analysis: dict = field(default_factory=dict)  # TB fit / kink / gap results
+    fs_pockets: list[dict] = field(default_factory=list)
     fit_zones: list[dict] = field(default_factory=list)
     # each zone : {id, label, color_idx, active, fit_params, fit_result|None}
     active_zone_id: Optional[str] = None
@@ -271,6 +273,7 @@ class Session:
                 fs_phi_c_deg=float(edict.get("fs_phi_c_deg", 0.0) or 0.0),
                 fs_bz_crystal_visible=bool(edict.get("fs_bz_crystal_visible", False)),
                 fs_hs_crystal_visible=bool(edict.get("fs_hs_crystal_visible", False)),
+                fs_bz_crystal_force_override=bool(edict.get("fs_bz_crystal_force_override", False)),
                 fs_lattice=edict.get("fs_lattice", {}) or {},
                 propagate_distortion_to_fs=bool(edict.get("propagate_distortion_to_fs", False)),
                 grid_correction=edict.get("grid_correction", {}) or {},
@@ -278,6 +281,7 @@ class Session:
                 bm_distortion=edict.get("bm_distortion", {}) or {},
                 theory_overlay=edict.get("theory_overlay", {}) or {},
                 band_analysis=edict.get("band_analysis", {}) or {},
+                fs_pockets=list(edict.get("fs_pockets", []) or []),
                 fit_zones=list(edict.get("fit_zones", []) or []),
                 active_zone_id=edict.get("active_zone_id"),
                 annotations=edict.get("annotations", {}) or {},

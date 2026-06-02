@@ -12,10 +12,11 @@ from typing import Any
 import numpy as np
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
-    QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
-    QWidget,
+    QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy,
+    QVBoxLayout, QWidget,
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
@@ -39,6 +40,8 @@ class FSControlPanel(QScrollArea):
     manual_center_requested = pyqtSignal(bool)
     forget_gamma_requested = pyqtSignal()
     bm_cuts_visibility_changed = pyqtSignal(bool)
+    pockets_clear_requested = pyqtSignal()
+    pockets_export_requested = pyqtSignal()
     bz_preset_requested = pyqtSignal()
     distortion_fs_toggled = pyqtSignal(bool)
     # --- Overlay BZ cristal (MP) -----------------------------------------
@@ -179,7 +182,9 @@ class FSControlPanel(QScrollArea):
         self.btn_mp_fetch.setToolTip(
             "Récupère paramètres de maille (a,b,c,α,β,γ) + groupe d'espace\n"
             "depuis Materials Project. Cache disque + timeout 10 s.\n"
-            "Réutilise mp_id du logbook si laissé vide."
+            "Réutilise mp_id du logbook si laissé vide.\n"
+            "DFT/GGA : utile pour symétrie et aire FS/Luttinger ; masses et "
+            "positions de bandes peuvent être décalées."
         )
         self.btn_mp_fetch.clicked.connect(self.mp_lattice_fetch_requested)
         self.sp_v0 = self._dspin(12.0, 0.5, 50.0, 0.5, dec=2)
@@ -272,6 +277,14 @@ class FSControlPanel(QScrollArea):
         )
         self.chk_show_bm_cuts.toggled.connect(self.bm_cuts_visibility_changed)
         lay.addWidget(self.chk_show_bm_cuts)
+        btn_export_pockets = compact_button(QPushButton("Exporter poches CSV"), max_width=160)
+        btn_export_pockets.setToolTip("Exporte les poches FS caractérisées du fichier courant en CSV.")
+        btn_export_pockets.clicked.connect(self.pockets_export_requested)
+        lay.addWidget(btn_export_pockets)
+        btn_clear_pockets = compact_button(QPushButton("Effacer poches FS"), max_width=160)
+        btn_clear_pockets.setToolTip("Supprime toutes les poches FS caractérisées pour ce fichier.")
+        btn_clear_pockets.clicked.connect(self.pockets_clear_requested)
+        lay.addWidget(btn_clear_pockets)
         lay.addStretch(1)
 
     def params(self) -> FSParams:
@@ -332,6 +345,12 @@ class FSControlPanel(QScrollArea):
 
 
 class FermiSurfaceCanvas(QWidget):
+    pocket_requested = pyqtSignal(float, float)
+    pocket_level_requested = pyqtSignal(float, float)
+    pockets_clear_requested = pyqtSignal()
+    pockets_export_requested = pyqtSignal()
+    pocket_open_requested = pyqtSignal(int)
+
     def __init__(self):
         super().__init__()
         self.setMinimumSize(80, 80)
@@ -349,6 +368,7 @@ class FermiSurfaceCanvas(QWidget):
         self._mesh_signature = None
         self._overlay_artists: list = []
         self._bm_cut_artists: list = []
+        self._pocket_artists: list = []
         self._bm_cut_center = (0.0, 0.0)
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
         self.toolbar = NavToolbar(self.canvas, self)
@@ -357,6 +377,8 @@ class FermiSurfaceCanvas(QWidget):
                        "(le graphe garde sa taille).")
         act.triggered.connect(self.reset_view)
         lay.addWidget(self.toolbar); lay.addWidget(self.canvas)
+        self.canvas.mpl_connect("button_press_event", self._on_canvas_button_press)
+        self.canvas.mpl_connect("pick_event", self._on_pick_event)
         self._dark()
 
     def reset_view(self):
@@ -382,6 +404,7 @@ class FermiSurfaceCanvas(QWidget):
             self._mesh = None
             self._mesh_signature = None
             self._overlay_artists = []
+            self._clear_pocket_artists()
             self.ax.text(0.5, 0.5, "Charge une FS", transform=self.ax.transAxes,
                          ha="center", va="center", color="w")
             self.canvas.draw_idle(); return "Aucune donnée"
@@ -418,6 +441,7 @@ class FermiSurfaceCanvas(QWidget):
                 except Exception:
                     pass
             self._overlay_artists = []
+            self._clear_pocket_artists()
             if self._mesh is not None and self._mesh_signature != signature:
                 try:
                     self._mesh.remove()
@@ -459,9 +483,79 @@ class FermiSurfaceCanvas(QWidget):
             self._mesh = None
             self._mesh_signature = None
             self._overlay_artists = []
+            self._clear_pocket_artists()
             self.ax.text(0.5, 0.5, str(exc), transform=self.ax.transAxes,
                          ha="center", va="center", color="tomato", wrap=True)
             self.canvas.draw_idle(); return f"Erreur FS: {exc}"
+
+    def _on_canvas_button_press(self, event) -> None:
+        if getattr(event, "button", None) != 3:
+            return
+        if event.inaxes is not self.ax or event.xdata is None or event.ydata is None:
+            return
+        menu = QMenu(self)
+        act = menu.addAction("Caractériser poche ici")
+        act_level = menu.addAction("Caractériser avec niveau...")
+        menu.addSeparator()
+        act_export = menu.addAction("Exporter poches CSV")
+        act_clear = menu.addAction("Effacer poches")
+        chosen = menu.exec(QCursor.pos())
+        if chosen == act:
+            self.pocket_requested.emit(float(event.xdata), float(event.ydata))
+        elif chosen == act_level:
+            self.pocket_level_requested.emit(float(event.xdata), float(event.ydata))
+        elif chosen == act_export:
+            self.pockets_export_requested.emit()
+        elif chosen == act_clear:
+            self.pockets_clear_requested.emit()
+
+    def _on_pick_event(self, event) -> None:
+        artist = getattr(event, "artist", None)
+        idx = getattr(artist, "pocket_index", None)
+        if idx is None:
+            return
+        self.pocket_open_requested.emit(int(idx))
+
+    def _clear_pocket_artists(self) -> None:
+        for art in list(self._pocket_artists):
+            try:
+                art.remove()
+            except Exception:
+                pass
+        self._pocket_artists = []
+
+    def draw_pockets(self, pockets: list[dict] | None) -> None:
+        self._clear_pocket_artists()
+        for idx, pocket in enumerate(pockets or [], start=1):
+            contour = np.asarray(pocket.get("contour") or [], dtype=float)
+            if contour.ndim != 2 or contour.shape[1] != 2 or contour.shape[0] < 3:
+                continue
+            line, = self.ax.plot(
+                contour[:, 0], contour[:, 1],
+                color="#39ff88", lw=1.5, alpha=0.9, zorder=10,
+                picker=True, pickradius=5,
+            )
+            setattr(line, "pocket_index", idx - 1)
+            label = str(pocket.get("hs_label_nearest") or f"P{idx}")
+            cx = float(pocket.get("centroid_kx", np.nan)) - self._bm_cut_center[0]
+            cy = float(pocket.get("centroid_ky", np.nan)) - self._bm_cut_center[1]
+            if not (np.isfinite(cx) and np.isfinite(cy)):
+                cx = float(np.nanmean(contour[:, 0]))
+                cy = float(np.nanmean(contour[:, 1]))
+            ann = self.ax.annotate(
+                label,
+                (cx, cy),
+                xytext=(5, 5),
+                textcoords="offset points",
+                color="#39ff88",
+                fontsize=9,
+                fontweight="bold",
+                zorder=11,
+                picker=True,
+            )
+            setattr(ann, "pocket_index", idx - 1)
+            self._pocket_artists.extend([line, ann])
+        self.canvas.draw_idle()
 
     def _clear_bm_cut_artists(self) -> None:
         for art in list(self._bm_cut_artists):
@@ -530,34 +624,40 @@ class FermiSurfaceCanvas(QWidget):
     def _overlay_bz_crystal(self, p: FSParams, raw_data):
         """Overlay polygone BZ cristal + labels HS depuis lattice MP.
 
-        Lit ``raw_data["metadata"]["fs_lattice"]`` (dict cache MP) si présent,
-        sinon retombe sur preset 2D existant via ``Lattice3D`` heuristique
-        construit depuis a/b utilisateur. Calcule kz via hν + V0 si dispo.
+        Lit ``raw_data["metadata"]["fs_lattice"]`` (dict cache MP) si présent.
+        Sans lattice MP, ne dessine rien : un polygone heuristique serait
+        physiquement trompeur pour la caractérisation des poches.
         """
         from arpes.physics.bz import Lattice3D
         from arpes.physics.bz_overlay import project_hs_points
 
         meta = (raw_data or {}).get("metadata", {}) or {}
         lat_dict = meta.get("fs_lattice") or {}
-        if lat_dict:
-            lat = Lattice3D(
-                a=float(lat_dict.get("a", p.a_lattice)),
-                b=float(lat_dict.get("b", p.b_lattice)),
-                c=float(lat_dict.get("c", 1.0) or 1.0),
-                alpha_deg=float(lat_dict.get("alpha_deg", 90.0)),
-                beta_deg=float(lat_dict.get("beta_deg", 90.0)),
-                gamma_deg=float(lat_dict.get("gamma_deg", 90.0)),
-                bravais=str(lat_dict.get("bravais", "tetragonal")),
-                space_group=str(lat_dict.get("space_group", "")),
-                mp_id=str(lat_dict.get("mp_id", p.mp_id)),
+        if not lat_dict:
+            msg = (
+                "Pas de lattice MP : récupère la symétrie MP avant "
+                "d'afficher la BZ cristal."
             )
-        else:
-            # Fallback : pas de lattice MP → fabrique heuristique tétragonal
-            # depuis (a, b) utilisateur. Pas de labels Z (c inconnu).
-            lat = Lattice3D(
-                a=float(p.a_lattice), b=float(p.b_lattice),
-                c=10.0, bravais="tetragonal",
+            self.ax.text(
+                0.02, 0.02, msg,
+                transform=self.ax.transAxes,
+                color="#ffcc66", fontsize=8,
+                bbox=dict(boxstyle="round,pad=0.25", facecolor="#1a1a1a",
+                          edgecolor="#ffcc66", alpha=0.75),
+                zorder=8,
             )
+            return
+        lat = Lattice3D(
+            a=float(lat_dict.get("a", p.a_lattice)),
+            b=float(lat_dict.get("b", p.b_lattice)),
+            c=float(lat_dict.get("c", 1.0) or 1.0),
+            alpha_deg=float(lat_dict.get("alpha_deg", 90.0)),
+            beta_deg=float(lat_dict.get("beta_deg", 90.0)),
+            gamma_deg=float(lat_dict.get("gamma_deg", 90.0)),
+            bravais=str(lat_dict.get("bravais", "tetragonal")),
+            space_group=str(lat_dict.get("space_group", "")),
+            mp_id=str(lat_dict.get("mp_id", p.mp_id)),
+        )
 
         plane = p.kz_plane if p.kz_plane in ("Gamma", "Z") else "Gamma"
         proj, poly = project_hs_points(

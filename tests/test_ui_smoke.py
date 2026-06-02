@@ -10,6 +10,7 @@ import os
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -24,6 +25,45 @@ try:
     UI_AVAILABLE = True
 except Exception:
     UI_AVAILABLE = False
+
+
+class _FakeMessageBoxBase:
+    class ButtonRole:
+        AcceptRole = object()
+        RejectRole = object()
+
+    def __init__(self, parent=None):
+        self._buttons = []
+        self._clicked = None
+
+    def setWindowTitle(self, title):
+        pass
+
+    def setText(self, text):
+        self.text = text
+
+    def addButton(self, text, role):
+        btn = object()
+        self._buttons.append((btn, text, role))
+        return btn
+
+    def setDefaultButton(self, button):
+        pass
+
+    def clickedButton(self):
+        return self._clicked
+
+
+class _FakeMessageBoxReject(_FakeMessageBoxBase):
+    def exec(self):
+        self._clicked = self._buttons[-1][0]
+        return 0
+
+
+class _FakeMessageBoxAccept(_FakeMessageBoxBase):
+    def exec(self):
+        self._clicked = self._buttons[0][0]
+        return 0
 
 
 @unittest.skipUnless(UI_AVAILABLE, "PyQt6 / Qt offscreen indisponible")
@@ -83,6 +123,75 @@ class TestUiSmoke(unittest.TestCase):
                 hasattr(win, attr),
                 f"controller {attr} manquant sur ArpesExplorer",
             )
+
+    def test_mp_lattice_fetch_signal_is_wired_to_controller(self):
+        win = self._make_window()
+        self.assertTrue(hasattr(win._fs_controls, "mp_lattice_fetch_requested"))
+        self.assertTrue(callable(getattr(win, "_on_mp_lattice_fetch")))
+
+    def test_restore_fs_crystal_settings_from_entry(self):
+        win = self._make_window()
+        entry = win._session.get_or_create("FS1")
+        entry.fs_v0 = 15.5
+        entry.fs_kz_plane = "Z"
+        entry.fs_phi_c_deg = 12.0
+        entry.fs_bz_crystal_visible = True
+        entry.fs_hs_crystal_visible = True
+        entry.fs_lattice = {"mp_id": "mp-test", "a": 4.0}
+
+        win._restore_fs_crystal_settings_from_entry(entry)
+
+        self.assertAlmostEqual(win._fs_controls.sp_v0.value(), 15.5)
+        self.assertEqual(win._fs_controls.cmb_kz_plane.currentText(), "Z")
+        self.assertAlmostEqual(win._fs_controls.sp_phi_c.value(), 12.0)
+        self.assertTrue(win._fs_controls.chk_bz_xtal.isChecked())
+        self.assertTrue(win._fs_controls.chk_hs_xtal.isChecked())
+        self.assertEqual(win._fs_controls.ed_mp_id.text(), "mp-test")
+
+    def test_bz_crystal_overlay_without_mp_lattice_draws_no_polygon(self):
+        from arpes.physics.fs import FSParams
+        from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas
+
+        canvas = FermiSurfaceCanvas()
+        p = FSParams(overlay_bz_crystal=True, overlay_hs_crystal=True)
+        canvas._overlay_bz_crystal(p, {"metadata": {}})
+
+        self.assertEqual(len(canvas.ax.lines), 0)
+        self.assertGreaterEqual(len(canvas.ax.texts), 1)
+
+    def test_bz_mp_mismatch_disables_overlay_without_override(self):
+        win = self._make_window()
+        win._current_path = "/tmp/fs-mp"
+        entry = win._current_entry()
+        entry.fs_lattice = {"mp_id": "mp-x", "a": 3.0, "bravais": "tetragonal"}
+        win._fs_controls.sp_a.setValue(4.0)
+        win._fs_controls.chk_bz_xtal.blockSignals(True)
+        win._fs_controls.chk_bz_xtal.setChecked(True)
+        win._fs_controls.chk_bz_xtal.blockSignals(False)
+
+        with patch("PyQt6.QtWidgets.QMessageBox", _FakeMessageBoxReject):
+            ok = win._fs_ctrl._check_bz_crystal_consistency()
+
+        self.assertFalse(ok)
+        self.assertFalse(win._fs_controls.chk_bz_xtal.isChecked())
+        self.assertFalse(entry.fs_bz_crystal_visible)
+        self.assertFalse(entry.fs_bz_crystal_force_override)
+
+    def test_bz_mp_mismatch_can_be_forced(self):
+        win = self._make_window()
+        win._current_path = "/tmp/fs-mp-force"
+        entry = win._current_entry()
+        entry.fs_lattice = {"mp_id": "mp-x", "a": 3.0, "bravais": "hexagonal"}
+        win._fs_controls.sp_a.setValue(4.0)
+        win._fs_controls.chk_bz_xtal.blockSignals(True)
+        win._fs_controls.chk_bz_xtal.setChecked(True)
+        win._fs_controls.chk_bz_xtal.blockSignals(False)
+
+        with patch("PyQt6.QtWidgets.QMessageBox", _FakeMessageBoxAccept):
+            ok = win._fs_ctrl._check_bz_crystal_consistency()
+
+        self.assertTrue(ok)
+        self.assertTrue(entry.fs_bz_crystal_force_override)
 
     def test_proxy_dispatch_resolves_every_entry(self):
         """`_PROXY_MAP` doit pointer vers une vraie méthode du controller."""
@@ -209,11 +318,11 @@ class TestUiSmoke(unittest.TestCase):
 
         ctrl._detect_fs_gamma()
 
-        self.assertEqual(parent._fs_controls.center, (0.23, -0.17))
+        self.assertEqual(parent._fs_controls.center, (0.0, 0.0))
         entry = parent._current_entry()
-        self.assertAlmostEqual(entry.fs_center_kx, 0.23)
-        self.assertAlmostEqual(entry.fs_center_ky, -0.17)
-        self.assertFalse(parent._raw_data["metadata"].get("fs_gamma_axis_centered", False))
+        self.assertAlmostEqual(entry.fs_center_kx, 0.0)
+        self.assertAlmostEqual(entry.fs_center_ky, 0.0)
+        self.assertTrue(parent._raw_data["metadata"].get("fs_gamma_axis_centered", False))
         self.assertEqual(parent._draws, 1)
 
     def test_manual_fs_gamma_updates_bm_center_parameter(self):
@@ -283,9 +392,9 @@ class TestUiSmoke(unittest.TestCase):
 
         ctrl._on_fs_map_click(event)
 
-        self.assertEqual(parent._fs_controls.center, (0.30, 0.05))
-        self.assertAlmostEqual(parent._sp_cx.value_seen, 0.30)
-        self.assertAlmostEqual(parent._current_entry().fit_params.center_init, 0.30)
+        self.assertEqual(parent._fs_controls.center, (0.0, 0.0))
+        self.assertAlmostEqual(parent._sp_cx.value_seen, 0.0)
+        self.assertAlmostEqual(parent._current_entry().fit_params.center_init, 0.0)
         self.assertEqual(parent._draws, 1)
 
     def test_stored_gamma_on_fs_does_not_shift_average_bm_axis(self):
@@ -350,7 +459,7 @@ class TestUiSmoke(unittest.TestCase):
         np.testing.assert_allclose(parent._raw_data["kpar"], [-1.25, -0.25, 0.75])
         np.testing.assert_allclose(parent._raw_data["metadata"]["fs_kx"], [-1.25, -0.25, 0.75])
         self.assertTrue(parent._raw_data["metadata"].get("fs_gamma_axis_centered", False))
-        self.assertEqual(parent._fs_controls.center, (0.25, -0.10))
+        self.assertEqual(parent._fs_controls.center, (0.0, 0.0))
         self.assertAlmostEqual(parent._params.sp_cx.value_seen, 0.0)
 
     def test_stored_gamma_on_bm_centers_display_axis(self):

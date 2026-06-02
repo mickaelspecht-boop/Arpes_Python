@@ -68,6 +68,7 @@ from arpes.ui.controllers.fs_compare_controller import FsCompareController
 from arpes.ui.controllers.interaction_controller import InteractionController
 from arpes.ui.controllers.fit_runner_controller import FitRunnerController
 from arpes.ui.controllers.kz_controller import KzController
+from arpes.ui.controllers.pocket_controller import PocketController
 from arpes.ui.controllers.proxy_map import PROXY_MAP
 from arpes.ui.controllers.theory_overlay_controller import TheoryOverlayController
 from arpes.ui.controllers.session_io_controller import SessionIOController
@@ -196,6 +197,7 @@ class ArpesExplorer(QMainWindow):
         self._distortion_ctrl = DistortionController(self)
         self._fs_ctrl = FSController(self)
         self._fs_compare_ctrl = FsCompareController(self)
+        self._pocket_ctrl = PocketController(self)
         self._interaction_ctrl = InteractionController(self)
         self._fit_runner_ctrl = FitRunnerController(self)
         self._kz_ctrl = KzController(self)

@@ -72,6 +72,9 @@ class FSController:
         propagated = self._apply_distortion_to_fs_volume_if_enabled()
         fs_params = self._fs_controls.params()
         info = self._fs_canvas.draw_fs(self._raw_data, fs_params)
+        entry = self._current_entry()
+        if entry is not None and hasattr(self._fs_canvas, "draw_pockets"):
+            self._fs_canvas.draw_pockets(getattr(entry, "fs_pockets", []) or [])
         try:
             self._fs_controls.lbl_info.setText(info)
         except Exception:
@@ -109,6 +112,8 @@ class FSController:
     # ------------------------------------------------------------------
 
     def _on_bz_crystal_overlay_changed(self):
+        if not self._check_bz_crystal_consistency():
+            return
         self._save_current_bz_crystal_settings()
         self._draw_fs_tab()
 
@@ -156,13 +161,16 @@ class FSController:
                 self._session.save()
             except Exception:
                 pass
-        # GF3 redteam : avertir si lattice ARPES (FSParams.a) ≠ lattice MP > 5%
+        # GF3 redteam : avertir si lattice ARPES (FSParams.a) ≠ lattice MP > 2%
         try:
             a_ui = float(self._fs_controls.sp_a.value())
-            if abs(a_ui - lat.a) / max(lat.a, 1e-6) > 0.05:
+            rel = abs(a_ui - lat.a) / max(lat.a, 1e-6)
+            if rel > 0.02:
+                if entry is not None:
+                    entry.fs_bz_crystal_force_override = False
                 self._status(
-                    f"⚠ BZ : a ARPES ({a_ui:.3f}) ≠ a MP ({lat.a:.3f}) — "
-                    f"aligner unités k avant interprétation."
+                    f"⚠ BZ MP désactivée tant que non forcée : a ARPES "
+                    f"({a_ui:.3f}) ≠ a MP ({lat.a:.3f}), écart {100*rel:.1f}%."
                 )
             else:
                 self._status(
@@ -189,6 +197,89 @@ class FSController:
             self._session.save()
         except Exception:
             pass
+
+    def _check_bz_crystal_consistency(self) -> bool:
+        """Refuse MP BZ overlay when ARPES and MP lattice constants diverge."""
+        if not hasattr(self, "_fs_controls"):
+            return True
+        entry = self._current_entry()
+        if entry is None:
+            return True
+        p = self._fs_controls.params()
+        if not (p.overlay_bz_crystal or p.overlay_hs_crystal):
+            return True
+        lat = getattr(entry, "fs_lattice", None) or {}
+        if not lat:
+            return True
+        try:
+            a_ui = float(p.a_lattice)
+            a_mp = float(lat.get("a", 0.0) or 0.0)
+        except Exception:
+            return True
+        if a_mp <= 0:
+            return True
+        rel = abs(a_ui - a_mp) / max(a_mp, 1e-12)
+        if rel <= 0.02 or bool(getattr(entry, "fs_bz_crystal_force_override", False)):
+            self._warn_crystal_symmetry_mismatch(p, lat)
+            return True
+
+        from PyQt6.QtWidgets import QMessageBox
+
+        box = QMessageBox(self._parent)
+        box.setWindowTitle("Cohérence BZ MP")
+        box.setText(
+            f"Refuser overlay BZ MP : a ARPES = {a_ui:.3f} Å, "
+            f"a MP = {a_mp:.3f} Å, écart = {100*rel:.1f}% (> 2%).\n\n"
+            "Forcer seulement si les unités k sont volontairement calibrées "
+            "avec un autre paramètre de maille."
+        )
+        force_btn = box.addButton("Forcer override", QMessageBox.ButtonRole.AcceptRole)
+        disable_btn = box.addButton("Désactiver", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(disable_btn)
+        box.exec()
+        if box.clickedButton() == force_btn:
+            entry.fs_bz_crystal_force_override = True
+            self._session.save()
+            self._status(f"⚠ BZ MP forcée malgré écart a ARPES/MP {100*rel:.1f}%.")
+            self._warn_crystal_symmetry_mismatch(p, lat)
+            return True
+
+        self._set_bz_crystal_checks(False)
+        entry.fs_bz_crystal_visible = False
+        entry.fs_hs_crystal_visible = False
+        entry.fs_bz_crystal_force_override = False
+        self._session.save()
+        self._status(f"BZ MP désactivée : écart a ARPES/MP {100*rel:.1f}% (> 2%).")
+        return False
+
+    def _set_bz_crystal_checks(self, checked: bool) -> None:
+        c = getattr(self, "_fs_controls", None)
+        if c is None:
+            return
+        for name in ("chk_bz_xtal", "chk_hs_xtal"):
+            widget = getattr(c, name, None)
+            if widget is None:
+                continue
+            try:
+                old = widget.blockSignals(True)
+                widget.setChecked(bool(checked))
+                widget.blockSignals(old)
+            except Exception:
+                pass
+
+    def _warn_crystal_symmetry_mismatch(self, params, lat: dict) -> None:
+        bravais = str(lat.get("bravais", "") or "").lower()
+        shape = str(getattr(params, "bz_shape", "") or "").lower()
+        if "hex" in bravais and shape in {"square", "rectangle", "centered_rect"}:
+            self._status(
+                "⚠ BZ MP : bravais hexagonal, mais preset FS C4/rectangulaire. "
+                "Vérifie le mp_id ou la symétrie visible."
+            )
+        elif any(k in bravais for k in ("tetra", "ortho", "cubic")) and shape == "hexagon":
+            self._status(
+                "⚠ BZ MP : bravais C4/orthogonal, mais preset FS hexagonal. "
+                "Vérifie le mp_id ou la symétrie visible."
+            )
 
     def _inject_fs_lattice_into_raw(self):
         """Pousse fs_lattice (depuis FileEntry) dans raw_data.metadata."""
