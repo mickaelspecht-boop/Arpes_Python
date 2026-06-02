@@ -10,7 +10,10 @@ from arpes.physics.pocket import (
     characterize_pocket,
     extract_fs_contour,
     fit_pocket_ellipse,
+    kf_along_direction,
+    luttinger_count,
     pocket_area,
+    pocket_curvature,
     pocket_topology,
     simplify_closed_contour,
     smooth_closed_contour,
@@ -90,23 +93,25 @@ class TestPocketTopology(unittest.TestCase):
     def test_electron_topology_for_bright_inside(self):
         img, kx, ky = _electron_disk()
         contour = extract_fs_contour(img, kx, ky, 0.5, seed_point=(0.0, 0.0))
-        topology, confidence = pocket_topology(img, kx, ky, contour)
+        topology, confidence, rays = pocket_topology(img, kx, ky, contour)
 
         self.assertEqual(topology, "electron")
         self.assertGreater(confidence, 0.9)
+        self.assertGreater(rays, 0)
 
     def test_hole_topology_for_dark_inside(self):
         img, kx, ky = _hole_disk()
         contour = extract_fs_contour(img, kx, ky, 0.5, seed_point=(0.0, 0.0))
-        topology, confidence = pocket_topology(img, kx, ky, contour)
+        topology, confidence, rays = pocket_topology(img, kx, ky, contour)
 
         self.assertEqual(topology, "hole")
         self.assertGreater(confidence, 0.9)
+        self.assertGreater(rays, 0)
 
     def test_flat_image_topology_is_unclear(self):
         img, kx, ky = _electron_disk()
         contour = extract_fs_contour(img, kx, ky, 0.5, seed_point=(0.0, 0.0))
-        topology, confidence = pocket_topology(np.ones_like(img), kx, ky, contour)
+        topology, confidence, _rays = pocket_topology(np.ones_like(img), kx, ky, contour)
 
         self.assertEqual(topology, "unclear")
         self.assertEqual(confidence, 0.0)
@@ -195,6 +200,88 @@ class TestCharacterizePocket(unittest.TestCase):
                 bz_polygon=np.array([[0.0, 0.0], [1.0, 0.0]]),
                 hs_points={},
             )
+
+
+class TestPocketEnrichment(unittest.TestCase):
+    def test_kf_along_direction_circle(self):
+        contour = _rotated_ellipse(0.5, 0.5, 0.0)
+        r_x = kf_along_direction(contour, (0.0, 0.0), 0.0, 10.0)
+        r_m = kf_along_direction(contour, (0.0, 0.0), 45.0, 10.0)
+        self.assertAlmostEqual(r_x, 0.5, delta=0.02)
+        self.assertAlmostEqual(r_m, 0.5, delta=0.02)
+
+    def test_kf_along_direction_ellipse_anisotropy(self):
+        contour = _rotated_ellipse(0.8, 0.3, 0.0)
+        r_x = kf_along_direction(contour, (0.0, 0.0), 0.0, 8.0)
+        r_y = kf_along_direction(contour, (0.0, 0.0), 90.0, 8.0)
+        self.assertGreater(r_x, r_y)
+        self.assertAlmostEqual(r_x, 0.8, delta=0.03)
+        self.assertAlmostEqual(r_y, 0.3, delta=0.03)
+
+    def test_kf_along_direction_no_points_returns_nan(self):
+        contour = _rotated_ellipse(0.5, 0.5, 0.0, n=12)
+        r = kf_along_direction(contour, (10.0, 10.0), 0.0, 1.0)
+        self.assertTrue(math.isnan(r))
+
+    def test_pocket_curvature_circle(self):
+        contour = _rotated_ellipse(0.5, 0.5, 0.0, n=361)
+        mean_k, var_k = pocket_curvature(contour)
+        self.assertAlmostEqual(mean_k, 2.0, delta=0.1)
+        self.assertLess(var_k, 0.05)
+
+    def test_pocket_curvature_ellipse_has_variance(self):
+        contour = _rotated_ellipse(0.8, 0.3, 0.0, n=361)
+        mean_k, var_k = pocket_curvature(contour)
+        self.assertGreater(var_k, 1.0)
+        self.assertGreater(mean_k, 0.5)
+
+    def test_luttinger_count_half_filled_band(self):
+        n = luttinger_count(0.5, 1.0, n_bands=1, spin=2)
+        self.assertAlmostEqual(n, 1.0, delta=1e-9)
+        n2 = luttinger_count(0.5, 1.0, n_bands=2, spin=2)
+        self.assertAlmostEqual(n2, 2.0, delta=1e-9)
+
+    def test_luttinger_count_zero_bz_returns_nan(self):
+        self.assertTrue(math.isnan(luttinger_count(0.5, 0.0)))
+
+    def test_characterize_enrichment_fields_populated(self):
+        img, kx, ky = _electron_disk()
+        bz = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+        props = characterize_pocket(
+            img, kx, ky,
+            seed_point=(0.0, 0.0),
+            level=0.5,
+            bz_polygon=bz,
+            hs_points={"Gamma": (0.0, 0.0)},
+            n_bands=1, spin=2,
+        )
+        self.assertTrue(math.isfinite(props.kF_gamma_x))
+        self.assertTrue(math.isfinite(props.kF_gamma_m))
+        self.assertAlmostEqual(props.kF_gamma_x, props.kF_gamma_m, delta=0.02)
+        self.assertAlmostEqual(props.aspect_ratio, 1.0, delta=0.05)
+        self.assertLess(props.eccentricity, 0.3)
+        self.assertGreater(props.curvature_mean, 0.5)
+        self.assertGreater(props.n_carriers_2D, 0.0)
+        self.assertGreater(props.topology_rays_used, 0)
+
+    def test_characterize_neighbor_pocket_filtered(self):
+        kx, ky, x, y = _axes()
+        r_main = np.sqrt(x * x + y * y)
+        r_neighbor = np.sqrt((x - 1.0) ** 2 + y * y)
+        img = np.maximum(
+            np.clip(1.0 - r_main / 0.35, 0.0, 1.0),
+            np.clip(1.0 - r_neighbor / 0.25, 0.0, 1.0),
+        )
+        bz = np.array([[-1.2, -1.2], [1.2, -1.2], [1.2, 1.2], [-1.2, 1.2]])
+        props = characterize_pocket(
+            img, kx, ky,
+            seed_point=(0.0, 0.0),
+            level=0.5,
+            bz_polygon=bz,
+            hs_points={"Gamma": (0.0, 0.0)},
+        )
+        self.assertEqual(props.topology, "electron")
+        self.assertGreater(props.topology_rays_used, 2)
 
 
 if __name__ == "__main__":

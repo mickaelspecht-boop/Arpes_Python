@@ -120,6 +120,11 @@ class PocketController:
                 bz_polygon=bz_raw,
                 hs_points=hs_raw,
                 contour_window=int(settings["contour_window"]),
+                n_bands=int(settings.get("n_bands", 1)),
+                spin=int(settings.get("spin", 2)),
+                hs_dir_x_deg=float(settings.get("hs_dir_x_deg", 0.0)),
+                hs_dir_m_deg=float(settings.get("hs_dir_m_deg", 45.0)),
+                hs_dir_tol_deg=float(settings.get("hs_dir_tol_deg", 10.0)),
             )
             pocket = props.asdict()
             pocket["level"] = level
@@ -239,8 +244,10 @@ class PocketController:
         keys = [
             "centroid_kx", "centroid_ky", "area_inv_a2", "area_pct_bz",
             "kF_mean", "kF_a", "kF_b", "ellipse_angle_deg",
-            "topology", "topology_confidence", "hs_label_nearest",
-            "hs_distance", "level", "mp_label",
+            "kF_gamma_x", "kF_gamma_m", "aspect_ratio", "eccentricity",
+            "curvature_mean", "curvature_var", "n_carriers_2D",
+            "topology", "topology_confidence", "topology_rays_used",
+            "hs_label_nearest", "hs_distance", "level", "mp_label",
         ]
         row = {"index": index}
         row.update({k: pocket.get(k, "") for k in keys})
@@ -268,26 +275,8 @@ class PocketController:
             return float(med + 0.5 * (seed_i - med))
         return float(lo + 0.5 * (med - lo))
 
-    def _pocket_settings(self) -> dict[str, float | None]:
-        controls = getattr(self, "_fs_controls", None)
-        if controls is not None and hasattr(controls, "pocket_settings"):
-            try:
-                raw = controls.pocket_settings()
-                return {
-                    "smooth_sigma_y": float(raw.get("smooth_sigma_y", 1.0)),
-                    "smooth_sigma_x": float(raw.get("smooth_sigma_x", 3.0)),
-                    "contour_window": int(raw.get("contour_window", 9)),
-                    "simplify_step": float(raw.get("simplify_step", 0.015)),
-                    "min_area_pct_bz": float(raw.get("min_area_pct_bz", 0.20)),
-                    "quality": str(raw.get("quality", "Standard") or "Standard"),
-                    "level": (
-                        None if raw.get("level", None) is None
-                        else float(raw.get("level"))
-                    ),
-                }
-            except Exception:
-                pass
-        return {
+    def _pocket_settings(self) -> dict[str, float | int | str | None]:
+        defaults = {
             "smooth_sigma_y": 1.0,
             "smooth_sigma_x": 3.0,
             "contour_window": 9,
@@ -295,6 +284,29 @@ class PocketController:
             "min_area_pct_bz": 0.20,
             "quality": "Standard",
             "level": None,
+            "n_bands": 1,
+            "spin": 2,
+            "hs_dir_x_deg": 0.0,
+            "hs_dir_m_deg": 45.0,
+            "hs_dir_tol_deg": 10.0,
+        }
+        controls = getattr(self, "_fs_controls", None)
+        if controls is None or not hasattr(controls, "pocket_settings"):
+            return defaults
+        raw = controls.pocket_settings()
+        return {
+            "smooth_sigma_y": float(raw.get("smooth_sigma_y", defaults["smooth_sigma_y"])),
+            "smooth_sigma_x": float(raw.get("smooth_sigma_x", defaults["smooth_sigma_x"])),
+            "contour_window": int(raw.get("contour_window", defaults["contour_window"])),
+            "simplify_step": float(raw.get("simplify_step", defaults["simplify_step"])),
+            "min_area_pct_bz": float(raw.get("min_area_pct_bz", defaults["min_area_pct_bz"])),
+            "quality": str(raw.get("quality", defaults["quality"]) or defaults["quality"]),
+            "level": (None if raw.get("level", None) is None else float(raw.get("level"))),
+            "n_bands": int(raw.get("n_bands", defaults["n_bands"])),
+            "spin": int(raw.get("spin", defaults["spin"])),
+            "hs_dir_x_deg": float(raw.get("hs_dir_x_deg", defaults["hs_dir_x_deg"])),
+            "hs_dir_m_deg": float(raw.get("hs_dir_m_deg", defaults["hs_dir_m_deg"])),
+            "hs_dir_tol_deg": float(raw.get("hs_dir_tol_deg", defaults["hs_dir_tol_deg"])),
         }
 
     def _nearest_value(self, fs, kx, ky, point) -> float:

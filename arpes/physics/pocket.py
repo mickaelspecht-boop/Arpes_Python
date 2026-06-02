@@ -36,6 +36,14 @@ class PocketProperties:
     topology_confidence: float
     hs_label_nearest: str
     hs_distance: float
+    kF_gamma_x: float = float("nan")
+    kF_gamma_m: float = float("nan")
+    aspect_ratio: float = float("nan")
+    eccentricity: float = float("nan")
+    curvature_mean: float = float("nan")
+    curvature_var: float = float("nan")
+    n_carriers_2D: float = float("nan")
+    topology_rays_used: int = 0
 
     def asdict(self) -> dict:
         """Return a JSON-ready representation for session persistence."""
@@ -207,17 +215,89 @@ def _interp_image(image: np.ndarray, kx: np.ndarray, ky: np.ndarray, point: np.n
     )
 
 
+def kf_along_direction(
+    contour: np.ndarray,
+    center: tuple[float, float],
+    theta_deg: float,
+    tol_deg: float = 10.0,
+) -> float:
+    """Median radius of contour points in angular sector ``theta_deg ± tol_deg``.
+
+    Returns NaN if no contour points fall in the sector.
+    """
+    c = _close_contour(contour)[:-1]
+    if c.shape[0] < 3:
+        return float("nan")
+    vec = c - np.asarray(center, dtype=float)
+    angles = np.degrees(np.arctan2(vec[:, 1], vec[:, 0]))
+    delta = (angles - float(theta_deg) + 180.0) % 360.0 - 180.0
+    mask = np.abs(delta) <= float(tol_deg)
+    if not np.any(mask):
+        return float("nan")
+    radii = np.linalg.norm(vec[mask], axis=1)
+    return float(np.nanmedian(radii))
+
+
+def pocket_curvature(contour: np.ndarray) -> tuple[float, float]:
+    """Mean and variance of unsigned local curvature ``|κ|`` along the contour.
+
+    Uses the discrete formula ``κ_i = 2·area(p_{i-1}, p_i, p_{i+1}) /
+    (|p_i-p_{i-1}| · |p_{i+1}-p_i| · |p_{i+1}-p_{i-1}|)``.
+    Units: ``(π/a)^{-1}`` if the contour is in ``π/a``.
+    """
+    c = _close_contour(contour)[:-1]
+    if c.shape[0] < 4:
+        return float("nan"), float("nan")
+    prev_pts = np.roll(c, 1, axis=0)
+    next_pts = np.roll(c, -1, axis=0)
+    a = np.linalg.norm(c - prev_pts, axis=1)
+    b = np.linalg.norm(next_pts - c, axis=1)
+    d = np.linalg.norm(next_pts - prev_pts, axis=1)
+    cross = (c[:, 0] - prev_pts[:, 0]) * (next_pts[:, 1] - prev_pts[:, 1]) - \
+            (c[:, 1] - prev_pts[:, 1]) * (next_pts[:, 0] - prev_pts[:, 0])
+    denom = a * b * d
+    valid = denom > 1e-14
+    kappa = np.zeros(c.shape[0], dtype=float)
+    kappa[valid] = np.abs(cross[valid]) * 2.0 / denom[valid]
+    if not np.any(valid):
+        return float("nan"), float("nan")
+    return float(np.nanmean(kappa[valid])), float(np.nanvar(kappa[valid]))
+
+
+def luttinger_count(
+    area_inv_a2: float,
+    bz_area_inv_a2: float,
+    *,
+    n_bands: int = 1,
+    spin: int = 2,
+) -> float:
+    """Carriers per unit cell from pocket area (Luttinger).
+
+    ``n = (A_pocket / A_BZ) × n_bands × spin``. For a hole pocket, caller
+    should negate the result if signed counts are required.
+    """
+    if bz_area_inv_a2 <= 0:
+        return float("nan")
+    return float(area_inv_a2 / bz_area_inv_a2 * float(n_bands) * float(spin))
+
+
 def pocket_topology(
     image: np.ndarray,
     kx: np.ndarray,
     ky: np.ndarray,
     contour: np.ndarray,
     n_rays: int = 8,
-) -> tuple[PocketTopology, float]:
+    *,
+    neighbor_brightness_ratio: float = 0.85,
+) -> tuple[PocketTopology, float, int]:
     """Classify pocket as electron/hole from inside-vs-outside intensity.
 
     ``electron`` means intensity is stronger inside the contour than outside;
     ``hole`` means the inverse.  Confidence is the vote imbalance in ``[0, 1]``.
+    Rays whose outside probe is as bright as the inside probe
+    (``i_out >= neighbor_brightness_ratio × i_in``) are dropped: the probe
+    likely fell on a neighbor pocket so it cannot vote reliably.
+    Returns ``(label, confidence, rays_used)``.
     """
     x, y, z = _as_axes(kx, ky, image)
     c = _close_contour(contour)
@@ -226,16 +306,28 @@ def pocket_topology(
     radii = np.linalg.norm(vecs, axis=1)
     r0 = float(np.nanmedian(radii))
     if not np.isfinite(r0) or r0 <= 0:
-        return "unclear", 0.0
-
-    votes: list[int] = []
-    for angle in np.linspace(0.0, 2.0 * np.pi, int(n_rays), endpoint=False):
+        return "unclear", 0.0, 0
+    ratio = float(neighbor_brightness_ratio)
+    angles = np.linspace(0.0, 2.0 * np.pi, int(n_rays), endpoint=False)
+    samples: list[tuple[float, float]] = []
+    for angle in angles:
         direction = np.array([np.cos(angle), np.sin(angle)])
         inside = center + direction * (0.55 * r0)
         outside = center + direction * (1.35 * r0)
         i_in = _interp_image(z, x, y, inside)
         i_out = _interp_image(z, x, y, outside)
-        if not (np.isfinite(i_in) and np.isfinite(i_out)):
+        if np.isfinite(i_in) and np.isfinite(i_out):
+            samples.append((float(i_in), float(i_out)))
+    if not samples:
+        return "unclear", 0.0, 0
+    outs = np.array([s[1] for s in samples], dtype=float)
+    out_med = float(np.median(outs))
+    out_mad = float(np.median(np.abs(outs - out_med))) or 1e-12
+    neighbor_cutoff = out_med + 4.0 * out_mad
+
+    votes: list[int] = []
+    for i_in, i_out in samples:
+        if i_out > neighbor_cutoff and i_out > ratio * i_in:
             continue
         delta = i_in - i_out
         if abs(delta) <= 1e-12:
@@ -243,12 +335,13 @@ def pocket_topology(
         votes.append(1 if delta > 0 else -1)
 
     if not votes:
-        return "unclear", 0.0
+        return "unclear", 0.0, 0
     score = float(np.mean(votes))
     confidence = abs(score)
+    rays_used = len(votes)
     if confidence < 0.25:
-        return "unclear", confidence
-    return ("electron" if score > 0 else "hole"), confidence
+        return "unclear", confidence, rays_used
+    return ("electron" if score > 0 else "hole"), confidence, rays_used
 
 
 def fit_pocket_ellipse(contour: np.ndarray) -> tuple[float, float, float]:
@@ -299,6 +392,11 @@ def characterize_pocket(
     bz_polygon,
     hs_points: dict[str, tuple[float, float]],
     contour_window: int = 9,
+    n_bands: int = 1,
+    spin: int = 2,
+    hs_dir_x_deg: float = 0.0,
+    hs_dir_m_deg: float = 45.0,
+    hs_dir_tol_deg: float = 10.0,
 ) -> PocketProperties:
     """Complete pocket characterization pipeline."""
     contour = smooth_closed_contour(
@@ -317,8 +415,19 @@ def characterize_pocket(
     radii = np.linalg.norm(_close_contour(contour)[:-1] - center, axis=1)
     kf_mean = float(np.nanmean(radii)) if radii.size else 0.0
     kf_a, kf_b, angle = fit_pocket_ellipse(contour)
-    topology, confidence = pocket_topology(image, kx, ky, contour)
+    topology, confidence, rays_used = pocket_topology(image, kx, ky, contour)
     hs_label, hs_dist = assign_hs_label((float(center[0]), float(center[1])), hs_points)
+    center_t = (float(center[0]), float(center[1]))
+    kf_gx = kf_along_direction(contour, center_t, hs_dir_x_deg, hs_dir_tol_deg)
+    kf_gm = kf_along_direction(contour, center_t, hs_dir_m_deg, hs_dir_tol_deg)
+    if kf_a > 0 and kf_b >= 0:
+        ratio = max(kf_a, kf_b) / max(min(kf_a, kf_b), 1e-12)
+        ecc = float(np.sqrt(max(0.0, 1.0 - (min(kf_a, kf_b) / max(kf_a, kf_b)) ** 2)))
+    else:
+        ratio = float("nan")
+        ecc = float("nan")
+    curv_mean, curv_var = pocket_curvature(contour)
+    n_carriers = luttinger_count(area, bz_area, n_bands=n_bands, spin=spin)
     return PocketProperties(
         centroid_kx=float(center[0]),
         centroid_ky=float(center[1]),
@@ -332,4 +441,12 @@ def characterize_pocket(
         topology_confidence=float(confidence),
         hs_label_nearest=hs_label,
         hs_distance=float(hs_dist),
+        kF_gamma_x=float(kf_gx),
+        kF_gamma_m=float(kf_gm),
+        aspect_ratio=float(ratio),
+        eccentricity=float(ecc),
+        curvature_mean=float(curv_mean),
+        curvature_var=float(curv_var),
+        n_carriers_2D=float(n_carriers),
+        topology_rays_used=int(rays_used),
     )

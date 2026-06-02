@@ -306,6 +306,16 @@ class FSControlPanel(QScrollArea):
         self.sp_pocket_simplify.setToolTip("Distance minimale entre points du contour stocké. Augmenter pour un contour plus propre.")
         self.sp_pocket_min_area = self._dspin(0.20, 0.0, 20.0, 0.10, dec=2)
         self.sp_pocket_min_area.setToolTip("Aire minimale en % BZ. Rejette les petits contours parasites.")
+        self.sp_pocket_n_bands = self._ispin(1, 1, 12, 1)
+        self.sp_pocket_n_bands.setToolTip("Nombre de bandes occupant la poche (Luttinger). Défaut : 1.")
+        self.sp_pocket_spin = self._ispin(2, 1, 2, 1)
+        self.sp_pocket_spin.setToolTip("Dégénérescence spin (1 si polarisé, 2 sinon).")
+        self.sp_pocket_hs_x_deg = self._dspin(0.0, -180.0, 180.0, 1.0, dec=1)
+        self.sp_pocket_hs_x_deg.setToolTip("Direction Γ-X (deg) dans le plan FS. Défaut : 0° (axe kx).")
+        self.sp_pocket_hs_m_deg = self._dspin(45.0, -180.0, 180.0, 1.0, dec=1)
+        self.sp_pocket_hs_m_deg.setToolTip("Direction Γ-M (deg) dans le plan FS. Défaut : 45°.")
+        self.sp_pocket_hs_tol_deg = self._dspin(10.0, 1.0, 45.0, 1.0, dec=1)
+        self.sp_pocket_hs_tol_deg.setToolTip("Tolérance angulaire (±deg) pour mesurer kF(Γ-X) et kF(Γ-M).")
         self.chk_pocket_level_manual = QCheckBox("Level manuel")
         self.chk_pocket_level_manual.setToolTip("Utilise le level ci-dessous pour le prochain clic droit au lieu du seuil auto.")
         self.sp_pocket_level = self._dspin(0.50, 0.0, 1.0, 0.01, dec=3)
@@ -319,6 +329,11 @@ class FSControlPanel(QScrollArea):
         fp.addRow("Contour :", self.sp_pocket_contour_window)
         fp.addRow("Simplifier :", self.sp_pocket_simplify)
         fp.addRow("Aire min :", self.sp_pocket_min_area)
+        fp.addRow("n bandes :", self.sp_pocket_n_bands)
+        fp.addRow("Spin :", self.sp_pocket_spin)
+        fp.addRow("Γ-X (°) :", self.sp_pocket_hs_x_deg)
+        fp.addRow("Γ-M (°) :", self.sp_pocket_hs_m_deg)
+        fp.addRow("Tol HS (°) :", self.sp_pocket_hs_tol_deg)
         btn_export_pockets = compact_button(QPushButton("Exporter poches CSV"), max_width=160)
         btn_export_pockets.setToolTip("Exporte les poches FS caractérisées du fichier courant en CSV.")
         btn_export_pockets.clicked.connect(self.pockets_export_requested)
@@ -361,7 +376,7 @@ class FSControlPanel(QScrollArea):
         self.btn_pick_center.setChecked(bool(active))
         self.btn_pick_center.blockSignals(False)
 
-    def pocket_settings(self) -> dict[str, float | bool | None]:
+    def pocket_settings(self) -> dict[str, float | int | bool | None]:
         manual = bool(self.chk_pocket_level_manual.isChecked())
         return {
             "quality": self.cmb_pocket_quality.currentText(),
@@ -371,6 +386,11 @@ class FSControlPanel(QScrollArea):
             "simplify_step": float(self.sp_pocket_simplify.value()),
             "min_area_pct_bz": float(self.sp_pocket_min_area.value()),
             "level": float(self.sp_pocket_level.value()) if manual else None,
+            "n_bands": int(self.sp_pocket_n_bands.value()),
+            "spin": int(self.sp_pocket_spin.value()),
+            "hs_dir_x_deg": float(self.sp_pocket_hs_x_deg.value()),
+            "hs_dir_m_deg": float(self.sp_pocket_hs_m_deg.value()),
+            "hs_dir_tol_deg": float(self.sp_pocket_hs_tol_deg.value()),
         }
 
     def set_pocket_count(self, count: int) -> None:

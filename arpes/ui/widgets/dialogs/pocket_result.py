@@ -31,6 +31,13 @@ class PocketResultDialog(QDialog):
         form.addRow("Ellipse a :", QLabel(_fmt(pocket.get("kF_a"), "{:.4f} π/a")))
         form.addRow("Ellipse b :", QLabel(_fmt(pocket.get("kF_b"), "{:.4f} π/a")))
         form.addRow("Angle :", QLabel(_fmt(pocket.get("ellipse_angle_deg"), "{:.1f} °")))
+        form.addRow("kF Γ-X :", QLabel(_fmt(pocket.get("kF_gamma_x"), "{:.4f} π/a")))
+        form.addRow("kF Γ-M :", QLabel(_fmt(pocket.get("kF_gamma_m"), "{:.4f} π/a")))
+        form.addRow("Aspect ratio :", QLabel(_fmt(pocket.get("aspect_ratio"), "{:.3f}")))
+        form.addRow("Excentricité :", QLabel(_fmt(pocket.get("eccentricity"), "{:.3f}")))
+        form.addRow("⟨1/R⟩ :", QLabel(_fmt(pocket.get("curvature_mean"), "{:.3f} (π/a)⁻¹")))
+        form.addRow("Var(1/R) :", QLabel(_fmt(pocket.get("curvature_var"), "{:.3f}")))
+        form.addRow("n porteurs (2D) :", QLabel(_fmt(pocket.get("n_carriers_2D"), "{:.4f} /cell")))
         form.addRow("Centre :", QLabel(
             f"{float(pocket.get('centroid_kx', 0.0)):+.4f}, "
             f"{float(pocket.get('centroid_ky', 0.0)):+.4f}"
