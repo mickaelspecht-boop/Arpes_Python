@@ -24,6 +24,7 @@ from arpes.physics.pocket import (
     smooth_fs_image,
 )
 from arpes.physics.pocket_compare import compare_pocket_contours
+from arpes.physics.pocket_quality import run_pocket_guards
 from arpes.ui.widgets.dialogs.pocket_result import PocketResultDialog
 
 
@@ -290,6 +291,19 @@ class PocketController:
                 pocket = props.asdict()
             pocket["level"] = level
             pocket["contour"] = self._contour_for_storage(fs_pocket, kx, ky, level, seed_raw, params)
+            guards = run_pocket_guards(
+                image=fs_pocket, kx=kx, ky=ky,
+                seed_point=seed_raw,
+                contour=np.asarray(pocket["contour"]) + np.array([params.kx_center, params.ky_center]),
+                sigma_pixels=sigma,
+                kf_mean=float(pocket.get("kF_mean") or 0.0),
+            )
+            pocket["quality_checks"] = [g.__dict__ for g in guards]
+            blocking = [g for g in guards if not g.ok]
+            if blocking:
+                msgs = " | ".join(g.message for g in blocking if g.message)
+                self._status(f"Poche FS rejetée : {msgs}")
+                return None
             pocket["processing"] = {
                 "quality": settings.get("quality", "Standard"),
                 "smooth_sigma_yx": [settings["smooth_sigma_y"], settings["smooth_sigma_x"]],
