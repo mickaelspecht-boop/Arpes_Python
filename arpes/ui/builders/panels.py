@@ -242,6 +242,9 @@ def _build_fs_tab(window) -> QWidget:
     _lay.setContentsMargins(0, 0, 0, 0)
     _lay.setSpacing(2)
     _lay.addWidget(window._fs_canvas, 4)
+    bm_cuts_bar = getattr(getattr(window, "_fs_controls", None), "bm_cuts_bar", None)
+    if bm_cuts_bar is not None:
+        _lay.addWidget(bm_cuts_bar, 0)
     window._fs_linked_bms = FsLinkedBmsList()
     _lay.addWidget(window._fs_linked_bms, 1)
     fs_tabs.addTab(fs_map_container, "Carte FS")

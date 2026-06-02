@@ -277,6 +277,22 @@ class FSControlPanel(QScrollArea):
         self.sp_pairing_hv_tol.setToolTip("Tol Δhv (%) pour pairing FS↔BMs. 5% = même hv ; 30% lie scans kz.")
         self.sp_pairing_azi_tol = self._dspin(2.0, 0.0, 30.0, 0.5, dec=1)
         self.sp_pairing_azi_tol.setToolTip("Tol Δazi (°) pour pairing.")
+        self.bm_cuts_bar = QWidget()
+        _hl = QHBoxLayout(self.bm_cuts_bar)
+        _hl.setContentsMargins(6, 2, 6, 2)
+        _hl.setSpacing(6)
+        _hl.addWidget(self.chk_show_bm_cuts)
+        _hl.addWidget(QLabel("Tol hv % :"))
+        _hl.addWidget(self.sp_pairing_hv_tol)
+        _hl.addWidget(QLabel("Tol azi° :"))
+        _hl.addWidget(self.sp_pairing_azi_tol)
+        _hl.addStretch(1)
+        self.sp_pairing_hv_tol.valueChanged.connect(
+            lambda _v: self.bm_cuts_visibility_changed.emit(self.chk_show_bm_cuts.isChecked())
+        )
+        self.sp_pairing_azi_tol.valueChanged.connect(
+            lambda _v: self.bm_cuts_visibility_changed.emit(self.chk_show_bm_cuts.isChecked())
+        )
 
         grp_pocket = QGroupBox("Poches FS")
         fp = QFormLayout(grp_pocket)
@@ -359,13 +375,6 @@ class FSControlPanel(QScrollArea):
         )
         lay.addWidget(self.chk_distortion_fs)
         lay.addWidget(self._btn_redraw_fs)
-        lay.addWidget(self.chk_show_bm_cuts)
-        _hl = QHBoxLayout(); _hl.setContentsMargins(0, 0, 0, 0); _hl.setSpacing(4)
-        _hl.addWidget(QLabel("Tol hv % :")); _hl.addWidget(self.sp_pairing_hv_tol)
-        _hl.addWidget(QLabel("Tol azi° :")); _hl.addWidget(self.sp_pairing_azi_tol)
-        _w = QWidget(); _w.setLayout(_hl); lay.addWidget(_w)
-        self.sp_pairing_hv_tol.valueChanged.connect(self.bm_cuts_visibility_changed.emit)
-        self.sp_pairing_azi_tol.valueChanged.connect(self.bm_cuts_visibility_changed.emit)
         lay.addStretch(1)
 
     def params(self) -> FSParams:
