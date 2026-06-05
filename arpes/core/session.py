@@ -172,7 +172,7 @@ def _to_serial(obj):
 class Session:
     VERSION = 1
 
-    def __init__(self, folder: Path | None = None, work_func: float = 4.031):
+    def __init__(self, folder: Path | None = None, work_func: float = 0.0):
         self.folder: Path | None = folder
         self.work_func: float = work_func
         self.files: dict[str, FileEntry] = {}
@@ -249,7 +249,7 @@ class Session:
         Path(path).write_text(json.dumps(self.to_payload(), indent=2))
 
     def load_from_payload(self, raw: dict) -> None:
-        self.work_func = raw.get("work_func", 4.031)
+        self.work_func = raw.get("work_func", 0.0)
         self.logbook_path = raw.get("logbook_path", "")
         self.logbook_sheet = raw.get("logbook_sheet", "")
         self.logbook_mapping = raw.get("logbook_mapping", {})

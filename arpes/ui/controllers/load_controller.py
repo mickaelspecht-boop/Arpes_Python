@@ -284,6 +284,11 @@ class LoadController:
             prepared.entry,
             fallback=self._params.sp_phi.value(),
         )
+        if work_func <= 0:
+            raise ValueError(
+                "Fonction de travail φ manquante. "
+                "Renseigne φ dans l'UI ou SampleConfig.work_function_eV avant chargement."
+            )
         load_result = orchestrator.load(
             path,
             prepared.entry,

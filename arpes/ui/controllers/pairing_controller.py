@@ -18,6 +18,7 @@ from arpes.io.file_pairing import (
     find_bms_for_fs,
     find_fs_for_bm,
 )
+from arpes.core.sample import work_function_for_entry
 from arpes.physics.bm_cut_overlay import compute_bm_cut_in_fs_frame
 
 
@@ -191,10 +192,18 @@ class PairingController:
             raw = getattr(self._parent, "_raw_data", None)
             fs_metadata = (raw or {}).get("metadata", {}) if raw else {}
         if work_func is None:
+            fallback = float(getattr(self._session, "work_func", 0.0) or 0.0)
             try:
-                work_func = float(self._params.sp_phi.value())
+                fallback = float(self._params.sp_phi.value())
             except Exception:
-                work_func = 4.031
+                pass
+            work_func = work_function_for_entry(
+                self._session,
+                fs_entry,
+                fallback=fallback,
+            )
+        if float(work_func or 0.0) <= 0.0:
+            return []
         bms = find_bms_for_fs(
             fs_entry, fs_path, _normalized_augmented_files(self._session),
             criteria or self._user_criteria(),

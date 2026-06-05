@@ -19,6 +19,10 @@ from arpes.core.sample import SampleConfig, sample_for_entry, work_function_for_
 
 
 class TestSessionManager(unittest.TestCase):
+    def test_session_default_work_function_is_unknown(self):
+        session = Session()
+        self.assertEqual(session.work_func, 0.0)
+
     def test_session_round_trip_preserves_existing_json_shape(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -144,6 +148,21 @@ class TestSessionManager(unittest.TestCase):
             self.assertEqual(entry.fit_params.n_pairs, 1)
             self.assertEqual(entry.meta.hv, 100.0)
             self.assertEqual(entry.fit_result["gamma"], [[0.04]])
+            self.assertEqual(session.work_func, 4.031)
+
+    def test_legacy_session_without_work_func_loads_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".arpes_session.json"
+            path.write_text(json.dumps({
+                "version": 1,
+                "folder": str(root),
+                "files": {"old": {"meta": {"hv": 100.0}}},
+            }))
+
+            session = Session(root)
+            session.load(path)
+            self.assertEqual(session.work_func, 0.0)
 
     def test_sample_config_round_trip_and_legacy_meta_merge(self):
         with tempfile.TemporaryDirectory() as tmp:

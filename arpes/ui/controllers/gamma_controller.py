@@ -82,7 +82,7 @@ class GammaController:
             setattr(self._parent, name, value)
 
     def _work_func(self) -> float:
-        fallback = 4.031
+        fallback = float(getattr(self._session, "work_func", 0.0) or 0.0)
         try:
             if hasattr(self._params, "sp_phi"):
                 fallback = float(self._params.sp_phi.value())

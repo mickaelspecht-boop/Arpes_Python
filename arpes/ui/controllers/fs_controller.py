@@ -25,7 +25,7 @@ class FSController:
         return work_function_for_entry(
             self._session,
             self._current_entry(),
-            fallback=float(getattr(self._session, "work_func", 4.031)),
+            fallback=float(getattr(self._session, "work_func", 0.0) or 0.0),
         )
 
     def _current_is_fs(self) -> bool:

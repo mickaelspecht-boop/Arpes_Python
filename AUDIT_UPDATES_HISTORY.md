@@ -105,3 +105,26 @@
 - Verification:
   - `python3 -m pytest tests/test_session.py tests/test_gamma.py tests/test_kz.py` -> 59 passed
   - `python3 -m py_compile arpes/ui/controllers/gamma_controller.py arpes/ui/controllers/kz_controller.py arpes/ui/controllers/fs_controller.py` -> passed
+
+## 2026-06-05T04:15:00Z — P1.1 Tranche 7
+
+- Scope: stop treating historical `φ=4.031 eV` as session/UI truth.
+- Files changed:
+  - `arpes/core/session.py`
+  - `arpes/ui/widgets/params_ef.py`
+  - `arpes/ui/controllers/load_controller.py`
+  - `arpes/ui/controllers/gamma_controller.py`
+  - `arpes/ui/controllers/kz_controller.py`
+  - `arpes/ui/controllers/fs_controller.py`
+  - `arpes/ui/controllers/pairing_controller.py`
+  - `tests/test_session.py`
+- Behavior:
+  - New sessions default `work_func=0.0` (unknown), not `4.031`.
+  - Legacy sessions without `work_func` load as unknown; legacy sessions with explicit `work_func` preserve it.
+  - UI φ spinbox starts at `0.0` and documents that physical loading needs φ or `SampleConfig.work_function_eV`.
+  - Raw loading refuses missing φ instead of computing with a hidden default.
+  - Γ/KZ/FS/pairing fallback to session/UI/sample values only; no hardcoded `4.031` remains in those controllers.
+- Verification:
+  - `python3 -m pytest tests/test_session.py tests/test_loader_orchestrator.py tests/test_gamma.py tests/test_kz.py` -> 67 passed
+  - `python3 -m py_compile arpes/ui/controllers/load_controller.py arpes/ui/controllers/pairing_controller.py arpes/ui/widgets/params_ef.py arpes/ui/controllers/gamma_controller.py arpes/ui/controllers/kz_controller.py arpes/ui/controllers/fs_controller.py` -> passed
+  - `rg -n "4\\.031" <touched files>` -> no matches

@@ -51,8 +51,11 @@ def build_ef_section(panel, lay) -> None:
     grp_session = QGroupBox("Provenance / session")
     fl_session = QFormLayout(grp_session)
 
-    panel.sp_phi = dspin(4.031, 3.0, 6.0, 0.01)
-    panel.sp_phi.setToolTip("Fonction de travail φ (eV). Utilisée pour calculer E_kin → E−EF.")
+    panel.sp_phi = dspin(0.0, 0.0, 7.0, 0.01)
+    panel.sp_phi.setToolTip(
+        "Fonction de travail φ (eV). Utilisée pour calculer E_kin → E−EF.\n"
+        "0 = inconnue : renseigner φ ou SampleConfig.work_function_eV avant chargement physique."
+    )
     panel.sp_hv = dspin(0.0, 0.0, 500.0, 0.01, dec=4)
     panel.sp_hv.setFixedWidth(96)
     panel.sp_hv.setToolTip(
