@@ -35,9 +35,10 @@ except Exception:  # pragma: no cover
 class TestFSParamsDefaults(unittest.TestCase):
     def test_defaults(self):
         p = FSParams()
-        self.assertAlmostEqual(p.a_lattice, 3.96)
-        self.assertAlmostEqual(p.b_lattice, 3.96)
+        self.assertAlmostEqual(p.a_lattice, 0.0)
+        self.assertAlmostEqual(p.b_lattice, 0.0)
         self.assertAlmostEqual(p.ef_window, 0.030)
+        self.assertAlmostEqual(p.ef_resolution_meV, 0.0)
         self.assertEqual(p.cmap, "inferno")
         self.assertTrue(p.normalize_profile)
         self.assertTrue(p.overlay_bz)
@@ -107,6 +108,37 @@ class TestExtractFSMap(unittest.TestCase):
         self.assertEqual(fs.shape, (len(ky), len(kx)))
         self.assertTrue(np.all(fs >= 0) and np.all(fs <= 1.0 + 1e-9))
         self.assertIn("synthetic", title)
+        self.assertIn("boxcar EF", title)
+
+    def test_asymmetric_ef_window_is_reported(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        ev = np.linspace(-0.005, 0.080, ev.size)
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        params = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False)
+        _kx_o, _ky_o, _fs, title = extract_fs_map(raw, params)
+        self.assertIn("EF window asymétrique", title)
+
+    def test_resolution_weighted_ef_integration_is_reported(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        params = FSParams(
+            ef_window=0.050, ef_resolution_meV=15.0, temperature_K=20.0,
+            smooth_sigma=0.0, normalize_profile=False,
+        )
+        _kx_o, _ky_o, _fs, title = extract_fs_map(raw, params)
+        self.assertIn("Fermi/resolution weighted EF", title)
 
     def test_fallback_BM_when_no_volume(self):
         kx = np.linspace(-1.0, 1.0, 30)

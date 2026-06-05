@@ -28,6 +28,8 @@ class FSParams:
     a_lattice: float = 0.0
     b_lattice: float = 0.0
     ef_window: float = 0.030
+    ef_resolution_meV: float = 0.0
+    temperature_K: float = 0.0
     norm_ref_lo: float = -0.60
     norm_ref_hi: float = -0.20
     smooth_sigma: float = 1.0
@@ -49,6 +51,45 @@ class FSParams:
     overlay_bz_crystal: bool = False   # afficher polygone BZ cristal
     overlay_hs_crystal: bool = False   # afficher labels HS cristal
     mp_id: str = ""                    # Materials Project ID (read-only ici)
+
+
+def _ef_window_mask_and_warning(ev: np.ndarray, ef_window: float) -> tuple[np.ndarray, str]:
+    e = np.asarray(ev, dtype=float)
+    mask = np.abs(e) <= float(ef_window)
+    if mask.sum() == 0:
+        mask[np.argmin(np.abs(e))] = True
+        return mask, "EF window vide: point énergie le plus proche utilisé"
+    e_sel = e[mask]
+    has_below = bool(np.any(e_sel < 0))
+    has_above = bool(np.any(e_sel > 0))
+    lo = float(np.nanmin(e_sel))
+    hi = float(np.nanmax(e_sel))
+    tol = max(1e-12, 0.25 * float(ef_window))
+    if not has_below or not has_above or abs(lo + hi) > tol:
+        return mask, f"EF window asymétrique [{lo:+.3f},{hi:+.3f}] eV"
+    return mask, ""
+
+
+def _ef_integrate(data: np.ndarray, ev: np.ndarray, mask: np.ndarray, params: FSParams, axis: int):
+    """Integrate near EF; optionally use Fermi-Dirac/resolution weighting."""
+    subset = np.take(data, np.where(mask)[0], axis=axis)
+    e = np.asarray(ev, dtype=float)[mask]
+    sigma_res = max(0.0, float(params.ef_resolution_meV)) / 1000.0
+    kbt = 8.617333262e-5 * max(0.0, float(params.temperature_K))
+    sigma = float(np.hypot(sigma_res, 3.5 * kbt))
+    if sigma <= 0:
+        return np.nanmean(subset, axis=axis), "boxcar EF"
+    weights = np.exp(-0.5 * (e / sigma) ** 2)
+    if not np.isfinite(weights).any() or float(np.nansum(weights)) <= 0:
+        return np.nanmean(subset, axis=axis), "boxcar EF"
+    shape = [1] * subset.ndim
+    shape[axis] = weights.size
+    w = weights.reshape(shape)
+    num = np.nansum(subset * w, axis=axis)
+    den = np.nansum(np.where(np.isfinite(subset), w, 0.0), axis=axis)
+    out = np.full_like(num, np.nan, dtype=float)
+    np.divide(num, den, out=out, where=den > 0)
+    return out, "Fermi/resolution weighted EF"
 
 def _robust_norm(img: np.ndarray) -> np.ndarray:
     """Normalise une image 2D vers [0,1].
@@ -89,10 +130,10 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
         data = np.asarray(raw_data["data"], dtype=float)
         ev = np.asarray(raw_data["ev_arr"], dtype=float)
         kx = np.asarray(raw_data["kpar"], dtype=float)
-        mask = np.abs(ev) <= params.ef_window
-        if mask.sum() == 0: mask[np.argmin(np.abs(ev))] = True
-        mdc = np.nanmean(data[:, mask], axis=1)
-        return kx, np.array([0.0]), _robust_norm(mdc[None, :]), "Pas de volume FS: MDC à EF seulement"
+        mask, warn = _ef_window_mask_and_warning(ev, params.ef_window)
+        mdc, ef_note = _ef_integrate(data, ev, mask, params, axis=1)
+        suffix = f" | {ef_note}" + (f" | {warn}" if warn else "")
+        return kx, np.array([0.0]), _robust_norm(mdc[None, :]), "Pas de volume FS: MDC à EF seulement" + suffix
 
     fs_data = np.asarray(fs_data, dtype=float)  # attendu (ny, nx, ne)
     kx = np.asarray(meta.get("fs_kx"), dtype=float)
@@ -103,9 +144,8 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
     if fs_data.shape[-1] != len(ev):
         raise ValueError("Volume FS: dernier axe ≠ énergie")
 
-    mask = np.abs(ev) <= params.ef_window
-    if mask.sum() == 0: mask[np.argmin(np.abs(ev))] = True
-    fs = np.nanmean(fs_data[:, :, mask], axis=2)
+    mask, ef_warn = _ef_window_mask_and_warning(ev, params.ef_window)
+    fs, ef_note = _ef_integrate(fs_data, ev, mask, params, axis=2)
 
     norm_note = "sans norm"
     if params.normalize_profile:
@@ -127,7 +167,8 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
 
     # CLS: ky est souvent tilt en degrés. On l'affiche tel quel sauf si l'utilisateur recentre.
     source = meta.get("fs_source", raw_data.get("source_format", ""))
-    return kx, ky, fs_n, f"FS {source} — ±{params.ef_window*1000:.0f} meV | {norm_note}"
+    warn_note = f" | {ef_warn}" if ef_warn else ""
+    return kx, ky, fs_n, f"FS {source} — ±{params.ef_window*1000:.0f} meV | {ef_note}{warn_note} | {norm_note}"
 
 
 def _axis_signature(axis: Any) -> tuple:
@@ -166,4 +207,3 @@ def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
         round(float(params.smooth_sigma), 8),
         bool(params.normalize_profile),
     )
-

@@ -187,3 +187,18 @@
 - Verification:
   - `python3 -m pytest tests/test_analysis_results.py tests/test_analysis_bootstrap.py tests/test_pocket.py` -> 52 passed
   - `python3 -m py_compile arpes/analysis/results.py arpes/analysis/bootstrap.py arpes/physics/pocket.py` -> passed
+
+## 2026-06-05T05:15:00Z — P1.4
+
+- Scope: make EF-window integration explicit and warn on asymmetric windows.
+- Files changed:
+  - `arpes/physics/fs.py`
+  - `tests/test_fs.py`
+- Behavior:
+  - FS extraction now reports empty/asymmetric EF integration windows in the title.
+  - `FSParams` adds `ef_resolution_meV` and `temperature_K`.
+  - If resolution/temperature are provided, EF integration uses Fermi/resolution weighting; otherwise it reports boxcar EF integration.
+- Verification:
+  - `python3 -m pytest tests/test_fs.py` -> 2 passed, 17 skipped
+  - `python3 -m py_compile arpes/physics/fs.py` -> passed
+  - Pure `extract_fs_map` smoke command -> asymmetric warning and Fermi/resolution title asserted
