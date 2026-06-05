@@ -92,6 +92,9 @@ class TestExtractBranchResult:
         # 15 % tolérance pour propagation kF·vF avec slope bruité
         assert abs(br.m_star_over_me - m_expected) < 0.15 * m_expected
         assert br.luttinger_density_pi_a2 > 0
+        assert br.luttinger_units == "A^-2"
+        expected_luttinger = 2.0 * kF_A ** 2 / (2.0 * math.pi)
+        assert br.luttinger_density_pi_a2 == pytest.approx(expected_luttinger, rel=0.2)
 
     def test_too_few_points_returns_empty(self):
         fr = _synthetic_fit_result(n=5)

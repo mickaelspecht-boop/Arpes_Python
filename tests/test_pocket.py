@@ -323,6 +323,20 @@ class TestPocketEnrichment(unittest.TestCase):
         self.assertGreater(props.n_carriers_2D, 0.0)
         self.assertGreater(props.topology_rays_used, 0)
 
+    def test_hole_pocket_has_negative_luttinger_sign(self):
+        img, kx, ky = _hole_disk()
+        bz = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+        props = characterize_pocket(
+            img, kx, ky,
+            seed_point=(0.0, 0.0),
+            level=0.5,
+            bz_polygon=bz,
+            hs_points={"Gamma": (0.0, 0.0)},
+            publication=False,
+        )
+        self.assertEqual(props.topology, "hole")
+        self.assertLess(props.n_carriers_2D, 0.0)
+
     def test_characterize_neighbor_pocket_filtered(self):
         kx, ky, x, y = _axes()
         r_main = np.sqrt(x * x + y * y)

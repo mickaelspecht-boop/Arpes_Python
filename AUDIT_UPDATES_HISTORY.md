@@ -169,3 +169,21 @@
 - Verification:
   - `python3 -m pytest tests/test_pocket.py tests/test_pocket_mdc_radial.py` -> 37 passed
   - `python3 -m pytest tests/test_pocket.py tests/test_pocket_mdc_radial.py tests/test_pocket_controller.py tests/test_pocket_quality.py` -> 46 passed, 5 skipped
+
+## 2026-06-05T05:00:00Z — P1.3
+
+- Scope: apply Luttinger spin factor and signed hole-pocket convention.
+- Files changed:
+  - `arpes/analysis/results.py`
+  - `arpes/analysis/bootstrap.py`
+  - `arpes/physics/pocket.py`
+  - `tests/test_analysis_results.py`
+  - `tests/test_analysis_bootstrap.py`
+  - `tests/test_pocket.py`
+- Behavior:
+  - Luttinger density now includes the spin degeneracy factor used by the audit.
+  - Branch/bootstrap payloads include `luttinger_units`.
+  - Hole pockets now report negative `n_carriers_2D`.
+- Verification:
+  - `python3 -m pytest tests/test_analysis_results.py tests/test_analysis_bootstrap.py tests/test_pocket.py` -> 52 passed
+  - `python3 -m py_compile arpes/analysis/results.py arpes/analysis/bootstrap.py arpes/physics/pocket.py` -> passed

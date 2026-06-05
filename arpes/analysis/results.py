@@ -48,6 +48,7 @@ class BranchResult:
     m_star_sigma: float = float("nan")
     luttinger_density_pi_a2: float = float("nan")
     luttinger_density_sigma: float = float("nan")
+    luttinger_units: str = ""
     n_points_used: int = 0
 
 
@@ -204,13 +205,15 @@ def extract_branch_result(
         if math.isfinite(m_star_ratio):
             rel = math.sqrt((sigma_kF_A / kF_A) ** 2 + (sigma_vF_A / vF_A) ** 2)
             sigma_m_star = m_star_ratio * rel
-        # Densité Luttinger 2D : n = kF² / (2π) en Å⁻²
-        luttinger = kF_A ** 2 / (2.0 * math.pi)
-        sigma_luttinger = abs(2.0 * kF_A * sigma_kF_A) / (2.0 * math.pi)
+        # Densité Luttinger 2D avec dégénérescence spin.
+        luttinger = 2.0 * kF_A ** 2 / (2.0 * math.pi)
+        sigma_luttinger = 2.0 * abs(2.0 * kF_A * sigma_kF_A) / (2.0 * math.pi)
+        luttinger_units = "A^-2"
     else:
-        # Densité Luttinger en (π/a)² : n = kF² / (2π)
-        luttinger = (kF ** 2) / (2.0 * math.pi)
-        sigma_luttinger = abs(2.0 * kF * sigma_kF) / (2.0 * math.pi)
+        # Densité Luttinger en unités réduites avec dégénérescence spin.
+        luttinger = 2.0 * (kF ** 2) / (2.0 * math.pi)
+        sigma_luttinger = 2.0 * abs(2.0 * kF * sigma_kF) / (2.0 * math.pi)
+        luttinger_units = "(pi/a)^2"
 
     return BranchResult(
         branch=branch,
@@ -223,6 +226,7 @@ def extract_branch_result(
         m_star_sigma=float(sigma_m_star),
         luttinger_density_pi_a2=float(luttinger),
         luttinger_density_sigma=float(sigma_luttinger),
+        luttinger_units=luttinger_units,
         n_points_used=int(fit.n_points),
     )
 

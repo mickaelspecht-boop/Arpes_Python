@@ -70,6 +70,7 @@ class TestBootstrapBranch:
         )
         assert math.isfinite(res.m_star_over_me)
         assert res.m_star_sigma > 0
+        assert res.luttinger_units == "A^-2"
 
     def test_seed_reproducibility(self):
         fr = _fr_with_outlier(outlier_idx=None)

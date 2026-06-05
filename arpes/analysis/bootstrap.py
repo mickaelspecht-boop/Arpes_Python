@@ -85,6 +85,7 @@ def bootstrap_branch_result(
     m_star_sigma = float("nan")
     luttinger = float("nan")
     luttinger_sigma = float("nan")
+    luttinger_units = ""
     if crystal_a_angstrom > 0:
         a = float(crystal_a_angstrom)
         kF_A_arr = kF_arr * math.pi / a
@@ -94,13 +95,15 @@ def bootstrap_branch_result(
         if ratio.size >= 5:
             m_star = float(np.nanmedian(ratio))
             m_star_sigma = float(0.5 * (np.nanpercentile(ratio, 84) - np.nanpercentile(ratio, 16)))
-        n_arr = (kF_A_arr ** 2) / (2.0 * math.pi)
+        n_arr = 2.0 * (kF_A_arr ** 2) / (2.0 * math.pi)
+        luttinger_units = "A^-2"
         n_arr = n_arr[np.isfinite(n_arr)]
         if n_arr.size >= 5:
             luttinger = float(np.nanmedian(n_arr))
             luttinger_sigma = float(0.5 * (np.nanpercentile(n_arr, 84) - np.nanpercentile(n_arr, 16)))
     else:
-        n_arr = (kF_arr ** 2) / (2.0 * math.pi)
+        n_arr = 2.0 * (kF_arr ** 2) / (2.0 * math.pi)
+        luttinger_units = "(pi/a)^2"
         n_arr = n_arr[np.isfinite(n_arr)]
         if n_arr.size >= 5:
             luttinger = float(np.nanmedian(n_arr))
@@ -117,6 +120,7 @@ def bootstrap_branch_result(
         m_star_sigma=m_star_sigma,
         luttinger_density_pi_a2=luttinger,
         luttinger_density_sigma=luttinger_sigma,
+        luttinger_units=luttinger_units,
         n_points_used=n,
         n_iter=len(kF_samples),
     )

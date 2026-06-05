@@ -463,6 +463,8 @@ def _properties_from_contour(
         ecc = float("nan")
     curv_mean, curv_var = pocket_curvature(contour)
     n_carriers = luttinger_count(area, bz_area, n_bands=n_bands, spin=spin)
+    if topology == "hole" and np.isfinite(n_carriers):
+        n_carriers = -abs(n_carriers)
     return PocketProperties(
         centroid_kx=float(center[0]),
         centroid_ky=float(center[1]),
