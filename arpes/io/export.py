@@ -5,6 +5,8 @@ from typing import Any
 import csv
 import numpy as np
 
+from arpes.core.sample import require_lattice_a, sample_for_entry
+
 
 BASE_RESULT_COLUMNS = [
     "file",
@@ -86,7 +88,7 @@ def physics_rows(session, *, e_window_kF: float = 0.10, e_window_gamma: float = 
     """Produit une ligne par (fichier, paire, branche) avec résultats physiques ± σ.
 
     Utilise ``arpes.analysis.results.compute_results`` avec ``crystal_a`` lu
-    depuis ``entry.meta.crystal_a_angstrom`` (fallback 4.143 Å si non défini).
+    depuis ``SampleConfig``. Refuse l'export physique si la maille manque.
     """
     from arpes.analysis.results import compute_results
     import math
@@ -95,9 +97,8 @@ def physics_rows(session, *, e_window_kF: float = 0.10, e_window_gamma: float = 
         if entry.fit_result is None:
             continue
         meta = entry.meta
-        a_val = float(getattr(meta, "crystal_a_angstrom", 0.0) or 0.0)
-        if a_val <= 0:
-            a_val = 4.143
+        sample = sample_for_entry(session, entry)
+        a_val = require_lattice_a(sample, context=name)
         bundle = compute_results(
             entry.fit_result,
             e_window_kF=e_window_kF, e_window_gamma=e_window_gamma,
@@ -112,8 +113,8 @@ def physics_rows(session, *, e_window_kF: float = 0.10, e_window_gamma: float = 
             asym = asym_by_pair.get(br.pair_index)
             row = {
                 "file": name, "hv": meta.hv, "T_K": meta.temperature,
-                "direction": meta.direction, "formula": meta.formula,
-                "mp_id": meta.mp_id, "crystal_a_angstrom": a_val,
+                "direction": meta.direction, "formula": sample.formula,
+                "mp_id": sample.mp_id, "crystal_a_angstrom": a_val,
                 "pair": br.pair_index + 1,
                 "branch": br.branch.replace("kF_", ""),
                 "n_points": br.n_points_used,

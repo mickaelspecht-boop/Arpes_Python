@@ -7,6 +7,7 @@ from typing import Iterable
 import numpy as np
 
 from arpes.analysis.results import compute_results
+from arpes.core.sample import require_lattice_a, sample_for_entry
 from arpes.core.session import FileEntry, Session
 from arpes.theory.models import normalize_direction_label
 
@@ -38,7 +39,7 @@ def aggregate_session_entries(
     *,
     x_axis: str = "T (K)",
     direction_filter: str = "",
-    crystal_a_default: float = 4.143,
+    crystal_a_default: float = 0.0,
 ) -> MultiFileSeries:
     """Extrait kF, m*, Γ0 pour une sélection d'entries de session."""
     selected = list(filenames) if filenames is not None else list(session.files)
@@ -58,9 +59,16 @@ def aggregate_session_entries(
             if norm_filter not in direction:
                 skipped += 1
                 continue
-        a_val = float(entry.meta.crystal_a_angstrom or crystal_a_default or 0.0)
-        if a_val > 0:
-            a_values.add(round(a_val, 6))
+        sample = sample_for_entry(session, entry)
+        if crystal_a_default and not sample.has_lattice_a:
+            sample = sample.merge_missing_from(type(sample)(a_angstrom=float(crystal_a_default)))
+        try:
+            a_val = require_lattice_a(sample, context=name)
+        except ValueError as exc:
+            skipped += 1
+            warnings.append(str(exc))
+            continue
+        a_values.add(round(a_val, 6))
         point = _point_from_entry(
             name, entry, x_axis=x_axis, a_val=a_val,
             category_map=category_map,

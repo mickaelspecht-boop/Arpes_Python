@@ -32,3 +32,24 @@
 - Verification:
   - `python3 -m pytest tests/test_loader_orchestrator.py tests/test_session.py` -> 15 passed
   - `python3 -m pytest tests/test_load_cache.py tests/test_loader_orchestrator.py` -> 6 passed, 10 skipped
+
+## 2026-06-05T03:35:00Z — P1.1 Tranche 3
+
+- Scope: remove silent `4.143 Å` fallback from publishable physics exports/aggregation.
+- Files changed:
+  - `arpes/core/sample.py`
+  - `arpes/io/export.py`
+  - `arpes/analysis/aggregation.py`
+  - `arpes/ui/widgets/results.py`
+  - `tests/test_export.py`
+  - `tests/test_multifile_aggregation.py`
+- Behavior:
+  - Added `require_lattice_a` for user-facing refusal when lattice `a` is missing.
+  - `physics_rows` now reads `SampleConfig` and raises instead of using BaNi-like fallback.
+  - Multi-file aggregation skips entries without lattice `a` and records a warning.
+  - Results panel displays an explicit missing-lattice row instead of silently computing with fallback.
+  - Physics export dialog shows the missing-lattice error without writing a file.
+- Verification:
+  - `python3 -m pytest tests/test_export.py tests/test_multifile_aggregation.py tests/test_session.py` -> 18 passed
+  - `python3 -m pytest tests/test_ui_smoke.py` -> 16 skipped
+  - `python3 -m pytest tests/test_export.py tests/test_multifile_aggregation.py tests/test_session.py tests/test_analysis_results.py` -> 33 passed

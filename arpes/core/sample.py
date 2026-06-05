@@ -101,3 +101,14 @@ def sample_for_entry(session: Any, entry: Any) -> SampleConfig:
     file_sample = SampleConfig.from_meta(getattr(entry, "meta", None))
     session_sample = SampleConfig.from_dict(getattr(session, "current_sample", {}) or {})
     return file_sample.merge_missing_from(session_sample)
+
+
+def require_lattice_a(sample: SampleConfig, *, context: str = "sample") -> float:
+    """Return lattice a or raise a user-facing error for publishable physics."""
+    if sample.has_lattice_a:
+        return float(sample.a_angstrom)
+    label = _text(sample.formula or sample.mp_id or context) or context
+    raise ValueError(
+        f"Paramètre de maille a manquant pour {label}. "
+        "Renseigne crystal_a_angstrom/SampleConfig avant un calcul physique publiable."
+    )

@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from arpes.analysis.results import compute_results
+from arpes.core.sample import require_lattice_a, sample_for_entry
 from arpes.core.session import Session
 from arpes.io.export import (
     physics_rows,
@@ -35,9 +36,6 @@ from arpes.io.export import (
 )
 from arpes.io.export_styles import PRESETS, savefig_with_preset
 from arpes.ui.widgets.canvas import MplCanvas
-
-DEFAULT_CRYSTAL_A_ANGSTROM = 4.143  # Fallback BaNi₂As₂ si meta.crystal_a_angstrom = 0.
-
 
 class ResultsPanel(QWidget):
     def __init__(self, session: Session):
@@ -277,9 +275,15 @@ class ResultsPanel(QWidget):
                     color=color, alpha=alpha, zorder=2)
 
     def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
-        a_val = float(getattr(meta, "crystal_a_angstrom", 0.0) or 0.0)
-        if a_val <= 0:
-            a_val = DEFAULT_CRYSTAL_A_ANGSTROM
+        entry = self._session.files.get(filename)
+        try:
+            a_val = require_lattice_a(sample_for_entry(self._session, entry), context=filename)
+        except ValueError as exc:
+            row = self._table_phys.rowCount()
+            self._table_phys.insertRow(row)
+            for col, val in enumerate([filename, "a manquant", str(exc), "—", "—", "—"]):
+                self._table_phys.setItem(row, col, QTableWidgetItem(val))
+            return
         bundle = compute_results(
             fr, e_window_kF=0.10, e_window_gamma=0.30,
             crystal_a_angstrom=a_val,
@@ -443,8 +447,13 @@ class ResultsPanel(QWidget):
         dlg = ExportDialog(self)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
-        rows = (physics_rows(self._session) if dlg.content_key == "physics"
-                else result_rows(self._session))
+        try:
+            rows = (physics_rows(self._session) if dlg.content_key == "physics"
+                    else result_rows(self._session))
+        except ValueError as exc:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Export", str(exc))
+            return
         if not rows:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(self, "Export", "Aucun résultat à exporter.")
@@ -532,4 +541,3 @@ class ResultsPanel(QWidget):
             meta_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
         except Exception:
             pass
-

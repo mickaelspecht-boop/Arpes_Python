@@ -55,17 +55,30 @@ class TestMultiFileAggregation(unittest.TestCase):
         session = Session()
         session.files["LH"] = FileEntry(
             fit_result=_fit_result(),
-            meta=FileMeta(temperature=10.0, polarization="LH"),
+            meta=FileMeta(temperature=10.0, polarization="LH", crystal_a_angstrom=4.0),
         )
         session.files["LV"] = FileEntry(
             fit_result=_fit_result(),
-            meta=FileMeta(temperature=10.0, polarization="LV"),
+            meta=FileMeta(temperature=10.0, polarization="LV", crystal_a_angstrom=4.0),
         )
 
         series = aggregate_session_entries(session, x_axis="polarisation")
 
         self.assertEqual([p.x_label for p in series.points], ["LH", "LV"])
         self.assertEqual([p.x_value for p in series.points], [0.0, 1.0])
+
+    def test_aggregate_skips_physics_when_lattice_missing(self):
+        session = Session()
+        session.files["missing_a"] = FileEntry(
+            fit_result=_fit_result(),
+            meta=FileMeta(temperature=10.0, polarization="LH"),
+        )
+
+        series = aggregate_session_entries(session, x_axis="T (K)")
+
+        self.assertEqual(series.points, ())
+        self.assertEqual(series.skipped, 1)
+        self.assertIn("Paramètre de maille a manquant", series.warning)
 
 
 if __name__ == "__main__":

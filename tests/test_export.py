@@ -7,7 +7,13 @@ from pathlib import Path
 
 import numpy as np
 
-from arpes.io.export import BASE_RESULT_COLUMNS, result_columns, result_rows, write_results_csv
+from arpes.io.export import (
+    BASE_RESULT_COLUMNS,
+    physics_rows,
+    result_columns,
+    result_rows,
+    write_results_csv,
+)
 from arpes.core.session import FileEntry, FileMeta, FitParams, Session
 
 
@@ -78,6 +84,20 @@ class TestResultsExport(unittest.TestCase):
         self.assertEqual(len(out), 2)
         self.assertEqual(out[0]["file"], "fit")
         self.assertIn("gamma_brut_1", out[0])
+
+    def test_physics_rows_requires_lattice_a(self):
+        with self.assertRaisesRegex(ValueError, "Paramètre de maille a manquant"):
+            physics_rows(self._session_with_fit())
+
+    def test_physics_rows_uses_sample_config_lattice(self):
+        session = self._session_with_fit()
+        entry = session.files["fit"]
+        entry.meta.formula = "Bi2Se3"
+        entry.meta.crystal_a_angstrom = 4.14
+        rows = physics_rows(session)
+        self.assertTrue(rows)
+        self.assertEqual(rows[0]["formula"], "Bi2Se3")
+        self.assertAlmostEqual(rows[0]["crystal_a_angstrom"], 4.14)
 
 
 if __name__ == "__main__":
