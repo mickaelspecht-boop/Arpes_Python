@@ -155,3 +155,17 @@
   - `python3 -m pytest tests/test_loader_orchestrator.py tests/test_loaders_integration.py tests/test_arpes_io.py tests/test_kz_dataset.py tests/test_resolution.py` -> 22 passed, 9 skipped
   - `python3 -m py_compile <touched modules>` -> passed
   - `rg -n "3\\.96|4\\.031" arpes/physics arpes/io arpes/ui` -> no matches
+
+## 2026-06-05T04:45:00Z — P1.2
+
+- Scope: make pocket characterization prefer publication-grade MDC-radial kF.
+- Files changed:
+  - `arpes/physics/pocket.py`
+  - `tests/test_pocket.py`
+- Behavior:
+  - `characterize_pocket` tries radial MDC Lorentzian fits first in publication mode.
+  - Iso-contour remains fallback/preview when MDC fails or gives a sub-grid radius.
+  - `PocketProperties` now records `analysis_mode`, `mdc_valid_directions`, and `mdc_total_directions`.
+- Verification:
+  - `python3 -m pytest tests/test_pocket.py tests/test_pocket_mdc_radial.py` -> 37 passed
+  - `python3 -m pytest tests/test_pocket.py tests/test_pocket_mdc_radial.py tests/test_pocket_controller.py tests/test_pocket_quality.py` -> 46 passed, 5 skipped

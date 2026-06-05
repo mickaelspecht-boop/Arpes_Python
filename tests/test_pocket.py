@@ -41,6 +41,15 @@ def _hole_disk(radius: float = 0.6):
     return 1.0 - img, kx, ky
 
 
+def _lorentzian_ring(n: int = 161, radius: float = 0.45, gamma: float = 0.04):
+    kx = np.linspace(-1.2, 1.2, n)
+    ky = np.linspace(-1.2, 1.2, n)
+    x, y = np.meshgrid(kx, ky)
+    r = np.sqrt(x * x + y * y)
+    img = gamma * gamma / ((r - radius) ** 2 + gamma * gamma)
+    return img, kx, ky
+
+
 def _rotated_ellipse(a: float, b: float, angle_deg: float, n: int = 361):
     t = np.linspace(0, 2 * np.pi, n)
     ca = math.cos(math.radians(angle_deg))
@@ -202,6 +211,25 @@ class TestPocketGeometry(unittest.TestCase):
 
 
 class TestCharacterizePocket(unittest.TestCase):
+    def test_characterize_uses_mdc_radial_for_publication_ring(self):
+        img, kx, ky = _lorentzian_ring(radius=0.45)
+        bz = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+        props = characterize_pocket(
+            img, kx, ky,
+            seed_point=(0.0, 0.0),
+            level=0.5,
+            bz_polygon=bz,
+            hs_points={"Gamma": (0.0, 0.0)},
+            publication=True,
+            mdc_n_directions=24,
+            mdc_r_max=0.9,
+            mdc_r2_min=0.4,
+        )
+
+        self.assertEqual(props.analysis_mode, "mdc_radial")
+        self.assertGreater(props.mdc_valid_directions, 12)
+        self.assertAlmostEqual(props.kF_mean, 0.45, delta=0.05)
+
     def test_characterize_electron_disk(self):
         img, kx, ky = _electron_disk()
         bz = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
@@ -359,7 +387,7 @@ class TestPocketBootstrap(unittest.TestCase):
             rng=np.random.default_rng(0),
         )
         self.assertEqual(bs.n_valid, 5)
-        self.assertEqual(bs.std["kF_mean"], 0.0)
+        self.assertAlmostEqual(bs.std["kF_mean"], 0.0, delta=1e-12)
         self.assertEqual(bs.std["area_inv_a2"], 0.0)
 
 

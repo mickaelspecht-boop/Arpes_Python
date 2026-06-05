@@ -46,6 +46,9 @@ class PocketProperties:
     curvature_var: float = float("nan")
     n_carriers_2D: float = float("nan")
     topology_rays_used: int = 0
+    analysis_mode: str = "unknown"
+    mdc_valid_directions: int = 0
+    mdc_total_directions: int = 0
 
     def asdict(self) -> dict:
         """Return a JSON-ready representation for session persistence."""
@@ -416,27 +419,25 @@ def assign_hs_label(
     return best_label, best_dist
 
 
-def characterize_pocket(
+def _properties_from_contour(
     image,
     kx,
     ky,
+    contour: np.ndarray,
     *,
-    seed_point: tuple[float, float],
-    level: float,
     bz_polygon,
     hs_points: HsPointMap,
-    contour_window: int = 9,
-    n_bands: int = 1,
-    spin: int = 2,
-    hs_dir_x_deg: float = 0.0,
-    hs_dir_m_deg: float = 45.0,
-    hs_dir_tol_deg: float = 10.0,
+    n_bands: int,
+    spin: int,
+    hs_dir_x_deg: float,
+    hs_dir_m_deg: float,
+    hs_dir_tol_deg: float,
+    analysis_mode: str,
+    mdc_valid_directions: int = 0,
+    mdc_total_directions: int = 0,
 ) -> PocketProperties:
-    """Complete pocket characterization pipeline."""
-    contour = smooth_closed_contour(
-        extract_fs_contour(image, kx, ky, level, seed_point=seed_point),
-        window=contour_window,
-    )
+    """Compute pocket metrics once a physical contour has been selected."""
+    contour = _close_contour(np.asarray(contour, dtype=float))
     center = _centroid(contour)
     area = abs(pocket_area(contour))
     bz = np.asarray(bz_polygon, dtype=float)
@@ -483,6 +484,87 @@ def characterize_pocket(
         curvature_var=float(curv_var),
         n_carriers_2D=float(n_carriers),
         topology_rays_used=int(rays_used),
+        analysis_mode=str(analysis_mode),
+        mdc_valid_directions=int(mdc_valid_directions),
+        mdc_total_directions=int(mdc_total_directions),
+    )
+
+
+def characterize_pocket(
+    image,
+    kx,
+    ky,
+    *,
+    seed_point: tuple[float, float],
+    level: float,
+    bz_polygon,
+    hs_points: HsPointMap,
+    contour_window: int = 9,
+    n_bands: int = 1,
+    spin: int = 2,
+    hs_dir_x_deg: float = 0.0,
+    hs_dir_m_deg: float = 45.0,
+    hs_dir_tol_deg: float = 10.0,
+    publication: bool = True,
+    mdc_n_directions: int = 36,
+    mdc_r_max: float | None = None,
+    mdc_n_points: int = 64,
+    mdc_r2_min: float = 0.5,
+) -> PocketProperties:
+    """Complete pocket characterization pipeline.
+
+    In publication mode, kF is extracted by radial MDC fits. The old
+    iso-contour path remains as a preview fallback because it depends on an
+    arbitrary intensity level.
+    """
+    if publication:
+        try:
+            from arpes.physics.pocket_mdc_radial import characterize_pocket_mdc_radial
+
+            contour, mdc_results, _center = characterize_pocket_mdc_radial(
+                image, kx, ky,
+                seed_point=seed_point,
+                n_directions=mdc_n_directions,
+                r_max=mdc_r_max,
+                n_points=mdc_n_points,
+                r2_min=mdc_r2_min,
+                refine_center=True,
+            )
+            props = _properties_from_contour(
+                image, kx, ky, contour,
+                bz_polygon=bz_polygon,
+                hs_points=hs_points,
+                n_bands=n_bands,
+                spin=spin,
+                hs_dir_x_deg=hs_dir_x_deg,
+                hs_dir_m_deg=hs_dir_m_deg,
+                hs_dir_tol_deg=hs_dir_tol_deg,
+                analysis_mode="mdc_radial",
+                mdc_valid_directions=sum(1 for r in mdc_results if r.ok),
+                mdc_total_directions=len(mdc_results),
+            )
+            dx = float(np.nanmedian(np.diff(np.asarray(kx, dtype=float))))
+            dy = float(np.nanmedian(np.diff(np.asarray(ky, dtype=float))))
+            if props.kF_mean <= 3.0 * max(abs(dx), abs(dy)):
+                raise ValueError("MDC-radial : rayon trop proche du pas de grille.")
+            return props
+        except Exception:
+            pass
+
+    contour = smooth_closed_contour(
+        extract_fs_contour(image, kx, ky, level, seed_point=seed_point),
+        window=contour_window,
+    )
+    return _properties_from_contour(
+        image, kx, ky, contour,
+        bz_polygon=bz_polygon,
+        hs_points=hs_points,
+        n_bands=n_bands,
+        spin=spin,
+        hs_dir_x_deg=hs_dir_x_deg,
+        hs_dir_m_deg=hs_dir_m_deg,
+        hs_dir_tol_deg=hs_dir_tol_deg,
+        analysis_mode="isocontour_preview" if publication else "isocontour_preview",
     )
 
 
