@@ -26,11 +26,13 @@ from arpes.analysis.results import compute_results
 from arpes.core.sample import require_lattice_a, sample_for_entry
 from arpes.core.session import Session
 from arpes.io.export import (
+    export_provenance,
     physics_rows,
     physics_to_latex,
     result_rows,
     write_physics_csv,
     write_physics_txt,
+    write_provenance_sidecar,
     write_results_csv,
     write_results_txt,
 )
@@ -472,13 +474,14 @@ class ResultsPanel(QWidget):
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Export", f"Échec écriture : {exc}")
 
-    @staticmethod
-    def _dispatch_export(path: str, rows: list[dict], content: str, fmt: str) -> None:
+    def _dispatch_export(self, path: str, rows: list[dict], content: str, fmt: str) -> None:
         if fmt == "csv":
+            provenance = export_provenance(self._session, content=content)
             if content == "physics":
-                write_physics_csv(path, rows)
+                write_physics_csv(path, rows, provenance=provenance)
             else:
-                write_results_csv(path, rows)
+                write_results_csv(path, rows, provenance=provenance)
+            write_provenance_sidecar(path, provenance)
         elif fmt == "txt":
             if content == "physics":
                 write_physics_txt(path, rows)
@@ -526,11 +529,17 @@ class ResultsPanel(QWidget):
                 "formula": str(getattr(m, "formula", "") or ""),
                 "mp_id": str(getattr(m, "mp_id", "") or ""),
                 "crystal_a_angstrom": float(getattr(m, "crystal_a_angstrom", 0.0) or 0.0),
+                "sample_config": sample_for_entry(self._session, entry).to_dict(),
                 "ef_offset": float(getattr(entry, "ef_offset", 0.0) or 0.0),
                 "fitted": bool(entry.fit_result),
             })
         payload = {
             "figure": Path(fig_path).name,
+            "provenance": export_provenance(
+                self._session,
+                content="figure",
+                file_names=visible,
+            ),
             "export_style": self._cmb_export_style.currentText(),
             "session_folder": str(self._session.folder) if self._session.folder else "",
             "n_files_visible": len(files_meta),

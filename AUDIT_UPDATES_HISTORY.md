@@ -202,3 +202,21 @@
   - `python3 -m pytest tests/test_fs.py` -> 2 passed, 17 skipped
   - `python3 -m py_compile arpes/physics/fs.py` -> passed
   - Pure `extract_fs_map` smoke command -> asymmetric warning and Fermi/resolution title asserted
+
+## 2026-06-05T05:35:00Z — P1.5
+
+- Scope: add export provenance for reproducible results and figures.
+- Files changed:
+  - `arpes/io/export.py`
+  - `arpes/ui/widgets/results.py`
+  - `tests/test_export.py`
+- Behavior:
+  - CSV exports from the Results panel now start with audit-required `#` provenance headers.
+  - CSV exports also write a sibling `.meta.json` sidecar for tools that cannot parse comment headers.
+  - Figure `.meta.json` sidecars include provenance limited to the files visible in the exported figure.
+  - Provenance records git commit, session version, UTC timestamp, input hash, input file identity, sample config, fit params, EF corrections, BM distortion, pocket settings, gamma state, angles, hv, temperature, polarization, and instrument/source metadata.
+  - Physics CSV rows now include `luttinger_units`.
+- Verification:
+  - `python3 -m pytest tests/test_export.py tests/test_session.py` -> 22 passed
+  - `python3 -m py_compile arpes/io/export.py arpes/ui/widgets/results.py` -> passed
+  - Subagent review findings addressed: CSV sidecar added; figure provenance filtered to visible files.

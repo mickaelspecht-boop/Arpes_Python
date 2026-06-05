@@ -1,11 +1,18 @@
 """Exports de resultats ARPES sans dependance UI."""
 from __future__ import annotations
 
-from typing import Any
 import csv
+import hashlib
+import json
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 
 from arpes.core.sample import require_lattice_a, sample_for_entry
+from arpes.core.session import Session
 
 
 BASE_RESULT_COLUMNS = [
@@ -77,11 +84,120 @@ PHYSICS_RESULT_COLUMNS = [
     "kF_inv_A", "kF_inv_A_sigma",
     "vF_eV_pi_a", "vF_eV_pi_a_sigma",
     "m_star_over_me", "m_star_over_me_sigma",
-    "luttinger_density", "luttinger_density_sigma",
+    "luttinger_density", "luttinger_density_sigma", "luttinger_units",
     "gamma_zero", "gamma_zero_sigma",
     "coef_E2", "coef_E2_sigma",
     "asym_delta_kF", "asym_delta_kF_sigma", "asym_is_symmetric",
 ]
+
+
+def git_commit_hash(repo_root: str | Path | None = None) -> str:
+    """Return the current git commit hash, or a clear fallback outside git."""
+    cwd = Path(repo_root) if repo_root else Path(__file__).resolve().parents[2]
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(cwd),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except Exception:
+        return "unversioned"
+    return proc.stdout.strip() or "unversioned"
+
+
+def export_timestamp_utc() -> str:
+    """UTC timestamp in ISO-8601 format for reproducible exports."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _resolve_session_file(session, name: str) -> Path:
+    path = Path(name)
+    if not path.is_absolute() and getattr(session, "folder", None):
+        path = Path(session.folder) / path
+    return path
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+def input_fingerprint(session, file_names: list[str] | set[str] | None = None) -> tuple[str, list[dict]]:
+    """Hash the input file identity/mtime/size used by the session."""
+    items: list[dict] = []
+    names = sorted(file_names if file_names is not None else getattr(session, "files", {}))
+    for name in names:
+        path = _resolve_session_file(session, name)
+        record: dict[str, Any] = {
+            "file": name,
+            "path": str(path),
+            "exists": path.exists(),
+        }
+        try:
+            stat = path.stat()
+        except OSError:
+            record.update({"mtime_ns": None, "size": None})
+        else:
+            record.update({"mtime_ns": stat.st_mtime_ns, "size": stat.st_size})
+        items.append(record)
+    payload = json.dumps(items, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest(), items
+
+
+def export_provenance(
+    session,
+    *,
+    content: str = "results",
+    file_names: list[str] | set[str] | None = None,
+) -> dict:
+    """Build machine-readable provenance attached to CSV and figure exports."""
+    files = getattr(session, "files", {})
+    names = sorted(file_names if file_names is not None else files)
+    input_hash, inputs = input_fingerprint(session, names)
+    samples = {
+        name: sample_for_entry(session, entry).to_dict()
+        for name, entry in sorted(files.items())
+        if name in names
+    }
+    file_state = {
+        name: {
+            "hv": getattr(entry.meta, "hv", 0.0),
+            "temperature": getattr(entry.meta, "temperature", 0.0),
+            "polarization": getattr(entry.meta, "polarization", ""),
+            "direction": getattr(entry.meta, "direction", ""),
+            "instrument": getattr(entry.meta, "loader_label", ""),
+            "source_format": getattr(entry.meta, "source_format", ""),
+            "fit_params": _json_safe(getattr(entry.fit_params, "__dict__", {})),
+            "ef_correction": _json_safe(getattr(entry, "ef_correction", {})),
+            "bm_distortion": _json_safe(getattr(entry, "bm_distortion", {})),
+            "pocket_settings": _json_safe(getattr(entry, "fs_pockets", [])),
+            "gamma_state": _json_safe(getattr(entry, "meta_gamma_state", {})),
+            "angle_offsets": _json_safe(getattr(session, "angle_offsets", {})),
+        }
+        for name, entry in sorted(files.items())
+        if name in names
+    }
+    return {
+        "app": "ARPES Explorer",
+        "session_version": getattr(session, "VERSION", Session.VERSION),
+        "git_commit": git_commit_hash(),
+        "timestamp_utc": export_timestamp_utc(),
+        "content": content,
+        "input_hash": input_hash,
+        "inputs": inputs,
+        "sample_config": samples,
+        "files": file_state,
+    }
 
 
 def physics_rows(session, *, e_window_kF: float = 0.10, e_window_gamma: float = 0.30) -> list[dict]:
@@ -124,6 +240,7 @@ def physics_rows(session, *, e_window_kF: float = 0.10, e_window_gamma: float = 
                 "m_star_over_me": br.m_star_over_me, "m_star_over_me_sigma": br.m_star_sigma,
                 "luttinger_density": br.luttinger_density_pi_a2,
                 "luttinger_density_sigma": br.luttinger_density_sigma,
+                "luttinger_units": getattr(br, "luttinger_units", ""),
                 "gamma_zero": g.gamma_zero if g else float("nan"),
                 "gamma_zero_sigma": g.gamma_zero_sigma if g else float("nan"),
                 "coef_E2": g.coef_E2 if g else float("nan"),
@@ -187,10 +304,32 @@ def physics_to_latex(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def write_physics_csv(path: str, rows: list[dict]) -> None:
+def _write_csv_provenance(f, provenance: dict | None) -> None:
+    if not provenance:
+        return
+    compact = json.dumps(provenance, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    f.write(
+        "# ARPES Explorer "
+        f"v{provenance.get('session_version', '?')} "
+        f"commit {provenance.get('git_commit', 'unversioned')} "
+        f"exported {provenance.get('timestamp_utc', '')}\n"
+    )
+    f.write(f"# provenance_json: {compact}\n")
+
+
+def write_provenance_sidecar(path: str, provenance: dict | None) -> None:
+    """Write a .meta.json next to an export for tools that cannot read CSV comments."""
+    if not provenance:
+        return
+    meta_path = Path(path).with_suffix(".meta.json")
+    meta_path.write_text(json.dumps(provenance, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def write_physics_csv(path: str, rows: list[dict], *, provenance: dict | None = None) -> None:
     if not rows:
         return
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        _write_csv_provenance(f, provenance)
         writer = csv.DictWriter(f, fieldnames=PHYSICS_RESULT_COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
@@ -208,10 +347,11 @@ def result_columns(rows: list[dict]) -> list[str]:
     return BASE_RESULT_COLUMNS + dynamic
 
 
-def write_results_csv(path: str, rows: list[dict]) -> None:
+def write_results_csv(path: str, rows: list[dict], *, provenance: dict | None = None) -> None:
     if not rows:
         return
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        _write_csv_provenance(f, provenance)
         writer = csv.DictWriter(f, fieldnames=result_columns(rows))
         writer.writeheader()
         writer.writerows(rows)
