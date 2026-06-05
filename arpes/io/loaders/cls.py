@@ -176,8 +176,8 @@ def _load_cls_fs_volume(folder: Path, prefix: str) -> tuple[np.ndarray, list[int
     return volume, step_ids, n_cycles
 
 
-def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
-                 a_lattice: float = 3.96, hv: float | None = None,
+def load_cls_txt(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
+                 a_lattice: float = 0.0, hv: float | None = None,
                  temperature: float | None = None, azi: float = 0.0, pol: str = "",
                  angle_offsets: dict | None = None,
                  fs_step_mode: str = "mean") -> ARPESData:
@@ -345,7 +345,7 @@ def load_cls_txt(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
 
 
 def _load_cls_from_registry(path, *, work_func: float, ef_offset: float = 0.0,
-                            a_lattice: float = 3.96, hv: float | None = None,
+                            a_lattice: float = 0.0, hv: float | None = None,
                             temperature: float | None = None, azi: float = 0.0,
                             pol: str = "", angle_offsets: dict | None = None,
                             **_: Any) -> ARPESData:

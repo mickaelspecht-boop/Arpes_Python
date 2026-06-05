@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from arpes.core.sample import work_function_for_entry
+from arpes.core.sample import lattice_a_for_entry, work_function_for_entry
 from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.kz import kz_from_hv_kpar, fold_kz_to_1bz
 
@@ -27,6 +27,9 @@ class FSController:
             self._current_entry(),
             fallback=float(getattr(self._session, "work_func", 0.0) or 0.0),
         )
+
+    def _lattice_a(self) -> float:
+        return lattice_a_for_entry(self._session, self._current_entry(), fallback=0.0)
 
     def _current_is_fs(self) -> bool:
         meta = (self._raw_data or {}).get("metadata", {}) or {}
@@ -332,7 +335,7 @@ class FSController:
             kz_arr = kz_from_hv_kpar(
                 hv, np.array([0.0]),
                 work_func=self._work_func(), inner_potential=float(p.v0_eV),
-                a_lattice=float(p.a_lattice or 3.96),
+                a_lattice=float(p.a_lattice or self._lattice_a() or 0.0),
                 energy=0.0,
             )
             kz_val = float(kz_arr[0])

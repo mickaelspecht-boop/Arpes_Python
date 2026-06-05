@@ -148,8 +148,8 @@ def _is_bessy_ses_ibw(path: Path) -> bool:
     return b"[SES]" in note and b"Instrument=R8000" in note
 
 
-def load_bessy_ses_ibw(path, *, work_func: float = 4.031, ef_offset: float = 0.0,
-                       a_lattice: float = 3.96, hv: float | None = None,
+def load_bessy_ses_ibw(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
+                       a_lattice: float = 0.0, hv: float | None = None,
                        temperature: float | None = None, azi: float = 0.0,
                        pol: str = "", angle_offsets: dict | None = None,
                        bessy_energy_reference: str = "auto") -> ARPESData:

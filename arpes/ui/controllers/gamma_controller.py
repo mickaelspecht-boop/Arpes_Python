@@ -5,7 +5,7 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
-from arpes.core.sample import work_function_for_entry
+from arpes.core.sample import lattice_a_for_entry, work_function_for_entry
 from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.gamma import (
     apply_bm_gamma_axis_shift as _gamma_apply_bm_axis_shift,
@@ -94,6 +94,9 @@ class GammaController:
             fallback=fallback,
         )
 
+    def _lattice_a(self) -> float:
+        return lattice_a_for_entry(self._session, self._current_entry(), fallback=0.0)
+
     def _store_fs_center_reference(self, kx: float, ky: float, *, source: str):
         if self._raw_data is None:
             return
@@ -131,7 +134,9 @@ class GammaController:
             work_func = self._work_func()
         except Exception:
             return None
-        return _gamma_k_to_angle_offset_deg(k_pi_a, hv=hv_val, work_func=work_func)
+        return _gamma_k_to_angle_offset_deg(
+            k_pi_a, hv=hv_val, work_func=work_func, a_lattice=self._lattice_a()
+        )
 
     def _angle_offsets_from_k_center(
         self,
@@ -151,6 +156,7 @@ class GammaController:
         return _gamma_angle_offsets_from_k_center(
             kx, ky,
             hv=hv_val, work_func=work_func,
+            a_lattice=self._lattice_a(),
             source=source, ref_path=ref_path, azi=azi,
         )
 
@@ -301,6 +307,7 @@ class GammaController:
             bm_metadata=meta,
             bm_hv=self._raw_data.get("hv"),
             work_func=self._work_func(),
+            a_lattice=self._lattice_a(),
             bm_azi=azi_bm,
             on_warn=self._status,
         )

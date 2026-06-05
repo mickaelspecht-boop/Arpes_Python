@@ -83,7 +83,7 @@ class KzControlPanel(QScrollArea):
         form = QFormLayout(grp_phys)
         self.sp_v0 = _dspin(12.0, 0.1, 80.0, 0.5, dec=2)
         self.sp_v0.setToolTip("Potentiel interne V0 (eV). À calibrer par périodicité Γ-Z-Γ.")
-        self.sp_a = _dspin(3.96, 1.0, 20.0, 0.01, dec=3)
+        self.sp_a = _dspin(0.0, 0.0, 20.0, 0.01, dec=3)
         self.sp_c = _dspin(11.60, 1.0, 60.0, 0.01, dec=3)
         self.sp_e = _dspin(0.0, -5.0, 1.0, 0.01, dec=3)
         self.sp_ew = _dspin(0.03, 0.001, 0.5, 0.005, dec=3)

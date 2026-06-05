@@ -18,7 +18,7 @@ from arpes.io.file_pairing import (
     find_bms_for_fs,
     find_fs_for_bm,
 )
-from arpes.core.sample import work_function_for_entry
+from arpes.core.sample import lattice_a_for_entry, work_function_for_entry
 from arpes.physics.bm_cut_overlay import compute_bm_cut_in_fs_frame
 
 
@@ -169,7 +169,7 @@ class PairingController:
         *,
         criteria: PairingCriteria | None = None,
         work_func: float | None = None,
-        a_lattice: float = 3.96,
+        a_lattice: float = 0.0,
     ) -> list:
         """Pour la FS active, calcule la projection de toutes les BMs liées.
 
@@ -203,6 +203,10 @@ class PairingController:
                 fallback=fallback,
             )
         if float(work_func or 0.0) <= 0.0:
+            return []
+        if float(a_lattice or 0.0) <= 0.0:
+            a_lattice = lattice_a_for_entry(self._session, fs_entry, fallback=0.0)
+        if float(a_lattice or 0.0) <= 0.0:
             return []
         bms = find_bms_for_fs(
             fs_entry, fs_path, _normalized_augmented_files(self._session),
@@ -248,7 +252,7 @@ class PairingController:
             return self._collect_bm_cuts_for_active_fs(
                 payload.get("fs_metadata"),
                 work_func=payload.get("work_func"),
-                a_lattice=float(payload.get("a_lattice", 3.96)),
+                a_lattice=float(payload.get("a_lattice", 0.0) or 0.0),
             )
         if verb == "toggle_cuts":
             visible = bool(payload.get("visible", False))

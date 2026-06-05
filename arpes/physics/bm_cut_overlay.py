@@ -21,7 +21,6 @@ import numpy as np
 
 
 C_ARPES = 0.51233          # cf arpes/physics/gamma.py
-A_LATTICE_DEFAULT = 3.96   # Å (BaNi₂As₂, override via paramètre)
 
 
 Quality = Literal["exact", "rotated", "scaled", "incompatible"]
@@ -129,7 +128,7 @@ def compute_bm_cut_in_fs_frame(
     fs_metadata: dict,
     *,
     work_func: float,
-    a_lattice: float = A_LATTICE_DEFAULT,
+    a_lattice: float = 0.0,
     kpar_range: tuple[float, float] = (-1.5, 1.5),
     n_points: int = 80,
     azi_tolerance_deg: float = 0.5,
@@ -145,7 +144,7 @@ def compute_bm_cut_in_fs_frame(
         fs_path: clé/path de la FS.
         fs_metadata: dict raw_data["metadata"] de la FS (pour fs_scan_axis_deg).
         work_func: φ (eV) pour la conversion angle↔k.
-        a_lattice: paramètre de maille (Å), défaut 3.96.
+        a_lattice: paramètre de maille (Å). 0 = inconnu, projection désactivée.
         kpar_range: bornes du segment kpar à tracer (en π/a), défaut (-1.5, 1.5).
         n_points: nombre de points le long du segment.
         azi_tolerance_deg: au-delà → quality="rotated".

@@ -166,7 +166,7 @@ def _load_cls_photon_scan_folder(
     *,
     work_func: float,
     ef_offset: float,
-    a_lattice: float = 3.96,
+    a_lattice: float = 0.0,
 ) -> tuple[list[KzScanInput], list[str]]:
     if _parse_cls_param is None or _load_cls_fs_volume is None or _cls_angle_to_k_pi_over_a is None:
         raise RuntimeError("loader CLS indisponible")

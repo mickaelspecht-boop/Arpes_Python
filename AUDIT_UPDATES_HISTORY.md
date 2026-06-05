@@ -128,3 +128,30 @@
   - `python3 -m pytest tests/test_session.py tests/test_loader_orchestrator.py tests/test_gamma.py tests/test_kz.py` -> 67 passed
   - `python3 -m py_compile arpes/ui/controllers/load_controller.py arpes/ui/controllers/pairing_controller.py arpes/ui/widgets/params_ef.py arpes/ui/controllers/gamma_controller.py arpes/ui/controllers/kz_controller.py arpes/ui/controllers/fs_controller.py` -> passed
   - `rg -n "4\\.031" <touched files>` -> no matches
+
+## 2026-06-05T04:30:00Z — P1.1 Tranche 8
+
+- Scope: remove remaining hidden `a=3.96 Å` defaults from app/physics/io paths.
+- Files changed:
+  - `arpes/core/sample.py`
+  - `arpes/physics/gamma.py`
+  - `arpes/physics/bm_cut_overlay.py`
+  - `arpes/physics/fs.py`
+  - `arpes/physics/kz.py`
+  - `arpes/physics/resolution.py`
+  - `arpes/io/kz_dataset.py`
+  - `arpes/io/loaders/{common,cls,bessy,solaris}.py`
+  - `arpes/ui/widgets/{fs_panel,kz}.py`
+  - `arpes/ui/controllers/{fs_controller,gamma_controller,pairing_controller}.py`
+  - `tests/test_gamma.py`
+  - `tests/test_bm_cut_overlay.py`
+- Behavior:
+  - `a_lattice=0.0` now means unknown; callers must pass `SampleConfig.a` for angle/k conversion.
+  - Γ and BM-cut overlay receive lattice `a` from `SampleConfig` when available.
+  - FS/KZ widgets start with unknown lattice instead of BaNi-like defaults.
+  - Loader signatures no longer default to `3.96`.
+- Verification:
+  - `python3 -m pytest tests/test_gamma.py tests/test_bm_cut_overlay.py tests/test_fs.py tests/test_kz.py tests/test_session.py` -> 76 passed, 15 skipped
+  - `python3 -m pytest tests/test_loader_orchestrator.py tests/test_loaders_integration.py tests/test_arpes_io.py tests/test_kz_dataset.py tests/test_resolution.py` -> 22 passed, 9 skipped
+  - `python3 -m py_compile <touched modules>` -> passed
+  - `rg -n "3\\.96|4\\.031" arpes/physics arpes/io arpes/ui` -> no matches

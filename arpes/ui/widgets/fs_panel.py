@@ -124,9 +124,9 @@ class FSControlPanel(QScrollArea):
 
         grp_lat = QGroupBox("Réseau / unités π/a")
         fl = QFormLayout(grp_lat)
-        self.sp_a = self._dspin(3.960, 1.0, 20.0, 0.01)
+        self.sp_a = self._dspin(0.0, 0.0, 20.0, 0.01)
         self.sp_a.setToolTip("Paramètre de maille a (Å), utilisé pour les unités π/a et résultats physiques.")
-        self.sp_b = self._dspin(3.960, 1.0, 20.0, 0.01)
+        self.sp_b = self._dspin(0.0, 0.0, 20.0, 0.01)
         self.sp_b.setToolTip("Paramètre de maille b (Å), utilisé pour les unités π/a en carte FS.")
         self.sp_kx0 = self._dspin(0.0, -5.0, 5.0, 0.01)
         self.sp_kx0.setToolTip("Centre Γ en kx (π/a) pour recentrer la carte FS.")

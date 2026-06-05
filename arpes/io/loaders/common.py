@@ -408,7 +408,7 @@ def detect_scan_kind(path: str | Path, format_hint: str | None = None) -> str:
     return "unknown"
 
 
-def load_arpes(path, *, work_func: float, ef_offset: float = 0.0, a_lattice: float = 3.96,
+def load_arpes(path, *, work_func: float, ef_offset: float = 0.0, a_lattice: float = 0.0,
                format_hint: str | None = None, hv: float | None = None,
                temperature: float | None = None, azi: float = 0.0, pol: str = "",
                angle_offsets: dict | None = None,
@@ -435,7 +435,7 @@ def load_arpes(path, *, work_func: float, ef_offset: float = 0.0, a_lattice: flo
 
 
 def load_arpes_file(path: str, work_func: float, ef_offset: float,
-                    a_lattice: float = 3.96, hv: float | None = None,
+                    a_lattice: float = 0.0, hv: float | None = None,
                     temperature: float | None = None,
                     azi: float | None = None,
                     pol: str = "",

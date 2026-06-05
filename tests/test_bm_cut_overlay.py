@@ -12,6 +12,8 @@ from arpes.physics.bm_cut_overlay import (
     compute_bm_cut_in_fs_frame,
 )
 
+TEST_A = 3.96
+
 
 def _bm_entry(*, polar=0.0, azi=0.0, hv=60.0, pol="LH") -> FileEntry:
     return FileEntry(meta=FileMeta(
@@ -52,7 +54,7 @@ class TestComputeBmCut(unittest.TestCase):
         not_bm = FileEntry(meta=FileMeta(scan_kind="KZ"))
         out = compute_bm_cut_in_fs_frame(
             not_bm, "/d/kz.txt", fs, "/d/fs.txt", _fs_metadata(),
-            work_func=self.WF,
+            work_func=self.WF, a_lattice=TEST_A,
         )
         self.assertIsNone(out)
 
@@ -61,7 +63,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry(polar=0.0)
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(scan_center=0.0),
-            work_func=self.WF,
+            work_func=self.WF, a_lattice=TEST_A,
         )
         self.assertIsNotNone(out)
         np.testing.assert_allclose(out.ky_points, 0.0, atol=1e-10)
@@ -72,7 +74,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry(polar=0.0)
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(scan_center=0.0),
-            work_func=self.WF,
+            work_func=self.WF, a_lattice=TEST_A,
         )
         self.assertIsNotNone(out)
         # toutes les ky points = même valeur ≠ 0
@@ -85,7 +87,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry(azi=30.0)
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
-            work_func=self.WF,
+            work_func=self.WF, a_lattice=TEST_A,
         )
         self.assertEqual(out.quality, "rotated")
         self.assertIn("Δazi", out.warning)
@@ -95,7 +97,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry(azi=1.0)
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
-            work_func=self.WF, azi_tolerance_deg=2.1,
+            work_func=self.WF, a_lattice=TEST_A, azi_tolerance_deg=2.1,
         )
         self.assertEqual(out.quality, "exact")
 
@@ -104,7 +106,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry(hv=80.0)
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
-            work_func=self.WF,
+            work_func=self.WF, a_lattice=TEST_A,
             overlay_max_hv_rel=1.0,  # désactive garde stricte pour test scaled
         )
         self.assertEqual(out.quality, "scaled")
@@ -115,7 +117,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry(hv=80.0)
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
-            work_func=self.WF, overlay_max_hv_rel=0.05,
+            work_func=self.WF, a_lattice=TEST_A, overlay_max_hv_rel=0.05,
         )
         self.assertEqual(out.quality, "incompatible")
         self.assertEqual(out.kx_points.size, 0)
@@ -126,7 +128,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry(polar=0.0, azi=90.0)
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(scan_center=0.0),
-            work_func=self.WF,
+            work_func=self.WF, a_lattice=TEST_A,
         )
         # ligne d'origine ky=ky0 (constante), kx varie en t
         # après rotation 90° : x_new = -ky0, y_new = t
@@ -140,7 +142,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry(hv=0.0)
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
-            work_func=self.WF,
+            work_func=self.WF, a_lattice=TEST_A,
         )
         self.assertEqual(out.quality, "incompatible")
 
@@ -149,7 +151,7 @@ class TestComputeBmCut(unittest.TestCase):
         fs = _fs_entry()
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bna_s2/bm_03.txt", fs, "/d/bna_s2/fs1.txt", _fs_metadata(),
-            work_func=self.WF,
+            work_func=self.WF, a_lattice=TEST_A,
         )
         self.assertEqual(out.label, "bm_03")
 

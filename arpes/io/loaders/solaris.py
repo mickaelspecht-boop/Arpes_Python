@@ -25,7 +25,7 @@ def _is_solaris_da30_file(path: Path) -> bool:
 
 
 def load_solaris_da30_bandmap(path, work_func: float, ef_offset: float = 0.0,
-                              a_lattice: float = 3.96, convert_kspace: bool = True) -> ARPESData:
+                              a_lattice: float = 0.0, convert_kspace: bool = True) -> ARPESData:
     path = Path(path); erlab_io = _require_erlab(); _set_da30_loader(erlab_io)
     da = erlab_io.load(str(path))
     hv = float(da.attrs.get("hv", np.nan))
@@ -115,7 +115,7 @@ def load_solaris_da30_bandmap(path, work_func: float, ef_offset: float = 0.0,
 
 
 def _load_solaris_from_registry(path, *, work_func: float, ef_offset: float = 0.0,
-                                a_lattice: float = 3.96, **_: Any) -> ARPESData:
+                                a_lattice: float = 0.0, **_: Any) -> ARPESData:
     return load_solaris_da30_bandmap(path, work_func=work_func, ef_offset=ef_offset, a_lattice=a_lattice)
 
 

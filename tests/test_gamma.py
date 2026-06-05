@@ -12,7 +12,6 @@ import unittest
 import numpy as np
 
 from arpes.physics.gamma import (
-    A_LATTICE_DEFAULT,
     POLAR_TOLERANCE_DEG,
     angle_offset_candidates_for_load,
     angle_offsets_from_k_center,
@@ -26,12 +25,17 @@ from arpes.physics.gamma import (
 )
 import numpy as np
 
+TEST_A = 3.96
+
 
 class TestKToAngle(unittest.TestCase):
     def test_zero_k_gives_zero_angle(self):
-        ang = k_to_angle_offset_deg(0.0, hv=80.0, work_func=4.5)
+        ang = k_to_angle_offset_deg(0.0, hv=80.0, work_func=4.5, a_lattice=TEST_A)
         self.assertIsNotNone(ang)
         self.assertAlmostEqual(ang, 0.0, places=6)
+
+    def test_missing_lattice_returns_none(self):
+        self.assertIsNone(k_to_angle_offset_deg(0.0, hv=80.0, work_func=4.5))
 
     def test_invalid_ek_returns_none(self):
         # hv < φ → ek <= 0
@@ -39,19 +43,19 @@ class TestKToAngle(unittest.TestCase):
 
     def test_clip_when_arg_above_one(self):
         # k arbitrairement grand → arcsin clippé à ±90°
-        ang = k_to_angle_offset_deg(1e6, hv=80.0, work_func=4.5)
+        ang = k_to_angle_offset_deg(1e6, hv=80.0, work_func=4.5, a_lattice=TEST_A)
         self.assertAlmostEqual(ang, 90.0, places=4)
-        ang_neg = k_to_angle_offset_deg(-1e6, hv=80.0, work_func=4.5)
+        ang_neg = k_to_angle_offset_deg(-1e6, hv=80.0, work_func=4.5, a_lattice=TEST_A)
         self.assertAlmostEqual(ang_neg, -90.0, places=4)
 
     def test_round_trip_k_angle_k(self):
         # k → angle → k doit redonner le même k (formule inverse)
         hv, phi = 80.0, 4.5
         k0 = 0.05
-        ang = k_to_angle_offset_deg(k0, hv=hv, work_func=phi)
+        ang = k_to_angle_offset_deg(k0, hv=hv, work_func=phi, a_lattice=TEST_A)
         self.assertIsNotNone(ang)
         ek = hv - phi
-        scale = 0.51233 * math.sqrt(ek) * A_LATTICE_DEFAULT / math.pi
+        scale = 0.51233 * math.sqrt(ek) * TEST_A / math.pi
         k_back = scale * math.sin(math.radians(ang))
         self.assertAlmostEqual(k_back, k0, places=10)
 
@@ -65,7 +69,8 @@ class TestAngleOffsetsDict(unittest.TestCase):
 
     def test_full_dict_shape(self):
         out = angle_offsets_from_k_center(
-            0.05, 0.0, hv=80.0, work_func=4.5, source="test", azi=12.0,
+            0.05, 0.0, hv=80.0, work_func=4.5, a_lattice=TEST_A,
+            source="test", azi=12.0,
         )
         self.assertEqual(out["mode"], "cls_angle_offsets")
         self.assertIn("theta0_deg", out)
@@ -73,7 +78,7 @@ class TestAngleOffsetsDict(unittest.TestCase):
         self.assertEqual(out["source"], "test")
         self.assertEqual(out["azi"], 12.0)
         self.assertEqual(out["work_func"], 4.5)
-        self.assertEqual(out["a_lattice"], A_LATTICE_DEFAULT)
+        self.assertEqual(out["a_lattice"], TEST_A)
 
 
 class TestProjectGammaByAzi(unittest.TestCase):
@@ -217,7 +222,7 @@ class TestGammaReferenceToBmCenter(unittest.TestCase):
         gamma, corr = gamma_reference_to_bm_center(
             ref,
             bm_metadata={"polar": 1.0, "polar_already_applied_to_kx": False},
-            bm_hv=80.0, work_func=4.5, bm_azi=0.0,
+            bm_hv=80.0, work_func=4.5, a_lattice=TEST_A, bm_azi=0.0,
         )
         self.assertNotAlmostEqual(corr, 0.0)
         self.assertAlmostEqual(gamma - corr, 0.10, places=10)
@@ -328,6 +333,7 @@ class TestAngleOffsetCandidates(unittest.TestCase):
         out = angle_offset_candidates_for_load(
             primary=primary, is_file=True, ref=ref, target_geom=geom,
             target_azi_fallback=None, hv=80.0, work_func=4.5,
+            a_lattice=TEST_A,
         )
         labels = {c["candidate"] for c in out}
         # base ±theta0, raw_polar/raw_polar_neg, azi_plus/azi_minus + variantes

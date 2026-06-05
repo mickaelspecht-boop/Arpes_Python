@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import numpy as np
 
-# Constantes ARPES (identiques aux valeurs historiques)
+# Constante ARPES (identique à la valeur historique)
 C_ARPES = 0.51233          # √(2 m_e) / ħ en unités appropriées
-A_LATTICE_DEFAULT = 3.96   # Å, paramètre de maille BaNi₂As₂
+A_LATTICE_DEFAULT = 0.0    # 0 = inconnu ; le caller doit fournir SampleConfig.a
 
 
 def k_to_angle_offset_deg(
@@ -23,7 +23,7 @@ def k_to_angle_offset_deg(
     *,
     hv: float,
     work_func: float,
-    a_lattice: float = A_LATTICE_DEFAULT,
+    a_lattice: float = 0.0,
 ) -> float | None:
     """Convertit un décalage k (en π/a) en offset angulaire (deg) pour CLS.
 
@@ -53,7 +53,7 @@ def angle_offsets_from_k_center(
     source: str = "",
     ref_path: str | None = None,
     azi: float | None = None,
-    a_lattice: float = A_LATTICE_DEFAULT,
+    a_lattice: float = 0.0,
 ) -> dict:
     """Construit le dict d'offsets angulaires à injecter dans le loader CLS.
 
@@ -158,7 +158,7 @@ def gamma_reference_to_bm_center(
     bm_azi: float | None,
     on_warn=None,
     polar_tolerance_deg: float = POLAR_TOLERANCE_DEG,
-    a_lattice: float = A_LATTICE_DEFAULT,
+    a_lattice: float = 0.0,
 ) -> tuple[float, float]:
     """Projette le Γ mesuré sur la FS vers l'axe k de la BM courante.
 
@@ -306,7 +306,7 @@ def angle_offset_candidates_for_load(
     target_azi_fallback: float | None,
     hv: float | None,
     work_func: float,
-    a_lattice: float = A_LATTICE_DEFAULT,
+    a_lattice: float = 0.0,
 ) -> list[dict]:
     """Génère la liste de configurations d'offsets angulaires à essayer.
 

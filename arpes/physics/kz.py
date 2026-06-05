@@ -38,9 +38,9 @@ class KzScanInput:
 
 @dataclass(frozen=True)
 class KzParams:
-    work_func: float = 4.031
+    work_func: float = 0.0
     inner_potential: float = 12.0
-    a_lattice: float = 3.96
+    a_lattice: float = 0.0
     c_lattice: float = 11.6
     energy_center: float = 0.0
     energy_window: float = 0.030

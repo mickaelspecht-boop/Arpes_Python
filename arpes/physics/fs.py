@@ -25,8 +25,8 @@ from arpes.physics.fs_gamma import detect_gamma_from_fs_map
 
 @dataclass
 class FSParams:
-    a_lattice: float = 3.96
-    b_lattice: float = 3.96
+    a_lattice: float = 0.0
+    b_lattice: float = 0.0
     ef_window: float = 0.030
     norm_ref_lo: float = -0.60
     norm_ref_hi: float = -0.20
@@ -166,5 +166,4 @@ def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
         round(float(params.smooth_sigma), 8),
         bool(params.normalize_profile),
     )
-
 

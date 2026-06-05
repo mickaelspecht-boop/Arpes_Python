@@ -120,3 +120,11 @@ def work_function_for_entry(session: Any, entry: Any, *, fallback: float) -> flo
     if sample.has_work_function:
         return float(sample.work_function_eV)
     return float(fallback)
+
+
+def lattice_a_for_entry(session: Any, entry: Any, *, fallback: float = 0.0) -> float:
+    """Resolve lattice a with SampleConfig before explicit caller fallback."""
+    sample = sample_for_entry(session, entry)
+    if sample.has_lattice_a:
+        return float(sample.a_angstrom)
+    return float(fallback)
