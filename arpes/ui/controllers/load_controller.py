@@ -26,6 +26,7 @@ from typing import Any
 import numpy as np
 from PyQt6.QtWidgets import QApplication
 
+from arpes.core.sample import sample_for_entry
 from arpes.core.session import normalize_tags, session_tags
 from arpes.io.artifact_cache import (
     load_raw_artifact,
@@ -45,7 +46,7 @@ except ImportError:
 from arpes.physics.plot_compute import apply_ef_correction_to_dict
 
 
-RAW_LOAD_CACHE_VERSION = 2
+RAW_LOAD_CACHE_VERSION = 3
 
 
 def _freeze_cache_value(value: Any) -> Any:
@@ -276,11 +277,14 @@ class LoadController:
         self._parent._last_load_cache_hit = False
         self._parent._last_load_cache_source = ""
         self._parent._current_raw_load_cache_key = cache_key
+        sample = sample_for_entry(self._session, prepared.entry)
+        a_lattice = sample.a_angstrom if sample.has_lattice_a else None
         load_result = orchestrator.load(
             path,
             prepared.entry,
             work_func=self._params.sp_phi.value(),
             ef_offset=self._params.sp_ef.value(),
+            a_lattice=a_lattice,
             hv=prepared.hv_for_load,
             angle_offsets=prepared.angle_offsets,
             bessy_energy_reference=self._parent._bessy_energy_reference_mode(),
@@ -318,12 +322,14 @@ class LoadController:
 
     def _load_cache_key(self, path: str, prepared: _PreparedEntry) -> tuple:
         entry = prepared.entry
+        sample = sample_for_entry(self._session, entry)
         return (
             f"raw-loader-v{RAW_LOAD_CACHE_VERSION}",
             str(prepared.fmt_guess or ""),
             self._path_signature(Path(path)),
             round(float(self._params.sp_phi.value()), 8),
             round(float(self._params.sp_ef.value()), 8),
+            round(float(sample.a_angstrom if sample.has_lattice_a else 0.0), 8),
             round(float(prepared.hv_for_load or 0.0), 8),
             round(float(getattr(entry.meta, "temperature", 0.0) or 0.0), 8),
             round(float(getattr(entry.meta, "azi", 0.0) or 0.0), 8),

@@ -48,6 +48,7 @@ class TestLoaderOrchestrator(unittest.TestCase):
             entry,
             work_func=4.5,
             ef_offset=0.0,
+            a_lattice=4.2,
             hv=48.0,
             angle_offsets={},
             bessy_energy_reference="auto",
@@ -55,6 +56,7 @@ class TestLoaderOrchestrator(unittest.TestCase):
 
         self.assertEqual(result.data["hv"], 50.0)
         self.assertEqual(calls[0][1], 4.5)
+        self.assertEqual(calls[0][3]["a_lattice"], 4.2)
         self.assertEqual(calls[0][3]["hv"], 48.0)
         self.assertEqual(calls[0][3]["temperature"], 20.0)
 
@@ -104,9 +106,10 @@ class TestLoaderOrchestrator(unittest.TestCase):
             entry = FileEntry()
             orch = LoaderOrchestrator(fake_load, _label)
 
-            def best(path_arg, entry_arg, hv_arg, offsets_arg):
+            def best(path_arg, entry_arg, hv_arg, offsets_arg, a_lattice_arg):
                 self.assertEqual(Path(path_arg), path)
                 self.assertEqual(hv_arg, 48.0)
+                self.assertEqual(a_lattice_arg, 4.2)
                 return {"hv": 48.0, "metadata": {}}, {"theta0_deg": 0.2}
 
             result = orch.load(
@@ -114,6 +117,7 @@ class TestLoaderOrchestrator(unittest.TestCase):
                 entry,
                 work_func=4.5,
                 ef_offset=0.0,
+                a_lattice=4.2,
                 hv=48.0,
                 angle_offsets={"theta0_deg": 0.1},
                 bessy_energy_reference="auto",

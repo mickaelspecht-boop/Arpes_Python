@@ -15,7 +15,7 @@ from arpes.core.models import LoadContext, MetadataSource
 
 
 LoadFunc = Callable[..., dict | None]
-BestAngleLoadFunc = Callable[[str, Any, float, dict], tuple[dict | None, dict]]
+BestAngleLoadFunc = Callable[[str, Any, float, dict, float | None], tuple[dict | None, dict]]
 LoaderLabelFunc = Callable[[str | None, dict | None], str]
 
 
@@ -57,6 +57,7 @@ class LoaderOrchestrator:
         *,
         work_func: float,
         ef_offset: float,
+        a_lattice: float | None = None,
         hv: float | None,
         angle_offsets: dict | None,
         bessy_energy_reference: str,
@@ -70,12 +71,22 @@ class LoaderOrchestrator:
         )
         resolved_offsets = dict(context.angle_offsets or {})
         if resolved_offsets and Path(path).is_file() and best_angle_load_func is not None:
-            data, resolved_offsets = best_angle_load_func(path, entry, float(hv or 0.0), resolved_offsets)
+            data, resolved_offsets = best_angle_load_func(
+                path,
+                entry,
+                float(hv or 0.0),
+                resolved_offsets,
+                a_lattice,
+            )
         else:
+            loader_kwargs = {}
+            if a_lattice is not None and float(a_lattice) > 0:
+                loader_kwargs["a_lattice"] = float(a_lattice)
             data = self.load_func(
                 path,
                 work_func,
                 ef_offset,
+                **loader_kwargs,
                 hv=context.hv,
                 temperature=context.temperature,
                 azi=context.azi,

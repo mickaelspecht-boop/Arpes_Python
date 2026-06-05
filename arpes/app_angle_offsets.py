@@ -124,18 +124,19 @@ def load_with_best_angle_offsets(
     entry,
     hv_for_load: float,
     angle_offsets: dict,
+    a_lattice: float | None = None,
 ) -> tuple[dict | None, dict]:
     """Charge une BM CLS avec la convention d'offset qui centre le mieux Γ."""
     candidates = win._angle_offset_candidates_for_load(path, entry, hv_for_load, angle_offsets)
     if len(candidates) <= 1:
-        d = _load_file_with_offsets(win, path, entry, hv_for_load, angle_offsets)
+        d = _load_file_with_offsets(win, path, entry, hv_for_load, angle_offsets, a_lattice)
         return d, angle_offsets
 
     best_d = None
     best_cfg = candidates[0]
     best_score = float("inf")
     for cfg in candidates:
-        d_try = _load_file_with_offsets(win, path, entry, hv_for_load, cfg)
+        d_try = _load_file_with_offsets(win, path, entry, hv_for_load, cfg, a_lattice)
         if d_try is None:
             continue
         score = win._score_bm_gamma_residual(d_try)
@@ -154,13 +155,24 @@ def load_with_best_angle_offsets(
             pass
         return best_d, best_cfg
 
-    d = _load_file_with_offsets(win, path, entry, hv_for_load, angle_offsets)
+    d = _load_file_with_offsets(win, path, entry, hv_for_load, angle_offsets, a_lattice)
     return d, angle_offsets
 
 
-def _load_file_with_offsets(win, path: str, entry, hv_for_load: float, angle_offsets: dict):
+def _load_file_with_offsets(
+    win,
+    path: str,
+    entry,
+    hv_for_load: float,
+    angle_offsets: dict,
+    a_lattice: float | None = None,
+):
+    lattice_kwargs = {}
+    if a_lattice is not None and float(a_lattice) > 0:
+        lattice_kwargs["a_lattice"] = float(a_lattice)
     return load_arpes_file(
         path, win._params.sp_phi.value(), win._params.sp_ef.value(),
+        **lattice_kwargs,
         hv=hv_for_load,
         temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,
         azi=entry.meta.azi,
