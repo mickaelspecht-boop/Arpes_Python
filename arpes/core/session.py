@@ -12,6 +12,8 @@ import json
 
 import numpy as np
 
+from arpes.core.sample import SampleConfig
+
 
 @dataclass
 class FitParams:
@@ -54,6 +56,11 @@ class FileMeta:
     formula: str = ""
     mp_id: str = ""
     crystal_a_angstrom: float = 0.0
+    crystal_c_angstrom: float = 0.0
+    work_function_eV: float = 0.0
+    space_group: str = ""
+    lattice_source: str = ""
+    sample_config: dict = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     # A.1 — type de scan inféré au load (BM/FS/KZ/EDC/unknown). Source de
     # vérité unique pour pairing BM↔FS (cf BM_FS_ORGANIZATION_PLAN.md).
@@ -186,6 +193,7 @@ class Session:
         self.fit_panel_sections: dict[str, bool] = {}
         self.fit_panel_preset: str = "Custom"
         self.session_notes: str = ""
+        self.current_sample: dict = {}
 
     def reset(self, *, keep_folder: bool = True) -> None:
         """Remet la session à zéro (fits, logbook, calibs…). Garde le dossier."""
@@ -224,6 +232,7 @@ class Session:
             "fit_panel_sections": dict(self.fit_panel_sections),
             "fit_panel_preset": str(self.fit_panel_preset or "Custom"),
             "session_notes": str(self.session_notes or ""),
+            "current_sample": _to_serial(self.current_sample),
             "files": {
                 name: _to_serial(asdict(entry))
                 for name, entry in self.files.items()
@@ -256,10 +265,14 @@ class Session:
         self.fit_panel_sections = dict(raw.get("fit_panel_sections", {}) or {})
         self.fit_panel_preset = str(raw.get("fit_panel_preset", "Custom") or "Custom")
         self.session_notes = str(raw.get("session_notes", "") or "")
+        self.current_sample = SampleConfig.from_dict(
+            raw.get("current_sample", {}) or {}
+        ).to_dict()
         self.files = {}
         for name, edict in raw.get("files", {}).items():
             fp = FitParams(**_known_kwargs(FitParams, edict.get("fit_params", {})))
             mt = FileMeta(**_known_kwargs(FileMeta, edict.get("meta", {})))
+            mt.sample_config = SampleConfig.from_meta(mt).to_dict()
             entry = FileEntry(
                 ef_offset=edict.get("ef_offset", 0.052),
                 edcnorm=edict.get("edcnorm", False),

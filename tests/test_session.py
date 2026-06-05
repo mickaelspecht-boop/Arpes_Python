@@ -15,6 +15,7 @@ from arpes.core.session import (
     normalize_tags,
     session_tags,
 )
+from arpes.core.sample import SampleConfig, sample_for_entry
 
 
 class TestSessionManager(unittest.TestCase):
@@ -143,6 +144,58 @@ class TestSessionManager(unittest.TestCase):
             self.assertEqual(entry.fit_params.n_pairs, 1)
             self.assertEqual(entry.meta.hv, 100.0)
             self.assertEqual(entry.fit_result["gamma"], [[0.04]])
+
+    def test_sample_config_round_trip_and_legacy_meta_merge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = Session(root)
+            session.current_sample = SampleConfig(
+                formula="Sr2RuO4",
+                a_angstrom=3.87,
+                c_angstrom=12.74,
+                work_function_eV=4.5,
+                space_group="I4/mmm",
+                mp_id="mp-123",
+                lattice_source="manual",
+            ).to_dict()
+            entry = session.get_or_create("FS1")
+            entry.meta.crystal_a_angstrom = 3.96
+            entry.meta.formula = "BaNi2As2"
+            entry.meta.lattice_source = "logbook"
+            session.save()
+
+            restored = Session(root)
+            restored.load(root / ".arpes_session.json")
+            sample = sample_for_entry(restored, restored.files["FS1"])
+            self.assertEqual(sample.formula, "BaNi2As2")
+            self.assertAlmostEqual(sample.a_angstrom, 3.96)
+            self.assertAlmostEqual(sample.c_angstrom, 12.74)
+            self.assertAlmostEqual(sample.work_function_eV, 4.5)
+            self.assertEqual(sample.lattice_source, "logbook")
+
+    def test_legacy_session_without_sample_config_stays_loadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".arpes_session.json"
+            path.write_text(json.dumps({
+                "version": 1,
+                "work_func": 4.031,
+                "files": {
+                    "old": {
+                        "meta": {
+                            "formula": "Bi2Se3",
+                            "crystal_a_angstrom": 4.14,
+                        },
+                    }
+                },
+            }))
+
+            session = Session(root)
+            session.load(path)
+            sample = sample_for_entry(session, session.files["old"])
+            self.assertEqual(sample.formula, "Bi2Se3")
+            self.assertAlmostEqual(sample.a_angstrom, 4.14)
+            self.assertFalse(sample.has_work_function)
 
     def test_key_for_path_prefers_relative_path(self):
         with tempfile.TemporaryDirectory() as tmp:
