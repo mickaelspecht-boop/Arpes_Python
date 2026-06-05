@@ -53,3 +53,19 @@
   - `python3 -m pytest tests/test_export.py tests/test_multifile_aggregation.py tests/test_session.py` -> 18 passed
   - `python3 -m pytest tests/test_ui_smoke.py` -> 16 skipped
   - `python3 -m pytest tests/test_export.py tests/test_multifile_aggregation.py tests/test_session.py tests/test_analysis_results.py` -> 33 passed
+
+## 2026-06-05T03:45:00Z — P1.1 Tranche 4
+
+- Scope: remove UI-side `4.143 Å` fallbacks that made unknown lattice look valid.
+- Files changed:
+  - `arpes/ui/controllers/band_analysis_controller.py`
+  - `arpes/ui/controllers/load_controller.py`
+  - `arpes/ui/widgets/params_theory.py`
+  - `tests/test_band_analysis_controller.py`
+- Behavior:
+  - Band analysis now resolves lattice `a` from `SampleConfig`/entry metadata and returns `0.0` when unknown.
+  - Loading a file restores `sp_crystal_a=0.0` when metadata lacks lattice `a`.
+  - Theory/analysis lattice spinbox starts at `0.0`, making “unknown” representable.
+- Verification:
+  - `python3 -m pytest tests/test_band_analysis_controller.py tests/test_band_analysis_extras.py tests/test_load_cache.py` -> 26 passed, 14 skipped
+  - `python3 -m pytest tests/test_band_analysis_controller.py tests/test_band_analysis_extras.py tests/test_load_cache.py tests/test_export.py` -> 32 passed, 14 skipped

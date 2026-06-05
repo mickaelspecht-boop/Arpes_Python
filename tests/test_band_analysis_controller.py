@@ -28,11 +28,22 @@ class _StubEntry:
     def __init__(self, fit_result=None):
         self.fit_result = fit_result
         self.band_analysis = None
+        self.meta = type("Meta", (), {
+            "formula": "",
+            "mp_id": "",
+            "crystal_a_angstrom": 0.0,
+            "crystal_c_angstrom": 0.0,
+            "work_function_eV": 0.0,
+            "space_group": "",
+            "lattice_source": "",
+            "sample_config": {},
+        })()
 
 
 class _StubSession:
     def __init__(self, entry):
         self._entry = entry
+        self.current_sample = {}
     def key_for_path(self, p): return "key"
     def get_or_create(self, k): return self._entry
 
@@ -69,6 +80,19 @@ class TestGuards:
 
 
 class TestExtractDispersion:
+    def test_crystal_a_unknown_stays_zero(self):
+        entry = _StubEntry()
+        parent = _StubParent(entry)
+        c = BandAnalysisController(parent)
+        assert c._crystal_a() == 0.0
+
+    def test_crystal_a_uses_entry_meta_before_raw_meta(self):
+        entry = _StubEntry()
+        entry.meta.crystal_a_angstrom = 4.2
+        parent = _StubParent(entry, raw_data={"meta": {"crystal_a_angstrom": 3.9}})
+        c = BandAnalysisController(parent)
+        assert c._crystal_a() == 4.2
+
     def test_converts_pi_a_to_inv_A(self):
         entry = _StubEntry(fit_result={
             "e_fitted": [-0.20, -0.10, 0.0],

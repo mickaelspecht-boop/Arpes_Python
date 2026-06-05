@@ -83,7 +83,7 @@ def build_theory_section(panel, lay) -> None:
     panel.sp_theory_kscale.setToolTip("Facteur d'échelle k manuel pour rapprocher axe DFT et axe ARPES.")
     panel.sp_theory_alpha = dspin(0.65, 0.05, 1.0, 0.05, dec=2)
     panel.sp_theory_max = ispin(10, 1, 80)
-    panel.sp_crystal_a = dspin(4.143, 0.5, 50.0, 0.001, dec=4)
+    panel.sp_crystal_a = dspin(0.0, 0.0, 50.0, 0.001, dec=4)
     panel.sp_crystal_a.setToolTip(
         "Paramètre de maille a (Å) du cristal. Sert à convertir kF (π/a) en\n"
         "Å⁻¹ et à calculer m*/m_e dans la table résultats. 0 = unités réduites."

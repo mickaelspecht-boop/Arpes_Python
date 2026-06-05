@@ -15,10 +15,8 @@ from __future__ import annotations
 import traceback
 import numpy as np
 
+from arpes.core.sample import sample_for_entry
 from arpes.physics import tb_fit, kink_analysis, gap_extraction
-
-
-DEFAULT_CRYSTAL_A_ANGSTROM = 4.143  # BaNi2As2-like fallback
 
 
 class BandAnalysisController:
@@ -45,14 +43,21 @@ class BandAnalysisController:
     def _crystal_a(self) -> float:
         p = self._parent
         a = 0.0
+        entry = self._current_entry()
+        if entry is not None:
+            try:
+                sample = sample_for_entry(self._session, entry)
+                a = sample.a_angstrom if sample.has_lattice_a else 0.0
+            except Exception:
+                a = 0.0
+        if a > 0:
+            return float(a)
         try:
             meta = p._raw_data.get("meta", {}) if p._raw_data else {}
             a = float(meta.get("crystal_a_angstrom", 0.0) or 0.0)
         except Exception:
             a = 0.0
-        if a <= 0:
-            a = DEFAULT_CRYSTAL_A_ANGSTROM
-        return a
+        return float(a) if a > 0 else 0.0
 
     def _extract_dispersion(
         self,

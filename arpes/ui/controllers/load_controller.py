@@ -501,8 +501,6 @@ class LoadController:
                 pass
 
         a_val = float(getattr(entry.meta, "crystal_a_angstrom", 0.0) or 0.0)
-        if a_val <= 0.0:
-            a_val = 4.143
         self._params.sp_crystal_a.blockSignals(True)
         self._params.sp_crystal_a.setValue(a_val)
         self._params.sp_crystal_a.blockSignals(False)
