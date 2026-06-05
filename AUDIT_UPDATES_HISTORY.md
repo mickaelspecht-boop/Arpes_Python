@@ -69,3 +69,23 @@
 - Verification:
   - `python3 -m pytest tests/test_band_analysis_controller.py tests/test_band_analysis_extras.py tests/test_load_cache.py` -> 26 passed, 14 skipped
   - `python3 -m pytest tests/test_band_analysis_controller.py tests/test_band_analysis_extras.py tests/test_load_cache.py tests/test_export.py` -> 32 passed, 14 skipped
+
+## 2026-06-05T03:55:00Z — P1.1 Tranche 5
+
+- Scope: prefer `SampleConfig.work_function_eV` during raw loading/cache while keeping UI `sp_phi` fallback.
+- Files changed:
+  - `arpes/core/sample.py`
+  - `arpes/io/loader_orchestrator.py`
+  - `arpes/ui/controllers/load_controller.py`
+  - `arpes/app.py`
+  - `arpes/app_angle_offsets.py`
+  - `tests/test_loader_orchestrator.py`
+  - `tests/test_load_cache.py`
+- Behavior:
+  - Raw load resolves work function from sample metadata before manual UI `sp_phi`.
+  - Raw-load cache key uses the effective work function, preventing stale k-space data after sample φ changes.
+  - CLS best-angle reload path receives the same effective work function.
+- Verification:
+  - `python3 -m pytest tests/test_loader_orchestrator.py tests/test_session.py` -> 16 passed
+  - `python3 -m pytest tests/test_load_cache.py tests/test_loader_orchestrator.py tests/test_session.py` -> 16 passed, 12 skipped
+  - `python3 -m py_compile arpes/core/sample.py arpes/io/loader_orchestrator.py arpes/app_angle_offsets.py` -> passed

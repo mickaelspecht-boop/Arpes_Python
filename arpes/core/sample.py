@@ -112,3 +112,11 @@ def require_lattice_a(sample: SampleConfig, *, context: str = "sample") -> float
         f"Paramètre de maille a manquant pour {label}. "
         "Renseigne crystal_a_angstrom/SampleConfig avant un calcul physique publiable."
     )
+
+
+def work_function_for_entry(session: Any, entry: Any, *, fallback: float) -> float:
+    """Resolve work function with SampleConfig before transitional UI fallback."""
+    sample = sample_for_entry(session, entry)
+    if sample.has_work_function:
+        return float(sample.work_function_eV)
+    return float(fallback)

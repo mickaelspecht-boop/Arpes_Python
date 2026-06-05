@@ -187,6 +187,70 @@ class TestLoadControllerCache(unittest.TestCase):
         finally:
             load_mod.load_arpes_file = old_load
 
+    def test_dispatch_loader_uses_sample_work_function_before_ui_phi(self):
+        calls = []
+        old_load = load_mod.load_arpes_file
+
+        def fake_load(path, work_func, ef_offset, **kwargs):
+            calls.append((work_func, kwargs))
+            return {
+                "path": path,
+                "data": np.ones((1, 1), dtype=np.float32),
+                "kpar": np.array([0.0]),
+                "ev_arr": np.array([0.0]),
+                "metadata": {},
+            }
+
+        load_mod.load_arpes_file = fake_load
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "BM.txt"
+                path.write_text("dummy")
+                parent = _Parent()
+                parent._session.current_sample = {"work_function_eV": 4.8}
+                parent._params.sp_phi.setValue(4.031)
+                ctrl = LoadController(parent)
+
+                ctrl._dispatch_loader(str(path), _prepared(path))
+
+                self.assertEqual(len(calls), 1)
+                self.assertAlmostEqual(calls[0][0], 4.8)
+        finally:
+            load_mod.load_arpes_file = old_load
+
+    def test_dispatch_loader_misses_when_sample_work_function_changes(self):
+        calls = []
+        old_load = load_mod.load_arpes_file
+
+        def fake_load(path, work_func, ef_offset, **kwargs):
+            calls.append(work_func)
+            return {
+                "path": path,
+                "data": np.ones((1, 1), dtype=np.float32),
+                "kpar": np.array([0.0]),
+                "ev_arr": np.array([0.0]),
+                "metadata": {},
+            }
+
+        load_mod.load_arpes_file = fake_load
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "BM.txt"
+                path.write_text("dummy")
+                parent = _Parent()
+                parent._session.current_sample = {"work_function_eV": 4.8}
+                ctrl = LoadController(parent)
+                prep = _prepared(path)
+
+                ctrl._dispatch_loader(str(path), prep)
+                parent._session.current_sample = {"work_function_eV": 4.6}
+                ctrl._dispatch_loader(str(path), prep)
+
+                self.assertEqual(calls, [4.8, 4.6])
+                self.assertFalse(parent._last_load_cache_hit)
+        finally:
+            load_mod.load_arpes_file = old_load
+
     def test_dispatch_loader_misses_when_hv_changes(self):
         calls = []
         old_load = load_mod.load_arpes_file

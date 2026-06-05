@@ -429,9 +429,12 @@ class ArpesExplorer(QMainWindow):
         entry: FileEntry | None,
         hv: float | None,
         primary: dict,
+        work_func: float | None = None,
     ) -> list[dict]:
         from arpes.app_angle_offsets import angle_offset_candidates_for_load
-        return angle_offset_candidates_for_load(self, path, entry, hv, primary)
+        return angle_offset_candidates_for_load(
+            self, path, entry, hv, primary, work_func=work_func
+        )
 
     def _score_bm_gamma_residual(self, d: dict) -> float:
         from arpes.app_angle_offsets import score_bm_gamma_residual
@@ -443,9 +446,19 @@ class ArpesExplorer(QMainWindow):
         entry: FileEntry,
         hv_for_load: float,
         angle_offsets: dict,
+        work_func: float | None = None,
+        a_lattice: float | None = None,
     ) -> tuple[dict | None, dict]:
         from arpes.app_angle_offsets import load_with_best_angle_offsets
-        return load_with_best_angle_offsets(self, path, entry, hv_for_load, angle_offsets)
+        return load_with_best_angle_offsets(
+            self,
+            path,
+            entry,
+            hv_for_load,
+            angle_offsets,
+            work_func=work_func,
+            a_lattice=a_lattice,
+        )
 
     def _bessy_energy_reference_mode(self) -> str:
         """Mode BESSY exposé à l'app principale.

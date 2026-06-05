@@ -84,6 +84,7 @@ def angle_offset_candidates_for_load(
     entry,
     hv: float | None,
     primary: dict,
+    work_func: float | None = None,
 ) -> list[dict]:
     """Wrapper UI : délègue à `arpes_gamma.angle_offset_candidates_for_load`."""
     target_geom = (
@@ -100,7 +101,7 @@ def angle_offset_candidates_for_load(
         target_geom=target_geom,
         target_azi_fallback=target_azi_fallback,
         hv=hv,
-        work_func=float(win._params.sp_phi.value()),
+        work_func=float(work_func if work_func is not None else win._params.sp_phi.value()),
     )
 
 
@@ -124,19 +125,33 @@ def load_with_best_angle_offsets(
     entry,
     hv_for_load: float,
     angle_offsets: dict,
+    work_func: float | None = None,
     a_lattice: float | None = None,
 ) -> tuple[dict | None, dict]:
     """Charge une BM CLS avec la convention d'offset qui centre le mieux Γ."""
-    candidates = win._angle_offset_candidates_for_load(path, entry, hv_for_load, angle_offsets)
+    resolved_work_func = float(
+        work_func if work_func is not None else win._params.sp_phi.value()
+    )
+    candidates = win._angle_offset_candidates_for_load(
+        path,
+        entry,
+        hv_for_load,
+        angle_offsets,
+        work_func=resolved_work_func,
+    )
     if len(candidates) <= 1:
-        d = _load_file_with_offsets(win, path, entry, hv_for_load, angle_offsets, a_lattice)
+        d = _load_file_with_offsets(
+            win, path, entry, hv_for_load, angle_offsets, resolved_work_func, a_lattice
+        )
         return d, angle_offsets
 
     best_d = None
     best_cfg = candidates[0]
     best_score = float("inf")
     for cfg in candidates:
-        d_try = _load_file_with_offsets(win, path, entry, hv_for_load, cfg, a_lattice)
+        d_try = _load_file_with_offsets(
+            win, path, entry, hv_for_load, cfg, resolved_work_func, a_lattice
+        )
         if d_try is None:
             continue
         score = win._score_bm_gamma_residual(d_try)
@@ -155,7 +170,9 @@ def load_with_best_angle_offsets(
             pass
         return best_d, best_cfg
 
-    d = _load_file_with_offsets(win, path, entry, hv_for_load, angle_offsets, a_lattice)
+    d = _load_file_with_offsets(
+        win, path, entry, hv_for_load, angle_offsets, resolved_work_func, a_lattice
+    )
     return d, angle_offsets
 
 
@@ -165,13 +182,14 @@ def _load_file_with_offsets(
     entry,
     hv_for_load: float,
     angle_offsets: dict,
+    work_func: float,
     a_lattice: float | None = None,
 ):
     lattice_kwargs = {}
     if a_lattice is not None and float(a_lattice) > 0:
         lattice_kwargs["a_lattice"] = float(a_lattice)
     return load_arpes_file(
-        path, win._params.sp_phi.value(), win._params.sp_ef.value(),
+        path, work_func, win._params.sp_ef.value(),
         **lattice_kwargs,
         hv=hv_for_load,
         temperature=entry.meta.temperature if entry.meta.temperature > 0 else None,

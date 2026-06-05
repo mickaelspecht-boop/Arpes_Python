@@ -15,7 +15,10 @@ from arpes.core.models import LoadContext, MetadataSource
 
 
 LoadFunc = Callable[..., dict | None]
-BestAngleLoadFunc = Callable[[str, Any, float, dict, float | None], tuple[dict | None, dict]]
+BestAngleLoadFunc = Callable[
+    [str, Any, float, dict, float, float | None],
+    tuple[dict | None, dict],
+]
 LoaderLabelFunc = Callable[[str | None, dict | None], str]
 
 
@@ -76,6 +79,7 @@ class LoaderOrchestrator:
                 entry,
                 float(hv or 0.0),
                 resolved_offsets,
+                float(work_func),
                 a_lattice,
             )
         else:

@@ -106,9 +106,10 @@ class TestLoaderOrchestrator(unittest.TestCase):
             entry = FileEntry()
             orch = LoaderOrchestrator(fake_load, _label)
 
-            def best(path_arg, entry_arg, hv_arg, offsets_arg, a_lattice_arg):
+            def best(path_arg, entry_arg, hv_arg, offsets_arg, work_func_arg, a_lattice_arg):
                 self.assertEqual(Path(path_arg), path)
                 self.assertEqual(hv_arg, 48.0)
+                self.assertEqual(work_func_arg, 4.5)
                 self.assertEqual(a_lattice_arg, 4.2)
                 return {"hv": 48.0, "metadata": {}}, {"theta0_deg": 0.2}
 

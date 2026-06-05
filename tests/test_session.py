@@ -15,7 +15,7 @@ from arpes.core.session import (
     normalize_tags,
     session_tags,
 )
-from arpes.core.sample import SampleConfig, sample_for_entry
+from arpes.core.sample import SampleConfig, sample_for_entry, work_function_for_entry
 
 
 class TestSessionManager(unittest.TestCase):
@@ -196,6 +196,24 @@ class TestSessionManager(unittest.TestCase):
             self.assertEqual(sample.formula, "Bi2Se3")
             self.assertAlmostEqual(sample.a_angstrom, 4.14)
             self.assertFalse(sample.has_work_function)
+
+    def test_work_function_prefers_sample_before_fallback(self):
+        session = Session()
+        entry = FileEntry()
+        self.assertAlmostEqual(
+            work_function_for_entry(session, entry, fallback=4.031),
+            4.031,
+        )
+        session.current_sample = {"work_function_eV": 4.8}
+        self.assertAlmostEqual(
+            work_function_for_entry(session, entry, fallback=4.031),
+            4.8,
+        )
+        entry.meta.work_function_eV = 4.6
+        self.assertAlmostEqual(
+            work_function_for_entry(session, entry, fallback=4.031),
+            4.6,
+        )
 
     def test_key_for_path_prefers_relative_path(self):
         with tempfile.TemporaryDirectory() as tmp:
