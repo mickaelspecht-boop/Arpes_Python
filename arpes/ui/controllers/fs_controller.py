@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from arpes.core.sample import work_function_for_entry
 from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.kz import kz_from_hv_kpar, fold_kz_to_1bz
 
@@ -19,6 +20,13 @@ class FSController:
             object.__setattr__(self, name, value)
         else:
             setattr(self._parent, name, value)
+
+    def _work_func(self) -> float:
+        return work_function_for_entry(
+            self._session,
+            self._current_entry(),
+            fallback=float(getattr(self._session, "work_func", 4.031)),
+        )
 
     def _current_is_fs(self) -> bool:
         meta = (self._raw_data or {}).get("metadata", {}) or {}
@@ -321,10 +329,9 @@ class FSController:
             return
         try:
             p = self._fs_controls.params()
-            wf = float(getattr(self._session, "work_func", 4.031))
             kz_arr = kz_from_hv_kpar(
                 hv, np.array([0.0]),
-                work_func=wf, inner_potential=float(p.v0_eV),
+                work_func=self._work_func(), inner_potential=float(p.v0_eV),
                 a_lattice=float(p.a_lattice or 3.96),
                 energy=0.0,
             )

@@ -214,6 +214,12 @@ class TestSessionManager(unittest.TestCase):
             work_function_for_entry(session, entry, fallback=4.031),
             4.6,
         )
+        entry.meta.work_function_eV = 0.0
+        entry.meta.sample_config = {"work_function_eV": 4.7}
+        self.assertAlmostEqual(
+            work_function_for_entry(session, entry, fallback=4.031),
+            4.7,
+        )
 
     def test_key_for_path_prefers_relative_path(self):
         with tempfile.TemporaryDirectory() as tmp:

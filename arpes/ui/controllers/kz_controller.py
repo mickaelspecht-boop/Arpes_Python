@@ -7,6 +7,7 @@ import traceback
 import numpy as np
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
+from arpes.core.sample import work_function_for_entry
 from arpes.io.kz_dataset import KzDataset, dataset_summary, load_kz_stack
 from arpes.physics.kz import (
     KzParams,
@@ -29,6 +30,25 @@ class KzController:
 
     def _status(self, msg: str) -> None:
         self._parent._status(msg)
+
+    def _current_entry(self):
+        path = getattr(self._parent, "_current_path", None)
+        session = getattr(self._parent, "_session", None)
+        if not path or session is None:
+            return None
+        return session.get_or_create(session.key_for_path(path))
+
+    def _work_func(self) -> float:
+        fallback = 4.031
+        try:
+            fallback = float(self._params.sp_phi.value())
+        except Exception:
+            pass
+        return work_function_for_entry(
+            self._parent._session,
+            self._current_entry(),
+            fallback=fallback,
+        )
 
     def _current_supports_kz(self) -> bool:
         d = self._parent._raw_data
@@ -98,7 +118,7 @@ class KzController:
         try:
             ds = load_kz_stack(
                 self._last_folder,
-                work_func=float(self._params.sp_phi.value()),
+                work_func=self._work_func(),
                 ef_offset=float(self._params.sp_ef.value()),
                 hv_fallback=float(self._params.sp_hv.value()) if self._params.sp_hv.value() > 0 else None,
                 kz_logbook_records=self._parent._session.kz_logbook_records,
@@ -149,7 +169,7 @@ class KzController:
 
         ui = self._parent._kz_controls.params()
         params = KzParams(
-            work_func=float(self._params.sp_phi.value()),
+            work_func=self._work_func(),
             inner_potential=ui.inner_potential,
             a_lattice=ui.a_lattice,
             c_lattice=ui.c_lattice,

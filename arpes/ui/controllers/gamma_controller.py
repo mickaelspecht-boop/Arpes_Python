@@ -5,6 +5,7 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
+from arpes.core.sample import work_function_for_entry
 from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.gamma import (
     apply_bm_gamma_axis_shift as _gamma_apply_bm_axis_shift,
@@ -80,6 +81,19 @@ class GammaController:
         else:
             setattr(self._parent, name, value)
 
+    def _work_func(self) -> float:
+        fallback = 4.031
+        try:
+            if hasattr(self._params, "sp_phi"):
+                fallback = float(self._params.sp_phi.value())
+        except Exception:
+            pass
+        return work_function_for_entry(
+            self._session,
+            self._current_entry(),
+            fallback=fallback,
+        )
+
     def _store_fs_center_reference(self, kx: float, ky: float, *, source: str):
         if self._raw_data is None:
             return
@@ -114,7 +128,7 @@ class GammaController:
         """Convertit un decalage k (pi/a) en offset angulaire CLS (wrapper UI)."""
         try:
             hv_val = float(hv if hv is not None else self._params.sp_hv.value())
-            work_func = float(self._params.sp_phi.value())
+            work_func = self._work_func()
         except Exception:
             return None
         return _gamma_k_to_angle_offset_deg(k_pi_a, hv=hv_val, work_func=work_func)
@@ -131,7 +145,7 @@ class GammaController:
     ) -> dict:
         try:
             hv_val = float(hv if hv is not None else self._params.sp_hv.value())
-            work_func = float(self._params.sp_phi.value())
+            work_func = self._work_func()
         except Exception:
             return {}
         return _gamma_angle_offsets_from_k_center(
@@ -286,7 +300,7 @@ class GammaController:
             ref,
             bm_metadata=meta,
             bm_hv=self._raw_data.get("hv"),
-            work_func=float(self._params.sp_phi.value()),
+            work_func=self._work_func(),
             bm_azi=azi_bm,
             on_warn=self._status,
         )
@@ -385,10 +399,7 @@ class GammaController:
         """Pure : appelle le resolver Γ avec les attributs courants."""
         entry = self._current_entry()
         azi = entry.meta.azi if (entry and entry.meta.azi is not None) else None
-        work_func = (
-            float(self._params.sp_phi.value())
-            if hasattr(self._params, "sp_phi") else 4.031
-        )
+        work_func = self._work_func()
         ref = self._stored_gamma_reference()
         return _gamma_resolve(
             self._raw_data, ref,

@@ -89,3 +89,19 @@
   - `python3 -m pytest tests/test_loader_orchestrator.py tests/test_session.py` -> 16 passed
   - `python3 -m pytest tests/test_load_cache.py tests/test_loader_orchestrator.py tests/test_session.py` -> 16 passed, 12 skipped
   - `python3 -m py_compile arpes/core/sample.py arpes/io/loader_orchestrator.py arpes/app_angle_offsets.py` -> passed
+
+## 2026-06-05T04:05:00Z — P1.1 Tranche 6
+
+- Scope: use effective sample work function in Γ/KZ/FS post-load physics paths.
+- Files changed:
+  - `arpes/ui/controllers/gamma_controller.py`
+  - `arpes/ui/controllers/kz_controller.py`
+  - `arpes/ui/controllers/fs_controller.py`
+  - `tests/test_session.py`
+- Behavior:
+  - Γ angle conversion/resolver now uses `SampleConfig.work_function_eV` before UI fallback.
+  - KZ stack load and KZ map computation use effective sample work function.
+  - FS kz label computation uses effective sample work function instead of session-global `4.031`.
+- Verification:
+  - `python3 -m pytest tests/test_session.py tests/test_gamma.py tests/test_kz.py` -> 59 passed
+  - `python3 -m py_compile arpes/ui/controllers/gamma_controller.py arpes/ui/controllers/kz_controller.py arpes/ui/controllers/fs_controller.py` -> passed
