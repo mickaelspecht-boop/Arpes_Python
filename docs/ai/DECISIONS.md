@@ -9,6 +9,18 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-07 — FS↔BM CLS2026 : LE vrai bug = double key_for_path
+Malgré les fixes découverte+φ, toujours 0 lien sur CLS2026. Cause racine :
+`key_for_path` **n'est pas idempotent** sur clé nichée (`"BNA_S1/FS3"→"FS3"`).
+`_active_fs_path` renvoie déjà une clé, puis `_bound_bms_for_active_fs` /
+`_collect_bm_cuts_for_active_fs` refaisaient `key_for_path` dessus → `"FS3"` →
+`files.get` = None → `[]`. Ba122 (plat) marchait car `key_for_path` idempotent
+sur clé sans dossier. Fix : `_fs_entry_for_key` (lookup direct par clé, fallback
+key_for_path), plus de double conversion. Aussi : la **liste linked-BMs** était
+couplée aux cuts (φ-dépendants) → découplée via `refresh_matches` (montre les
+matches sans φ ; l'overlay seul garde φ). Pas de bouton refresh : `build_pseudo`
+tourne à chaque draw (live). Reste : régler φ pour dessiner les cuts.
+
 ## 2026-06-07 — MDC : fenêtre d'intégration ΔE (anti-serpentage)
 kF(E) serpentait car chaque MDC = **une seule ligne d'énergie** (bruit max), la
 méthode (fit séquentiel paires + seed prev_popt + rejet saut) étant par ailleurs

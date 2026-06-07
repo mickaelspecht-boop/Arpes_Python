@@ -81,6 +81,39 @@ class FsLinkedBmsList(QWidget):
                 item.setToolTip(cut.warning)
             self._list.addItem(item)
 
+    def refresh_matches(self, active_fs_path: str | None, matches: list) -> None:
+        """Populate from pairing matches — no work function / lattice needed.
+
+        Shows the FS↔BM links (BM name + hv/azi/direction) even when the cut
+        geometry can't be computed yet (e.g. φ not set). ``matches`` is a list of
+        PairingMatch (``.path``, ``.entry``, ``.reason``).
+        """
+        self._list.clear()
+        if not active_fs_path:
+            self._title.setText("Linked BMs: (no active FS)")
+            return
+        from pathlib import Path as _P
+        fs_name = _P(active_fs_path).name
+        if not matches:
+            self._title.setText(f"BMs linked to {fs_name}: none")
+            return
+        self._title.setText(f"BMs linked to {fs_name}: {len(matches)}")
+        for m in matches:
+            meta = getattr(m.entry, "meta", None)
+            hv = getattr(meta, "hv", 0.0) or 0.0
+            azi = getattr(meta, "azi", None)
+            direction = getattr(meta, "direction", "") or ""
+            bits = [_P(m.path).name, f"hv={float(hv):.1f} eV"]
+            if azi is not None:
+                bits.append(f"azi={float(azi):+.1f}°")
+            if direction:
+                bits.append(direction)
+            bits.append(f"[{m.reason}]")
+            item = QListWidgetItem("  ·  ".join(bits))
+            item.setData(Qt.ItemDataRole.UserRole, m.path)
+            item.setForeground(QColor("#00d4ff" if m.reason == "manual" else "#bcd"))
+            self._list.addItem(item)
+
     def _on_double_click(self, item: QListWidgetItem) -> None:
         path = item.data(Qt.ItemDataRole.UserRole)
         if path:

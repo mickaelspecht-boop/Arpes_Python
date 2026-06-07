@@ -139,6 +139,26 @@ class TestPairingController(unittest.TestCase):
         bms = ctrl._bound_bms_for_active_fs()
         self.assertEqual([m.path for m in bms], ["/d/bm_a.txt"])
 
+    def test_bound_bms_with_nested_keys_and_nonidempotent_key_for_path(self):
+        # Regression: real key_for_path collapses nested keys to the basename
+        # ("BNA_S1/FS3" -> "FS3"), so re-applying it to an already-keyed
+        # _active_fs_path used to lose the FS entry -> 0 links on subfolder
+        # layouts (CLS2026) while flat ones (Ba122) worked.
+        s = _make_session({
+            "BNA_S1/FS3": _fs(),
+            "BNA_S1/BM01": _bm(),
+        })
+        s.key_for_path = lambda p: str(p).split("/")[-1]  # non-idempotent
+        parent = _StubParent(s, current_path="/abs/BNA_S1/FS3")
+        ctrl = PairingController(parent)
+        # current path resolves to the nested key, FS recognised as active.
+        # (force the active key directly: current->key gives "FS3" which isn't a
+        # files key, so pin the real key as the app does after auto-pin.)
+        parent._pinned_fs_path = "BNA_S1/FS3"
+        parent._current_path = None
+        bms = ctrl._bound_bms_for_active_fs()
+        self.assertEqual([m.path for m in bms], ["BNA_S1/BM01"])
+
 
 class TestCollectBmCuts(unittest.TestCase):
     """B.2 — aggregation of BM projections in the FS frame."""

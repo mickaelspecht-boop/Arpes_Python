@@ -168,13 +168,23 @@ class PairingController:
         fs_path = self._active_fs_path()
         if not fs_path:
             return []
-        fs_entry = self._session.files.get(self._session.key_for_path(fs_path))
+        # fs_path is already a session key (from _active_fs_path); do NOT pass it
+        # through key_for_path again — that is not idempotent on nested keys
+        # ("BNA_S1/FS3" -> "FS3") and was why pairing returned nothing on
+        # subfolder layouts (CLS2026) while working on flat ones (Ba122).
+        fs_entry = self._fs_entry_for_key(fs_path)
         if fs_entry is None:
             return []
         return find_bms_for_fs(
             fs_entry, fs_path, _normalized_augmented_files(self._session),
             criteria or self._user_criteria(),
         )
+
+    def _fs_entry_for_key(self, fs_path: str):
+        """Look up an FS entry by its session key, tolerant of already-keyed or
+        absolute paths (key_for_path is not idempotent on nested keys)."""
+        files = self._session.files or {}
+        return files.get(fs_path) or files.get(self._session.key_for_path(fs_path))
 
     # ---------------------------------------------------------------
     # Collect BM cuts pour overlay Phase B (B.2).
@@ -201,7 +211,7 @@ class PairingController:
         fs_path = self._active_fs_path()
         if not fs_path:
             return []
-        fs_entry = self._session.files.get(self._session.key_for_path(fs_path))
+        fs_entry = self._fs_entry_for_key(fs_path)  # see _bound_bms note (no double key)
         if fs_entry is None:
             return []
         if fs_metadata is None:

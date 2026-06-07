@@ -157,17 +157,15 @@ class FSController:
                 self._fs_canvas.draw_bm_cuts(cuts_collected)
             except Exception as exc:
                 self._status(f"Warning: BM cuts overlay: {exc}")
-        # A.5: refresh "linked BMs" list (always, independent of toggle).
+        # A.5: refresh "linked BMs" list from the pairing matches — independent
+        # of the toggle AND of the work function (matches need no φ/lattice, so
+        # the links stay visible even when the cut geometry can't be drawn yet).
         if hasattr(self, "_fs_linked_bms"):
             try:
-                cuts_for_list = cuts_collected or (
-                    self._pairing_action("collect_cuts", {
-                        "fs_metadata": (self._raw_data or {}).get("metadata", {}),
-                        "a_lattice": fs_params.a_lattice,
-                    }) or []
+                self._fs_linked_bms.refresh_matches(
+                    self._pairing_action("active_fs"),
+                    self._pairing_action("bound_bms") or [],
                 )
-                self._fs_linked_bms.refresh(self._pairing_action("active_fs"),
-                                            cuts_for_list)
             except Exception:
                 pass
 
