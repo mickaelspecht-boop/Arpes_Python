@@ -50,6 +50,7 @@ class FitParams:
     shape: str = "lorentzian"  # "lorentzian" | "voigt" (pseudo-Voigt η_global)
     min_amplitude: float = 0.01
     max_jump: float = 0.20
+    mdc_energy_window: float = 0.0  # eV; >0 integrates ±half over E per MDC (anti-serpentage)
     scan_direction: str = "up"
     dE_meV: float = 15.0
     dk_inv_a: float = 0.005

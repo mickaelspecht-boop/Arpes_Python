@@ -476,6 +476,7 @@ class MdcFitter:
             "xg_range": fp.xg_range,
             "min_amplitude": fp.min_amplitude,
             "max_jump": fp.max_jump,
+            "mdc_energy_window": getattr(fp, "mdc_energy_window", 0.0),
             "scan_direction": fp.scan_direction,
             "width_mode": fp.width_mode,
             "k_min": fp.k_min,

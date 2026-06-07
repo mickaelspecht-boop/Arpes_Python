@@ -24,6 +24,7 @@ def fit_mdc_peak_pairs(
     xg_range=0.12,
     min_amplitude=0.02,
     max_jump=0.15,
+    mdc_energy_window=0.0,
     scan_direction='down',
     width_mode='symmetric',
     k_min=None,
@@ -238,8 +239,17 @@ def fit_mdc_peak_pairs(
 
     for ev_i in wf_energies:
         ie = int(np.argmin(np.abs(ev_arr - ev_i)))
-        # MDC restreinte à la plage [k_min, k_max] — comme les curseurs Igor
-        mdc_full = I_fit[:, ie]
+        # MDC restreinte à la plage [k_min, k_max] — comme les curseurs Igor.
+        # mdc_energy_window > 0 : intègre ±window/2 en énergie autour de ev_i
+        # (moyenne des lignes) pour réduire le bruit qui fait serpenter kF(E).
+        # kF/Γ varient lentement en E → non biaisés tant que la fenêtre reste
+        # petite devant l'échelle de dispersion.
+        if mdc_energy_window > 0:
+            e_mask = np.abs(ev_arr - ev_arr[ie]) <= 0.5 * float(mdc_energy_window)
+            block = I_fit[:, e_mask]
+            mdc_full = np.nanmean(block, axis=1) if block.shape[1] else I_fit[:, ie]
+        else:
+            mdc_full = I_fit[:, ie]
         mdc      = mdc_full[k_mask]
         mx = mdc.max()
         if mx <= 0:

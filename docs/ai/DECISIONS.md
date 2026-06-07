@@ -9,6 +9,16 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-07 — MDC : fenêtre d'intégration ΔE (anti-serpentage)
+kF(E) serpentait car chaque MDC = **une seule ligne d'énergie** (bruit max), la
+méthode (fit séquentiel paires + seed prev_popt + rejet saut) étant par ailleurs
+saine. Ajout `mdc_energy_window` (eV) à `fit_mdc_peak_pairs` : intègre ±window/2
+en énergie (nanmean des lignes) avant le fit. Bruit ↓∝√N, **ne biaise ni kF ni
+Γ** (varient lentement en E) — contrairement au lissage k qui gonfle Γ. 0 =
+comportement actuel. Plumbé `FitParams.mdc_energy_window` → `fit.fit_kwargs` →
+spinbox `sp_mdc_ewin` (params_fit). Distinct de `dE_eV` (résolution instrumentale
+pour correction Γ).
+
 ## 2026-06-06 — Direction des cuts : normalisation + registre ZDB + filtre + azi
 Constat : pour CLS la direction cristalline **n'est pas dans le raw** (sidecar a
 polar/tilt/X/Y/Z, pas d'azimut) → vient du **logbook** (colonne `direction`).

@@ -313,6 +313,13 @@ def _build_detect_section(panel, _fcl) -> None:
         "Maximum allowed jump between consecutive kF positions (π/a).\n"
         "Controls dispersion continuity during the full fit."
     )
+    panel.sp_mdc_ewin = dspin(0.0, 0.0, 0.2, 0.005, dec=3)
+    panel.sp_mdc_ewin.setToolTip(
+        "Energy integration window per MDC (eV, full width). 0 = single energy "
+        "row.\nAveraging ±half over E cuts noise that makes kF(E) wiggle, without "
+        "biasing kF or Γ (they vary slowly with E). Keep it small vs the band "
+        "dispersion."
+    )
     panel.sp_chi2_threshold = dspin(5.0, 0.1, 1_000.0, 0.5, dec=1)
     panel.sp_chi2_threshold.setToolTip(
         "chi2_red threshold for marking questionable fit slices in orange.\n"
@@ -325,13 +332,15 @@ def _build_detect_section(panel, _fcl) -> None:
         "up: scans the BM from ev_start (bottom) to ev_end (near EF).\n"
         "down: reverse direction."
     )
-    for w in (panel.sp_sff, panel.sp_sfd, panel.sp_ma, panel.sp_mj, panel.sp_chi2_threshold):
+    for w in (panel.sp_sff, panel.sp_sfd, panel.sp_ma, panel.sp_mj,
+              panel.sp_mdc_ewin, panel.sp_chi2_threshold):
         w.valueChanged.connect(panel.fit_only_changed)
     panel.cmb_sd.currentIndexChanged.connect(panel.fit_only_changed)
     fl.addRow("Fit smoothing σ:", panel.sp_sff)
     fl.addRow("Detect smoothing σ:", panel.sp_sfd)
     fl.addRow("Min. ampl.:", panel.sp_ma)
     fl.addRow("Max jump (π/a):", panel.sp_mj)
+    fl.addRow("MDC ΔE window (eV):", panel.sp_mdc_ewin)
     fl.addRow("chi2_red threshold:", panel.sp_chi2_threshold)
     fl.addRow("Scan direction:", panel.cmb_sd)
     _fcl.addWidget(grp)
