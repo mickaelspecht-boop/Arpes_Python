@@ -174,11 +174,16 @@ class KzController:
     def _draw_kz_tab(self):
         if not hasattr(self._parent, "_kz_canvas"):
             return
-        fig = self._parent._kz_canvas.map.fig
-        while len(fig.axes) > 1:
-            fig.delaxes(fig.axes[-1])
-        ax = self._parent._kz_canvas.map.ax
-        ax.cla()
+        # Rebuild the axes from scratch each draw. Re-using ax + re-adding the
+        # colorbar on every redraw made tight_layout shrink the host axes a bit
+        # more each time (plot crept leftward on every KZ interaction). A fresh
+        # figure resets the geometry, so the layout is identical every draw.
+        canvas = self._parent._kz_canvas.map
+        fig = canvas.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        canvas.ax = ax
+        canvas.axes = [ax]
         ax.set_facecolor("#1a1a1a")
         if self._dataset is None:
             self._kz_placeholder(ax, "Choose a KZ folder\n(variable-hν band-map series)")
