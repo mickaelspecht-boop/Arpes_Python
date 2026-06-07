@@ -20,7 +20,7 @@ try:
 except ImportError:
     _HAS_SCIPY = False
 
-requires_scipy = pytest.mark.skipif(not _HAS_SCIPY, reason="scipy absent")
+requires_scipy = pytest.mark.skipif(not _HAS_SCIPY, reason="scipy missing")
 
 from arpes.physics.distortion import (
     apply_distortion,

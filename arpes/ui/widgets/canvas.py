@@ -27,9 +27,9 @@ class MplCanvas(QWidget):
         self.toolbar = None
         if toolbar:
             self.toolbar = NavToolbar(self.canvas, self)
-            act = self.toolbar.addAction("⤢ Vue init")
-            act.setToolTip("Réinitialise les axes aux limites des données "
-                           "(le graphe garde sa taille, seules les valeurs d'axes changent).")
+            act = self.toolbar.addAction("⤢ Initial view")
+            act.setToolTip("Resets axes to data limits "
+                           "(the plot keeps its size; only axis values change).")
             act.triggered.connect(self.reset_view)
             lay.addWidget(self.toolbar)
         lay.addWidget(self.canvas)
@@ -42,7 +42,7 @@ class MplCanvas(QWidget):
         self._dark()
 
     def reset_view(self):
-        """Axes -> limites des données, aspect 'auto'. Pas de rétrécissement du cadre."""
+        """Reset axes to data limits with aspect 'auto', without shrinking the frame."""
         cb = self.reset_callback
         if callable(cb):
             try:

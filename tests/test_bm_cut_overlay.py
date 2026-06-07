@@ -1,4 +1,4 @@
-"""Tests B.1 — projection BM dans le repère FS."""
+"""Tests B.1 — BM projection in the FS frame."""
 from __future__ import annotations
 
 import unittest
@@ -15,15 +15,15 @@ from arpes.physics.bm_cut_overlay import (
 TEST_A = 3.96
 
 
-def _bm_entry(*, polar=0.0, azi=0.0, hv=60.0, pol="LH") -> FileEntry:
+def _bm_entry(*, polar=0.0, azi=0.0, hv=60.0, pol="LH", tilt=None) -> FileEntry:
     return FileEntry(meta=FileMeta(
-        hv=hv, polar=polar, azi=azi, polarization=pol, scan_kind="BM",
+        hv=hv, polar=polar, azi=azi, tilt=tilt, polarization=pol, scan_kind="BM",
     ))
 
 
-def _fs_entry(*, polar=0.0, azi=0.0, hv=60.0, pol="LH") -> FileEntry:
+def _fs_entry(*, polar=0.0, azi=0.0, hv=60.0, pol="LH", tilt=None) -> FileEntry:
     return FileEntry(meta=FileMeta(
-        hv=hv, polar=polar, azi=azi, polarization=pol, scan_kind="FS",
+        hv=hv, polar=polar, azi=azi, tilt=tilt, polarization=pol, scan_kind="FS",
     ))
 
 
@@ -77,7 +77,7 @@ class TestComputeBmCut(unittest.TestCase):
             work_func=self.WF, a_lattice=TEST_A,
         )
         self.assertIsNotNone(out)
-        # toutes les ky points = même valeur ≠ 0
+        # All ky points = same value ≠ 0.
         ky0 = out.ky_points[0]
         self.assertGreater(abs(ky0), 1e-3)
         np.testing.assert_allclose(out.ky_points, ky0, atol=1e-12)
@@ -107,7 +107,7 @@ class TestComputeBmCut(unittest.TestCase):
         out = compute_bm_cut_in_fs_frame(
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(),
             work_func=self.WF, a_lattice=TEST_A,
-            overlay_max_hv_rel=1.0,  # désactive garde stricte pour test scaled
+            overlay_max_hv_rel=1.0,  # disables strict guard for the scaled test
         )
         self.assertEqual(out.quality, "scaled")
         self.assertIn("Δhv", out.warning)
@@ -121,7 +121,7 @@ class TestComputeBmCut(unittest.TestCase):
         )
         self.assertEqual(out.quality, "incompatible")
         self.assertEqual(out.kx_points.size, 0)
-        self.assertIn("overlay masqué", out.warning)
+        self.assertIn("overlay hidden", out.warning)
 
     def test_rotation_90deg_swaps_axes(self):
         bm = _bm_entry(polar=1.0, azi=0.0)
@@ -130,9 +130,9 @@ class TestComputeBmCut(unittest.TestCase):
             bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(scan_center=0.0),
             work_func=self.WF, a_lattice=TEST_A,
         )
-        # ligne d'origine ky=ky0 (constante), kx varie en t
-        # après rotation 90° : x_new = -ky0, y_new = t
-        # → kx doit être constant, ky doit varier
+        # Original line ky=ky0 (constant), kx varies along t.
+        # After 90° rotation: x_new = -ky0, y_new = t.
+        # → kx must be constant, ky must vary.
         kx_unique = np.unique(np.round(out.kx_points, 6))
         self.assertEqual(len(kx_unique), 1)
         self.assertGreater(out.ky_points.max() - out.ky_points.min(), 0.1)
@@ -145,6 +145,59 @@ class TestComputeBmCut(unittest.TestCase):
             work_func=self.WF, a_lattice=TEST_A,
         )
         self.assertEqual(out.quality, "incompatible")
+
+    def _ky_mean(self, bm_tilt, fs_tilt):
+        bm = _bm_entry(tilt=bm_tilt)
+        fs = _fs_entry(tilt=fs_tilt)
+        out = compute_bm_cut_in_fs_frame(
+            bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(scan_center=0.0),
+            work_func=self.WF, a_lattice=TEST_A,
+        )
+        return out
+
+    def test_tilt_corrected_not_disabled(self):
+        # P2.1b — tilt > 2° is no longer rejected: overlay drawn, ky shifted.
+        out = self._ky_mean(3.0, 0.0)
+        self.assertNotEqual(out.quality, "incompatible")
+        self.assertGreater(out.kx_points.size, 0)
+        base = self._ky_mean(0.0, 0.0)
+        # ky shifted by tilt (≈ scale·sin(3°) > 0) vs the no-tilt case.
+        self.assertGreater(
+            float(np.mean(out.ky_points)) - float(np.mean(base.ky_points)), 1e-3
+        )
+
+    def test_fs_tilt_corrected_not_disabled(self):
+        # Opposite FS tilt → ky shift with opposite sign, no rejection.
+        out = self._ky_mean(0.0, 4.0)
+        self.assertNotEqual(out.quality, "incompatible")
+        base = self._ky_mean(0.0, 0.0)
+        self.assertLess(
+            float(np.mean(out.ky_points)) - float(np.mean(base.ky_points)), -1e-3
+        )
+
+    def test_small_tilt_corrected_silently(self):
+        # Zone < 10°: corrected without residual note.
+        out = self._ky_mean(1.5, 0.0)
+        self.assertNotEqual(out.quality, "incompatible")
+        self.assertNotIn("residual", out.warning)
+
+    def test_large_tilt_notes_residual(self):
+        # tilt > 10°: corrected at the center + mismatch note far from center.
+        out = self._ky_mean(15.0, 0.0)
+        self.assertNotEqual(out.quality, "incompatible")
+        self.assertIn("Ishida", out.warning)
+
+    def test_tilt_none_regression_unchanged(self):
+        # Missing tilt (None) must reproduce the exact historical behavior.
+        bm = _bm_entry(polar=0.0, tilt=None)
+        fs = _fs_entry(polar=0.0, tilt=None)
+        out = compute_bm_cut_in_fs_frame(
+            bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(scan_center=0.0),
+            work_func=self.WF, a_lattice=TEST_A,
+        )
+        self.assertEqual(out.quality, "exact")
+        self.assertEqual(out.warning, "")
+        np.testing.assert_allclose(out.ky_points, 0.0, atol=1e-10)
 
     def test_label_is_basename_stem(self):
         bm = _bm_entry()

@@ -11,11 +11,39 @@ from arpes.core.session import (
     FileEntry,
     FileMeta,
     FitParams,
+    FitZone,
     Session,
+    SessionVersionError,
+    normalize_fit_zones,
     normalize_tags,
     session_tags,
 )
 from arpes.core.sample import SampleConfig, sample_for_entry, work_function_for_entry
+
+
+class TestFitZoneP34(unittest.TestCase):
+    def test_from_dict_fills_defaults(self):
+        z = FitZone.from_dict({"id": "a", "label": "Z1"})
+        self.assertEqual((z.color_idx, z.active, z.fit_params, z.fit_result),
+                         (0, True, {}, None))
+
+    def test_from_dict_warns_on_unknown_key(self):
+        with self.assertWarns(UserWarning):
+            FitZone.from_dict({"id": "a", "label": "Z1", "bogus": 9})
+
+    def test_normalize_roundtrips_canonical_zone(self):
+        zone = {"id": "a", "label": "Z1", "color_idx": 2, "active": False,
+                "fit_params": {"k_min": -0.5}, "fit_result": {"e": 1}}
+        self.assertEqual(normalize_fit_zones([zone]), [zone])
+
+    def test_normalize_drops_unknown_key_loudly(self):
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore")
+            out = normalize_fit_zones([{"id": "a", "label": "Z1", "stale": 1}])
+        self.assertNotIn("stale", out[0])
+        self.assertEqual(set(out[0]), {"id", "label", "color_idx", "active",
+                                       "fit_params", "fit_result"})
 
 
 class TestSessionManager(unittest.TestCase):
@@ -239,6 +267,67 @@ class TestSessionManager(unittest.TestCase):
             work_function_for_entry(session, entry, fallback=4.031),
             4.7,
         )
+
+    def test_save_writes_current_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = Session(root)
+            session.get_or_create("BM1")
+            session.save()
+            raw = json.loads((root / ".arpes_session.json").read_text())
+            self.assertEqual(raw["version"], Session.VERSION)
+
+    def test_load_legacy_v1_migrates_and_records_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".arpes_session.json"
+            path.write_text(json.dumps({
+                "version": 1,
+                "files": {"old": {"meta": {"hv": 50.0}}},
+            }))
+            session = Session(root)
+            session.load(path)
+            self.assertEqual(session.loaded_version, 1)
+            entry = session.files["old"]
+            self.assertEqual(entry.band_analysis, {})
+            self.assertEqual(entry.fit_zones, [])
+            self.assertIsNone(entry.active_zone_id)
+
+    def test_load_unversioned_payload_treated_as_v1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".arpes_session.json"
+            path.write_text(json.dumps({"files": {"old": {"meta": {"hv": 1.0}}}}))
+            session = Session(root)
+            session.load(path)
+            self.assertEqual(session.loaded_version, 1)
+
+    def test_load_future_version_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".arpes_session.json"
+            path.write_text(json.dumps({
+                "version": Session.VERSION + 1,
+                "files": {},
+            }))
+            session = Session(root)
+            with self.assertRaises(SessionVersionError):
+                session.load(path)
+
+    def test_save_keeps_backup_of_previous_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = Session(root)
+            session.get_or_create("BM1")
+            session.save()
+            session.get_or_create("BM2")
+            session.save()
+            bak = root / ".arpes_session.json.bak"
+            self.assertTrue(bak.exists())
+            prev = json.loads(bak.read_text())
+            self.assertIn("BM1", prev["files"])
+            self.assertNotIn("BM2", prev["files"])
+            self.assertFalse((root / ".arpes_session.json.tmp").exists())
 
     def test_key_for_path_prefers_relative_path(self):
         with tempfile.TemporaryDirectory() as tmp:

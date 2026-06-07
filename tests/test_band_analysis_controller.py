@@ -67,7 +67,7 @@ class TestGuards:
         warned = []
         monkeypatch.setattr(c, "_warn", lambda m: warned.append(m))
         c._run_tb_fit()
-        assert warned and "fichier" in warned[0].lower()
+        assert warned and "file" in warned[0].lower()
 
     def test_no_fit_result_warns(self, monkeypatch):
         entry = _StubEntry(fit_result=None)

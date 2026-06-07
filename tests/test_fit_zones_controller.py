@@ -236,5 +236,5 @@ class TestSaveErrorSurface:
 
         ctrl = FitZonesController(P())
         ctrl._save()
-        assert any("Sauvegarde session échouée" in m for m in messages)
+        assert any("session save failed" in m for m in messages)
         assert any("disk full" in m for m in messages)

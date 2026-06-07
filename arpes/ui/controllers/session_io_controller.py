@@ -40,13 +40,13 @@ class SessionIOController:
     def _save_session_as(self) -> None:
         if not self._session.folder:
             QMessageBox.warning(
-                self._parent, "Sauvegarder session",
-                "Aucun dossier ouvert. Ouvrir un dossier de données avant de sauvegarder."
+                self._parent, "Save session",
+                "No folder is open. Open a data folder before saving."
             )
             return
         default_name, ok = QInputDialog.getText(
-            self._parent, "Sauvegarder session sous",
-            "Nom de la session :",
+            self._parent, "Save session as",
+            "Session name:",
             text=self._session.folder.name,
         )
         if not ok or not default_name.strip():
@@ -54,7 +54,7 @@ class SessionIOController:
         name = default_name.strip()
         suggested_dir = str(Path.home() / "Documents")
         path, _ = QFileDialog.getSaveFileName(
-            self._parent, "Sauvegarder session sous",
+            self._parent, "Save session as",
             str(Path(suggested_dir) / f"{name}{SESSION_EXT}"),
             SESSION_FILTER,
         )
@@ -65,16 +65,16 @@ class SessionIOController:
         try:
             self._session.save_to(Path(path))
         except OSError as exc:
-            QMessageBox.critical(self._parent, "Sauvegarder session", f"Échec écriture : {exc}")
+            QMessageBox.critical(self._parent, "Save session", f"Write failed: {exc}")
             return
         add_recent(path, name=name, folder_hint=self._session.folder.name)
         self._parent._refresh_recent_sessions_menu()
-        self._status(f"Session « {name} » sauvegardée → {path}")
+        self._status(f"Session \"{name}\" saved -> {path}")
 
     def _open_session_file(self) -> None:
         suggested_dir = str(Path.home() / "Documents")
         path, _ = QFileDialog.getOpenFileName(
-            self._parent, "Ouvrir session", suggested_dir, SESSION_FILTER,
+            self._parent, "Open session", suggested_dir, SESSION_FILTER,
         )
         if not path:
             return
@@ -84,8 +84,8 @@ class SessionIOController:
         p = Path(path)
         if not p.exists():
             QMessageBox.warning(
-                self._parent, "Session récente",
-                f"Fichier introuvable :\n{path}\nIl sera retiré de la liste."
+                self._parent, "Recent session",
+                f"File not found:\n{path}\nIt will be removed from the list."
             )
             remove_recent(p)
             self._parent._refresh_recent_sessions_menu()
@@ -100,7 +100,7 @@ class SessionIOController:
         try:
             payload = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
-            QMessageBox.critical(self._parent, "Ouvrir session", f"Lecture impossible : {exc}")
+            QMessageBox.critical(self._parent, "Open session", f"Cannot read file: {exc}")
             return
         folder = self._resolve_data_folder(payload)
         if folder is None:
@@ -113,11 +113,11 @@ class SessionIOController:
         missing = self._missing_files(folder, payload)
         if missing:
             self._status(
-                f"Session ouverte. {len(missing)} fichier(s) manquant(s) "
-                f"dans {folder} (ignorés)."
+                f"Session opened. {len(missing)} missing file(s) "
+                f"in {folder} (ignored)."
             )
         else:
-            self._status(f"Session ouverte depuis {path.name}.")
+            self._status(f"Session opened from {path.name}.")
 
     def _resolve_data_folder(self, payload: dict[str, Any]) -> Path | None:
         hint = payload.get("folder")
@@ -126,17 +126,17 @@ class SessionIOController:
             return candidate
         hint_name = payload.get("folder_hint") or (candidate.name if candidate else "")
         msg = (
-            f"Le dossier d'origine n'existe pas sur cette machine"
-            + (f" (hint : {hint_name})." if hint_name else ".")
-            + "\nLocaliser le dossier de données correspondant."
+            f"The original folder does not exist on this machine"
+            + (f" (hint: {hint_name})." if hint_name else ".")
+            + "\nLocate the matching data folder."
         )
-        QMessageBox.information(self._parent, "Localiser dossier données", msg)
+        QMessageBox.information(self._parent, "Locate data folder", msg)
         chosen = QFileDialog.getExistingDirectory(
-            self._parent, f"Dossier de données pour {hint_name or 'session'}",
+            self._parent, f"Data folder for {hint_name or 'session'}",
             str(Path.home()),
         )
         if not chosen:
-            self._status("Ouverture session annulée (dossier non fourni).")
+            self._status("Session open cancelled (no folder provided).")
             return None
         return Path(chosen)
 

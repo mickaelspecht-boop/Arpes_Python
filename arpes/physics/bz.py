@@ -1,4 +1,4 @@
-"""Presets simples de zone de Brillouin 2D pour overlays FS."""
+"""Simple 2D Brillouin zone presets for FS overlays."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,7 +7,7 @@ import numpy as np
 
 try:
     from scipy.spatial import Voronoi
-except Exception:  # pragma: no cover - fallback exact par demi-plans
+except Exception:  # pragma: no cover - exact half-plane fallback
     Voronoi = None
 
 
@@ -23,11 +23,11 @@ class BZPreset:
 
 
 BZ_PRESETS: dict[str, BZPreset] = {
-    "square": BZPreset("square", "Carré", "square", 1.0, 1.0, 90.0, "Γ-X-M, a=b, angle 90°"),
+    "square": BZPreset("square", "Square", "square", 1.0, 1.0, 90.0, "Γ-X-M, a=b, angle 90°"),
     "rectangle": BZPreset("rectangle", "Rectangle", "rectangle", 1.0, 0.75, 90.0, "Γ-X/Y-S, a≠b"),
     "hexagonal": BZPreset("hexagonal", "Hexagonal", "hexagon", 1.0, 0.866, 60.0, "Γ-M-K"),
-    "centered_rect": BZPreset("centered_rect", "Rectangle centré", "centered_rect", 1.0, 0.75, 90.0, "Maille centrée 2D, ZDB Wigner-Seitz"),
-    "oblique": BZPreset("oblique", "Oblique", "oblique", 1.0, 0.85, 75.0, "Angle libre entre vecteurs réciproques"),
+    "centered_rect": BZPreset("centered_rect", "Centered rectangle", "centered_rect", 1.0, 0.75, 90.0, "2D centered cell, Wigner-Seitz BZ"),
+    "oblique": BZPreset("oblique", "Oblique", "oblique", 1.0, 0.85, 75.0, "Free angle between reciprocal vectors"),
 }
 
 BZ_PRESET_ALIASES = {
@@ -37,13 +37,13 @@ BZ_PRESET_ALIASES = {
 
 
 def resolve_bz_preset(key: str) -> BZPreset:
-    """Résout les anciennes clés de preset vers les 5 réseaux 2D actuels."""
+    """Resolve legacy preset keys to the current 5 2D lattice presets."""
     resolved = BZ_PRESET_ALIASES.get(str(key), str(key))
     return BZ_PRESETS[resolved]
 
 
 def _closed_wigner_seitz(g1: np.ndarray, g2: np.ndarray) -> np.ndarray:
-    """Cellule de Wigner-Seitz 2D autour de Γ pour un réseau réciproque."""
+    """2D Wigner-Seitz cell around Γ for a reciprocal lattice."""
     if Voronoi is None:
         return _closed_wigner_seitz_halfplanes(g1, g2)
     pts = []
@@ -56,7 +56,7 @@ def _closed_wigner_seitz(g1: np.ndarray, g2: np.ndarray) -> np.ndarray:
     region_idx = vor.point_region[origin_idx]
     region = vor.regions[region_idx]
     if not region or any(idx < 0 for idx in region):
-        raise ValueError("ZDB Voronoi non bornée")
+        raise ValueError("Voronoi BZ is unbounded")
     poly = np.asarray([vor.vertices[idx] for idx in region], dtype=float)
     center = poly.mean(axis=0)
     order = np.argsort(np.arctan2(poly[:, 1] - center[1], poly[:, 0] - center[0]))
@@ -65,7 +65,7 @@ def _closed_wigner_seitz(g1: np.ndarray, g2: np.ndarray) -> np.ndarray:
 
 
 def _closed_wigner_seitz_halfplanes(g1: np.ndarray, g2: np.ndarray) -> np.ndarray:
-    """Intersection des médiatrices entre Γ et ses voisins de réseau."""
+    """Intersection of bisectors between Γ and its lattice neighbors."""
     scale = 8.0 * max(float(np.linalg.norm(g1)), float(np.linalg.norm(g2)), 1.0)
     poly = np.asarray(
         [[-scale, -scale], [scale, -scale], [scale, scale], [-scale, scale]],
@@ -83,7 +83,7 @@ def _closed_wigner_seitz_halfplanes(g1: np.ndarray, g2: np.ndarray) -> np.ndarra
         limit = 0.5 * float(np.dot(r, r))
         poly = _clip_polygon_halfplane(poly, r, limit)
         if poly.size == 0:
-            raise ValueError("ZDB Wigner-Seitz vide")
+            raise ValueError("Wigner-Seitz BZ is empty")
     center = poly.mean(axis=0)
     order = np.argsort(np.arctan2(poly[:, 1] - center[1], poly[:, 0] - center[0]))
     poly = poly[order]
@@ -113,7 +113,16 @@ def _clip_polygon_halfplane(poly: np.ndarray, normal: np.ndarray, limit: float) 
     return np.asarray(out, dtype=float)
 
 
+# P4.8: trigonal/triangular lattices (Bi2Se3 & topological materials) → hexagonal BZ.
+_SHAPE_ALIASES = {"triangular": "hexagon", "trigonal": "hexagon"}
+
+
+def _norm_shape(shape: str) -> str:
+    return _SHAPE_ALIASES.get(str(shape), str(shape))
+
+
 def _reciprocal_basis(shape: str, half_x: float, half_y: float, angle_deg: float) -> tuple[np.ndarray, np.ndarray]:
+    shape = _norm_shape(shape)
     bx = max(float(half_x), 1e-9)
     by = max(float(half_y), 1e-9)
     if shape == "square":
@@ -130,7 +139,7 @@ def _reciprocal_basis(shape: str, half_x: float, half_y: float, angle_deg: float
 
 
 def bz_polygon(shape: str, half_x: float, half_y: float, angle_deg: float = 90.0) -> np.ndarray:
-    """Retourne les sommets fermés d'une ZDB 2D normalisée."""
+    """Return the closed vertices of a normalized 2D BZ."""
     g1, g2 = _reciprocal_basis(str(shape), half_x, half_y, angle_deg)
     return _closed_wigner_seitz(g1, g2)
 
@@ -141,16 +150,17 @@ def bz_high_symmetry_points(
     half_y: float,
     angle_deg: float = 90.0,
 ) -> list[tuple[float, float, str, str]]:
-    """Points d'aide visuelle: (x, y, label, color).
+    """Visual aid points: (x, y, label, color).
 
-    Labels = conventions cristallo 2D utilisées par les physiciens :
-    - carré (tétragonal)      : Γ, X (centre d'arête), M (coin)
-    - hexagonal               : Γ, K (sommet), M (centre d'arête)
-    - rectangle (orthorhombique) : Γ, X=(π/a,0), Y=(0,π/b), S (coin)
-    - rectangle centré        : Γ, X (centre d'arête), S (sommet ZDB)
-    - oblique                 : Γ seul ; sommets marqués sans label
-      (aucun point haute-symétrie standard au-delà de Γ).
+    Labels follow standard 2D crystallographic conventions:
+    - square (tetragonal)      : Γ, X (edge center), M (corner)
+    - hexagonal                : Γ, K (vertex), M (edge center)
+    - rectangle (orthorhombic) : Γ, X=(π/a,0), Y=(0,π/b), S (corner)
+    - centered rectangle       : Γ, X (edge center), S (BZ vertex)
+    - oblique                  : Γ only; vertices marked without label
+      (no standard high-symmetry points beyond Γ).
     """
+    shape = _norm_shape(shape)
     bx = max(float(half_x), 1e-9)
     by = max(float(half_y), 1e-9)
     points = [(0.0, 0.0, "Γ", "white")]
@@ -171,7 +181,7 @@ def bz_high_symmetry_points(
             points.append((x, y, "M", "lime"))
         return points
     if shape == "rectangle":
-        # Orthorhombique : arêtes inéquivalentes X≠Y, coin = S (≠ M).
+        # Orthorhombic: inequivalent edges X≠Y, corner = S (≠ M).
         for x, y in [(bx, 0), (-bx, 0)]:
             points.append((x, y, "X", "cyan"))
         for x, y in [(0, by), (0, -by)]:
@@ -181,30 +191,30 @@ def bz_high_symmetry_points(
         return points
     poly = bz_polygon(shape, bx, by, angle_deg)[:-1]
     if shape == "centered_rect":
-        # ZDB hexagonale du réseau centré : centres d'arête → X,
-        # sommets → S. Pas de M (réservé carré/hexagonal).
+        # Hexagonal BZ of the centered lattice: edge centers → X,
+        # vertices → S. No M (reserved for square/hexagonal).
         for a, b in zip(poly, np.roll(poly, -1, axis=0)):
             mid = 0.5 * (a + b)
             points.append((float(mid[0]), float(mid[1]), "X", "cyan"))
         for x, y in poly:
             points.append((float(x), float(y), "S", "lime"))
         return points
-    # oblique : aucun label haute-symétrie standard hors Γ. On marque les
-    # sommets sans nom (repère visuel, pas de label trompeur X/M).
+    # oblique: no standard high-symmetry label beyond Γ. Mark the
+    # unnamed vertices (visual reference, no misleading X/M label).
     for x, y in poly:
         points.append((float(x), float(y), "", "#9ca3af"))
     return points
 
 
 # --------------------------------------------------------------------------
-# Mapping cristal 3D réel → preset 2D + labels HS selon plan kz courant.
-# Sert l'overlay BZ dans la fenêtre FS (cf. Fig. 4 Ideta 2014, BaNi2P2).
+# Real 3D crystal mapping → 2D preset + HS labels for the current kz plane.
+# Serves the BZ overlay in the FS window (cf. Fig. 4 Ideta 2014, BaNi2P2).
 # --------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class Lattice3D:
-    """Paramètres maille cristallographique (Bravais 3D)."""
+    """Crystallographic unit cell parameters (3D Bravais lattice)."""
     a: float                       # Å
     b: float                       # Å
     c: float                       # Å
@@ -223,23 +233,23 @@ class Lattice3D:
             return "rectangle"
         if bv == "hexagonal":
             return "hexagonal"
-        return "square"  # fallback raisonnable
+        return "square"  # reasonable fallback
 
 
 _HS_LABELS_BY_PLANE: dict[str, dict[str, list[str]]] = {
-    # plan kz=0 (Γ-plane) → centre = Γ ; plan kz=π/c (Z-plane) → centre = Z.
-    # Tétragonal I4/mmm : Γ-X-M ↔ Z-R-A (cf. Bilbao server).
+    # kz=0 plane (Γ-plane) → center = Γ; kz=π/c plane (Z-plane) → center = Z.
+    # Tetragonal I4/mmm: Γ-X-M ↔ Z-R-A (cf. Bilbao server).
     "tetragonal": {"Gamma": ["Γ", "X", "M"], "Z": ["Z", "R", "A"]},
     "orthorhombic": {"Gamma": ["Γ", "X", "Y", "S"], "Z": ["Z", "U", "T", "R"]},
     "hexagonal": {"Gamma": ["Γ", "K", "M"], "Z": ["A", "H", "L"]},
-    "cubic": {"Gamma": ["Γ", "X", "M"], "Z": ["Γ", "X", "M"]},  # kz=2π/a équiv. Γ
+    "cubic": {"Gamma": ["Γ", "X", "M"], "Z": ["Γ", "X", "M"]},  # kz=2π/a equiv. Γ
 }
 
 
 def _label_remap(points_2d: list[tuple[float, float, str, str]],
                  src_labels: list[str], dst_labels: list[str]
                  ) -> list[tuple[float, float, str, str]]:
-    """Renomme les labels HS selon table src→dst, en gardant ordre/couleur."""
+    """Rename HS labels according to the src→dst table, preserving order/color."""
     if not src_labels or not dst_labels or len(src_labels) != len(dst_labels):
         return points_2d
     rename = dict(zip(src_labels, dst_labels))
@@ -253,20 +263,20 @@ def bz_points_for_lattice_plane(
     lattice: Lattice3D,
     plane: str = "Gamma",
 ) -> tuple[np.ndarray, list[tuple[float, float, str, str]], str]:
-    """Polygon BZ 2D + points HS labellés pour un cristal 3D dans un plan kz.
+    """2D BZ polygon and labelled HS points for a 3D crystal in a kz plane.
 
-    Retourne ``(polygon_xy, hs_points, preset_key)``.
+    Returns ``(polygon_xy, hs_points, preset_key)``.
 
-    - ``plane`` ∈ {"Gamma", "Z"}. Sélectionne table labels HS appropriée.
-    - Polygon et coordonnées en unités **π/a** sur kx et **π/b** sur ky
-      (cohérent avec convention loader ARPES).
-    - ``preset_key`` retourné pour debug / persistence.
+    - ``plane`` ∈ {"Gamma", "Z"}. Selects the appropriate HS label table.
+    - Polygon and coordinates in units of **π/a** along kx and **π/b** along ky
+      (consistent with the ARPES loader convention).
+    - ``preset_key`` returned for debug / persistence.
 
-    Limitation V1 : ne gère pas les BZ hexagonal-centered ou tricliniques.
-    Pour bravais non reconnu : fallback "square" + labels Γ-plane.
+    V1 limitation: hexagonal-centered and triclinic BZs are not handled.
+    For unrecognized Bravais types: fallback to "square" + Γ-plane labels.
     """
     preset_key = lattice.preset_key()
-    # Half-extents en unités cohérentes avec presets (1.0 = π/a).
+    # Half-extents in units consistent with presets (1.0 = π/a).
     if preset_key == "square":
         half_x = 1.0
         half_y = 1.0
@@ -281,8 +291,8 @@ def bz_points_for_lattice_plane(
         half_x = 1.0
         half_y = 1.0
 
-    # bz_polygon/bz_high_symmetry_points attendent la chaîne `shape`
-    # (`square`, `hexagon`, ...) et non la clé de preset (`hexagonal`).
+    # bz_polygon/bz_high_symmetry_points expect the `shape` string
+    # (`square`, `hexagon`, ...), not the preset key (`hexagonal`).
     shape = resolve_bz_preset(preset_key).shape
     poly = bz_polygon(shape, half_x, half_y, lattice.gamma_deg)
     pts_raw = bz_high_symmetry_points(shape, half_x, half_y, lattice.gamma_deg)

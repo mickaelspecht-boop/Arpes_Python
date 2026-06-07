@@ -1,9 +1,9 @@
-"""Panneau paramètres de fit + sélecteur de paires (FitParamsPanel).
+"""Fit parameters panel and pair selector (FitParamsPanel).
 
-La construction des sections (Énergie, EF/Chargement, Utilitaires, DFT/Théorie,
-Fit MDC) est déléguée à des modules `params_*` pour rester sous le plafond
-700 LOC. Les helpers métier (update_*, get_fit_params, load_fit_params, gestion
-des paires, gestion de provenance hν/résolution) restent ici.
+Section construction (Energy, EF/Loading, Utilities, DFT/Theory,
+MDC Fit) is delegated to `params_*` modules to stay under the 700 LOC
+limit. Business helpers (update_*, get_fit_params, load_fit_params, pair
+management, hν/resolution provenance management) remain here.
 """
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ from arpes.ui.widgets._qt_helpers import PAIR_COLORS  # noqa: F401  re-export
 
 
 class ClickablePairLabel(QLabel):
-    """Label cliquable pour naviguer entre les paires de Lorentziennes.
-    Clic gauche → paire suivante.  Clic droit → paire précédente."""
+    """Clickable label for navigating between Lorentzian pairs.
+    Left-click → next pair.  Right-click → previous pair."""
     pair_changed = pyqtSignal(int)
 
     def __init__(self):
@@ -34,10 +34,10 @@ class ClickablePairLabel(QLabel):
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setToolTip("Paire active : clic gauche ou flèche droite = suivante; clic droit ou flèche gauche = précédente.")
-        self.setAccessibleName("Sélecteur de paire MDC")
+        self.setToolTip("Active pair: left-click or right arrow = next; right-click or left arrow = previous.")
+        self.setAccessibleName("MDC pair selector")
         self.setAccessibleDescription(
-            "Change la paire de Lorentziennes active pour les paramètres initiaux du fit MDC."
+            "Changes the active Lorentzian pair for the initial MDC fit parameters."
         )
         self.setStyleSheet(
             "background:#3a3a4a; color:#cde; font-weight:bold;"
@@ -56,9 +56,9 @@ class ClickablePairLabel(QLabel):
 
     def _update(self):
         if self._n == 1:
-            self.setText("Paire 1 / 1")
+            self.setText("Pair 1 / 1")
         else:
-            self.setText(f"<  Paire {self._current + 1} / {self._n}  >")
+            self.setText(f"<  Pair {self._current + 1} / {self._n}  >")
 
     def _step_pair(self, delta: int) -> None:
         if self._n < 2:
@@ -126,6 +126,7 @@ class FitParamsPanel(QScrollArea):
     theory_mu_fit_requested = pyqtSignal()
     theory_align_requested = pyqtSignal()
     theory_efalign_requested = pyqtSignal()
+    work_function_changed = pyqtSignal()
     crystal_a_changed = pyqtSignal()
     file_tags_changed = pyqtSignal()
     fit_section_toggled = pyqtSignal(str, bool)
@@ -171,48 +172,48 @@ class FitParamsPanel(QScrollArea):
 
     # ── accès params ──────────────────────────────────────────────────────────
     def update_ef_reference_button(self, ref: dict | None):
-        """Met à jour le label/état du bouton EF réf selon la session."""
+        """Update the EF reference button label/state from the session."""
         if not ref:
-            self.btn_ef_ref.setText("Aucune réf EF")
+            self.btn_ef_ref.setText("No EF ref")
             self.btn_ef_ref.setEnabled(False)
             self.btn_ef_ref.setToolTip(
-                "Aucune référence EF enregistrée dans cette session.\n"
-                "Pour en créer une : 'Calibrer EF auto' sur un scan Au, "
-                "puis cocher 'Enregistrer comme référence' dans le dialog."
+                "No EF reference recorded in this session.\n"
+                "To create one: run 'Auto EF calibration' on an Au scan, "
+                "then check 'Save as reference' in the dialog."
             )
             return
         mode = ref.get("mode", "?")
         src_path = ref.get("source_file", "")
-        src_name = Path(src_path).name if src_path else "(source inconnue)"
+        src_name = Path(src_path).name if src_path else "(unknown source)"
         if mode == "scalar":
             shift_meV = float(ref.get("ef_shift", 0.0)) * 1000.0
-            label = f"Appliquer EF réf ({shift_meV:+.1f} meV)"
+            label = f"Apply EF ref ({shift_meV:+.1f} meV)"
         elif mode == "poly":
             n_valid = int(ref.get("n_valid", 0))
             fwhm = float(ref.get("fwhm_res", 0.0)) * 1000.0
-            label = f"Appliquer EF réf poly (n={n_valid})"
+            label = f"Apply EF ref poly (n={n_valid})"
         else:
-            label = "Appliquer EF réf"
+            label = "Apply EF ref"
         self.btn_ef_ref.setText(label)
         self.btn_ef_ref.setEnabled(True)
         self.btn_ef_ref.setToolTip(
-            f"Référence EF enregistrée :\n"
+            f"Recorded EF reference:\n"
             f"  mode = {mode}\n"
             f"  source = {src_path or '?'}\n"
-            f"Applique cette correction au fichier courant."
+            f"Applies this correction to the current file."
         )
 
     def update_hv_source(self, source: str | None):
-        """Affiche la provenance de hν : 'file', 'logbook', 'manual', None."""
-        labels = {"file": "Fichier", "logbook": "Logbook", "manual": "Manuel", "session": "Session"}
-        self.lbl_hv_src.setText(labels.get(source or "", "Inconnu"))
+        """Display the hν provenance: 'file', 'logbook', 'manual', None."""
+        labels = {"file": "File", "logbook": "Logbook", "manual": "Manual", "session": "Session"}
+        self.lbl_hv_src.setText(labels.get(source or "", "Unknown"))
 
     def _mark_hv_manual_if_user_edit(self):
         if not getattr(self, "_hv_source_lock", False):
             self.update_hv_source("manual")
 
     def set_hv_value_with_source(self, value: float, source: str):
-        """Set la spinbox hν sans déclencher le marquage 'manuel'."""
+        """Set the hv spinbox without triggering the 'manual' marker."""
         self._hv_source_lock = True
         try:
             self.sp_hv.blockSignals(True)
@@ -239,15 +240,15 @@ class FitParamsPanel(QScrollArea):
             self._tag_completer_model.setStringList(list(tags or []))
 
     def update_resolution_source(self, source: str | None):
-        """Affiche la provenance de la resolution : 'estimated', 'manual', 'default'."""
+        """Display the resolution provenance: 'estimated', 'manual', 'default'."""
         self._resolution_source = source or "default"
         self._resolution_source_detail = self._resolution_source
-        label = {"estimated": "Estimée", "manual": "Manuelle", "default": "Défaut"}.get(self._resolution_source, "Défaut")
+        label = {"estimated": "Estimated", "manual": "Manual", "default": "Default"}.get(self._resolution_source, "Default")
         self.lbl_dE_src.setText(label)
         self.lbl_dk_src.setText(label)
 
     def mark_action_done(self, text: str):
-        self.lbl_action.setText(f"Dernière action : {text}")
+        self.lbl_action.setText(f"Last action: {text}")
 
     def _mark_resolution_manual_if_user_edit(self):
         if not getattr(self, "_resolution_source_lock", False):
@@ -255,7 +256,7 @@ class FitParamsPanel(QScrollArea):
             self._resolution_source_detail = "manual"
 
     def set_resolution_with_source(self, dE_meV: float, dk_inv_a: float, source: str, detail: str | None = None):
-        """Set les spinboxes resolution sans déclencher le marquage manuel."""
+        """Set resolution spinboxes without triggering the manual marker."""
         self._resolution_source_lock = True
         try:
             for sp, value in ((self.sp_dE_meV, dE_meV), (self.sp_dk_inv_a, dk_inv_a)):
@@ -268,21 +269,21 @@ class FitParamsPanel(QScrollArea):
             self._resolution_source_lock = False
 
     def update_copy_params_button(self, n_targets: int):
-        """Met à jour le label/état du bouton 'Propager fit params'."""
+        """Update the label/state of the 'Propagate fit params' button."""
         if n_targets <= 0:
-            self.btn_copy.setText("Propager fit params (0 cible)")
+            self.btn_copy.setText("Propagate fit params (0 targets)")
             self.btn_copy.setEnabled(False)
             self.btn_copy.setToolTip(
-                "Aucun fichier non-fitté dans le dossier (hors fichier courant).\n"
-                "Tous les autres ont déjà un fit_result enregistré : ils ne seront pas écrasés."
+                "No unfitted files in the folder (excluding the current file).\n"
+                "All others already have a recorded fit_result and will not be overwritten."
             )
         else:
-            self.btn_copy.setText(f"Propager fit params ({n_targets} cible{'s' if n_targets > 1 else ''})")
+            self.btn_copy.setText(f"Propagate fit params ({n_targets} target{'s' if n_targets > 1 else ''})")
             self.btn_copy.setEnabled(True)
             self.btn_copy.setToolTip(
-                f"Copie les paramètres de fit MDC actuels vers les {n_targets} "
-                f"fichier(s) du dossier qui n'ont pas encore été fittés.\n"
-                f"Les fichiers déjà fittés ne sont jamais écrasés."
+                f"Copies the current MDC fit parameters to the {n_targets} "
+                f"file(s) in the folder that have not yet been fitted.\n"
+                f"Already fitted files are never overwritten."
             )
 
     def get_fit_params(self) -> FitParams:
@@ -327,7 +328,7 @@ class FitParamsPanel(QScrollArea):
         self.btn_fit_undo.setEnabled(bool(enabled))
 
     def set_context(self, context: str):
-        """Adapte le panneau droit à l'onglet actif."""
+        """Adapt the right panel to the active tab."""
         is_bm = context == "bm"
         is_mdc = context == "mdc"
         self._energy_widget.setVisible(is_bm)
@@ -565,7 +566,7 @@ class FitParamsPanel(QScrollArea):
         n_total = 0 if _ef is None else len(_ef)
         if arr.size == 0:
             self.lbl_fit_quality.setText(
-                f"{n_total} slices fittées | χ² indisponible"
+                f"{n_total} fitted slices | χ² unavailable"
             )
             self.lbl_fit_quality.setStyleSheet(
                 "color:#888;font-family:monospace;font-size:10px;"
@@ -575,17 +576,17 @@ class FitParamsPanel(QScrollArea):
         bad = int(np.sum(arr > float(chi2_threshold)))
         ratio = bad / max(arr.size, 1)
         color = "#8fc" if ratio < 0.3 else "#fc8"
-        text = f"χ²_red méd: {med:.2f}  |  {arr.size} slices  |  {bad} douteuses"
+        text = f"χ²_red med: {med:.2f}  |  {arr.size} slices  |  {bad} suspect"
         stored_hash = str(fit_result.get("params_hash") or "")
         if current_hash and stored_hash and current_hash != stored_hash:
-            text = f"⚠ STALE — params modifiés depuis le fit | {text}"
+            text = f"⚠ STALE — params changed since fit | {text}"
             color = "#f87171"  # rouge clair
         self.lbl_fit_quality.setText(text)
         self.lbl_fit_quality.setStyleSheet(
             f"color:{color};font-family:monospace;font-size:12px;font-weight:bold;"
         )
         self.lbl_fit_quality.setToolTip(
-            "STALE = paramètres MDC/EF/correction modifiés depuis ce fit.\n"
-            "Re-lancer Fit complet pour réaligner."
-            if "STALE" in text else "Qualité du fit MDC en cours."
+            "STALE = MDC/EF/correction parameters changed since this fit.\n"
+            "Re-run Full fit to realign."
+            if "STALE" in text else "Current MDC fit quality."
         )

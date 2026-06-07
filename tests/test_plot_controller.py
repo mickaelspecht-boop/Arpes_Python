@@ -1,4 +1,4 @@
-"""Tests de préparation des données de plot (`arpes_plot_controller`)."""
+"""Tests for plot data preparation (`arpes_plot_controller`)."""
 
 from __future__ import annotations
 
@@ -192,6 +192,44 @@ class TestPlotController(unittest.TestCase):
         np.testing.assert_allclose(mdc, norm[:, 1])
         np.testing.assert_allclose(edc, norm[1, :])
 
+    def test_map_color_kwargs_cache_reuses_percentile_result(self):
+        raw = self._raw()
+
+        class _Spin:
+            def __init__(self, value):
+                self._value = value
+            def value(self):
+                return self._value
+
+        parent = SimpleNamespace(
+            _raw_data=raw,
+            _disp_cache_key=("display", 1),
+            _color_kwargs_cache=OrderedDict(),
+            _color_kwargs_cache_max=4,
+            _params=SimpleNamespace(
+                sp_kmin=_Spin(-0.1), sp_kmax=_Spin(0.1),
+                sp_evs=_Spin(-0.1), sp_eve=_Spin(0.1),
+            ),
+        )
+        ctrl = PlotController(parent)
+        calls = []
+        old = plot_ctrl_mod._plot_map_color_kwargs
+
+        def fake(disp, *, mode, roi_ref=None):
+            calls.append((np.asarray(disp).shape, mode, np.asarray(roi_ref).shape))
+            return "inferno", {"vmin": 0.0, "vmax": 1.0}
+
+        plot_ctrl_mod._plot_map_color_kwargs = fake
+        try:
+            ctrl._map_color_kwargs(raw["data"], "Raw", roi_scale=True)
+            ctrl._map_color_kwargs(raw["data"], "Raw", roi_scale=True)
+            parent._params.sp_eve._value = 0.0
+            ctrl._map_color_kwargs(raw["data"], "Raw", roi_scale=True)
+        finally:
+            plot_ctrl_mod._plot_map_color_kwargs = old
+
+        self.assertEqual(len(calls), 2)
+
     def test_edcnorm_mode_normalizes(self):
         raw = self._raw()
         out = compute_bandmap_display(raw, mode="EDCnorm", edc_norm_enabled=False)
@@ -345,8 +383,8 @@ class TestPlotController(unittest.TestCase):
         meshes = [c for c in ax.collections if isinstance(c, QuadMesh)]
         self.assertEqual(len(meshes), 1)
         self.assertIsNot(state.mesh, first_mesh)
-        # bornes recalées tight sur l'étendue des données du nouveau fichier,
-        # autoscale coupé (les overlays ne doivent plus dilater le cadre)
+        # Bounds tightly reset to the new file's data extent; autoscale is
+        # disabled so overlays no longer expand the frame.
         self.assertEqual(ax.get_xlim(), (-1.0, 1.0))
         self.assertEqual(ax.get_ylim(), (-0.3, 0.1))
         self.assertFalse(ax.get_autoscale_on())

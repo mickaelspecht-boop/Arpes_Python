@@ -37,33 +37,33 @@ def _dspin(lo: float, hi: float, val: float, step: float = 0.01,
 
 HELP_TB = (
     "<b>TB fit (Tight-Binding)</b><br><br>"
-    "Ajuste la dispersion E(k) extraite du fit MDC sur le modèle "
+    "Fits the E(k) dispersion extracted from the MDC fit on the model "
     "<i>E(k) = ε₀ − 2t·cos(ka) − 4t'·cos(ka)cos(kb)</i>.<br><br>"
-    "<b>Sortie</b> : ε₀, t, t' (eV), m*/m, W (bandwidth, eV).<br>"
-    "<b>Usage</b> : comparer hopping mesuré vs DFT. Si t_ARPES &lt; t_DFT → "
-    "renormalisation par corrélations électroniques.<br>"
-    "<b>Choix lattice</b> : chain = 1D, square = a=b, hex = nid-d'abeille, "
+    "<b>Output</b>: ε₀, t, t' (eV), m*/m, W (bandwidth, eV).<br>"
+    "<b>Use</b>: compare measured hopping vs DFT. If t_ARPES &lt; t_DFT → "
+    "renormalization by electronic correlations.<br>"
+    "<b>Lattice choice</b>: chain = 1D, square = a=b, hex = honeycomb, "
     "rect = a≠b."
 )
 
 HELP_KINK = (
-    "<b>Kink Σ(E) — couplage électron-boson</b><br><br>"
-    "Compare dispersion expérimentale et bare band (parabolique ajustée "
-    "sur fenêtre profonde où corrélations faibles).<br>"
+    "<b>Kink Σ(E) — electron-boson coupling</b><br><br>"
+    "Compares experimental dispersion and bare band (parabolic fit "
+    "over a deep window where correlations are weak).<br>"
     "<i>Re Σ = E_exp − E_bare</i> ; <i>Im Σ ≈ (v_bare/2)·Γ_MDC</i>.<br>"
-    "<i>λ = −∂ReΣ/∂ω|_{ω=0}</i> par fit linéaire dans une petite fenêtre."
-    "<br><br><b>Sortie</b> : λ (typique 0.3–1.5), v_bare (eV·Å), Re/Im Σ(E)."
-    "<br><b>Usage</b> : quantifier couplage phonon ('kink' à ~50–70 meV) "
-    "ou mode bosonique (oxydes supras)."
+    "<i>λ = −∂ReΣ/∂ω|_{ω=0}</i> from a linear fit in a small window."
+    "<br><br><b>Output</b>: λ (typical 0.3–1.5), v_bare (eV·Å), Re/Im Σ(E)."
+    "<br><b>Use</b>: quantify phonon coupling ('kink' near ~50–70 meV) "
+    "or a bosonic mode (superconducting oxides)."
 )
 
 HELP_GAP = (
     "<b>Gap Δ (Dynes)</b><br><br>"
-    "Symétrise EDC à kF puis ajuste densité d'états Dynes "
+    "Symmetrizes the EDC at kF, then fits the Dynes density of states "
     "<i>I(ω) ∝ Re[(ω−iΓ)/√((ω−iΓ)² − Δ²)]</i>.<br><br>"
-    "<b>Sortie</b> : Δ (gap, meV), Γ (broadening, meV), k_F (Å⁻¹).<br>"
-    "<b>2 gaps</b> : pour supras s± (Fe-pnictides).<br>"
-    "<b>Résolution</b> : convolution gaussienne (mettre dE instrumental en meV)."
+    "<b>Output</b>: Δ (gap, meV), Γ (broadening, meV), k_F (Å⁻¹).<br>"
+    "<b>2 gaps</b>: for s± superconductors (Fe-pnictides).<br>"
+    "<b>Resolution</b>: Gaussian convolution (set instrumental dE in meV)."
 )
 
 
@@ -94,7 +94,7 @@ class BandAnalysisPanel(QWidget):
         self.tabs.addTab(self._build_tb_tab(), "TB fit")
         self.tabs.addTab(self._build_kink_tab(), "Kink Σ(E)")
         self.tabs.addTab(self._build_gap_tab(), "Gap Δ")
-        self.tabs.addTab(self._build_summary_tab(), "Résumé")
+        self.tabs.addTab(self._build_summary_tab(), "Summary")
         lay.addWidget(self.tabs)
 
     # ------------------------------------------------------------------
@@ -124,7 +124,7 @@ class BandAnalysisPanel(QWidget):
         self.preset_combo = QComboBox()
         self.preset_combo.addItems(list(self.PRESETS.keys()))
         self.preset_combo.setToolTip(
-            "Pré-remplit tous les paramètres pour un matériau standard "
+            "Pre-fills all parameters for a standard material "
             "(crystal a, lattice, ω_max gap)."
         )
         self.preset_combo.currentTextChanged.connect(self._on_preset_changed)
@@ -169,10 +169,10 @@ class BandAnalysisPanel(QWidget):
         c = QComboBox()
         c.addItems(["kF_minus", "kF_plus"])
         c.setToolTip(
-            "Branche du fit MDC à analyser :\n"
-            "  kF_minus = côté k < 0 (vers Γ négatif)\n"
-            "  kF_plus  = côté k > 0\n"
-            "Choisir celle qui contient la bande d'intérêt."
+            "MDC fit branch to analyze:\n"
+            "  kF_minus = k < 0 side (toward negative Γ)\n"
+            "  kF_plus  = k > 0 side\n"
+            "Choose the one containing the band of interest."
         )
         return c
 
@@ -183,9 +183,9 @@ class BandAnalysisPanel(QWidget):
         lbl.setStyleSheet("color:#aaa; font-size:10px; padding:2px 0px;")
         btn = QToolButton()
         btn.setText("?")
-        btn.setToolTip("Méthode + interprétation détaillée.")
+        btn.setToolTip("Method + detailed interpretation.")
         btn.setStyleSheet("padding:0px 6px;")
-        btn.clicked.connect(lambda: QMessageBox.information(self, "Aide", help_text))
+        btn.clicked.connect(lambda: QMessageBox.information(self, "Help", help_text))
         row.addWidget(lbl, 1)
         row.addWidget(btn, 0)
         w = QWidget(); w.setLayout(row)
@@ -215,8 +215,8 @@ class BandAnalysisPanel(QWidget):
         outer.setContentsMargins(2, 2, 2, 2)
 
         outer.addWidget(self._header(
-            "Ajuste E(k) sur modèle TB → ε₀, t, t', m*/m. "
-            "Compare à DFT/théorie. Requiert fit MDC.",
+            "Fits E(k) on a TB model → ε₀, t, t', m*/m. "
+            "Compares to DFT/theory. Requires MDC fit.",
             HELP_TB,
         ))
         bw, self.tb_badge = self._badge_row()
@@ -226,34 +226,34 @@ class BandAnalysisPanel(QWidget):
         self.tb_lattice = QComboBox()
         self.tb_lattice.addItems(["chain", "square", "hex", "rect"])
         self.tb_lattice.setToolTip(
-            "Modèle réseau :\n"
-            "  chain   = 1D (1 paramètre t, suffisant pour MDC cut Γ-X)\n"
-            "  square  = 2D carré a=b (t, t')\n"
-            "  hex     = 2D nid-d'abeille (graphene-like)\n"
+            "Lattice model:\n"
+            "  chain   = 1D (one t parameter, enough for MDC Γ-X cut)\n"
+            "  square  = 2D square a=b (t, t')\n"
+            "  hex     = 2D honeycomb (graphene-like)\n"
             "  rect    = 2D rectangle a≠b"
         )
         self.tb_a = _dspin(1.0, 20.0, 3.9, 0.01, 4)
         self.tb_a.setToolTip(
-            "Paramètre de maille a en Å (distance inter-atomes).\n"
-            "Auto-rempli depuis méta cristal si disponible."
+            "Lattice parameter a in Å (interatomic distance).\n"
+            "Auto-filled from crystal metadata if available."
         )
         self.tb_b = _dspin(1.0, 20.0, 3.9, 0.01, 4)
-        self.tb_b.setToolTip("Paramètre b (rect uniquement).")
+        self.tb_b.setToolTip("Parameter b (rect only).")
         self.tb_b.setEnabled(False)
         self.tb_lattice.currentTextChanged.connect(
             lambda s: self.tb_b.setEnabled(s == "rect")
         )
         self.tb_branch = self._branch_combo()
-        self.tb_pair_label = QLabel("Paire #")
+        self.tb_pair_label = QLabel("Pair #")
         self.tb_pair = QSpinBox(); self.tb_pair.setRange(0, 7)
         self.tb_pair.setToolTip(
-            "Index de la paire de bandes ([0..n_pairs-1] du fit MDC).\n"
-            "Caché si une seule paire fittée."
+            "Band-pair index ([0..n_pairs-1] from MDC fit).\n"
+            "Hidden if only one pair was fitted."
         )
         form.addRow("Lattice", self.tb_lattice)
         form.addRow("a (Å)", self.tb_a)
         form.addRow("b (Å, rect)", self.tb_b)
-        form.addRow("Branche", self.tb_branch)
+        form.addRow("Branch", self.tb_branch)
         self._tb_pair_form_row = (self.tb_pair_label, self.tb_pair)
         form.addRow(self.tb_pair_label, self.tb_pair)
         outer.addLayout(form)
@@ -261,13 +261,13 @@ class BandAnalysisPanel(QWidget):
         btn_row = QHBoxLayout()
         self.tb_auto_btn = QPushButton("Auto")
         self.tb_auto_btn.setToolTip(
-            "Pré-remplit lattice a depuis méta cristal + sélectionne 1ère "
-            "branche valide."
+            "Pre-fills lattice a from crystal metadata and selects the first "
+            "valid branch."
         )
         self.tb_auto_btn.clicked.connect(lambda: self.autofill_requested.emit("tb"))
         self.tb_run_btn = QPushButton("Run TB fit")
         self.tb_run_btn.setToolTip(
-            "Ajuste E(k) sur le modèle choisi. Désactivé tant qu'aucun fit MDC."
+            "Fits E(k) on the selected model. Disabled until an MDC fit exists."
         )
         self.tb_run_btn.clicked.connect(self.tb_fit_requested.emit)
         btn_row.addWidget(self.tb_auto_btn)
@@ -275,7 +275,7 @@ class BandAnalysisPanel(QWidget):
         btn_row.addStretch(1)
         outer.addLayout(btn_row)
 
-        self.tb_summary = QLabel("Aucun fit TB.")
+        self.tb_summary = QLabel("No TB fit.")
         self.tb_summary.setWordWrap(True)
         outer.addWidget(self.tb_summary)
 
@@ -310,8 +310,8 @@ class BandAnalysisPanel(QWidget):
         outer.setContentsMargins(2, 2, 2, 2)
 
         outer.addWidget(self._header(
-            "Kink Σ(E) → couplage électron-boson λ. "
-            "Re Σ = E_exp − E_bare, λ = −∂ReΣ/∂ω|_{ω=0}. Requiert fit MDC.",
+            "Kink Σ(E) → electron-boson coupling λ. "
+            "Re Σ = E_exp − E_bare, λ = −∂ReΣ/∂ω|_{ω=0}. Requires MDC fit.",
             HELP_KINK,
         ))
         bw, self.kink_badge = self._badge_row()
@@ -319,35 +319,35 @@ class BandAnalysisPanel(QWidget):
 
         form = QFormLayout()
         self.kink_branch = self._branch_combo()
-        self.kink_pair_label = QLabel("Paire #")
+        self.kink_pair_label = QLabel("Pair #")
         self.kink_pair = QSpinBox(); self.kink_pair.setRange(0, 7)
-        self.kink_pair.setToolTip("Index paire ([0..n_pairs-1]).")
+        self.kink_pair.setToolTip("Pair index ([0..n_pairs-1]).")
         self.kink_bare = QComboBox()
         self.kink_bare.addItems(["parabolic"])
         self.kink_bare.setToolTip(
-            "Modèle bare band ajusté sur fenêtre profonde :\n"
+            "Bare-band model fit over a deep window:\n"
             "  parabolic = E = v_F·(k-k0) + α·(k-k0)²"
         )
         self.kink_win_lo = _dspin(-2.0, 0.0, -0.30, 0.01, 3)
         self.kink_win_lo.setToolTip(
-            "Borne basse de la fenêtre bare-band (eV, négatif sous E_F).\n"
-            "Choisir profond pour éviter zone renormalisée."
+            "Lower bound of the bare-band window (eV, negative below E_F).\n"
+            "Choose a deep range to avoid the renormalized zone."
         )
         self.kink_win_hi = _dspin(-2.0, 0.0, -0.08, 0.01, 3)
         self.kink_win_hi.setToolTip(
-            "Borne haute fenêtre bare (eV). Doit éviter le 'kink' lui-même."
+            "Upper bound of the bare window (eV). Must avoid the kink itself."
         )
         self.kink_lambda_win = _dspin(0.005, 0.20, 0.05, 0.005, 3)
         self.kink_lambda_win.setToolTip(
-            "Demi-fenêtre |ω| pour fit linéaire de λ (eV).\n"
-            "Typique : 0.03–0.08 eV. Tester 2 valeurs pour sensibilité."
+            "Half-window |ω| for the linear λ fit (eV).\n"
+            "Typical: 0.03–0.08 eV. Test two values for sensitivity."
         )
         self.kink_EF = _dspin(-1.0, 1.0, 0.0, 0.001, 3)
         self.kink_EF.setToolTip(
-            "Décalage E_F si dispersion pas référencée à 0.\n"
-            "Auto-rempli depuis sp_ef (EF offset principal)."
+            "E_F offset if the dispersion is not referenced to 0.\n"
+            "Auto-filled from sp_ef (main EF offset)."
         )
-        form.addRow("Branche", self.kink_branch)
+        form.addRow("Branch", self.kink_branch)
         self._kink_pair_form_row = (self.kink_pair_label, self.kink_pair)
         form.addRow(self.kink_pair_label, self.kink_pair)
         form.addRow("Bare model", self.kink_bare)
@@ -360,18 +360,18 @@ class BandAnalysisPanel(QWidget):
         btn_row = QHBoxLayout()
         self.kink_auto_btn = QPushButton("Auto")
         self.kink_auto_btn.setToolTip(
-            "Auto-remplit E_F (depuis sp_ef), fenêtres depuis plage MDC fittée."
+            "Auto-fills E_F (from sp_ef), windows from fitted MDC range."
         )
         self.kink_auto_btn.clicked.connect(lambda: self.autofill_requested.emit("kink"))
         self.kink_run_btn = QPushButton("Run kink analysis")
-        self.kink_run_btn.setToolTip("Calcule Re/Im Σ et λ. Désactivé sans fit MDC.")
+        self.kink_run_btn.setToolTip("Computes Re/Im Σ and λ. Disabled without MDC fit.")
         self.kink_run_btn.clicked.connect(self.kink_run_requested.emit)
         btn_row.addWidget(self.kink_auto_btn)
         btn_row.addWidget(self.kink_run_btn)
         btn_row.addStretch(1)
         outer.addLayout(btn_row)
 
-        self.kink_summary = QLabel("Aucune analyse de kink.")
+        self.kink_summary = QLabel("No kink analysis.")
         self.kink_summary.setWordWrap(True)
         outer.addWidget(self.kink_summary)
 
@@ -408,8 +408,8 @@ class BandAnalysisPanel(QWidget):
         outer.setContentsMargins(2, 2, 2, 2)
 
         outer.addWidget(self._header(
-            "Gap Δ (Dynes) → ajuste EDC symétrisée à k_F. "
-            "Sortie : Δ, Γ, k_F. Requiert fit MDC pour localiser k_F.",
+            "Gap Δ (Dynes) → fits the symmetrized EDC at k_F. "
+            "Output: Δ, Γ, k_F. Requires MDC fit to locate k_F.",
             HELP_GAP,
         ))
         bw, self.gap_badge = self._badge_row()
@@ -417,47 +417,47 @@ class BandAnalysisPanel(QWidget):
 
         form = QFormLayout()
         self.gap_branch = self._branch_combo()
-        self.gap_pair_label = QLabel("Paire #")
+        self.gap_pair_label = QLabel("Pair #")
         self.gap_pair = QSpinBox(); self.gap_pair.setRange(0, 7)
-        self.gap_pair.setToolTip("Index paire ([0..n_pairs-1]).")
+        self.gap_pair.setToolTip("Pair index ([0..n_pairs-1]).")
         self.gap_n_gaps = QSpinBox(); self.gap_n_gaps.setRange(1, 2)
         self.gap_n_gaps.setToolTip(
-            "1 = supra simple gap.\n2 = supras s± (Fe-pnictides multi-poches)."
+            "1 = simple-gap superconductor.\n2 = s± superconductors (multi-pocket Fe-pnictides)."
         )
         self.gap_resolution = _dspin(0.0, 30.0, 5.0, 0.5, 2)
         self.gap_resolution.setToolTip(
-            "Résolution énergétique instrumentale (meV).\n"
-            "Convoluée au modèle Dynes (gaussienne)."
+            "Instrumental energy resolution (meV).\n"
+            "Convolved into the Dynes model (Gaussian)."
         )
         self.gap_omega_max = _dspin(5.0, 200.0, 30.0, 1.0, 1)
         self.gap_omega_max.setToolTip(
-            "Fenêtre de symétrisation autour de E_F (meV).\n"
-            "Typique 2–5× Δ_attendu."
+            "Symmetrization window around E_F (meV).\n"
+            "Typical 2–5× expected Δ."
         )
         self.gap_EF = _dspin(-1.0, 1.0, 0.0, 0.001, 3)
-        self.gap_EF.setToolTip("Décalage E_F (eV). Auto depuis sp_ef.")
-        form.addRow("Branche", self.gap_branch)
+        self.gap_EF.setToolTip("E_F offset (eV). Auto from sp_ef.")
+        form.addRow("Branch", self.gap_branch)
         self._gap_pair_form_row = (self.gap_pair_label, self.gap_pair)
         form.addRow(self.gap_pair_label, self.gap_pair)
         form.addRow("# gaps", self.gap_n_gaps)
-        form.addRow("Résolution (meV)", self.gap_resolution)
+        form.addRow("Resolution (meV)", self.gap_resolution)
         form.addRow("ω_max (meV)", self.gap_omega_max)
         form.addRow("E_F offset (eV)", self.gap_EF)
         outer.addLayout(form)
 
         btn_row = QHBoxLayout()
         self.gap_auto_btn = QPushButton("Auto")
-        self.gap_auto_btn.setToolTip("Auto-remplit E_F + ω_max heuristique.")
+        self.gap_auto_btn.setToolTip("Auto-fills E_F + heuristic ω_max.")
         self.gap_auto_btn.clicked.connect(lambda: self.autofill_requested.emit("gap"))
         self.gap_run_btn = QPushButton("Run gap fit")
-        self.gap_run_btn.setToolTip("Symétrise EDC à k_F + fit Dynes. Désactivé sans fit MDC.")
+        self.gap_run_btn.setToolTip("Symmetrizes EDC at k_F + Dynes fit. Disabled without MDC fit.")
         self.gap_run_btn.clicked.connect(self.gap_fit_requested.emit)
         btn_row.addWidget(self.gap_auto_btn)
         btn_row.addWidget(self.gap_run_btn)
         btn_row.addStretch(1)
         outer.addLayout(btn_row)
 
-        self.gap_summary = QLabel("Aucun fit de gap.")
+        self.gap_summary = QLabel("No gap fit.")
         self.gap_summary.setWordWrap(True)
         outer.addWidget(self.gap_summary)
 
@@ -492,13 +492,13 @@ class BandAnalysisPanel(QWidget):
         outer = QVBoxLayout(w)
         outer.setContentsMargins(2, 2, 2, 2)
         outer.addWidget(self._header(
-            "Résumé consolidé : MDC + TB + Kink + Gap. Cohérence m*↔(1+λ). "
+            "Consolidated summary: MDC + TB + Kink + Gap. m*↔(1+λ) consistency. "
             "Export CSV.",
-            "<b>Résumé</b><br>Toutes les métriques en une vue.<br><br>"
-            "<b>Cohérence m*/m vs (1+λ)</b> : Migdal-Eliashberg prédit "
-            "<i>m*/m_bare ≈ 1 + λ</i>. Écart &gt;30 %% signale soit un "
-            "couplage non phononique, soit une bare-band mal choisie.<br><br>"
-            "<b>CSV</b> : 1 ligne par métrique avec valeur, erreur, unité, source."
+            "<b>Summary</b><br>All metrics in one view.<br><br>"
+            "<b>m*/m vs (1+λ) consistency</b>: Migdal-Eliashberg predicts "
+            "<i>m*/m_bare ≈ 1 + λ</i>. A discrepancy &gt;30%% flags either "
+            "non-phononic coupling or a poorly chosen bare band.<br><br>"
+            "<b>CSV</b>: one row per metric with value, error, unit, source."
         ))
         self.summary_text = QTextBrowser()
         self.summary_text.setStyleSheet(
@@ -508,7 +508,7 @@ class BandAnalysisPanel(QWidget):
         btn_row = QHBoxLayout()
         self.summary_csv_btn = QPushButton("Export CSV")
         self.summary_csv_btn.setToolTip(
-            "Sauve un fichier CSV avec toutes les métriques mesurées."
+            "Saves a CSV file with all measured metrics."
         )
         self.summary_csv_btn.clicked.connect(self.csv_export_requested.emit)
         btn_row.addWidget(self.summary_csv_btn)

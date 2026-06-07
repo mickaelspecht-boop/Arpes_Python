@@ -1,4 +1,4 @@
-"""Sélecteur de zone de Brillouin avec aperçu."""
+"""Brillouin zone selector with preview."""
 from __future__ import annotations
 
 from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QLabel, QVBoxLayout
@@ -10,7 +10,7 @@ from arpes.ui.widgets.canvas import MplCanvas
 class BZSelectorDialog(QDialog):
     def __init__(self, parent=None, current_key: str = "square"):
         super().__init__(parent)
-        self.setWindowTitle("Choisir ZDB")
+        self.setWindowTitle("Choose BZ")
         self.resize(480, 520)
         self.selected_key = BZ_PRESET_ALIASES.get(current_key, current_key)
         if self.selected_key not in BZ_PRESETS:
@@ -59,5 +59,5 @@ class BZSelectorDialog(QDialog):
         ax.tick_params(colors="w", labelsize=8)
         for sp in ax.spines.values():
             sp.set_edgecolor("#555")
-        self._note.setText(f"{preset.label} : {preset.note}. Schéma indicatif en unités π/a.")
+        self._note.setText(f"{preset.label} : {preset.note}. Indicative diagram in units of π/a.")
         self._canvas.redraw()

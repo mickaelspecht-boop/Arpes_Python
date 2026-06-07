@@ -1,10 +1,10 @@
-"""Mapping points haute symétrie BZ cristal → repère détecteur ARPES.
+"""Map crystal BZ high-symmetry points to the ARPES detector frame.
 
-Sert l'overlay BZ dans la fenêtre FS (Fig. 4 Ideta 2014 BaNi2P2 ou équiv.).
-Réutilise la convention de rotation azi de ``physics/gamma.py``
-(``project_gamma_by_azi``) pour cohérence avec Γ FS→BM.
+Serves the BZ overlay in the FS window (Fig. 4 Ideta 2014 BaNi2P2 or equivalent).
+Reuses the azi rotation convention from ``physics/gamma.py``
+(``project_gamma_by_azi``) for consistency with Γ FS→BM.
 
-Module pur (numpy uniquement). Aucun PyQt.
+Pure module (numpy only). No PyQt.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .bz import Lattice3D, bz_points_for_lattice_plane
 
 @dataclass(frozen=True)
 class HSProjection:
-    """Point haute symétrie projeté dans repère détecteur."""
+    """High-symmetry point projected into the detector frame."""
     kx: float
     ky: float
     label: str
@@ -25,9 +25,9 @@ class HSProjection:
 
 
 def _rot2(theta_rad: float) -> np.ndarray:
-    """Matrice rotation 2D, convention cohérente avec ``project_gamma_by_azi``.
+    """2D rotation matrix, convention consistent with ``project_gamma_by_azi``.
 
-    R(Δazi) appliquée à (kx_ref, ky_ref) donne (k_parallel, k_perp) avec
+    R(Δazi) applied to (kx_ref, ky_ref) gives (k_parallel, k_perp) with
     ``k_perp = -kx*sin + ky*cos`` (cf. gamma.py L110-111).
     """
     c = float(np.cos(theta_rad))
@@ -45,21 +45,21 @@ def project_hs_points(
     gamma_kx: float = 0.0,
     gamma_ky: float = 0.0,
 ) -> tuple[list[HSProjection], np.ndarray]:
-    """Projette points HS d'un cristal 3D dans le plan détecteur ARPES.
+    """Project HS points from a 3D crystal into the ARPES detector plane.
 
-    Pipeline :
-    1. Récupère polygone BZ + points HS dans repère cristal via
-       ``bz_points_for_lattice_plane`` (unités π/a, π/b).
-    2. Rotation cristal → détecteur d'angle ``phi_c_deg + (azi_target − azi_ref)``.
-       ``phi_c`` = offset cristal/détecteur intrinsèque (a* vs slit analyseur).
-       Δazi = différence d'azimut manipulateur (déjà géré pour Γ par gamma.py).
-    3. Translation : place Γ à ``(gamma_kx, gamma_ky)`` dans repère détecteur.
+    Pipeline:
+    1. Fetch the BZ polygon + HS points in the crystal frame via
+       ``bz_points_for_lattice_plane`` (π/a, π/b units).
+    2. Crystal → detector rotation with angle ``phi_c_deg + (azi_target − azi_ref)``.
+       ``phi_c`` = intrinsic crystal/detector offset (a* vs analyzer slit).
+       Δazi = manipulator azimuth difference (already handled for Γ by gamma.py).
+    3. Translation: place Γ at ``(gamma_kx, gamma_ky)`` in the detector frame.
 
-    Retourne ``(points_projetés, polygon_xy_projeté)``.
+    Returns ``(projected_points, projected_polygon_xy)``.
 
-    Notes :
-    - Si ``azi_ref`` ou ``azi_target`` est None, Δazi=0 (rotation = phi_c seul).
-    - Points conservent labels HS du plan (Γ-plane vs Z-plane) — voir
+    Notes:
+    - If ``azi_ref`` or ``azi_target`` is None, Δazi=0 (rotation = phi_c only).
+    - Points keep the plane HS labels (Γ-plane vs Z-plane); see
       ``bz_points_for_lattice_plane``.
     """
     poly, pts, _ = bz_points_for_lattice_plane(lattice, plane=plane)
@@ -94,22 +94,22 @@ def fit_phi_c_from_clicks(
     gamma_init_kx: float = 0.0,
     gamma_init_ky: float = 0.0,
 ) -> dict:
-    """Ajuste (phi_c, Γ_kx, Γ_ky) par moindres carrés à partir de clics user.
+    """Fit (phi_c, Γ_kx, Γ_ky) by least squares from user clicks.
 
-    ``clicks_kx_ky`` : liste de (kx, ky) cliqués sur la FS ARPES.
-    ``expected_labels`` : labels HS correspondants (même ordre), ex ["X", "M"].
+    ``clicks_kx_ky``: list of (kx, ky) clicked on the ARPES FS.
+    ``expected_labels``: corresponding HS labels (same order), e.g. ["X", "M"].
 
-    Recherche phi_c sur balayage grossier puis raffinement local.
+    Search phi_c with a coarse sweep, then local refinement.
 
     Retourne ``{"phi_c_deg", "gamma_kx", "gamma_ky", "residual", "candidates"}``
-    où ``candidates`` liste les rotations équivalentes (mod π/2 tétragonal,
-    mod π/3 hexagonal) pour lever ambiguïté manuellement.
+    where ``candidates`` lists equivalent rotations (mod π/2 tetragonal,
+    mod π/3 hexagonal) to resolve ambiguity manually.
     """
     if not clicks_kx_ky or not expected_labels:
-        raise ValueError("fit_phi_c: clics et labels requis")
+        raise ValueError("fit_phi_c: clicks and labels are required")
     if len(clicks_kx_ky) != len(expected_labels):
         raise ValueError(
-            f"fit_phi_c: {len(clicks_kx_ky)} clics ≠ {len(expected_labels)} labels"
+            f"fit_phi_c: {len(clicks_kx_ky)} clicks ≠ {len(expected_labels)} labels"
         )
 
     _, hs_raw, _ = bz_points_for_lattice_plane(lattice, plane=plane)
@@ -125,7 +125,7 @@ def fit_phi_c_from_clicks(
         for (kx_obs, ky_obs), lab in zip(targets, expected_labels):
             candidates = label_to_xy.get(lab)
             if not candidates:
-                return float("inf")  # label inconnu pour ce plan
+                return float("inf")  # label unknown for this plane
             best = float("inf")
             for x, y in candidates:
                 v = R @ np.array([x, y])
@@ -137,11 +137,11 @@ def fit_phi_c_from_clicks(
             total += best
         return float(total)
 
-    # Sweep grossier phi ∈ [0, 360), Γ via centroïde target − centroïde rot HS.
+    # Coarse phi sweep in [0, 360), Γ via target centroid − rotated HS centroid.
     def gamma_from_phi(phi_deg: float) -> tuple[float, float]:
         R = _rot2(np.radians(phi_deg))
-        # Pour chaque clic, on prend la position HS nominale la plus proche après
-        # rotation, sans translation (=> Γ=0). Γ = moyenne(observed - rotated_nominal).
+        # For each click, take the nearest nominal HS position after rotation,
+        # without translation (=> Γ=0). Γ = mean(observed - rotated_nominal).
         deltas: list[tuple[float, float]] = []
         for (kx_obs, ky_obs), lab in zip(targets, expected_labels):
             cands = label_to_xy.get(lab, [])
@@ -173,7 +173,7 @@ def fit_phi_c_from_clicks(
             best_phi = float(phi)
             best_gxy = (gx, gy)
 
-    # Raffinement local ±2° pas 0.1°.
+    # Local refinement ±2° with 0.1° steps.
     for phi in np.arange(best_phi - 2.0, best_phi + 2.001, 0.1):
         gx, gy = gamma_from_phi(float(phi))
         r = residual(float(phi), gx, gy)
@@ -182,7 +182,7 @@ def fit_phi_c_from_clicks(
             best_phi = float(phi)
             best_gxy = (gx, gy)
 
-    # Candidats équivalents par symétrie du preset.
+    # Equivalent candidates from preset symmetry.
     preset = lattice.preset_key()
     if preset in ("square", "rectangle"):
         sym_step = 90.0

@@ -1,18 +1,17 @@
-"""Logique de calibration EF — sans PyQt.
+"""EF calibration logic, without PyQt.
 
-Extraite de `arpes_explorer.py`. La couche UI conserve les `QMessageBox`,
-les blocs `blockSignals` et l'enchaînement save/reload — toutes les
-décisions scientifiques (choix de mode, calcul d'offset, correction
-per-file) vivent ici.
+Extracted from `arpes_explorer.py`. The UI layer keeps `QMessageBox`,
+`blockSignals` blocks, and the save/reload sequence; all scientific decisions
+(mode choice, offset calculation, per-file correction) live here.
 
-Conventions :
-- ``ef_offset`` est l'offset scalaire appliqué à l'axe énergie pour
-  ramener EF à 0 (mode scalar) ou est laissé à 0 quand un polynôme par
-  colonne porte tout le décalage (mode poly) ;
-- ``ef_correction`` est un dict décrivant la correction (poly_coefs,
-  source, etc.) ; vide en mode scalar pur ;
-- ``ref_payload`` est ce qu'on stocke dans ``session.ef_reference`` pour
-  pouvoir l'appliquer ensuite à d'autres fichiers du dossier.
+Conventions:
+- ``ef_offset`` is the scalar offset applied to the energy axis to bring EF to
+  0 (scalar mode), or is left at 0 when a per-column polynomial carries the
+  full shift (poly mode);
+- ``ef_correction`` is a dict describing the correction (poly_coefs, source,
+  etc.); empty in pure scalar mode;
+- ``ref_payload`` is what is stored in ``session.ef_reference`` so it can be
+  applied later to other files in the folder.
 """
 
 from __future__ import annotations
@@ -23,8 +22,8 @@ import numpy as np
 
 
 def axis_zero_in_kinetic(meta: dict | None) -> float | None:
-    """Renvoie l'énergie cinétique correspondant à E−EF=0 AVANT
-    application de ``ef_offset`` (cf. doc historique dans `arpes_explorer`).
+    """Return the kinetic energy corresponding to E−EF=0 BEFORE applying
+    ``ef_offset`` (see historical docs in `arpes_explorer`).
     """
     if not meta:
         return None
@@ -41,7 +40,7 @@ def axis_zero_in_kinetic(meta: dict | None) -> float | None:
 
 @dataclass
 class CalibrationUpdate:
-    """Résultat de l'application d'une calibration EF à une entrée."""
+    """Result of applying an EF calibration to an entry."""
 
     new_ef_offset: float
     ef_correction: dict
@@ -56,12 +55,11 @@ def compute_calibration_update(
     source_meta: dict | None,
     source_path: str,
 ) -> CalibrationUpdate:
-    """Calcule la mise à jour de session pour le résultat d'une calibration EF.
+    """Compute the session update for an EF calibration result.
 
-    ``payload`` est le dict produit par `EFCalibrationDialog` (mode scalar
-    ou poly). ``current_ef_offset`` est la valeur courante de la spinbox
-    `sp_ef`. ``source_meta`` est `_raw_data["metadata"]` du fichier en
-    cours de calibration.
+    ``payload`` is the dict produced by `EFCalibrationDialog` (scalar or poly
+    mode). ``current_ef_offset`` is the current value of the `sp_ef` spinbox.
+    ``source_meta`` is `_raw_data["metadata"]` for the file being calibrated.
     """
     mode = payload["mode"]
     if mode == "scalar":
@@ -77,7 +75,7 @@ def compute_calibration_update(
             "source_energy_reference": str((source_meta or {}).get("energy_reference") or ""),
         }
         msg = (
-            f"EF scalaire : Δ={payload['ef_shift'] * 1000:+.1f} meV → "
+            f"Scalar EF: Δ={payload['ef_shift'] * 1000:+.1f} meV → "
             f"offset={new_off:.4f} eV"
         )
         return CalibrationUpdate(new_ef_offset=new_off, ef_correction=ef_correction,
@@ -99,7 +97,7 @@ def compute_calibration_update(
     }
     ref_payload = dict(ef_correction)
     msg = (
-        f"EF par colonne : {payload['n_valid']} k valides, "
+        f"Per-column EF: {payload['n_valid']} valid k values, "
         f"FWHM≈{payload['fwhm_res'] * 1000:.0f} meV, "
         f"rms={payload['rms'] * 1000:.1f} meV"
     )
@@ -109,7 +107,7 @@ def compute_calibration_update(
 
 @dataclass
 class ReferenceApplication:
-    """Résultat de l'application d'une référence EF de session à un fichier."""
+    """Result of applying a session EF reference to a file."""
 
     new_ef_offset: float
     ef_correction: dict
@@ -117,12 +115,12 @@ class ReferenceApplication:
 
 
 class ReferenceError(ValueError):
-    """Référence EF mal formée (mode inconnu, manquant, etc.)."""
+    """Malformed EF reference (unknown/missing mode, etc.)."""
 
 
 def already_applied(ef_correction: dict) -> bool:
-    """Détecte qu'une référence EF a déjà été appliquée à ce fichier
-    (gardefou contre la double-soustraction du shift scalaire)."""
+    """Detect that an EF reference has already been applied to this file
+    (guard against double-subtracting the scalar shift)."""
     src = (ef_correction or {}).get("source")
     return src in ("reference", "reference_scalar")
 
@@ -134,22 +132,22 @@ def apply_reference_to_target(
     target_meta: dict | None,
     ref_path_str: str,
 ) -> ReferenceApplication:
-    """Applique ``ref`` (session.ef_reference) au fichier cible courant.
+    """Apply ``ref`` (session.ef_reference) to the current target file.
 
-    Lève ``ReferenceError`` si le mode n'est pas reconnu.
+    Raises ``ReferenceError`` if the mode is not recognized.
     """
     mode = ref.get("mode")
     if mode == "poly":
         ef_correction = dict(ref)
         ef_correction["source"] = "reference"
-        msg = f"Référence EF poly appliquée (source: {ref_path_str})"
+        msg = f"Poly EF reference applied (source: {ref_path_str})"
         return ReferenceApplication(new_ef_offset=0.0, ef_correction=ef_correction, msg=msg)
 
     if mode == "scalar":
         base_shift = float(ref.get("ef_shift", 0.0))
-        # Quand chaque fichier a sa propre Center Energy (BESSY) ou son propre
-        # hν−φ (Solaris/CLS), un shift scalaire seul est invalide : il faut
-        # compenser la différence d'origine cinétique entre source et cible.
+        # When each file has its own Center Energy (BESSY) or hν−φ
+        # (Solaris/CLS), a scalar shift alone is invalid: compensate for the
+        # kinetic-origin difference between source and target.
         tgt_meta = target_meta or {}
         tgt_ef_kin = axis_zero_in_kinetic(tgt_meta)
         tgt_ref_mode = str(tgt_meta.get("energy_reference") or "")
@@ -178,23 +176,23 @@ def apply_reference_to_target(
         }
         if applied_per_file:
             msg = (
-                f"Référence EF scalaire (per-file) : Δsrc={base_shift * 1000:+.1f} meV, "
+                f"Scalar EF reference (per-file): Δsrc={base_shift * 1000:+.1f} meV, "
                 f"Δkin={kinetic_correction:+.3f} eV → offset={new_off:.4f} eV "
                 f"(source: {ref_path_str})"
             )
         else:
             msg = (
-                f"Référence EF scalaire : Δ={base_shift * 1000:+.1f} meV → "
+                f"Scalar EF reference: Δ={base_shift * 1000:+.1f} meV → "
                 f"offset={new_off:.4f} eV (source: {ref_path_str})"
             )
             if src_ef_kin is None or tgt_ef_kin is None:
-                msg += "  |  Attention: correction per-file impossible (ef_kin_nominal manquant)"
+                msg += "  |  Warning: per-file correction impossible (ef_kin_nominal missing)"
             elif not modes_match:
                 msg += (
-                    f"  |  Attention: modes énergie différents "
-                    f"(src={src_ref_mode or '?'} vs cible={tgt_ref_mode or '?'}) — "
-                    f"correction per-file ignorée"
+                    f"  |  Warning: different energy modes "
+                    f"(src={src_ref_mode or '?'} vs target={tgt_ref_mode or '?'}) — "
+                    f"per-file correction ignored"
                 )
         return ReferenceApplication(new_ef_offset=new_off, ef_correction=ef_correction, msg=msg)
 
-    raise ReferenceError(f"Référence EF mal formée (mode={mode!r})")
+    raise ReferenceError(f"Malformed EF reference (mode={mode!r})")

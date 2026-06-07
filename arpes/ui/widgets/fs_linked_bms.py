@@ -38,7 +38,7 @@ class FsLinkedBmsList(QWidget):
         lay.setContentsMargins(6, 4, 6, 4)
         lay.setSpacing(3)
 
-        self._title = QLabel("BMs reliées : (aucune FS active)")
+        self._title = QLabel("Linked BMs: (no active FS)")
         self._title.setStyleSheet("color:#9ab; font-size:11px;")
         lay.addWidget(self._title)
 
@@ -59,14 +59,14 @@ class FsLinkedBmsList(QWidget):
         """
         self._list.clear()
         if not active_fs_path:
-            self._title.setText("BMs reliées : (aucune FS active)")
+            self._title.setText("Linked BMs: (no active FS)")
             return
         from pathlib import Path as _P
         fs_name = _P(active_fs_path).name
         if not cuts:
-            self._title.setText(f"BMs reliées à {fs_name} : aucune")
+            self._title.setText(f"BMs linked to {fs_name}: none")
             return
-        self._title.setText(f"BMs reliées à {fs_name} : {len(cuts)}")
+        self._title.setText(f"BMs linked to {fs_name}: {len(cuts)}")
         for cut in cuts:
             label = (
                 f"{cut.label}  ·  polar={cut.polar_bm:+.2f}°"

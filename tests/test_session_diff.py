@@ -58,7 +58,7 @@ class TestSessionDiff(unittest.TestCase):
             _payload("BM1", kf=0.25),
         )
         missing = [r for r in rows if r.filename == "only_here"][0]
-        self.assertEqual(missing.status, "absent B")
+        self.assertEqual(missing.status, "missing B")
 
 
 if __name__ == "__main__":

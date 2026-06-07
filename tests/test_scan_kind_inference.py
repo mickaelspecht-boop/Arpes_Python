@@ -1,4 +1,4 @@
-"""Tests A.1 — inférence scan_kind depuis metadata loader."""
+"""Tests A.1 — scan_kind inference from loader metadata."""
 from __future__ import annotations
 
 import json

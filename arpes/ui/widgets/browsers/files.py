@@ -45,8 +45,8 @@ class FileBrowserPanel(QWidget):
         self._session = session
         self._folder: Path | None = None
         self._collapsed_groups: set[str] = set()
-        self._group_mode = "Dossier"
-        self._group_fields: list[str] = ["Dossier"]
+        self._group_mode = "Folder"
+        self._group_fields: list[str] = ["Folder"]
         self._items_cache: list[Path] | None = None
         self._loader_label_cache: dict[str, tuple[tuple[int, int] | None, str]] = {}
         self._scan_kind_cache: dict[str, tuple[tuple[int, int] | None, str]] = {}
@@ -60,12 +60,12 @@ class FileBrowserPanel(QWidget):
         lay.setContentsMargins(4, 4, 4, 4)
 
         top = QHBoxLayout()
-        btn = QPushButton("Dossier")
+        btn = QPushButton("Folder")
         btn.clicked.connect(self._open_folder)
         top.addWidget(btn)
-        btn_refresh = QPushButton("Actualiser")
+        btn_refresh = QPushButton("Refresh")
         btn_refresh.setFixedWidth(78)
-        btn_refresh.setToolTip("Rafraîchir la liste des fichiers")
+        btn_refresh.setToolTip("Refresh the file list")
         btn_refresh.clicked.connect(self.refresh)
         top.addWidget(btn_refresh)
         self._lbl_folder = QLabel("—")
@@ -74,23 +74,23 @@ class FileBrowserPanel(QWidget):
         lay.addLayout(top)
         lay.addWidget(self._lbl_folder)
 
-        self._lbl_summary = QLabel("Aucun dossier chargé")
+        self._lbl_summary = QLabel("No folder loaded")
         self._lbl_summary.setWordWrap(True)
         self._lbl_summary.setStyleSheet("font-size:10px; color:#aaa;")
         lay.addWidget(self._lbl_summary)
 
-        # Filtre « Seuls chargés » : masque les fichiers du logbook non chargés.
-        self._chk_loaded_only = QCheckBox("Seuls chargés")
+        # "Loaded only" filter: hide logbook files that are not loaded.
+        self._chk_loaded_only = QCheckBox("Loaded only")
         self._chk_loaded_only.setToolTip(
-            "Masque les fichiers du dossier/logbook qui ne sont pas encore "
-            "chargés dans la session."
+            "Hides folder/logbook files that have not yet been loaded "
+            "in the session."
         )
         self._chk_loaded_only.toggled.connect(lambda _v: self._populate())
         lay.addWidget(self._chk_loaded_only)
 
         self._tag_filter = QLineEdit()
-        self._tag_filter.setPlaceholderText("Filtrer tag")
-        self._tag_filter.setToolTip("Filtre les fichiers par tag de session.")
+        self._tag_filter.setPlaceholderText("Filter tag")
+        self._tag_filter.setToolTip("Filters files by session tag.")
         self._tag_filter_model = QStringListModel([])
         completer = QCompleter(self._tag_filter_model, self)
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
@@ -99,28 +99,28 @@ class FileBrowserPanel(QWidget):
         lay.addWidget(self._tag_filter)
 
         mode_row = QVBoxLayout()
-        mode_title = QLabel("Organiser par:")
+        mode_title = QLabel("Organize by:")
         mode_title.setStyleSheet("font-size:10px; color:#aaa;")
         mode_row.addWidget(mode_title)
         checks_row_1 = QHBoxLayout()
         checks_row_2 = QHBoxLayout()
         self._group_checks: dict[str, QCheckBox] = {}
         group_defs = [
-            ("Dossier", "Dossier"),
+            ("Folder", "Folder"),
             ("Type", "Type"),
             ("hν", "hν"),
-            ("Température", "T"),
-            ("Chemin", "Chemin"),
-            ("Polarisation", "Pol"),
-            ("Labo", "Labo"),
+            ("Temperature", "T"),
+            ("Path", "Path"),
+            ("Polarization", "Pol"),
+            ("Lab", "Lab"),
         ]
         for i, (field, label) in enumerate(group_defs):
             chk = QCheckBox(label)
-            chk.setChecked(field == "Dossier")
+            chk.setChecked(field == "Folder")
             chk.setToolTip(
-                "Critère cumulable d'organisation visuelle.\n"
-                "N'applique aucune correction EF/Γ et ne prouve pas que les "
-                "fichiers sont directement comparables."
+                "Stackable visual organization criterion.\n"
+                "Applies no EF/Γ correction and does not prove that the "
+                "files are directly comparable."
             )
             chk.stateChanged.connect(self._on_group_checks_changed)
             self._group_checks[field] = chk
@@ -140,7 +140,7 @@ class FileBrowserPanel(QWidget):
         self._list.currentItemChanged.connect(self._on_selection_change)
         lay.addWidget(self._list, stretch=1)
 
-        self._lbl_selection = QLabel("Sélectionne un fichier à charger")
+        self._lbl_selection = QLabel("Select a file to load")
         self._lbl_selection.setWordWrap(True)
         self._lbl_selection.setStyleSheet(
             "font-size:10px; color:#c8c8c8; background:#1c1c1c; "
@@ -148,10 +148,10 @@ class FileBrowserPanel(QWidget):
         )
         lay.addWidget(self._lbl_selection)
 
-        self._btn_load = QPushButton("Charger la sélection")
+        self._btn_load = QPushButton("Load selection")
         self._btn_load.clicked.connect(self._load_selected)
         self._btn_load.setEnabled(False)
-        self._btn_load.setToolTip("Choisir un fichier ou un groupe dans la liste pour activer cette action.")
+        self._btn_load.setToolTip("Choose a file or group in the list to enable this action.")
         lay.addWidget(self._btn_load)
 
         self.setMinimumWidth(180)
@@ -159,7 +159,7 @@ class FileBrowserPanel(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def _open_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Dossier données ARPES",
+        folder = QFileDialog.getExistingDirectory(self, "ARPES data folder",
                                                    str(Path.home()))
         if not folder:
             return
@@ -167,16 +167,16 @@ class FileBrowserPanel(QWidget):
         existing = Path(folder) / ".arpes_session.json"
         if existing.exists():
             box = QMessageBox(self)
-            box.setWindowTitle("Session existante")
+            box.setWindowTitle("Existing session")
             box.setIcon(QMessageBox.Icon.Question)
             box.setText(
-                f"Ce dossier contient déjà une session enregistrée "
+                f"This folder already contains a saved session "
                 f"(.arpes_session.json — fits, calibrations EF, logbook, tags…)."
             )
-            box.setInformativeText("Reprendre cette session, ou repartir de zéro ?")
-            b_resume = box.addButton("Reprendre", QMessageBox.ButtonRole.AcceptRole)
-            b_fresh = box.addButton("Nouvelle session", QMessageBox.ButtonRole.DestructiveRole)
-            box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+            box.setInformativeText("Resume this session or start from scratch?")
+            b_resume = box.addButton("Resume", QMessageBox.ButtonRole.AcceptRole)
+            b_fresh = box.addButton("New session", QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
             box.setDefaultButton(b_resume)
             box.exec()
             clicked = box.clickedButton()
@@ -188,7 +188,7 @@ class FileBrowserPanel(QWidget):
 
     def set_folder(self, folder: Path, *, fresh: bool = False):
         if fresh:
-            # purge l'état en mémoire (fits/logbook/calibs d'un dossier précédent)
+            # Clear in-memory state (fits/logbook/calibs from a previous folder).
             self._session.reset(keep_folder=False)
         self._folder = folder
         self._session.folder = folder
@@ -253,7 +253,7 @@ class FileBrowserPanel(QWidget):
             return False
         if p.suffix.lower() in {".pxt", ".ibw", ".zip"}:
             return True
-        # CLS BM : fichier sans extension avec un fichier voisin <nom>_param.txt
+        # CLS BM: extensionless file with a sibling <name>_param.txt file.
         return p.suffix == "" and (p.parent / f"{p.name}_param.txt").exists()
 
     def _discover_items(self) -> list[Path]:
@@ -270,7 +270,7 @@ class FileBrowserPanel(QWidget):
                 # ne pas lister aussi tous les Cycle/Step comme fichiers séparés
                 continue
             if self._is_data_file(p):
-                # Si le fichier est à l'intérieur d'un dataset CLS FS, on l'ignore
+                # Ignore files inside a CLS FS dataset.
                 if any(parent != self._folder and self._is_cls_dataset_dir(parent)
                        for parent in p.parents if self._folder in parent.parents or parent == self._folder):
                     continue
@@ -286,10 +286,10 @@ class FileBrowserPanel(QWidget):
     def _on_group_checks_changed(self):
         fields = [name for name, chk in self._group_checks.items() if chk.isChecked()]
         if not fields:
-            fields = ["Dossier"]
-            self._group_checks["Dossier"].blockSignals(True)
-            self._group_checks["Dossier"].setChecked(True)
-            self._group_checks["Dossier"].blockSignals(False)
+            fields = ["Folder"]
+            self._group_checks["Folder"].blockSignals(True)
+            self._group_checks["Folder"].setChecked(True)
+            self._group_checks["Folder"].blockSignals(False)
         self._group_fields = fields
         self._group_mode = fields[0] if len(fields) == 1 else " + ".join(fields)
         self._collapsed_groups.clear()
@@ -348,7 +348,7 @@ class FileBrowserPanel(QWidget):
         return normalize_tags(getattr(entry.meta, "tags", []))
 
     def _loaded_only_matches(self, path: str | Path) -> bool:
-        """True si le filtre « Seuls chargés » est satisfait pour ce path."""
+        """True if the "Loaded only" filter is satisfied for this path."""
         if not hasattr(self, "_chk_loaded_only") or not self._chk_loaded_only.isChecked():
             return True
         key = self._session.key_for_path(str(path))
@@ -434,39 +434,39 @@ class FileBrowserPanel(QWidget):
         try:
             v = float(value)
         except (TypeError, ValueError):
-            return "Métadonnées inconnues"
+            return "Unknown metadata"
         if not np.isfinite(v):
-            return "Métadonnées inconnues"
+            return "Unknown metadata"
         if step > 0:
             v = round(v / step) * step
         suffix = f" {unit}" if unit else ""
         return f"{label} {v:.1f}{suffix}"
 
     def _group_part_for_field(self, path: Path, field: str) -> str:
-        if field == "Dossier":
+        if field == "Folder":
             if not self._folder:
                 return "."
             rel = path.relative_to(self._folder)
             group = str(rel.parent) if str(rel.parent) != "." else "."
             return self._group_label(group)
-        if field == "Labo":
-            return self._loader_label_for_path(path) or "Labo inconnu"
+        if field == "Lab":
+            return self._loader_label_for_path(path) or "Unknown lab"
         if field == "Type":
             return self._file_kind_for_path(path)
         if field == "hν":
             hv, src = self._meta_value_for_path(path, "hv")
             label = self._fmt_float_group("hν", hv, "eV", step=0.1)
-            return f"{label} ({src})" if src and label != "Métadonnées inconnues" else label
-        if field == "Température":
+            return f"{label} ({src})" if src and label != "Unknown metadata" else label
+        if field == "Temperature":
             temp, src = self._meta_value_for_path(path, "temperature")
             label = self._fmt_float_group("T", temp, "K", step=0.1)
-            return f"{label} ({src})" if src and label != "Métadonnées inconnues" else label
-        if field in {"Chemin", "Géométrie"}:
+            return f"{label} ({src})" if src and label != "Unknown metadata" else label
+        if field == "Path":
             direction, src = self._meta_value_for_path(path, "direction")
-            return f"{direction} ({src})" if direction and src else (str(direction) if direction else "Chemin inconnu")
-        if field == "Polarisation":
+            return f"{direction} ({src})" if direction and src else (str(direction) if direction else "Unknown path")
+        if field == "Polarization":
             pol, src = self._meta_value_for_path(path, "polarization")
-            return f"Pol {pol} ({src})" if pol and src else (f"Pol {pol}" if pol else "Polarisation inconnue")
+            return f"Pol {pol} ({src})" if pol and src else (f"Pol {pol}" if pol else "Unknown polarization")
         return "."
 
     def _file_kind_for_path(self, path: str | Path) -> str:
@@ -494,7 +494,7 @@ class FileBrowserPanel(QWidget):
         return kind
 
     def _group_key_for_path(self, path: Path) -> str:
-        fields = list(getattr(self, "_group_fields", None) or [self._group_mode or "Dossier"])
+        fields = list(getattr(self, "_group_fields", None) or [self._group_mode or "Folder"])
         parts = [self._group_part_for_field(path, field) for field in fields]
         return " / ".join(parts) if parts else "."
 
@@ -508,27 +508,27 @@ class FileBrowserPanel(QWidget):
                 return (2, float(m.group(1)), group.lower())
             except ValueError:
                 pass
-        unknown = "inconn" in group.lower() or "métadonnées" in group.lower()
+        unknown = "unknown" in group.lower()
         return (9 if unknown else 3, -1.0, group.lower())
 
     def _item_context_suffix(self, path: Path, key: str | None = None) -> str:
-        fields = set(getattr(self, "_group_fields", None) or [self._group_mode or "Dossier"])
-        if fields == {"Dossier"}:
+        fields = set(getattr(self, "_group_fields", None) or [self._group_mode or "Folder"])
+        if fields == {"Folder"}:
             return ""
         bits: list[str] = []
         if "hν" not in fields:
             hv, _ = self._meta_value_for_path(path, "hv")
             if hv is not None:
                 bits.append(f"hν={float(hv):.1f}")
-        if "Température" not in fields:
+        if "Temperature" not in fields:
             temp, _ = self._meta_value_for_path(path, "temperature")
             if temp is not None:
                 bits.append(f"T={float(temp):.1f}")
-        if "Chemin" not in fields and "Géométrie" not in fields:
+        if "Path" not in fields:
             direction, _ = self._meta_value_for_path(path, "direction")
             if direction:
                 bits.append(str(direction))
-        if "Polarisation" not in fields:
+        if "Polarization" not in fields:
             pol, _ = self._meta_value_for_path(path, "polarization")
             if pol:
                 bits.append(f"Pol={pol}")
@@ -547,8 +547,8 @@ class FileBrowserPanel(QWidget):
             loaders[label] = loaders.get(label, 0) + 1
         loader_txt = ", ".join(f"{k}:{v}" for k, v in sorted(loaders.items())) if loaders else "—"
         self._lbl_summary.setText(
-            f"{total} éléments  •  "
-            f"{counts['loaded']} chargés  •  {counts['fitted']} fittés  •  {loader_txt}"
+            f"{total} items  •  "
+            f"{counts['loaded']} loaded  •  {counts['fitted']} fitted  •  {loader_txt}"
         )
 
     def _describe_item(self, item: QListWidgetItem | None) -> str:
@@ -560,17 +560,17 @@ class FileBrowserPanel(QWidget):
         has_path = bool(item and item.data(Qt.ItemDataRole.UserRole))
         has_group = bool(item and item.data(Qt.ItemDataRole.UserRole + 2) is not None)
         if has_path:
-            self._btn_load.setText("Charger ce fichier")
+            self._btn_load.setText("Load this file")
             self._btn_load.setEnabled(True)
-            self._btn_load.setToolTip("Charge le fichier sélectionné dans la session courante.")
+            self._btn_load.setToolTip("Loads the selected file into the current session.")
         elif has_group:
-            self._btn_load.setText("Ouvrir/réduire le groupe")
+            self._btn_load.setText("Open/collapse group")
             self._btn_load.setEnabled(True)
-            self._btn_load.setToolTip("Ouvre ou réduit le groupe sélectionné dans le navigateur.")
+            self._btn_load.setToolTip("Opens or collapses the selected group in the browser.")
         else:
-            self._btn_load.setText("Charger la sélection")
+            self._btn_load.setText("Load selection")
             self._btn_load.setEnabled(False)
-            self._btn_load.setToolTip("Choisir un fichier ou un groupe dans la liste pour activer cette action.")
+            self._btn_load.setToolTip("Choose a file or group in the list to enable this action.")
         self._lbl_selection.setText(self._describe_item(item))
 
     def _add_header(self, group: str, n_items: int):
@@ -580,7 +580,7 @@ class FileBrowserPanel(QWidget):
         item = QListWidgetItem(f"{arrow}  {label}  ({n_items})")
         item.setData(Qt.ItemDataRole.UserRole, None)
         item.setData(Qt.ItemDataRole.UserRole + 2, group)
-        item.setToolTip("Double-cliquer pour ouvrir/réduire ce dossier")
+        item.setToolTip("Double-click to open/collapse this folder")
         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         item.setForeground(QColor("#9ab"))
         self._list.addItem(item)

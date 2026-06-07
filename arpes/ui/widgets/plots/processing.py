@@ -8,30 +8,30 @@ def remove_grid_artifact(data, kpar=None, method='fft',
                           grid_freq=None, notch_width=3, notch_sigma=1.0,
                           ev_ref_range=None, plot=False):
     """
-    Supprime l'artefact périodique de la grille de retard du détecteur DA30.
+    Remove the periodic DA30 detector delay-grid artifact.
 
-    L'artefact apparaît comme des stries périodiques le long de l'axe k
-    (même fréquence à toutes les énergies). Deux méthodes disponibles :
+    The artifact appears as periodic stripes along the k axis
+    (same frequency at all energies). Two methods are available:
 
-    method='fft'     : filtre coupe-bande dans l'espace de Fourier (1D le long de k).
-                       Efficace si la période de la grille est bien définie.
-    method='profile' : divise chaque tranche en énergie par le profil angulaire
-                       moyen (lissé). Plus simple, supprime aussi le bruit fixe.
+    method='fft'     : notch filter in Fourier space (1D along k).
+                       Effective when the grid period is well defined.
+    method='profile' : divide each energy slice by the average angular
+                       profile (smoothed). Simpler, also removes fixed noise.
 
-    Paramètres
+    Parameters
     ----------
     data         : np.ndarray (nk, ne)
-    kpar         : np.ndarray 1D — axe k (pour affichage uniquement)
+    kpar         : np.ndarray 1D, k axis (display only)
     method       : 'fft' | 'profile'
-    grid_freq    : float ou None — fréquence de la grille en cycles/pixel.
-                   Si None, auto-détection sur le spectre moyen.
-    notch_width  : int — demi-largeur du filtre notch en bins FFT (method='fft')
-    notch_sigma  : float — lissage gaussien du filtre notch (0 = porte, >0 = doux)
-    ev_ref_range : tuple (ev_lo, ev_hi) ou None — fenêtre en énergie pour estimer
-                   le profil de référence. Si None, toutes les énergies sont utilisées.
-    plot         : bool — afficher le profil Fourier et le filtre appliqué
+    grid_freq    : float or None, grid frequency in cycles/pixel.
+                   If None, auto-detect from the average spectrum.
+    notch_width  : int, half-width of the notch filter in FFT bins (method='fft')
+    notch_sigma  : float, Gaussian smoothing for the notch filter (0 = hard gate, >0 = soft)
+    ev_ref_range : tuple (ev_lo, ev_hi) or None, energy window for estimating
+                   the reference profile. If None, all energies are used.
+    plot         : bool, show the Fourier profile and applied filter
 
-    Retourne
+    Returns
     --------
     data_clean : np.ndarray (nk, ne) — données sans artefact de grille
     info       : dict — 'grid_freq', 'grid_period_px', 'method'
@@ -81,12 +81,12 @@ def remove_grid_artifact(data, kpar=None, method='fft',
             fig, axes = plt.subplots(1, 2, figsize=(12, 4))
             axes[0].semilogy(freqs[1:], power[1:], 'k-', lw=0.8)
             axes[0].axvline(grid_freq, color='red', lw=1.5, ls='--',
-                            label=f'grille f={grid_freq:.4f} (T={grid_period_px:.1f} px)')
-            axes[0].set(xlabel='Fréquence (cycles/px)', ylabel='Puissance',
-                        title='Spectre Fourier du profil moyen')
+                            label=f'grid f={grid_freq:.4f} (T={grid_period_px:.1f} px)')
+            axes[0].set(xlabel='Frequency (cycles/px)', ylabel='Power',
+                        title='Fourier Spectrum of the Mean Profile')
             axes[0].legend()
             axes[1].plot(freqs, filt, 'b-', lw=1.5)
-            axes[1].set(xlabel='Fréquence', ylabel='Filtre', title='Filtre notch appliqué',
+            axes[1].set(xlabel='Frequency', ylabel='Filter', title='Applied Notch Filter',
                         ylim=(-0.05, 1.05))
             plt.tight_layout()
             plt.show()
@@ -106,11 +106,11 @@ def remove_grid_artifact(data, kpar=None, method='fft',
         if plot and kpar is not None:
             fig, ax = plt.subplots(figsize=(8, 3))
             ax.plot(kpar, ref_profile / ref_profile.max(), 'k-', lw=0.8,
-                    label='profil brut')
+                    label='raw profile')
             ax.plot(kpar, ref_smooth / ref_smooth.max(), 'r-', lw=1.5,
-                    label='profil lissé (diviseur)')
+                    label='smoothed profile (divisor)')
             ax.set(xlabel='k// (pi/a)', ylabel='I norm.',
-                   title='Profil angulaire moyen utilisé pour la correction')
+                   title='Mean Angular Profile Used for Correction')
             ax.legend()
             plt.tight_layout()
             plt.show()
@@ -281,14 +281,14 @@ def fermi_dirac_divide(data_cut, ev_arr, ef, temperature, cutoff_ev=0.05):
     Divise les donnees ARPES par la distribution Fermi-Dirac pour
     extraire la densite spectrale A(k,E) au-dessus de EF.
 
-    Les donnees mesurent N(k,E) = A(k,E) × f(E,T).
-    La division retire la coupure thermique et donne acces a A(k,E)
-    jusque cutoff_ev au-dessus de EF.
+    The data measure N(k,E) = A(k,E) x f(E,T).
+    Division removes the thermal cutoff and gives access to A(k,E)
+    up to cutoff_ev above EF.
 
-    Attention : amplifie le bruit au-dessus de EF — utiliser sur
-    des donnees suffisamment lisses ou a basse temperature.
+    Warning: amplifies noise above EF; use on sufficiently smooth
+    data or at low temperature.
 
-    Parametres
+    Parameters
     ----------
     data_cut    : np.ndarray (nk, ne)
     ev_arr      : np.ndarray 1D — energies en eV (referees a EF=0)
@@ -393,7 +393,7 @@ def kz_dispersion(cuts, theta_arr, hv_arr, ef_arr, work_function, V0,
         I_pts.append(I_ef)
 
     if not kx_pts:
-        raise ValueError("Aucune coupe valide (verifier hv, work_function, V0).")
+        raise ValueError("No valid cut (check hv, work_function, V0).")
 
     kx_all = np.concatenate(kx_pts)
     kz_all = np.concatenate(kz_pts)

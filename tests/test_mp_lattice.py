@@ -1,6 +1,6 @@
-"""Tests load_lattice : cache disque + timeout + fallback pymatgen.
+"""Tests load_lattice: disk cache + timeout + pymatgen fallback.
 
-mp_api est mocké pour éviter dépendance réseau et clé API.
+mp_api is mocked to avoid network and API-key dependencies.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from arpes.theory.materials_project import (
 )
 
 
-# ---- helpers : mock MPRester / structure -----------------------------------
+# ---- helpers: mock MPRester / structure ------------------------------------
 
 
 class _FakeLattice:
@@ -56,7 +56,7 @@ class _FakeDoc:
 def _install_fake_mp(monkeypatch, *, structure, crystal_system="Tetragonal",
                      sg_symbol="I4/mmm", sg_number=139, sleep_s=0.0,
                      fail=False):
-    """Installe un mp_api.client.MPRester factice dans sys.modules."""
+    """Installs a fake mp_api.client.MPRester into sys.modules."""
     class _FakeMPRester:
         def __init__(self, *a, **kw):
             self._materials = types.SimpleNamespace(
@@ -115,7 +115,7 @@ class TestStructureToDict:
     def test_unknown_crystal_system_fallback(self):
         s = _FakeStructure(_FakeLattice(1, 1, 1))
         d = _structure_to_dict(s, "mp-3", "Quasicrystal", "")
-        assert d["bravais"] == "tetragonal"  # fallback raisonnable
+        assert d["bravais"] == "tetragonal"  # reasonable fallback
 
 
 # ---- _lattice_from_dict ----------------------------------------------------
@@ -134,7 +134,7 @@ class TestLatticeFromDict:
     def test_missing_fields_have_defaults(self):
         lat = _lattice_from_dict({"a": 4.0}, Lattice3D)
         assert lat.a == 4.0
-        assert lat.b == 4.0  # défaut = a
+        assert lat.b == 4.0  # default = a
         assert lat.c == 1.0
         assert lat.bravais == "tetragonal"
 
@@ -144,8 +144,8 @@ class TestLatticeFromDict:
 
 class TestLoadLatticeCache:
     def test_load_from_cache_disk(self, tmp_path: Path):
-        # Écrit cache pré-existant, vérifie qu'aucune requête MP n'est faite
-        # (on n'installe pas MPRester du tout — devrait passer si cache hit).
+        # Writes pre-existing cache and verifies that no MP request is made
+        # (MPRester is not installed at all; should pass on cache hit).
         mpid = "mp-cached"
         cache_dir = tmp_path / ".cache"
         cache_dir.mkdir()
@@ -176,7 +176,7 @@ class TestLoadLatticeCache:
         mpid = "mp-1"
         cache_dir = tmp_path / "c"
         cache_dir.mkdir()
-        # Cache stale (a=999) ; force_refresh doit récupérer 3.5 depuis fake MP.
+        # Stale cache (a=999); force_refresh must fetch 3.5 from fake MP.
         path = _lattice_cache_path(cache_dir, mpid)
         path.write_text(json.dumps({"mp_id": mpid, "a": 999.0, "b": 1, "c": 1,
                                     "bravais": "tetragonal"}))
@@ -198,10 +198,10 @@ class TestLoadLatticeFailures:
         cached = {"mp_id": mpid, "a": 1.23, "b": 1.23, "c": 4.56,
                   "bravais": "tetragonal"}
         _lattice_cache_path(cache_dir, mpid).write_text(json.dumps(cached))
-        # Bust cache via mtime trick : NON, on garde et on force_refresh.
+        # Bust cache via mtime trick: NO, keep it and use force_refresh.
         s = _FakeStructure(_FakeLattice(9.0, 9.0, 9.0))
         _install_fake_mp(monkeypatch, structure=s, sleep_s=2.0)
-        # Timeout très court → fallback cache → a=1.23 (pas 9.0)
+        # Very short timeout → cache fallback → a=1.23 (not 9.0).
         lat = load_lattice(mpid, cache_dir=cache_dir, timeout_s=0.2,
                            force_refresh=True)
         assert lat.a == 1.23
@@ -233,10 +233,10 @@ class TestLoadLatticeFailures:
         cached = {"mp_id": mpid, "a": 7.7, "b": 7.7, "c": 7.7,
                   "bravais": "cubic"}
         _lattice_cache_path(cache_dir, mpid).write_text(json.dumps(cached))
-        # Pas d'install MP fake ; supprime aussi si présent par hasard.
+        # No fake MP install; also remove it if it happens to be present.
         monkeypatch.delitem(sys.modules, "mp_api.client", raising=False)
         monkeypatch.delitem(sys.modules, "mp_api", raising=False)
-        # Cache hit avant import MP → renvoie directement.
+        # Cache hit before MP import → returns directly.
         lat = load_lattice(mpid, cache_dir=cache_dir)
         assert lat.a == 7.7
 

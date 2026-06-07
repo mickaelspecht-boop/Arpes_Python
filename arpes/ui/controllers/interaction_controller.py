@@ -151,7 +151,7 @@ class InteractionController:
         if active:
             if p._tabs.currentIndex() not in (0, 1):
                 p._tabs.setCurrentIndex(1)
-            self._status("Sélection zone fit : cliquer-glisser un rectangle sur la carte.")
+            self._status("Fit-zone selection: click and drag a rectangle on the map.")
 
     def _on_fit_roi_press(self, event):
         p = self._parent
@@ -230,7 +230,7 @@ class InteractionController:
         self._params.params_changed.emit()
         self._draw_current_view()
         self._status(
-            f"Zone fit : k={k0:+.3f}→{k1:+.3f} π/a, "
+            f"Fit zone: k={k0:+.3f}->{k1:+.3f} pi/a, "
             f"E={e0:+.3f}→{e1:+.3f} eV"
         )
 
@@ -289,15 +289,15 @@ class InteractionController:
         current = self._annotation_text_for_point(branch, pair_idx, point_idx)
         text, ok = QInputDialog.getMultiLineText(
             p,
-            "Annotation point fit",
-            f"Note pour {branch}, paire {pair_idx + 1}, point {point_idx}:",
+            "Fit-point annotation",
+            f"Note for {branch}, pair {pair_idx + 1}, point {point_idx}:",
             current,
         )
         if not ok:
             return
         text = text.strip()
         if not text:
-            self._status("Annotation vide ignorée.")
+            self._status("Empty annotation ignored.")
             return
         key = p._session.key_for_path(p._current_path)
         entry = p._session.get_or_create(key)
@@ -320,7 +320,7 @@ class InteractionController:
         annotations[branch] = branch_notes
         entry.annotations = annotations
         p._session.save()
-        self._status("Annotation enregistrée.")
+        self._status("Annotation saved.")
         self._draw_current_view()
 
     def _on_fit_annotation_motion(self, event):
@@ -479,7 +479,7 @@ class InteractionController:
         p._fit_selected = []
         self._persist_fit_result(fr)
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
-        self._status(f"{len(sel)} point(s) supprimé(s). « Annuler » pour restaurer.")
+        self._status(f"{len(sel)} point(s) deleted. Use Undo to restore.")
         self._draw_current_view(include_curves=False)
 
     def _undo_fit_delete(self) -> None:
@@ -489,7 +489,7 @@ class InteractionController:
             return
         frame = p._undo_stack.undo()
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
-        self._status("Suppression annulée." if frame else "Aucune action à annuler.")
+        self._status("Deletion undone." if frame else "No action to undo.")
         self._draw_current_view(include_curves=False)
 
     def _redo_fit_delete(self) -> None:
@@ -498,7 +498,7 @@ class InteractionController:
             return
         frame = p._undo_stack.redo()
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
-        self._status("Suppression réappliquée." if frame else "Aucune action à rétablir.")
+        self._status("Deletion redone." if frame else "No action to redo.")
         self._draw_current_view(include_curves=False)
 
     def _fit_branch_snapshot(self, fr: dict) -> dict:

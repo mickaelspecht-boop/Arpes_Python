@@ -1,18 +1,18 @@
-"""Diagnostic manuel (PAS un test pytest) — vérifie le logbook scopé CLS2026.
+"""Manual diagnostic (NOT a pytest test) — checks the scoped CLS2026 logbook.
 
-Reproduit le flux "logbook scopé par sous-dossier" sur les données réelles :
+Reproduces the "logbook scoped by subfolder" flow on real data:
   BNA_S1  <- feuille  CA041_S1  de CLS_2026_Exp_INFO.xlsx
   BNA_S2  <- feuille  CA046_S2
 
-(BaNi2As2 = échantillons CA041 / CA046 dans ce logbook.)
+(BaNi2As2 = samples CA041 / CA046 in this logbook.)
 
-Pour chaque fichier BMxx :
-  - quel record du logbook est sélectionné (matching scopé)
-  - quel hν / T / pol en est extrait (avec le mapping propre à la feuille)
-  - puis charge le fichier CLS avec ce hν et affiche la plage E-EF obtenue
-    (+ déclenchement éventuel du garde-fou Central Energy).
+For each BMxx file:
+  - which logbook record is selected (scoped matching)
+  - which hν / T / pol is extracted (with the sheet-specific mapping)
+  - then loads the CLS file with this hν and prints the resulting E-EF range
+    (+ possible Central Energy guard trigger).
 
-Usage (dans l'env qui a pandas/openpyxl, ex 'peaks') :
+Usage (in the env that has pandas/openpyxl, for example 'peaks'):
     python tests/check_scoped_logbook_cls2026.py [chemin/vers/BaNi2As2-CLS2026]
 """
 from __future__ import annotations
@@ -35,7 +35,7 @@ SCOPES = [("BNA_S1", "CA041_S1"), ("BNA_S2", "CA046_S2")]
 
 
 def _table_selector_factory():
-    """Sélecteur de ligne d'en-tête : reprend le score utilisé par l'UI."""
+    """Header-row selector: reuses the score used by the UI."""
     def score_row(raw, row_idx):
         try:
             df, m = excel_table_from_header(raw, row_idx)
@@ -76,11 +76,11 @@ def main(data_dir: Path) -> int:
             xlsx,
             sheet_selector=lambda names, _s=sheet: _s if _s in names else (names[0] if names else ""),
             table_selector=table_selector,
-            mapping_selector=lambda cols, m: m,  # pas d'interaction
+            mapping_selector=lambda cols, m: m,  # no interaction
         )
-        print(f"  feuille lue : {res.sheet_name}")
+        print(f"  sheet read  : {res.sheet_name}")
         print(f"  mapping     : {res.mapping}")
-        print(f"  {len(res.records)} lignes")
+        print(f"  {len(res.records)} rows")
         for r in res.records:
             if isinstance(r, dict):
                 r["_subfolder_rel"] = subdir
@@ -93,33 +93,33 @@ def main(data_dir: Path) -> int:
         sub = data_dir / subdir
         bm_files = sorted(p for p in sub.iterdir()
                           if p.is_file() and p.name.startswith("BM") and "_param" not in p.name)
-        print(f"\n=== fichiers {subdir} ===")
+        print(f"\n=== files {subdir} ===")
         for bm in bm_files:
             rec = mgr.find_record_for_path(bm)
             vals = mgr.values_for_path(bm)
             file_col = mgr._mapping_for_record(rec).get("file", "?") if rec else "?"
             file_val = rec.get(file_col) if rec else None
             print(f"\n  {bm.name}")
-            print(f"    record trouvé : {'oui' if rec else 'NON'}  (col file='{file_col}', valeur='{file_val}')")
+            print(f"    record found : {'yes' if rec else 'NO'}  (file col='{file_col}', value='{file_val}')")
             print(f"    hv={vals.hv}  T={vals.temperature}  pol={vals.polarization}  "
                   f"azi={vals.azi}  polar={vals.polar}  tilt={vals.tilt}")
             if vals.hv is None:
-                print("    !! pas de hν extrait du logbook")
+                print("    !! no hν extracted from the logbook")
                 continue
             try:
                 ds = load_cls_txt(bm, hv=float(vals.hv))
                 e = ds.energy
                 md = ds.metadata
-                print(f"    chargé : E-EF [{float(e.min()):.3f}, {float(e.max()):.3f}] eV"
+                print(f"    loaded : E-EF [{float(e.min()):.3f}, {float(e.max()):.3f}] eV"
                       f"  refE={md.get('energy_reference')}"
                       f"  CentralEnergy={md.get('central_energy')}")
                 if md.get("hv_warning"):
-                    print(f"    garde-fou hν : {md['hv_warning']}")
+                    print(f"    hν guard : {md['hv_warning']}")
                 lo, hi = float(e.min()), float(e.max())
                 if not (-5.0 < lo < 5.0 and -5.0 < hi < 5.0):
-                    print(f"    !! plage E-EF suspecte (attendu ~[-2, 2] eV pour une carte près de EF)")
+                    print(f"    !! suspicious E-EF range (expected ~[-2, 2] eV for a map near EF)")
             except Exception as exc:
-                print(f"    !! échec chargement : {exc}")
+                print(f"    !! load failed : {exc}")
     return 0
 
 

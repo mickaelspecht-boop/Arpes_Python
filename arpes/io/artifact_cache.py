@@ -46,9 +46,9 @@ def load_raw_artifact(path: str | Path, cache_key: tuple, session_folder: str | 
             offsets = _restore_payload(manifest.get("angle_offsets", {}), arrays)
             return data, offsets
     except Exception as exc:
-        # Cache illisible → cache miss + signal au lieu d'avaler l'erreur.
+        # Unreadable cache -> cache miss plus a warning instead of hiding the error.
         warnings.warn(
-            f"load_raw_artifact: cache illisible ({exc}); re-calcul requis.",
+            f"load_raw_artifact: unreadable cache ({exc}); recomputation required.",
             RuntimeWarning, stacklevel=2,
         )
         return None
@@ -76,11 +76,11 @@ def save_raw_artifact(
         npz_tmp = tmp_path if tmp_path.exists() else tmp_path.with_suffix(tmp_path.suffix + ".npz")
         os.replace(npz_tmp, cache_path)
     except Exception as exc:
-        # Sauvegarde échouée → données NON persistées : surface l'erreur
-        # plutôt que perdre silencieusement.
+        # Failed save -> data was NOT persisted, so surface the error instead of
+        # silently losing it.
         warnings.warn(
-            f"save_raw_artifact: échec écriture {cache_path} ({exc}); "
-            f"cache disque non mis à jour.",
+            f"save_raw_artifact: write failed for {cache_path} ({exc}); "
+            f"disk cache was not updated.",
             RuntimeWarning, stacklevel=2,
         )
         try:
@@ -154,9 +154,9 @@ def save_raw_artifact_async(
     session_folder: str | Path | None = None,
     quota_mb: float = DEFAULT_QUOTA_MB,
 ) -> threading.Thread:
-    """Écrit l'artefact en arrière-plan (daemon thread). Ne bloque pas l'UI.
+    """Write the artifact in the background (daemon thread). Does not block the UI.
 
-    Effectue aussi un prune éventuel pour rester sous `quota_mb`.
+    Also prunes when needed to stay below `quota_mb`.
     """
     def _worker():
         try:
@@ -165,8 +165,8 @@ def save_raw_artifact_async(
                                max_mb=quota_mb)
         except Exception as exc:
             warnings.warn(
-                f"save_raw_artifact_async: thread cache crashé ({exc}); "
-                f"sauvegarde disque non garantie.",
+                f"save_raw_artifact_async: cache thread crashed ({exc}); "
+                f"disk save is not guaranteed.",
                 RuntimeWarning, stacklevel=2,
             )
 
@@ -176,7 +176,7 @@ def save_raw_artifact_async(
 
 
 def clear_cache_folder(session_folder: str | Path | None) -> tuple[int, int]:
-    """Supprime les artefacts `.arpes_cache` connus. Retourne (n_files, total_bytes)."""
+    """Delete known `.arpes_cache` artifacts. Return (n_files, total_bytes)."""
     root = raw_artifact_root(session_folder or Path.cwd(), session_folder)
     cache_root = root.parent
     n = 0
@@ -207,7 +207,7 @@ def clear_cache_folder(session_folder: str | Path | None) -> tuple[int, int]:
 
 
 def prune_cache_folder(session_folder: str | Path | None, *, max_mb: float = DEFAULT_QUOTA_MB) -> int:
-    """Évince les artefacts les plus anciens si la taille totale > max_mb. Retourne n_evicted."""
+    """Evict the oldest artifacts if total size > max_mb. Return n_evicted."""
     if session_folder is None:
         return 0
     root = raw_artifact_root(session_folder, session_folder)
@@ -225,7 +225,7 @@ def prune_cache_folder(session_folder: str | Path | None, *, max_mb: float = DEF
             continue
     if total <= quota_bytes:
         return 0
-    files.sort()  # plus anciens d'abord
+    files.sort()  # oldest first
     evicted = 0
     for mtime, size, f in files:
         if total <= quota_bytes:

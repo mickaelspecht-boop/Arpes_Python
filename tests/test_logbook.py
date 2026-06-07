@@ -102,6 +102,20 @@ class TestLogbookHelpers(unittest.TestCase):
         self.assertEqual(values.tilt, -0.5)
         self.assertEqual(values.sources["hv"], "logbook")
 
+    def test_duplicate_file_rows_disambiguate_with_spectrum_name(self):
+        records = [
+            {"File": "BaNi2As2_0001.pxt,.ibw,", "Spectrum Name": "kz_44.0", "hv": "44"},
+            {"File": "BaNi2As2_0001.pxt,.ibw,", "Spectrum Name": "kz_100.0", "hv": "100"},
+        ]
+        mapping = {"file": "File", "hv": "hv"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "BaNi2As2_0001kz_100.0.ibw"
+            path.write_text("dummy")
+            values = LogbookManager(records, mapping, root).values_for_path(path)
+
+        self.assertEqual(values.hv, 100.0)
+
     def test_logbook_manager_applies_to_file_entry(self):
         records = [{"Num": "9", "Energy": "100", "Temp": "12", "Pol": "LV", "Direction": "G"}]
         mapping = _infer_logbook_mapping(["Num", "Energy", "Temp", "Pol", "Direction"])

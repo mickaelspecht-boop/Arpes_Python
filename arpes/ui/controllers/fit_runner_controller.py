@@ -1,4 +1,4 @@
-"""Controller UI exécutant fits MDC, calibrations EF et propagation params."""
+"""UI controller running MDC fits, EF calibrations, and parameter propagation."""
 from __future__ import annotations
 
 import traceback
@@ -37,14 +37,14 @@ class FitRunnerController:
         return self._parent._session
 
     def _current_fit_params_hash(self, entry=None, *, fp=None) -> str:
-        """Hash de l'état UI/données courant influant le fit MDC.
+        """Hash of the current UI/data state affecting the MDC fit.
 
-        Comparé au hash stocké dans fit_result : si différent → fit
-        STALE (params modifiés depuis fit, résultat trompeur).
+        Compared with the hash stored in fit_result: if different, the fit is
+        STALE (parameters changed since fitting, result may be misleading).
 
-        ``fp`` peut être passé explicitement pour utiliser un FitParams
-        précis (multi-zone) au lieu de relire l'UI (où seules les
-        paires 0 sont synchronisées via load_fit_params).
+        ``fp`` can be passed explicitly to use a precise FitParams object
+        (multi-zone) instead of rereading the UI, where only pair 0 is
+        synchronized through load_fit_params.
         """
         p = self._parent
         if fp is None:
@@ -68,7 +68,7 @@ class FitRunnerController:
         )
 
     def _update_mdc_tab_label(self, fr: dict | None) -> None:
-        """G : titre dynamique de l'onglet Fit MDC = état du fit courant."""
+        """Dynamic MDC Fit tab title based on the current fit state."""
         p = self._parent
         tabs = getattr(p, "_mdc_fit_tabs", None)
         if tabs is None or tabs.count() < 1:
@@ -149,7 +149,7 @@ class FitRunnerController:
     def _fit_guess(self):
         p = self._parent
         if p.ap is None:
-            self._status("Attention: arpes_plots non chargé")
+            self._status("Warning: arpes_plots not loaded")
             return
         data, kpar, ev = self._get_work_data()
         if data is None:
@@ -195,9 +195,9 @@ class FitRunnerController:
                     f"xg={r['xg']:.4f} π/a")
                 self._status(f"Guess OK  kF={k0s}  γ=[{gammas}]")
                 if hasattr(self._params, "mark_action_done"):
-                    self._params.mark_action_done(f"guess MDC OK à E={p._sel_ev:.3f} eV")
+                    self._params.mark_action_done(f"MDC guess OK at E={p._sel_ev:.3f} eV")
             else:
-                self._params.lbl_res.setText("Fit échoué")
+                self._params.lbl_res.setText("Fit failed")
         except Exception as e:
             ax.text(0.5, 0.5, str(e), transform=ax.transAxes,
                     ha="center", va="center", color="tomato", fontsize=8)
@@ -206,14 +206,18 @@ class FitRunnerController:
         p._mdc_edc.redraw()
 
     def _fit_ensemble(self) -> None:
-        """I1: refit N fois (perturbe initiaux), agrège kF/Γ médians + σ.
+        """I1: refit N times (perturb initials), aggregate median kF/Γ + σ.
 
-        1 paire = 1 bande (modèle Lorentzien symétrique). L'ensemble
-        donne σ statistique fiable (MAD-filtré). Plus lent (× N).
+        1 pair = 1 band (symmetric Lorentzian model). The ensemble gives a
+        reliable statistical σ (MAD-filtered). Slower (× N).
         """
         p = self._parent
+        # P3.7: re-entrancy guard (cf _fit_full).
+        if getattr(p, "_fit_busy", False):
+            self._status("Fit already running — wait for it to finish.")
+            return
         if p.ap is None:
-            self._status("Attention: arpes_plots non chargé")
+            self._status("Warning: arpes_plots not loaded")
             return
         data, kpar, ev = self._get_work_data()
         if data is None:
@@ -223,7 +227,8 @@ class FitRunnerController:
                 if hasattr(self._params, "sp_ensemble_n") else 30)
         jitter = float(getattr(self._params, "sp_ensemble_jitter", None).value()
                        if hasattr(self._params, "sp_ensemble_jitter") else 0.10)
-        self._status(f"Fit ensemble en cours (N={n}, jitter={jitter*100:.0f}%) ...")
+        p._fit_busy = True
+        self._status(f"Ensemble fit running (N={n}, jitter={jitter*100:.0f}%) ...")
         QApplication.processEvents()
         try:
             controller = MdcFitter(p.ap)
@@ -235,7 +240,7 @@ class FitRunnerController:
             )
             n_ok = int(ens.get("n_ok") or 0)
             if n_ok == 0:
-                self._status("Attention: ensemble fit — aucune run convergée.")
+                self._status("Warning: ensemble fit - no run converged.")
                 return
             # Compose fit_result final : médianes → kF/Γ, σ dans ensemble.
             fr = {
@@ -278,9 +283,9 @@ class FitRunnerController:
                 f"\nEnsemble: {n_ok}/{n} runs, jitter={jitter*100:.0f}%"
             )
             self._params.lbl_res.setToolTip(
-                "Résolution instrumentale domine, fit non fiable"
+                "Instrumental resolution dominates; fit is unreliable"
                 if summary.resolution_dominates else
-                "kF/Γ = médianes MAD-filtrées; σ dans ensemble."
+                "kF/Gamma = MAD-filtered medians; sigma from the ensemble."
             )
             try:
                 threshold = float(self._params.sp_chi2_threshold.value())
@@ -294,25 +299,27 @@ class FitRunnerController:
             self._update_mdc_tab_label(fr)
             self._redraw_all_fit_views()
             self._status(
-                f"Fit ensemble OK — {n_ok}/{n} runs convergées."
+                f"Ensemble fit OK - {n_ok}/{n} runs converged."
             )
         except Exception as e:
-            self._status(f"Attention: Fit ensemble : {e}")
+            self._status(f"Warning: Fit ensemble : {e}")
             traceback.print_exc()
+        finally:
+            p._fit_busy = False
 
     def _calculate_im_self_energy(self) -> None:
         """H: ouvre dialog Im Σ(E) depuis fit_result courant + a."""
         p = self._parent
         fr = getattr(p, "_fit_res", None)
         if not fr:
-            self._status("Attention: faire un fit MDC avant Im Σ.")
+            self._status("Warning: run an MDC fit before Im Sigma.")
             return
         try:
             a = float(self._params.sp_crystal_a.value())
         except Exception:
             a = 0.0
         if a <= 0:
-            self._status("Attention: renseigne a cristal (Å) > 0 pour Im Σ.")
+            self._status("Warning: enter crystal a (A) > 0 for Im Sigma.")
             return
         wm = str(fr.get("width_mode", "symmetric"))
         # Mode 'independent' → exposer γL/γR séparés + moyenne. Sinon mean seul.
@@ -321,40 +328,48 @@ class FitRunnerController:
                        and bool(fr.get("gamma_right_corrige")))
         if wants_sides:
             payload = {
-                "Moyenne": imaginary_self_energy(fr, a, pair_index=0,
+                "Mean": imaginary_self_energy(fr, a, pair_index=0,
                                                   side="mean"),
                 "γL (kF-)": imaginary_self_energy(fr, a, pair_index=0,
                                                    side="left"),
                 "γR (kF+)": imaginary_self_energy(fr, a, pair_index=0,
                                                    side="right"),
             }
-            ref = payload["Moyenne"]
+            ref = payload["Mean"]
         else:
             payload = imaginary_self_energy(fr, a, pair_index=0)
             ref = payload
         if ref["energy"].size == 0:
-            self._status("Attention: Im Σ indisponible (vF/Γ manquants).")
+            self._status("Warning: Im Sigma unavailable (missing vF/Gamma).")
             return
         from arpes.ui.widgets.dialogs import ImagSelfEnergyDialog
         dlg = ImagSelfEnergyDialog(payload, parent=p)
         dlg.exec()
         med = float(np.nanmedian(ref["im_sigma"])) * 1000.0
-        suffix = " (mean/γL/γR séparés)" if wants_sides else ""
+        suffix = " (separate mean/gammaL/gammaR)" if wants_sides else ""
         self._status(
             f"Im Σ med = {med:.1f} meV  |  vF = {ref['vF_eV_A']:.2f} eV·Å{suffix}"
         )
 
     def _fit_full(self):
         p = self._parent
+        # P3.7: re-entrancy guard. processEvents() below can deliver a
+        # retriggered "Fit" click, causing re-entry that would corrupt the
+        # shared _fit_res / entry. Batch calls _fit_full sequentially (flag
+        # reset to False between each call), so it is not blocked.
+        if getattr(p, "_fit_busy", False):
+            self._status("Fit already running — wait for it to finish.")
+            return
         if p.ap is None:
-            self._status("Attention: arpes_plots non chargé")
+            self._status("Warning: arpes_plots not loaded")
             return
         data, kpar, ev = self._get_work_data()
         if data is None:
             return
         fp = self._params.get_fit_params()
 
-        self._status("Fit complet en cours ...")
+        p._fit_busy = True
+        self._status("Full fit running ...")
         QApplication.processEvents()
         try:
             controller = MdcFitter(p.ap)
@@ -401,7 +416,7 @@ class FitRunnerController:
             summary = controller.summarize(fr, crystal_a=crystal_a)
             self._params.lbl_res.setText(summary.label_text)
             self._params.lbl_res.setToolTip(
-                "Résolution instrumentale domine, fit non fiable"
+                "Instrumental resolution dominates; fit is unreliable"
                 if summary.resolution_dominates else ""
             )
             try:
@@ -417,10 +432,12 @@ class FitRunnerController:
             self._redraw_all_fit_views()
             self._status(summary.status_text)
             if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done("fit complet terminé")
+                self._params.mark_action_done("full fit completed")
         except Exception as e:
-            self._status(f"Attention: Fit complet : {e}")
+            self._status(f"Warning: full fit: {e}")
             traceback.print_exc()
+        finally:
+            p._fit_busy = False
 
     def _clear_kf(self):
         from arpes.ui.controllers.fit_clear import clear_kf
@@ -430,7 +447,7 @@ class FitRunnerController:
     def _ef_calibrate(self):
         p = self._parent
         if p._raw_data is None:
-            self._status("Attention: Aucune donnée chargée")
+            self._status("Warning: no data loaded")
             return
         d = p._raw_data
         entry_now = p._current_entry()
@@ -459,7 +476,7 @@ class FitRunnerController:
                 return
             self._apply_ef_calibration_result(dlg.result_payload)
         except Exception as e:
-            self._status(f"Attention: Calibration EF : {e}")
+            self._status(f"Warning: Calibration EF : {e}")
             traceback.print_exc()
 
     def _apply_ef_calibration_result(self, payload: dict):
@@ -484,20 +501,20 @@ class FitRunnerController:
 
         if payload.get("save_as_reference"):
             self._session.ef_reference = update.ref_payload
-            msg += "  |  référence dossier sauvegardée"
+            msg += "  |  folder reference saved"
 
         self._session.save()
         p._load_file(p._current_path)
         self._refresh_helper_buttons()
         self._status(msg)
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done("calibration EF appliquée")
+            self._params.mark_action_done("EF calibration applied")
 
     def _apply_ef_reference_to_current(self):
         p = self._parent
         ref = self._session.ef_reference or {}
         if not ref or not p._current_path:
-            self._status("Attention: Aucune référence EF en session - calibrer un Au d'abord")
+            self._status("Warning: no EF reference in session - calibrate Au first")
             return
         key = self._session.key_for_path(p._current_path)
         entry = self._session.get_or_create(key)
@@ -505,15 +522,15 @@ class FitRunnerController:
         if ef_reference_already_applied(entry.ef_correction):
             ans = QMessageBox.question(
                 p,
-                "Référence EF déjà appliquée",
-                "Une référence EF est déjà appliquée à ce fichier. "
-                "L'appliquer à nouveau cumulerait les décalages et serait probablement faux.\n\n"
-                "Continuer quand même ?",
+                "EF reference already applied",
+                "An EF reference is already applied to this file. "
+                "Applying it again would accumulate shifts and would probably be wrong.\n\n"
+                "Continue anyway?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
             if ans != QMessageBox.StandardButton.Yes:
-                self._status("Application de la référence EF annulée")
+                self._status("EF reference application cancelled")
                 return
 
         ref_path = ref.get("source_file", "")
@@ -527,7 +544,7 @@ class FitRunnerController:
                 ref_path_str=ref_name,
             )
         except EFReferenceError:
-            self._status("Attention: Référence EF mal formée")
+            self._status("Warning: malformed EF reference")
             return
         entry.ef_offset = app.new_ef_offset
         entry.ef_correction = app.ef_correction
@@ -538,7 +555,7 @@ class FitRunnerController:
         p._load_file(p._current_path)
         self._status(app.msg)
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done("référence EF appliquée")
+            self._params.mark_action_done("EF reference applied")
 
     # ----------------------------------------------------------- params utils
     def _refresh_helper_buttons(self):
@@ -568,14 +585,14 @@ class FitRunnerController:
         self._session.save()
         n = len(targets)
         if n == 0:
-            self._status("Aucun fichier cible - tous les autres sont déjà fittés")
+            self._status("No target file - all other files are already fitted")
         elif n <= 3:
-            self._status(f"Params copiés vers {n} fichier(s) : {', '.join(targets)}")
+            self._status(f"Params copied to {n} file(s): {', '.join(targets)}")
         else:
             preview = ", ".join(targets[:2])
-            self._status(f"Params copiés vers {n} fichiers : {preview}, ... (+{n-2})")
+            self._status(f"Params copied to {n} files: {preview}, ... (+{n-2})")
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done(f"paramètres propagés vers {n} fichier(s)")
+            self._params.mark_action_done(f"parameters propagated to {n} file(s)")
         self._refresh_helper_buttons()
 
     # =================================================================

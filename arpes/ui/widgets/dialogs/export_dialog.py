@@ -1,4 +1,4 @@
-"""Dialog unifié de choix contenu + format pour export résultats."""
+"""Unified dialog for content and format selection before exporting results."""
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
@@ -12,13 +12,13 @@ from PyQt6.QtWidgets import (
 
 
 CONTENTS = {
-    "Résultats par slice (E, kF, γ, ...)": "slice",
-    "Résultats physiques (kF, vF, m*, Γ₀ ± σ)": "physics",
+    "Slice results (E, kF, γ, ...)": "slice",
+    "Physical results (kF, vF, m*, Γ₀ ± σ)": "physics",
 }
 
 FORMATS = {
     "CSV (.csv)": "csv",
-    "Texte aligné (.txt)": "txt",
+    "Aligned text (.txt)": "txt",
     "LaTeX booktabs (.tex)": "latex",
 }
 
@@ -26,11 +26,11 @@ EXTENSIONS = {"csv": ".csv", "txt": ".txt", "latex": ".tex"}
 
 
 class ExportDialog(QDialog):
-    """Choix simple du contenu et du format avant le file picker."""
+    """Simple content and format choice before the file picker."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Exporter résultats")
+        self.setWindowTitle("Export Results")
         self.resize(420, 180)
         self.content_key: str = "physics"
         self.format_key: str = "csv"
@@ -40,16 +40,16 @@ class ExportDialog(QDialog):
         self._cmb_content = QComboBox()
         for label in CONTENTS:
             self._cmb_content.addItem(label)
-        fl.addRow(QLabel("Contenu :"), self._cmb_content)
+        fl.addRow(QLabel("Content:"), self._cmb_content)
         self._cmb_format = QComboBox()
         for label in FORMATS:
             self._cmb_format.addItem(label)
-        fl.addRow(QLabel("Format :"), self._cmb_format)
+        fl.addRow(QLabel("Format:"), self._cmb_format)
         lay.addLayout(fl)
 
         self._lbl_warn = QLabel(
-            "Note : LaTeX disponible seulement pour Résultats physiques.\n"
-            "Sera basculé sur CSV si combinaison invalide."
+            "Note: LaTeX is available only for physical results.\n"
+            "Invalid combinations will fall back to CSV."
         )
         self._lbl_warn.setStyleSheet("color:#aaa;font-size:10px;")
         self._lbl_warn.setWordWrap(True)

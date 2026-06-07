@@ -1,4 +1,4 @@
-"""Découverte et chargement de séries hν pour cartes kz."""
+"""Discovery and loading of hν series for kz maps."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -14,7 +14,7 @@ from arpes.physics.kz import KzScanInput, scan_from_legacy_dict
 try:
     from arpes.io.loaders import detect_format, load_arpes_file
     from arpes.io.loaders import _cls_angle_to_k_pi_over_a, _load_cls_fs_volume, _parse_cls_param
-except Exception:  # pragma: no cover - environnement sans loaders complets
+except Exception:  # pragma: no cover - environment without full loaders
     detect_format = None
     load_arpes_file = None
     _cls_angle_to_k_pi_over_a = None
@@ -61,7 +61,7 @@ class KzDataset:
 
 
 def discover_kz_inputs(folder: str | Path) -> list[Path]:
-    """Retourne candidats BM d'un dossier KZ, sans charger les données."""
+    """Return BM candidates from a KZ folder without loading the data."""
     paths, _ignored = _discover_kz_inputs_with_ignored(folder)
     return paths
 
@@ -69,20 +69,20 @@ def discover_kz_inputs(folder: str | Path) -> list[Path]:
 def _looks_like_non_kz(path: Path) -> str | None:
     name = path.name.lower()
     if path.suffix.lower() == ".zip":
-        return "zip/FS ignoré"
+        return "zip/FS ignored"
     if path.suffix.lower() not in _KZ_EXTS:
-        return "extension ignorée"
+        return "extension ignored"
     for bit in _REJECT_NAME_BITS:
         if bit in name:
-            return f"nom non-KZ ({bit.strip()})"
+            return f"non-KZ name ({bit.strip()})"
     return None
 
 
 def _discover_kz_inputs_with_ignored(folder: str | Path) -> tuple[list[Path], list[str]]:
-    """Retourne candidats KZ et raisons d'exclusion non fatales."""
+    """Return KZ candidates and non-fatal exclusion reasons."""
     root = Path(folder)
     if not root.exists() or not root.is_dir():
-        raise ValueError(f"dossier KZ invalide: {root}")
+        raise ValueError(f"invalid KZ folder: {root}")
     photon_dirs = _discover_cls_photon_scan_dirs(root)
     if photon_dirs:
         return photon_dirs, []
@@ -106,7 +106,7 @@ def _discover_kz_inputs_with_ignored(folder: str | Path) -> tuple[list[Path], li
         if fmt:
             valid.append(path)
         else:
-            ignored.append(f"{path.name}: format non reconnu")
+            ignored.append(f"{path.name}: unrecognized format")
     return valid, ignored
 
 
@@ -169,17 +169,17 @@ def _load_cls_photon_scan_folder(
     a_lattice: float = 0.0,
 ) -> tuple[list[KzScanInput], list[str]]:
     if _parse_cls_param is None or _load_cls_fs_volume is None or _cls_angle_to_k_pi_over_a is None:
-        raise RuntimeError("loader CLS indisponible")
+        raise RuntimeError("CLS loader unavailable")
     prefixes = _cls_prefixes_with_steps(folder)
     if not prefixes:
-        raise ValueError(f"aucun scan CLS Cycle/Step dans {folder}")
+        raise ValueError(f"no CLS Cycle/Step scan in {folder}")
     prefix = prefixes[0]
     p = _parse_cls_param(folder, prefix)
     volume, step_ids, n_cycles = _load_cls_fs_volume(folder, prefix)
     hv_by_step = _hv_by_step_from_cls_log(folder, prefix)
     warnings: list[str] = []
     if not hv_by_step:
-        warnings.append(f"{folder.name}: hν absente de {prefix}_log.txt/{prefix}_param.txt")
+        warnings.append(f"{folder.name}: hν missing from {prefix}_log.txt/{prefix}_param.txt")
 
     n_e, n_theta = volume.shape[1], volume.shape[2]
     energy_raw = p["energy_min"] + np.arange(n_e) * p["energy_delta"]
@@ -193,7 +193,7 @@ def _load_cls_photon_scan_folder(
             float(energy_raw[0]) + float(energy_raw[-1])
         )
         energy_reference = "first_hv_minus_work_function"
-        warnings.append(f"{folder.name}: Central Energy absente; axe énergie basé sur première hν")
+        warnings.append(f"{folder.name}: Central Energy missing; energy axis based on first hν")
     energy = energy_raw - ef_kin_nominal + float(ef_offset)
     theta = p["angle_min"] + np.arange(n_theta) * p["angle_delta"]
     angular_offset = float(p.get("polar", 0.0) or 0.0)
@@ -203,7 +203,7 @@ def _load_cls_photon_scan_folder(
     for idx, step in enumerate(step_ids):
         hv = hv_by_step.get(int(step))
         if hv is None:
-            warnings.append(f"{folder.name}: step {step} ignoré, hν absente")
+            warnings.append(f"{folder.name}: step {step} ignored, hν missing")
             continue
         scans.append(KzScanInput(
             data=np.asarray(volume[idx], dtype=float).T,
@@ -287,7 +287,7 @@ def _load_one_kz_scan(
                 hv_file = _valid_hv(scan_file.hv)
                 if hv_file is not None and abs(hv_file - hv_for_load) > 1e-6:
                     warnings.append(
-                        f"{path.name}: hν fichier={hv_file:.3f} eV remplace "
+                        f"{path.name}: file hν={hv_file:.3f} eV replaces "
                         f"hν {hv_source_for_load}={hv_for_load:.3f} eV"
                     )
                 scan_file = KzScanInput(
@@ -299,7 +299,7 @@ def _load_one_kz_scan(
                     metadata={**dict(scan_file.metadata or {}), "hv_source": "file"},
                 )
                 return scan_file, warnings
-            first_error = ValueError("loader indisponible sans hν")
+            first_error = ValueError("loader unavailable without hν")
         except Exception as exc:
             first_error = exc
 
@@ -307,21 +307,21 @@ def _load_one_kz_scan(
         d = load(str(path), float(work_func), float(ef_offset), hv=hv_for_load)
     except Exception as exc:
         if first_error is not None:
-            warnings.append(f"{path.name}: hν fichier absent/inutilisable ({first_error})")
+            warnings.append(f"{path.name}: file hν missing/unusable ({first_error})")
         raise exc
     if d is None:
-        raise ValueError("loader indisponible")
+        raise ValueError("loader unavailable")
     scan = scan_from_legacy_dict(d)
     hv_loaded = _valid_hv(scan.hv)
     hv_source = hv_source_for_load if hv_for_load is not None else "file"
     if hv_for_load is not None and hv_loaded is not None and abs(hv_loaded - hv_for_load) > 1e-6:
         hv_source = "file"
         warnings.append(
-            f"{path.name}: hν fichier={hv_loaded:.3f} eV remplace "
+            f"{path.name}: file hν={hv_loaded:.3f} eV replaces "
             f"hν {hv_source_for_load}={hv_for_load:.3f} eV"
         )
     elif first_error is not None and hv_for_load is not None:
-        warnings.append(f"{path.name}: hν fichier absent/inutilisable; hν {hv_source_for_load} utilisé")
+        warnings.append(f"{path.name}: file hν missing/unusable; hν {hv_source_for_load} used")
     return KzScanInput(
         data=scan.data,
         kpar=scan.kpar,
@@ -345,10 +345,10 @@ def load_kz_stack(
     session_folder: str | Path | None = None,
     load_func: LoadFileFunc | None = None,
 ) -> KzDataset:
-    """Charge une série hν via les loaders BM existants."""
+    """Load an hν series through the existing BM loaders."""
     load = load_func or load_arpes_file
     if load is None:
-        raise RuntimeError("loaders ARPES indisponibles")
+        raise RuntimeError("ARPES loaders unavailable")
     paths, ignored = _discover_kz_inputs_with_ignored(folder)
     scans: list[KzScanInput] = []
     warnings: list[str] = list(ignored)
@@ -361,7 +361,7 @@ def load_kz_stack(
                     ef_offset=ef_offset,
                 )
             except Exception as exc:
-                warnings.append(f"{path.name}: chargement photon scan impossible ({exc})")
+                warnings.append(f"{path.name}: photon scan loading failed ({exc})")
                 continue
             scans.extend(ps_scans)
             warnings.extend(ps_warnings)
@@ -385,16 +385,16 @@ def load_kz_stack(
                 hv_source_for_load=hv_source_for_load,
             )
         except Exception as exc:
-            warnings.append(f"{path.name}: chargement impossible ({exc})")
+            warnings.append(f"{path.name}: loading failed ({exc})")
             continue
         warnings.extend(scan_warnings)
         scans.append(scan)
     scans.sort(key=lambda s: s.hv)
     hv = np.asarray([s.hv for s in scans], dtype=float)
     if hv.size < 2:
-        raise ValueError("kz: au moins deux fichiers avec hν valide requis")
+        raise ValueError("kz: at least two files with valid hν are required")
     if np.unique(np.round(hv, 6)).size < 2:
-        raise ValueError("kz: hν doit varier entre les scans")
+        raise ValueError("kz: hν must vary between scans")
     return KzDataset(folder=Path(folder), scans=scans, warnings=warnings)
 
 

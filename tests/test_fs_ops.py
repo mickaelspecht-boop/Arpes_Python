@@ -1,4 +1,4 @@
-"""Tests fs_ops : regrid commun, diff/sum/ratio, group_by_pol."""
+"""Tests fs_ops: common regrid, diff/sum/ratio, group_by_pol."""
 from __future__ import annotations
 
 import numpy as np
@@ -19,7 +19,7 @@ def _make_fs(n=21, half=1.0, shift=(0.0, 0.0)):
     kx = np.linspace(-half, half, n)
     ky = np.linspace(-half, half, n)
     KX, KY = np.meshgrid(kx, ky, indexing="ij")
-    # Gaussienne décentrée
+    # Off-center Gaussian.
     fs = np.exp(-((KX - shift[0])**2 + (KY - shift[1])**2) / 0.1)
     return kx, ky, fs.T  # (ny, nx)
 
@@ -48,7 +48,7 @@ class TestRegridCommon:
         kx_b = np.linspace(0.0, 2.0, 21); ky_b = kx_b.copy()
         fs_a = np.ones((21, 21)); fs_b = np.ones((21, 21))
         pair = regrid_to_common(kx_a, ky_a, fs_a, kx_b, ky_b, fs_b)
-        # Overlap kx∈[0,1], ky∈[0,1] → ratio attendu 1.0 (intersection couverte)
+        # Overlap kx∈[0,1], ky∈[0,1] → expected ratio 1.0 (intersection covered).
         assert pair.overlap_ratio > 0.95
 
     def test_labels_propagated(self):
@@ -73,7 +73,7 @@ class TestFsOperations:
         pair = regrid_to_common(kx, ky, fs_a, kx, ky, fs_b)
         d = fs_diff(pair, normalize="none")
         assert d.shape == pair.fs_a.shape
-        # antisymétrique en kx (gaussiennes symétriques décalées en ±0.1)
+        # Antisymmetric in kx (symmetric Gaussians shifted by ±0.1).
         assert d[d.shape[0]//2, 0] * d[d.shape[0]//2, -1] <= 0 or np.isnan(d).any()
 
     def test_diff_normalize_sum_dichroism(self):
@@ -82,7 +82,7 @@ class TestFsOperations:
         pair = regrid_to_common(kx, ky, fs_a, kx, ky, fs_b)
         d = fs_diff(pair, normalize="sum")
         finite = d[np.isfinite(d)]
-        # Dichroïsme normalisé ∈ [-1, 1]
+        # Normalized dichroism ∈ [-1, 1].
         assert finite.min() >= -1.001
         assert finite.max() <= 1.001
 
@@ -91,7 +91,7 @@ class TestFsOperations:
         _, _, fs_b = _make_fs()
         pair = regrid_to_common(kx, ky, fs_a, kx, ky, fs_b)
         d = fs_diff(pair, normalize="max")
-        # FS identiques → diff = 0 partout
+        # Identical FS → diff = 0 everywhere.
         finite = d[np.isfinite(d)]
         assert np.allclose(finite, 0.0, atol=1e-9)
 

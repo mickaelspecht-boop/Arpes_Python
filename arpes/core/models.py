@@ -154,7 +154,7 @@ class FitGammaSummary:
 
 @dataclass(frozen=True)
 class LoadContext:
-    """Contexte minimal passe a un chargement de fichier."""
+    """Minimal context passed to a file load."""
 
     hv: float | None = None
     temperature: float | None = None

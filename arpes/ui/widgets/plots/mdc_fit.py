@@ -36,59 +36,59 @@ def fit_mdc_peak_pairs(
     verbose=False,
 ):
     """
-    Fit MDC par paires de Lorentziennes symétriques (méthode Igor Peak Pairs).
+    Fit MDCs with symmetric Lorentzian peak pairs (Igor Peak Pairs method).
 
-    Chaque paire produit deux pics symétriques autour d'un centre xg (≈ Γ).
-    Plus stable que le fit indépendant quand les bandes sont symétriques.
+    Each pair produces two symmetric peaks around an xg center (about Gamma).
+    More stable than independent fits when the bands are symmetric.
 
-    Paramètres
+    Parameters
     ----------
     data_cut    : np.ndarray (nk, ne)
     kpar, ev_arr: np.ndarray 1D
-    n_pairs     : int — nombre de paires (1 paire = 2 kF symétriques)
-    ev_start/end: float — fenêtre en énergie
-    smooth_fit  : float — lissage pour le fit
-    smooth_detect: float — lissage pour la détection initiale
-    gamma_init  : float — largeur initiale (eV)
-    gamma_max   : float — largeur maximale (eV)
-    kF_init     : list de float ou None — positions k0 initiales (une par paire).
-                  IMPORTANT : doit correspondre à la position des pics à l'énergie
-                  de départ du scan (ev_end si scan_direction='down', ev_start sinon).
-                  Lire sur le waterfall à cette énergie. Si None, détection auto.
-    center_init : float — position initiale de xg (défaut 0 = Γ)
-    xg_range    : float — demi-fenêtre de contrainte autour de center_init.
-                  xg est contraint dans [center_init-xg_range, center_init+xg_range].
-                  Évite la dérive du centre. Défaut 0.12 pi/a.
-    min_amplitude: float — seuil d'amplitude pour valider un pic (défaut 0.02).
-                  Réduire si un côté est supprimé par les effets de matrice.
-    max_jump    : float — seuil (pi/a) au-delà duquel un saut de k0 est rejeté.
-                  Augmenter si la dispersion est rapide (bande très courbée).
-    scan_direction: 'down' (défaut) | 'up'
-                  'down' : scan de ev_end vers ev_start (de EF vers les basses E).
-                  kF_init doit correspondre à la position à EF.
-                  'up'   : scan de ev_start vers ev_end (ordre croissant d'énergie).
-                  kF_init doit correspondre à la position à ev_start.
-                  Pour une bande-trou centrée en Γ, utiliser 'down'.
+    n_pairs     : int, number of pairs (1 pair = 2 symmetric kF values)
+    ev_start/end: float, energy window
+    smooth_fit  : float, smoothing for the fit
+    smooth_detect: float, smoothing for initial detection
+    gamma_init  : float, initial width (eV)
+    gamma_max   : float, maximum width (eV)
+    kF_init     : list of float or None, initial k0 positions (one per pair).
+                  IMPORTANT: must match the peak position at the scan start
+                  energy (ev_end if scan_direction='down', ev_start otherwise).
+                  Read from the waterfall at that energy. If None, auto-detect.
+    center_init : float, initial xg position (default 0 = Gamma)
+    xg_range    : float, half-window constraint around center_init.
+                  xg is constrained to [center_init-xg_range, center_init+xg_range].
+                  Prevents center drift. Default 0.12 pi/a.
+    min_amplitude: float, amplitude threshold for accepting a peak (default 0.02).
+                  Lower it if one side is suppressed by matrix-element effects.
+    max_jump    : float, threshold (pi/a) above which a k0 jump is rejected.
+                  Increase it for fast dispersion (strongly curved band).
+    scan_direction: 'down' (default) | 'up'
+                  'down': scan from ev_end to ev_start (from EF to lower E).
+                  kF_init must match the EF position.
+                  'up': scan from ev_start to ev_end (increasing energy).
+                  kF_init must match the ev_start position.
+                  For a hole band centered at Gamma, use 'down'.
     width_mode  : 'independent' | 'symmetric' | 'global'
-    k_min, k_max: float ou None — plage k utilisée pour le fit (équivalent curseurs Igor).
-                  CRUCIAL : restreindre au voisinage des pics d'intérêt pour éviter
-                  que le fit accroche des features plus brillantes hors de la région.
-                  Exemple : k_min=-0.6, k_max=0.6 pour un pocket α autour de Γ.
-                  Si None, toute l'axe k est utilisée.
+    k_min, k_max: float or None, k range used for the fit (Igor cursor equivalent).
+                  CRUCIAL: restrict near the peaks of interest to avoid locking
+                  onto brighter features outside the region.
+                  Example: k_min=-0.6, k_max=0.6 for an alpha pocket around Gamma.
+                  If None, the full k axis is used.
 
-    Retourne
+    Returns
     --------
-    dict avec clés :
-        'kF_minus' : list de n_pairs arrays — position du pic gauche (-k0+xg)
-        'kF_plus'  : list de n_pairs arrays — position du pic droit  (+k0+xg)
-        'k0'       : list de n_pairs arrays — demi-séparation k0
-        'xg'       : array — centre Γ à chaque énergie
-        'e_fitted' : array des énergies convergées
-        'I_smoothed': array lissé sur toute l'axe k (pour affichage)
+    dict with keys:
+        'kF_minus' : list of n_pairs arrays, left peak position (-k0+xg)
+        'kF_plus'  : list of n_pairs arrays, right peak position (+k0+xg)
+        'k0'       : list of n_pairs arrays, k0 half-separation
+        'xg'       : array, Gamma center at each energy
+        'e_fitted' : array of converged energies
+        'I_smoothed': array smoothed over the full k axis (for display)
         'kpar', 'ev_arr': axes
     """
     is_voigt = (shape == 'voigt')
-    # Normalise les alias historiques (UI 'asymmetric' → backend 'independent')
+    # Normalize historical aliases (UI 'asymmetric' -> backend 'independent').
     width_mode = _normalize_width_mode(width_mode)
     model, n_pp, n_extra = _make_peak_pairs_model(n_pairs, width_mode, shape=shape)
 
@@ -161,14 +161,14 @@ def fit_mdc_peak_pairs(
         wf_energies = np.sort(wf_energies_all)
         ev_for_init = ev_lo
 
-    print(f'fit_mdc_peak_pairs : {len(wf_energies)} tranches dans [{ev_lo:.3f}, {ev_hi:.3f}] eV '
-          f'(scan {scan_direction!r} depuis ev_for_init={ev_for_init:.3f} eV)')
+    print(f'fit_mdc_peak_pairs: {len(wf_energies)} slices in [{ev_lo:.3f}, {ev_hi:.3f}] eV '
+          f'(scan {scan_direction!r} from ev_for_init={ev_for_init:.3f} eV)')
     if len(wf_energies) == 0:
         import warnings
         warnings.warn(
-            'fit_mdc_peak_pairs : aucune énergie trouvée dans la fenêtre '
+            'fit_mdc_peak_pairs: no energy found in the window '
             f'[{ev_lo:.3f}, {ev_hi:.3f}] eV. '
-            f'Vérifier ev_arr (plage [{float(ev_arr[0]):.3f}, {float(ev_arr[-1]):.3f}] eV), '
+            f'Check ev_arr (range [{float(ev_arr[0]):.3f}, {float(ev_arr[-1]):.3f}] eV), '
             'WF_EV_START et WF_EV_END.', stacklevel=2)
 
     # Guess initial k0 — auto-détection dans la plage k restreinte à ev_for_init
@@ -195,8 +195,8 @@ def fit_mdc_peak_pairs(
                 # Dernier recours : valeurs équiréparties dans la plage k0
                 kF_init = list(np.linspace(k0_hi_auto * 0.3, k0_hi_auto * 0.8, n_pairs))
         if verbose:
-            print(f'  Auto-détection kF_init à E={ev_arr[ie_init]:+.3f} eV → {[f"{k:.3f}" for k in kF_init]}'
-                  f'  ({"pics trouvés" if len(pk_idx) >= n_pairs else "fallback intensité max"})')
+            print(f'  Auto-detected kF_init at E={ev_arr[ie_init]:+.3f} eV -> {[f"{k:.3f}" for k in kF_init]}'
+                  f'  ({"peaks found" if len(pk_idx) >= n_pairs else "max-intensity fallback"})')
 
     kF_minus_list = [[] for _ in range(n_pairs)]
     kF_plus_list  = [[] for _ in range(n_pairs)]
@@ -244,7 +244,7 @@ def fit_mdc_peak_pairs(
         mx = mdc.max()
         if mx <= 0:
             if verbose:
-                print(f'  E={ev_arr[ie]:+.3f} eV : MDC max=0, tranche ignorée')
+                print(f'  E={ev_arr[ie]:+.3f} eV: MDC max=0, slice ignored')
             continue
         mdc_n = mdc / mx
 
@@ -279,7 +279,7 @@ def fit_mdc_peak_pairs(
                     A1 = popt[3 + n_pp*i + 1]
                     A2 = popt[3 + n_pp*i + 2]
 
-                # Détection de saut : si k0 dévie trop du dernier k0 valide
+                # Jump detection: reject k0 if it deviates too far from the last valid k0.
                 if abs(k0_fit - prev_k0[i]) > max_jump:
                     jumped = True
 
@@ -373,7 +373,7 @@ def fit_mdc_peak_pairs(
 
         except Exception as exc:
             if verbose:
-                print(f'  E={ev_arr[ie]:+.3f} eV : exception → {exc}')
+                print(f'  E={ev_arr[ie]:+.3f} eV: exception -> {exc}')
             for i in range(n_pairs):
                 kF_minus_list[i].append(np.nan)
                 kF_plus_list[i].append(np.nan)

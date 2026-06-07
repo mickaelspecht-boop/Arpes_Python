@@ -1,86 +1,83 @@
-# Construire ARPES Explorer en exécutable (Linux / macOS / Windows)
+# Build ARPES Explorer as an Executable (Linux / macOS / Windows)
 
-But : livrer un binaire double-cliquable. Plus besoin d'installer
-`micromamba`, l'env `peaks`, ni de lancer un terminal.
+Goal: ship a double-clickable binary. Users no longer need to install
+`micromamba`, the `peaks` env, or open a terminal.
 
-> **Aucune modification du code applicatif n'est nécessaire.** Ce
-> document n'ajoute qu'un fichier de recette (`arpes.spec`) et des
-> commandes. L'app reste lançable comme avant via
-> `python arpes_explorer.py`.
-
----
-
-## 1. Principe & contraintes
-
-- Outil : **PyInstaller**. Il fige Python + PyQt6 + numpy/scipy/
-  matplotlib + le code `arpes/` dans un livrable autonome.
-- **Pas de cross-compilation.** Un build ne tourne que sur l'OS
-  (et l'archi) qui l'a produit :
-  - Windows → builder sur Windows → `.exe`
-  - macOS → builder sur macOS → `.app` (archi Intel `x86_64` ≠
-    Apple Silicon `arm64` : un build par archi, ou un Mac de chaque)
-  - Linux → builder sur Linux → binaire ELF (compatible si la glibc
-    de la machine de build est ≤ celle des machines cibles → builder
-    sur l'OS le plus ancien que vous visez)
-- Taille attendue : ~150–350 Mo (scipy/numpy/Qt sont gros). Normal.
-- Mode `onedir` (un dossier) recommandé d'abord : démarre plus vite,
-  débogage plus simple. `onefile` (1 seul fichier) possible ensuite.
+> **No application-code change is required.** This document only adds a
+> packaging recipe file (`arpes.spec`) and commands. The app remains runnable as
+> before with `python arpes_explorer.py`.
 
 ---
 
-## 2. Préparer l'environnement de build (commun aux 3 OS)
+## 1. Principle & Constraints
 
-Sur **chaque** machine de build, dans l'env du projet :
+- Tool: **PyInstaller**. It freezes Python + PyQt6 + numpy/scipy/matplotlib +
+  the `arpes/` code into a standalone deliverable.
+- **No cross-compilation.** A build only runs on the OS and architecture that
+  produced it:
+  - Windows → build on Windows → `.exe`
+  - macOS → build on macOS → `.app` (Intel `x86_64` ≠ Apple Silicon `arm64`:
+    one build per architecture, or one Mac of each type)
+  - Linux → build on Linux → ELF binary (compatible if the build machine's
+    glibc is ≤ the target machines' glibc; build on the oldest OS you target)
+- Expected size: ~150-350 MB (scipy/numpy/Qt are large). Normal.
+- `onedir` mode (one folder) is recommended first: faster startup and simpler
+  debugging. `onefile` (single file) is possible afterward.
+
+---
+
+## 2. Prepare the Build Environment (All 3 OSes)
+
+On **each** build machine, in the project env:
 
 ```bash
-# env identique à celui de dev (Python 3.12, PyQt6 6.10, numpy 2.3,
+# env identical to development (Python 3.12, PyQt6 6.10, numpy 2.3,
 # scipy 1.17, matplotlib 3.10)
-micromamba activate peaks         # ou conda/venv équivalent
+micromamba activate peaks         # or equivalent conda/venv
 pip install pyinstaller
 ```
 
-Vérifier que l'app démarre depuis cet env **avant** de packager :
+Verify that the app starts from this env **before** packaging:
 
 ```bash
 cd code/app
-python arpes_explorer.py          # doit ouvrir l'UI sans erreur
+python arpes_explorer.py          # must open the UI without errors
 ```
 
-Si ça ne marche pas ici, le binaire ne marchera pas non plus :
-corriger l'env d'abord.
+If it does not work here, the binary will not work either: fix the env first.
 
 ---
 
-## 3. Le fichier recette `arpes.spec`
+## 3. The `arpes.spec` Recipe File
 
-Créer **`code/app/arpes.spec`** (à la racine `app/`, à côté de
-`arpes_explorer.py`) avec ce contenu :
+Create **`code/app/arpes.spec`** (at the `app/` root, next to
+`arpes_explorer.py`) with this content:
 
 ```python
 # -*- mode: python ; coding: utf-8 -*-
-# Recette PyInstaller pour ARPES Explorer.
-# Build : pyinstaller arpes.spec   (depuis code/app/)
+# PyInstaller recipe for ARPES Explorer.
+# Build: pyinstaller arpes.spec   (from code/app/)
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
 hiddenimports = []
-# scipy charge des sous-modules dynamiquement -> tout embarquer
+# scipy loads submodules dynamically -> bundle all of them
 hiddenimports += collect_submodules("scipy")
-# backend Qt de matplotlib (importé via matplotlib.use("QtAgg"))
+# matplotlib Qt backend (imported through matplotlib.use("QtAgg"))
 hiddenimports += [
     "matplotlib.backends.backend_qtagg",
     "matplotlib.backends.backend_agg",
 ]
-# contrôleurs chargés statiquement dans arpes/app.py -> déjà suivis,
-# mais on sécurise les chargements dynamiques (arpes_plots fallback)
+# controllers loaded statically in arpes/app.py -> already tracked,
+# but secure dynamic loads too (arpes_plots fallback)
 hiddenimports += collect_submodules("arpes")
 
 datas = []
-# fallback runtime de arpes/app.py:_load_ap() qui peut charger
-# le fichier frère arpes_plots.py par chemin -> le livrer à la racine
+# runtime fallback in arpes/app.py:_load_ap() can load the sibling
+# arpes_plots.py file by path -> ship it at the root
 datas += [("arpes_plots.py", ".")]
-# données matplotlib (polices, mplstyle)
+# matplotlib data (fonts, mplstyle)
 datas += collect_data_files("matplotlib")
 
 a = Analysis(
@@ -101,11 +98,11 @@ exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
     name="ARPES_Explorer",
-    console=False,            # pas de fenêtre terminal noire
+    console=False,            # no black terminal window
     disable_windowed_traceback=False,
-    argv_emulation=True,      # macOS : ouvrir fichiers via Finder
-    target_arch=None,         # archi de la machine de build
-    icon=None,                # mettre "icon.ico"/"icon.icns" si dispo
+    argv_emulation=True,      # macOS: open files through Finder
+    target_arch=None,         # build-machine architecture
+    icon=None,                # set "icon.ico"/"icon.icns" if available
 )
 
 coll = COLLECT(
@@ -114,7 +111,7 @@ coll = COLLECT(
     name="ARPES_Explorer",
 )
 
-# macOS : produit aussi un bundle .app double-cliquable
+# macOS: also produces a double-clickable .app bundle
 app = BUNDLE(
     coll,
     name="ARPES_Explorer.app",
@@ -123,105 +120,97 @@ app = BUNDLE(
 )
 ```
 
-> Notes :
-> - Les contrôleurs (`distortion_controller`, `gamma_controller`, …)
->   sont importés **statiquement** dans `arpes/app.py` : PyInstaller
->   les suit automatiquement. `collect_submodules("arpes")` est une
->   ceinture de sécurité supplémentaire.
-> - `~/.config/arpes/distortion_calib.json` et autres fichiers
->   runtime restent dans le HOME de l'utilisateur : **non concernés**
->   par le packaging, ça marche identique.
-> - Pas de fichier `requirements.txt`/`pyproject.toml` dans le repo :
->   l'env `peaks` fait foi. Garder le même env entre dev et build.
+> Notes:
+> - Controllers (`distortion_controller`, `gamma_controller`, ...) are imported
+>   **statically** in `arpes/app.py`: PyInstaller follows them automatically.
+>   `collect_submodules("arpes")` is an extra safety belt.
+> - `~/.config/arpes/distortion_calib.json` and other runtime files stay in the
+>   user's HOME: they are **not affected** by packaging, and behavior is
+>   identical.
+> - There is no `requirements.txt`/`pyproject.toml` in the repo: the `peaks` env
+>   is authoritative. Keep the same env between development and build.
 
 ---
 
-## 4. Lancer le build (sur chaque OS)
+## 4. Run the Build (On Each OS)
 
-Depuis `code/app/`, env activé :
+From `code/app/`, with the env activated:
 
 ```bash
 pyinstaller arpes.spec
 ```
 
-Sortie dans `code/app/dist/` :
+Output in `code/app/dist/`:
 
-| OS      | Résultat                                            |
+| OS      | Result                                              |
 |---------|-----------------------------------------------------|
-| Linux   | `dist/ARPES_Explorer/ARPES_Explorer` (+ dossier)    |
-| Windows | `dist/ARPES_Explorer/ARPES_Explorer.exe` (+ dossier)|
+| Linux   | `dist/ARPES_Explorer/ARPES_Explorer` (+ folder)     |
+| Windows | `dist/ARPES_Explorer/ARPES_Explorer.exe` (+ folder) |
 | macOS   | `dist/ARPES_Explorer.app`                           |
 
-Pour livrer : zipper **tout le dossier** `dist/ARPES_Explorer/`
-(Linux/Win) ou le `.app` (macOS). Ne pas extraire le seul binaire.
+To deliver: zip **the entire** `dist/ARPES_Explorer/` folder (Linux/Win) or the
+`.app` (macOS). Do not extract only the binary.
 
 ---
 
-## 5. Spécificités par OS
+## 5. OS-Specific Notes
 
 ### 5.1 Linux
 
-- Builder sur la distrib **la plus ancienne** que vous visez (glibc
-  ascendante-compatible, pas l'inverse).
-- L'utilisateur final : `chmod +x ARPES_Explorer` puis double-clic
-  ou `./ARPES_Explorer`.
-- Si erreur Qt `xcb`/plugin : installer côté cible
-  `libxcb-cursor0` (Debian/Ubuntu) — dépendance système Qt6 courante.
+- Build on the **oldest** distribution you target (glibc is forward-compatible,
+  not backward-compatible).
+- End user: `chmod +x ARPES_Explorer`, then double-click or run
+  `./ARPES_Explorer`.
+- If there is a Qt `xcb`/plugin error: install `libxcb-cursor0`
+  (Debian/Ubuntu) on the target machine, a common Qt6 system dependency.
 
 ### 5.2 macOS
 
-- Build par architecture : un `.app` `arm64` (Apple Silicon) et/ou
-  `x86_64` (Intel). `target_arch="universal2"` possible si l'env a
-  des wheels universelles (rare pour scipy → préférer 1 build/archi).
-- **Gatekeeper** : sans signature/notarisation Apple, au 1er
-  lancement macOS bloque (« app endommagée / éditeur non
-  identifié »). Contournements :
-  - Distribution interne labo : clic-droit sur l'app → **Ouvrir** →
-    confirmer (à faire une seule fois par poste). Suffisant pour
-    quelques collègues.
-  - Distribution large : compte Apple Developer (99 $/an) +
-    `codesign` + `notarytool`. Hors périmètre de ce doc.
-- `argv_emulation=True` (déjà dans le spec) permet d'ouvrir un
-  fichier en le glissant sur l'icône.
+- Build per architecture: an `arm64` `.app` (Apple Silicon) and/or `x86_64`
+  (Intel). `target_arch="universal2"` is possible if the env has universal
+  wheels (rare for scipy, so prefer one build per architecture).
+- **Gatekeeper**: without Apple signing/notarization, macOS blocks first launch
+  ("damaged app" / "unidentified developer"). Workarounds:
+  - Internal lab distribution: right-click the app → **Open** → confirm (once
+    per machine). Enough for a few colleagues.
+  - Wider distribution: Apple Developer account ($99/year) + `codesign` +
+    `notarytool`. Outside this document's scope.
+- `argv_emulation=True` (already in the spec) allows opening a file by dragging
+  it onto the icon.
 
 ### 5.3 Windows
 
-- Builder sur Windows 10/11. `.exe` dans le dossier `dist/`.
-- **SmartScreen** : sans signature de code, « Windows a protégé
-  votre PC » au 1er lancement → `Informations complémentaires` →
-  `Exécuter quand même`. Une fois par poste.
-- Signature optionnelle : certificat code-signing (payant) +
-  `signtool`. Hors périmètre.
-- Antivirus : un `.exe` PyInstaller frais lève parfois un
-  faux positif. Préférer `onedir` (moins de faux positifs que
-  `onefile`).
+- Build on Windows 10/11. The `.exe` is in the `dist/` folder.
+- **SmartScreen**: without code signing, Windows shows "Windows protected your
+  PC" on first launch → `More info` → `Run anyway`. Once per machine.
+- Optional signing: paid code-signing certificate + `signtool`. Outside scope.
+- Antivirus: a fresh PyInstaller `.exe` can sometimes raise a false positive.
+  Prefer `onedir` (fewer false positives than `onefile`).
 
 ---
 
-## 6. Tester avant de distribuer (ne pas casser l'app)
+## 6. Test Before Distribution (Do Not Break the App)
 
-Checklist sur une machine **vierge** (sans l'env Python) idéalement :
+Checklist, ideally on a **clean** machine (without the Python env):
 
-1. Lancer le binaire → l'UI s'ouvre, pas de crash console.
-2. Charger un fichier ARPES (FS + BM).
-3. Calibrer EF, détecter Γ (auto **et** clic manuel).
-4. Onglet **utilitaires** : ouvrir/fermer chaque section
-   (Filtre grille, DFT/Théorie, Distorsion BM).
-5. Distorsion : trapèze (sym/antisym/free) + parabole, overlay
-   pointillé visible en édition puis disparaît après application,
-   recadrage k// effectif.
-6. Filtre grille/DFT restent sur l'onglet BM uniquement.
-7. Export CSV + sauvegarde/chargement de session.
+1. Launch the binary → UI opens, no console crash.
+2. Load an ARPES file (FS + BM).
+3. Calibrate EF, detect Γ (auto **and** manual click).
+4. **Utilities** tab: open/close every section (Grid filter, DFT/Theory, BM
+   Distortion).
+5. Distortion: trapezoid (sym/antisym/free) + parabola, dotted overlay visible
+   while editing then gone after application, effective k// recentering.
+6. Grid filter/DFT stay on the BM tab only.
+7. CSV export + session save/load.
 
-Si un point casse dans le binaire mais marche en `python
-arpes_explorer.py` → c'est un import manqué : l'ajouter dans
-`hiddenimports` du spec et rebuilder. Itérer.
+If something breaks in the binary but works with `python arpes_explorer.py`, it
+is a missing import: add it to `hiddenimports` in the spec and rebuild. Iterate.
 
 ---
 
-## 7. (Optionnel) Builds automatiques via CI
+## 7. Optional Automatic Builds Through CI
 
-`.github/workflows/build.yml` — produit les 3 binaires à chaque tag :
+`.github/workflows/build.yml` — produces the 3 binaries on each tag:
 
 ```yaml
 name: build-executables
@@ -254,19 +243,18 @@ jobs:
           path: code/app/dist/
 ```
 
-> Adapter la liste `pip install` à l'ensemble réel des imports de
-> l'app si la CI ne reproduit pas l'env `peaks`. Le plus fiable :
-> générer un `requirements.txt` depuis l'env `peaks`
-> (`pip freeze > requirements.txt`) et l'installer en CI.
+> Adapt the `pip install` list to the app's real import set if CI does not
+> reproduce the `peaks` env. Most reliable: generate a `requirements.txt` from
+> the `peaks` env (`pip freeze > requirements.txt`) and install it in CI.
 
 ---
 
-## 8. Récap rapide
+## 8. Quick Recap
 
-| Étape | Commande |
-|-------|----------|
-| Installer outil | `pip install pyinstaller` |
-| Vérifier l'app  | `python arpes_explorer.py` |
-| Builder         | `pyinstaller arpes.spec` |
-| Livrable        | `dist/ARPES_Explorer/` ou `.app` |
-| 1er lancement   | macOS : clic-droit→Ouvrir / Win : Exécuter quand même |
+| Step         | Command |
+|--------------|---------|
+| Install tool | `pip install pyinstaller` |
+| Verify app   | `python arpes_explorer.py` |
+| Build        | `pyinstaller arpes.spec` |
+| Deliverable  | `dist/ARPES_Explorer/` or `.app` |
+| First launch | macOS: right-click→Open / Win: Run anyway |

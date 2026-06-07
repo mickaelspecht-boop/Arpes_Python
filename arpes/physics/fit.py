@@ -9,6 +9,13 @@ import warnings
 
 import numpy as np
 
+from arpes.physics.dispersion_fit import (
+    CURVATURE_MAX,
+    MIN_DISP_POINTS,
+    curvature_ratio,
+    linear_dispersion_fit,
+)
+
 
 def compute_fit_params_hash(
     fp: Any,
@@ -50,6 +57,10 @@ def compute_fit_params_hash(
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+# P2.2 — rigueur quantitative vF/kF/m* (fit partagé physics.dispersion_fit).
+_HBAR2_OVER_ME = 7.6199682          # eV·Å² = ℏ²/m_e
+
+
 def compute_fermi_velocity_mstar(
     fit_result: dict,
     crystal_a: float,
@@ -58,41 +69,118 @@ def compute_fermi_velocity_mstar(
     pair_index: int = 0,
     window_eV: float = 0.05,
 ) -> dict[str, float]:
-    """vF (eV·Å) + m*/m_e à partir de kF(E) près de E_F.
+    """vF (eV·Å), kF (Å⁻¹), m*/m_e + incertitudes à partir de kF(E).
 
-    Régression linéaire E ≈ vF·(k - k_F0) sur les points e_fitted dans
-    ±window_eV. kF en π/a converti en Å⁻¹ via a. m*/m_e=7.6199·kF/vF
-    (ℏ²/m_e = 7.6199 eV·Å²). Renvoie NaN si données insuffisantes.
+    Ajuste E ≈ slope·k + intercept (k en π/a) sur les points dans
+    ±window_eV de E_F, puis kF=−intercept/slope, vF=|slope|/(π/a),
+    m*/m_e=7.6199·kF/vF (ℏ²/m_e=7.6199 eV·Å²).
+
+    Rigueur P2.2 :
+    - Refuse (NaN dans vF/kF/m*) si < 5 points : ni la gate quadratique
+      ni l'ODR n'ont de sens sous ce seuil.
+    - Gate linéarité : fit quadratique E=a·k²+b·k+c ; si la courbure
+      domine (|a|·Δk/|b| > 0.10) la bande n'est pas linéaire près de E_F
+      (kink / coupure Fermi) → kF=−b/a non fiable, refus.
+    - Régression orthogonale (TLS) pondérée par Γ si disponible, sinon OLS
+      pondéré vertical (``polyfit(cov=True)``).
+    - σ_vF, σ_kF, σ_m* propagées via la covariance 2×2 (corrélation
+      slope↔intercept conservée).
+
+    ``sigma_type`` distingue ``orthogonal_tls`` (vraie pondération) de
+    ``ols_regression`` (incertitude de régression seule, PAS une propagation
+    d'erreurs de mesure). Clés héritées vF_eV_A / kF_inv_A / mstar_over_me
+    conservées (NaN si refus) ; nouvelles clés additives.
     """
     nan = float("nan")
-    out = {"vF_eV_A": nan, "kF_inv_A": nan, "mstar_over_me": nan}
-    if not fit_result or crystal_a <= 0:
+    out = {
+        "vF_eV_A": nan, "kF_inv_A": nan, "mstar_over_me": nan,
+        "vF_sigma_eV_A": nan, "kF_inv_A_sigma": nan, "mstar_sigma": nan,
+        "linear_ok": False, "refused_reason": "", "sigma_type": "none",
+        "n_points": 0, "curvature_ratio": nan,
+    }
+
+    def _refuse(reason: str) -> dict[str, float]:
+        out["refused_reason"] = reason
         return out
+
+    if not fit_result or crystal_a <= 0:
+        return _refuse("fit_result vide ou a invalide")
     e_raw = fit_result.get("e_fitted")
     e = np.asarray([] if e_raw is None else e_raw, dtype=float)
     branches = fit_result.get(branch)
     if branches is None or not (0 <= pair_index < len(branches)):
-        return out
+        return _refuse("branche/paire absente")
     k = np.asarray(branches[pair_index], dtype=float)  # en π/a
     mask = np.isfinite(e) & np.isfinite(k) & (np.abs(e) <= float(window_eV))
-    if int(mask.sum()) < 3:
-        return out
+    n = int(mask.sum())
+    out["n_points"] = n
+    if n < MIN_DISP_POINTS:
+        return _refuse(f"too few points ({n} < {MIN_DISP_POINTS})")
     ew = e[mask]
     kw = k[mask]
-    # Régression : E = vF_natural·(k - k0) avec k en π/a → vF_pi_a = pente
-    slope_pi_a, intercept = np.polyfit(kw, ew, 1)
-    if not np.isfinite(slope_pi_a) or abs(slope_pi_a) < 1e-9:
-        return out
-    # k0 (kF à E=0) en π/a, puis Å⁻¹
-    k0_pi_a = -intercept / slope_pi_a
+
+    # Linearity gate: quadratic curvature relative to the linear slope.
+    if float(np.ptp(kw)) <= 0:
+        return _refuse("constant k (vertical slope)")
+    curv = curvature_ratio(kw, ew)
+    out["curvature_ratio"] = float(curv)
+    if not np.isfinite(curv) or curv > CURVATURE_MAX:
+        return _refuse(f"nonlinear band (curvature {curv:.2f} > {CURVATURE_MAX})")
+
+    # σ_k per point: proxy = Γ (HWHM in π/a) if available in the fit.
+    sk = None
+    for gkey in ("gamma_corrige", "gamma_brut", "gamma"):
+        g_all = fit_result.get(gkey)
+        if g_all is not None and 0 <= pair_index < len(g_all):
+            g = np.asarray(g_all[pair_index], dtype=float)
+            if g.size == e.size:
+                gm = g[mask]
+                if np.all(np.isfinite(gm)) and np.all(gm > 0):
+                    sk = gm
+                    break
+
+    fit = linear_dispersion_fit(kw, ew, sk)
+    if not fit["ok"]:
+        return _refuse("regression did not converge / degenerate")
+
+    slope = fit["slope"]
+    intercept = fit["intercept"]
+    cov = fit["cov"]
+    var_s = float(cov[0, 0])
+    var_i = float(cov[1, 1])
+    cov_si = float(cov[0, 1])
+
     pi_over_a = np.pi / float(crystal_a)
+    k0_pi_a = -intercept / slope
     kF_inv_A = float(abs(k0_pi_a) * pi_over_a)
-    vF_eV_A = float(abs(slope_pi_a) / pi_over_a)  # (π/a)→Å⁻¹ : ÷(π/a)
-    HBAR2_OVER_ME = 7.6199682  # eV·Å²
-    mstar = HBAR2_OVER_ME * kF_inv_A / vF_eV_A if vF_eV_A > 0 else nan
-    out["vF_eV_A"] = vF_eV_A
-    out["kF_inv_A"] = kF_inv_A
-    out["mstar_over_me"] = float(mstar)
+    vF_eV_A = float(abs(slope) / pi_over_a)  # (π/a)→Å⁻¹ : ÷(π/a)
+    mstar = _HBAR2_OVER_ME * kF_inv_A / vF_eV_A if vF_eV_A > 0 else nan
+
+    # Propagation σ via dérivées partielles sur (slope, intercept).
+    # vF = |slope|/(π/a) → σ_vF = √var_s / (π/a)
+    sigma_vF = float(np.sqrt(max(var_s, 0.0)) / pi_over_a)
+    # kF = |intercept/slope|·(π/a). ∂k0/∂s = intercept/slope², ∂k0/∂i = −1/slope
+    dk0_ds = intercept / (slope * slope)
+    dk0_di = -1.0 / slope
+    var_k0 = (dk0_ds * dk0_ds * var_s + dk0_di * dk0_di * var_i
+              + 2.0 * dk0_ds * dk0_di * cov_si)
+    sigma_kF = float(np.sqrt(max(var_k0, 0.0)) * pi_over_a)
+    # m* = C·(π/a)²·|intercept|/slope². ∂/∂i = m*/intercept, ∂/∂s = −2·m*/slope
+    if np.isfinite(mstar) and intercept != 0.0:
+        dm_di = mstar / intercept
+        dm_ds = -2.0 * mstar / slope
+        var_m = (dm_di * dm_di * var_i + dm_ds * dm_ds * var_s
+                 + 2.0 * dm_di * dm_ds * cov_si)
+        sigma_mstar = float(np.sqrt(max(var_m, 0.0)))
+    else:
+        sigma_mstar = nan
+
+    out.update({
+        "vF_eV_A": vF_eV_A, "kF_inv_A": kF_inv_A, "mstar_over_me": float(mstar),
+        "vF_sigma_eV_A": sigma_vF, "kF_inv_A_sigma": sigma_kF,
+        "mstar_sigma": sigma_mstar, "linear_ok": True,
+        "sigma_type": fit["method"], "refused_reason": "",
+    })
     return out
 
 
@@ -104,14 +192,14 @@ def imaginary_self_energy(
     use_corrected: bool = True,
     side: str = "mean",
 ) -> dict:
-    """Im Σ(E) = (vF/2)·Γ_k(E) en eV.
+    """Im Sigma(E) = (vF/2)*Gamma_k(E), in eV.
 
-    ``side``: 'mean' (γ moyenné, défaut), 'left' (γ côté kF-), 'right'
-    (γ côté kF+). Les sources gauche/droite sont remplies uniquement
-    quand le fit a tourné en ``width_mode='independent'`` ; pour les
-    autres modes, gauche et droite valent la même chose que mean.
+    ``side``: 'mean' (averaged gamma, default), 'left' (gamma on kF- side),
+    'right' (gamma on kF+ side). Left/right sources are populated only when
+    the fit ran in ``width_mode='independent'``; for other modes, left and
+    right equal mean.
 
-    Γ stocké en π/a (HWHM). Conversion : Γ_k[Å⁻¹] = Γ[π/a]·π/a.
+    Gamma is stored in pi/a (HWHM). Conversion: Gamma_k[A^-1] = Gamma[pi/a]*pi/a.
     vF tiré de compute_fermi_velocity_mstar (kF_minus, paire 0 par
     défaut). Renvoie ``{"energy": e, "im_sigma": Σ, "vF_eV_A": vF,
     "pair_index": pair_index, "side": side}``. Tableaux vides si
@@ -226,7 +314,7 @@ def ensemble_fit(
             # Run individuel échoué → on continue (intention) mais on
             # signale pour debug : N runs perdues peuvent biaiser σ.
             warnings.warn(
-                f"ensemble_fit: run jitter échoué ({exc}); ignoré.",
+                f"ensemble_fit: jitter run failed ({exc}); ignored.",
                 RuntimeWarning, stacklevel=2,
             )
             continue
@@ -267,10 +355,10 @@ def ensemble_fit(
         gc = _stack("gamma_brut")
 
     def _agg(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Médiane + std après filtrage MAD (>3·MAD) par (paire, slice)."""
+        """Median + std after MAD filtering (>3*MAD) per (pair, slice)."""
         med = np.nanmedian(stack, axis=0)
         mad = np.nanmedian(np.abs(stack - med[np.newaxis, ...]), axis=0)
-        # MAD * 1.4826 ≈ σ pour distribution gaussienne
+        # MAD * 1.4826 approximates sigma for a Gaussian distribution.
         sigma = 1.4826 * mad
         mask_ok = np.abs(stack - med[np.newaxis, ...]) <= 3.0 * sigma[np.newaxis, ...] + 1e-12
         filt = np.where(mask_ok, stack, np.nan)
@@ -341,7 +429,7 @@ def detect_n_pairs(
 
 
 def _sanitize(obj):
-    """JSON-safe : numpy scalaires, listes, dicts récursifs."""
+    """JSON-safe conversion: numpy scalars, lists, recursive dicts."""
     if isinstance(obj, dict):
         return {str(k): _sanitize(v) for k, v in sorted(obj.items())}
     if isinstance(obj, (list, tuple)):
@@ -424,10 +512,10 @@ class MdcFitter:
             gc = np.asarray(fr["gamma_corrige"][0], dtype=float)
             if np.isfinite(gb).any() and np.isfinite(gc).any():
                 resolution_dominates = float(np.nanmedian(gc)) < 0.3 * float(np.nanmedian(gb))
-                warn = " Attention" if resolution_dominates else ""
+                warn = " Warning" if resolution_dominates else ""
                 gamma_note = (
-                    f"\nΓ med = {float(np.nanmedian(gb)):.4f} brut / "
-                    f"{float(np.nanmedian(gc)):.4f} corrigé{warn}"
+                    f"\nΓ med = {float(np.nanmedian(gb)):.4f} raw / "
+                    f"{float(np.nanmedian(gc)):.4f} corrected{warn}"
                 )
         vf_line = ""
         if float(crystal_a or 0.0) > 0:

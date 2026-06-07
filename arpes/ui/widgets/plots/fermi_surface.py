@@ -142,8 +142,8 @@ def plot_gamma_detection(gamma_result, da_k_pi, fs_window_ev=0.01, cmap='viridis
     axes[0].plot(gr['kx'], gr['ky'], '*', color='red', ms=16, zorder=6,
                  label=f"Gamma ({gr['kx']:+.3f}, {gr['ky']:+.3f})")
     axes[0].set_aspect('equal')
-    axes[0].set_xlabel('kx (pi/a)'); axes[0].set_ylabel('ky (pi/a)')
-    axes[0].set_title('FS + paires kF')
+    axes[0].set_xlabel(r'$k_x$ (π/a)'); axes[0].set_ylabel(r'$k_y$ (π/a)')
+    axes[0].set_title('FS + kF pairs')
     axes[0].legend(fontsize=8)
 
     # Panneau 2 : stabilite Gamma_kx
@@ -151,10 +151,10 @@ def plot_gamma_detection(gamma_result, da_k_pi, fs_window_ev=0.01, cmap='viridis
         ky_vals = [p[0] for p in gr['kf_pairs_kx']]
         axes[1].plot(ky_vals, gr['gamma_kx_list'], 'ro-', ms=4)
         axes[1].axhline(gr['kx'], color='red', ls='--', lw=1,
-                        label=f"mediane = {gr['kx']:+.4f}")
-        axes[1].set_xlabel('ky de la coupe (pi/a)')
-        axes[1].set_ylabel('Gamma_kx (pi/a)')
-        axes[1].set_title('Stabilite Gamma_kx')
+                        label=f"median = {gr['kx']:+.4f}")
+        axes[1].set_xlabel(r'cut $k_y$ (π/a)')
+        axes[1].set_ylabel(r'$\Gamma_{k_x}$ (HWHM, π/a)')
+        axes[1].set_title(r'$\Gamma_{k_x}$ Stability')
         axes[1].legend(fontsize=8)
 
     # Panneau 3 : stabilite Gamma_ky
@@ -162,10 +162,10 @@ def plot_gamma_detection(gamma_result, da_k_pi, fs_window_ev=0.01, cmap='viridis
         kx_vals = [p[0] for p in gr['kf_pairs_ky']]
         axes[2].plot(kx_vals, gr['gamma_ky_list'], 'co-', ms=4)
         axes[2].axhline(gr['ky'], color='cyan', ls='--', lw=1,
-                        label=f"mediane = {gr['ky']:+.4f}")
-        axes[2].set_xlabel('kx de la coupe (pi/a)')
-        axes[2].set_ylabel('Gamma_ky (pi/a)')
-        axes[2].set_title('Stabilite Gamma_ky')
+                        label=f"median = {gr['ky']:+.4f}")
+        axes[2].set_xlabel(r'cut $k_x$ (π/a)')
+        axes[2].set_ylabel(r'$\Gamma_{k_y}$ (HWHM, π/a)')
+        axes[2].set_title(r'$\Gamma_{k_y}$ Stability')
         axes[2].legend(fontsize=8)
 
     plt.tight_layout()

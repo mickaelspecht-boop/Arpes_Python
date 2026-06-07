@@ -44,13 +44,13 @@ class FSParams:
     overlay_bz: bool = True
     show_hsym: bool = True
     cmap: str = "inferno"
-    # --- Overlay BZ cristal réel (lattice MP) ----------------------------
-    v0_eV: float = 12.0                # inner potential pour calcul kz
+    # --- Real crystal BZ overlay (MP lattice) ----------------------------
+    v0_eV: float = 12.0                # inner potential for kz calculation
     kz_plane: str = "Auto"             # "Gamma" | "Z" | "Auto"
-    phi_c_deg: float = 0.0             # rotation cristal/détecteur (deg)
-    overlay_bz_crystal: bool = False   # afficher polygone BZ cristal
-    overlay_hs_crystal: bool = False   # afficher labels HS cristal
-    mp_id: str = ""                    # Materials Project ID (read-only ici)
+    phi_c_deg: float = 0.0             # crystal/detector rotation (deg)
+    overlay_bz_crystal: bool = False   # show crystal BZ polygon
+    overlay_hs_crystal: bool = False   # show crystal HS labels
+    mp_id: str = ""                    # Materials Project ID (read-only here)
 
 
 def _ef_window_mask_and_warning(ev: np.ndarray, ef_window: float) -> tuple[np.ndarray, str]:
@@ -58,7 +58,7 @@ def _ef_window_mask_and_warning(ev: np.ndarray, ef_window: float) -> tuple[np.nd
     mask = np.abs(e) <= float(ef_window)
     if mask.sum() == 0:
         mask[np.argmin(np.abs(e))] = True
-        return mask, "EF window vide: point énergie le plus proche utilisé"
+        return mask, "empty EF window: nearest energy point used"
     e_sel = e[mask]
     has_below = bool(np.any(e_sel < 0))
     has_above = bool(np.any(e_sel > 0))
@@ -66,7 +66,7 @@ def _ef_window_mask_and_warning(ev: np.ndarray, ef_window: float) -> tuple[np.nd
     hi = float(np.nanmax(e_sel))
     tol = max(1e-12, 0.25 * float(ef_window))
     if not has_below or not has_above or abs(lo + hi) > tol:
-        return mask, f"EF window asymétrique [{lo:+.3f},{hi:+.3f}] eV"
+        return mask, f"asymmetric EF window [{lo:+.3f},{hi:+.3f}] eV"
     return mask, ""
 
 
@@ -92,12 +92,12 @@ def _ef_integrate(data: np.ndarray, ev: np.ndarray, mask: np.ndarray, params: FS
     return out, "Fermi/resolution weighted EF"
 
 def _robust_norm(img: np.ndarray) -> np.ndarray:
-    """Normalise une image 2D vers [0,1].
+    """Normalize a 2D image to [0,1].
 
-    L'échelle est calculée préférentiellement sur la région centrale (80 % des
-    colonnes kx) pour éviter que les bords du détecteur dominent le contraste.
-    Si le centre manque de variation (données vides ou fond plat), repli sur
-    l'image complète avec percentiles 1-99.
+    The scale is preferentially computed on the central region (80% of kx
+    columns) to keep detector edges from dominating contrast. If the center
+    lacks variation (empty data or flat background), fall back to the full
+    image with 1-99 percentiles.
     """
     arr = np.asarray(img, dtype=float)
     if not np.isfinite(arr).any():
@@ -120,34 +120,34 @@ def _robust_norm(img: np.ndarray) -> np.ndarray:
 
 
 def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
-    """Retourne kx, ky, fs_norm, titre à partir du dict legacy de l'explorer."""
+    """Return kx, ky, fs_norm, title from the explorer legacy dict."""
     if raw_data is None:
-        raise ValueError("Aucune donnée chargée")
+        raise ValueError("No data loaded")
     meta = raw_data.get("metadata", {}) or {}
     fs_data = meta.get("fs_data")
     if fs_data is None:
-        # Fallback BM 2D: montre une MDC intégrée autour EF comme image 1 ligne.
+        # 2D BM fallback: show an MDC integrated around EF as a one-line image.
         data = np.asarray(raw_data["data"], dtype=float)
         ev = np.asarray(raw_data["ev_arr"], dtype=float)
         kx = np.asarray(raw_data["kpar"], dtype=float)
         mask, warn = _ef_window_mask_and_warning(ev, params.ef_window)
         mdc, ef_note = _ef_integrate(data, ev, mask, params, axis=1)
         suffix = f" | {ef_note}" + (f" | {warn}" if warn else "")
-        return kx, np.array([0.0]), _robust_norm(mdc[None, :]), "Pas de volume FS: MDC à EF seulement" + suffix
+        return kx, np.array([0.0]), _robust_norm(mdc[None, :]), "No FS volume: EF MDC only" + suffix
 
-    fs_data = np.asarray(fs_data, dtype=float)  # attendu (ny, nx, ne)
+    fs_data = np.asarray(fs_data, dtype=float)  # expected (ny, nx, ne)
     kx = np.asarray(meta.get("fs_kx"), dtype=float)
     ky = np.asarray(meta.get("fs_ky"), dtype=float)
     ev = np.asarray(meta.get("fs_energy"), dtype=float)
     if fs_data.ndim != 3:
-        raise ValueError(f"Volume FS invalide: shape={fs_data.shape}")
+        raise ValueError(f"Invalid FS volume: shape={fs_data.shape}")
     if fs_data.shape[-1] != len(ev):
-        raise ValueError("Volume FS: dernier axe ≠ énergie")
+        raise ValueError("FS volume: last axis ≠ energy")
 
     mask, ef_warn = _ef_window_mask_and_warning(ev, params.ef_window)
     fs, ef_note = _ef_integrate(fs_data, ev, mask, params, axis=2)
 
-    norm_note = "sans norm"
+    norm_note = "no norm"
     if params.normalize_profile:
         safe_y, safe_x, norm_note = fs_flux_profile_factors(
             fs_data,
@@ -165,7 +165,7 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
         fs[nan] = np.nan
     fs_n = _robust_norm(fs)
 
-    # CLS: ky est souvent tilt en degrés. On l'affiche tel quel sauf si l'utilisateur recentre.
+    # CLS: ky is often tilt in degrees. Display it as-is unless the user recenters.
     source = meta.get("fs_source", raw_data.get("source_format", ""))
     warn_note = f" | {ef_warn}" if ef_warn else ""
     return kx, ky, fs_n, f"FS {source} — ±{params.ef_window*1000:.0f} meV | {ef_note}{warn_note} | {norm_note}"

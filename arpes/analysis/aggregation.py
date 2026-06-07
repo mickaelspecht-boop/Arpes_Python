@@ -1,4 +1,4 @@
-"""Agrégation de résultats physiques sur plusieurs fichiers."""
+"""Aggregation of physical results across multiple files."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -41,7 +41,7 @@ def aggregate_session_entries(
     direction_filter: str = "",
     crystal_a_default: float = 0.0,
 ) -> MultiFileSeries:
-    """Extrait kF, m*, Γ0 pour une sélection d'entries de session."""
+    """Extract kF, m*, Γ0 for a selection of session entries."""
     selected = list(filenames) if filenames is not None else list(session.files)
     points: list[MultiFilePoint] = []
     skipped = 0
@@ -78,7 +78,7 @@ def aggregate_session_entries(
             continue
         points.append(point)
     if len(a_values) > 1:
-        warnings.append("Paramètre a hétérogène entre fichiers.")
+        warnings.append("Heterogeneous a parameter across files.")
     points.sort(key=lambda p: (p.x_value, p.filename))
     return MultiFileSeries(points=tuple(points), skipped=skipped, warning=" ".join(warnings))
 

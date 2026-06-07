@@ -1,8 +1,7 @@
-"""Orchestration de chargement ARPES entre UI/session et loaders.
+"""ARPES load orchestration between UI/session and loaders.
 
-Les loaders restent dans `arpes_io.py`. Ce module centralise seulement la
-preparation du contexte et l'application des metadata de chargement a la
-session, sans dependance PyQt.
+Loaders stay in `arpes_io.py`. This module only centralizes context preparation
+and applying load metadata to the session, without a PyQt dependency.
 """
 from __future__ import annotations
 
@@ -30,7 +29,7 @@ class LoaderOrchestratorResult:
 
 
 class LoaderOrchestrator:
-    """Prepare et applique un chargement sans connaitre les widgets."""
+    """Prepare and apply a load without knowing about widgets."""
 
     def __init__(self, load_func: LoadFunc, loader_label_func: LoaderLabelFunc):
         self.load_func = load_func
@@ -105,7 +104,7 @@ class LoaderOrchestrator:
         )
 
     def apply_loaded_metadata(self, data: dict, entry: Any) -> dict:
-        """Met a jour FileEntry depuis les metadata du loader."""
+        """Update FileEntry from loader metadata."""
         from arpes.io.scan_kind_inference import infer_scan_kind
         md = data.get("metadata", {}) or {}
         source_format = str(data.get("source_format") or md.get("source_format") or "")
@@ -118,12 +117,24 @@ class LoaderOrchestrator:
             t_md = None
         if t_md is not None and np.isfinite(t_md) and t_md > 0:
             entry.meta.temperature = t_md
-        # A.1 — persiste le scan_kind dans entry.meta (survit save/load).
+        # A.1 - persist scan_kind in entry.meta (survives save/load).
         data_ndim = None
         primary = data.get("data")
         if primary is not None and hasattr(primary, "ndim"):
             data_ndim = int(primary.ndim)
         entry.meta.scan_kind = infer_scan_kind(md, data_ndim=data_ndim)
+        # P2.1a - propagate the raw motor tilt to FileMeta.tilt so the tilt
+        # guard (bm_cut_overlay / gamma) can see it. Without this, a non-zero
+        # tilt remains invisible (redteam #1). Do not clobber a tilt already set
+        # by the logbook (curated truth): set it only if meta.tilt is None.
+        if getattr(entry.meta, "tilt", None) is None:
+            tilt_raw = md.get("tilt", md.get("tilt_ref"))
+            try:
+                tilt_val = float(tilt_raw) if tilt_raw is not None else None
+            except (TypeError, ValueError):
+                tilt_val = None
+            if tilt_val is not None and np.isfinite(tilt_val):
+                entry.meta.tilt = tilt_val
         return md
 
     def resolve_hv_after_load(

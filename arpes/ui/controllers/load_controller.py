@@ -1,33 +1,30 @@
-"""Controller UI pour pipeline de chargement d'un fichier ARPES.
+"""UI controller for the ARPES file-loading pipeline.
 
-Sort `arpes_explorer.ArpesExplorer._load_file` (~169 LOC) de la God class et
-le découpe en 5 étapes lisibles :
+Moves `arpes_explorer.ArpesExplorer._load_file` (~169 LOC) out of the God class
+and splits it into five readable steps:
 
-1. `_prepare_entry`   : crée/restaure l'entrée session, applique l'EF par défaut
-2. `_dispatch_loader` : appelle `LoaderOrchestrator` et récupère `load_result`
-3. `_apply_post_load` : correction EF par colonne + stockage `_raw_data` parent
-4. `_restore_session` : params UI restaurés depuis l'entrée session
+1. `_prepare_entry`   : create/restore the session entry, apply default EF
+2. `_dispatch_loader` : call `LoaderOrchestrator` and retrieve `load_result`
+3. `_apply_post_load` : per-column EF correction + parent `_raw_data` storage
+4. `_restore_session` : restore UI params from the session entry
 5. `_refresh_ui`      : redraws BM/MDC-EDC/FS + statusbar
 
-La couche métier (LoaderOrchestrator, apply_ef_correction_to_dict, etc.) reste
-dans `arpes.io.*` ou dans `arpes_explorer` (sera déplacée en λ). Ce contrôleur
-est purement orchestration Qt + état parent.
+Business logic (LoaderOrchestrator, apply_ef_correction_to_dict, etc.) stays in
+`arpes.io.*` or in `arpes_explorer` (to be moved later). This controller is
+pure Qt orchestration plus parent state.
 """
 from __future__ import annotations
 
 import traceback
-import copy
-import json
-from dataclasses import asdict
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from PyQt6.QtWidgets import QApplication
 
 from arpes.core.sample import sample_for_entry, work_function_for_entry
-from arpes.core.session import normalize_tags, session_tags
+from arpes.core.session import DEFAULT_EF_OFFSET_EV, normalize_tags, session_tags
 from arpes.io.artifact_cache import (
     load_raw_artifact,
     save_raw_artifact,
@@ -35,6 +32,13 @@ from arpes.io.artifact_cache import (
 )
 from arpes.io.loader_orchestrator import LoaderOrchestrator, LoaderOrchestratorResult
 from arpes.physics.resolution import estimate_resolutions
+from arpes.ui.controllers.load_cache_helpers import (
+    RAW_LOAD_CACHE_VERSION,
+    clone_loaded_value,
+    entry_state_token,
+    freeze_cache_value,
+    path_signature,
+)
 
 try:
     from arpes.io.loaders import detect_format, load_arpes_file, loader_label
@@ -44,42 +48,6 @@ except ImportError:
     loader_label = lambda *a, **k: ""  # noqa: E731
 
 from arpes.physics.plot_compute import apply_ef_correction_to_dict
-
-
-RAW_LOAD_CACHE_VERSION = 3
-
-
-def _freeze_cache_value(value: Any) -> Any:
-    """Transforme une valeur de contexte en clé hashable stable."""
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, dict):
-        return tuple((str(k), _freeze_cache_value(v)) for k, v in sorted(value.items(), key=lambda item: str(item[0])))
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_cache_value(v) for v in value)
-    if isinstance(value, set):
-        return tuple(sorted(_freeze_cache_value(v) for v in value))
-    try:
-        hash(value)
-        return value
-    except TypeError:
-        return repr(value)
-
-
-def _clone_loaded_value(value: Any) -> Any:
-    """Copie metadata/conteneurs, partage les gros tableaux numpy en lecture."""
-    if isinstance(value, np.ndarray):
-        return value
-    if isinstance(value, dict):
-        return {k: _clone_loaded_value(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_clone_loaded_value(v) for v in value]
-    if isinstance(value, tuple):
-        return tuple(_clone_loaded_value(v) for v in value)
-    try:
-        return copy.deepcopy(value)
-    except Exception:
-        return value
 
 
 @dataclass
@@ -95,7 +63,7 @@ class _PreparedEntry:
 
 
 class LoadController:
-    """Pipeline de chargement d'un fichier ARPES (band map ou FS)."""
+    """Pipeline for loading an ARPES file (band map or FS)."""
 
     def __init__(self, parent):
         self._parent = parent
@@ -112,15 +80,19 @@ class LoadController:
     def _status(self, msg: str) -> None:
         self._parent._status(msg)
 
+    def _path_signature(self, path: Path) -> tuple:
+        """Backward-compatible wrapper around the shared cache helper."""
+        return path_signature(path, self._parent)
+
     # ------------------------------------------------------------ public
     def load(self, path: str, *, force_reload: bool = False) -> None:
-        """Pipeline complet - entrée unique appelée par le file browser.
+        """Complete pipeline, the single entry point called by the file browser.
 
-        Si ``force_reload`` est vrai, bypass les caches RAM + disque pour ce fichier.
+        If ``force_reload`` is true, bypass RAM and disk caches for this file.
         """
         self._ensure_arpes_plots()
-        suffix = " (sans cache)" if force_reload else ""
-        self._status(f"Chargement {Path(path).name}{suffix} ...")
+        suffix = " (without cache)" if force_reload else ""
+        self._status(f"Loading {Path(path).name}{suffix} ...")
         QApplication.processEvents()
         try:
             prepared = self._prepare_entry(path)
@@ -130,7 +102,7 @@ class LoadController:
             )
             d = load_result.data
             if d is None:
-                self._status("Attention: erlab non disponible")
+                self._status("Warning: erlab unavailable")
                 return
             md = orchestrator.apply_loaded_metadata(d, prepared.entry)
             self._apply_post_load(d, prepared, load_result, orchestrator, path)
@@ -138,7 +110,7 @@ class LoadController:
             entry_dirty = self._entry_state_token(prepared.entry) != entry_state_before_load
             self._refresh_ui(d, prepared, path, entry_dirty=entry_dirty)
         except Exception as e:
-            self._status(f"Attention: {e}")
+            self._status(f"Warning: {e}")
             traceback.print_exc()
 
     def _on_file_tags_changed(self) -> None:
@@ -150,11 +122,28 @@ class LoadController:
         self._params.set_file_tags(tags)
         self._params.update_tag_completions(session_tags(self._session))
         self._session.save()
+
+    def _on_work_function_changed(self) -> None:
+        path = getattr(self._parent, "_current_path", None)
+        if not path:
+            return
+        try:
+            phi = float(self._params.sp_phi.value())
+        except Exception:
+            return
+        entry = self._session.get_or_create(self._session.key_for_path(path))
+        entry.meta.work_function_eV = float(phi)
+        try:
+            self._session.save()
+        except Exception:
+            pass
+        self._status(f"φ = {phi:.3f} eV saved.")
+        if phi > 0 and getattr(self._parent, "_raw_data", None) is not None:
+            self._status("φ changed: recomputing energy/k without cache.")
+            self.load(path, force_reload=True)
         if hasattr(self._parent, "_browser"):
             self._parent._browser.refresh_tag_completions()
             self._parent._browser._populate()
-        tag_txt = ", ".join(tags) if tags else "aucun"
-        self._status(f"Tags fichier enregistrés: {tag_txt}.")
 
     # ------------------------------------------------------------ steps
     def _ensure_arpes_plots(self) -> None:
@@ -162,7 +151,7 @@ class LoadController:
             from arpes.app import _load_ap
             self._parent.ap = _load_ap()
             if self._parent.ap is None:
-                self._status("Attention: arpes_plots introuvable")
+                self._status("Warning: arpes_plots not found")
 
     def _prepare_entry(self, path: str) -> _PreparedEntry:
         key = self._session.key_for_path(path)
@@ -176,13 +165,13 @@ class LoadController:
         if fmt_guess in ("bessy_ses_ibw", "cls_txt") and (
             is_new_entry
             or (
-                abs(float(entry.ef_offset) - 0.052) < 1e-9
+                abs(float(entry.ef_offset) - DEFAULT_EF_OFFSET_EV) < 1e-9
                 and not entry.ef_correction
                 and not entry.fit_result
             )
         ):
-            # 0.052 eV : défaut historique sans sens pour ces formats — l'échelle
-            # d'énergie vient déjà du fichier (Center/Central Energy).
+            # Historical default has no meaning for these formats because the
+            # energy scale already comes from the file (Center/Central Energy).
             entry.ef_offset = 0.0
         self._params.sp_ef.blockSignals(True)
         self._params.sp_ef.setValue(entry.ef_offset)
@@ -233,8 +222,8 @@ class LoadController:
             self._parent._last_load_cache_source = "ram"
             self._parent._current_raw_load_cache_key = cache_key
             return (
-                LoaderOrchestratorResult(
-                    data=_clone_loaded_value(data_cached),
+                    LoaderOrchestratorResult(
+                    data=clone_loaded_value(data_cached),
                     angle_offsets=dict(offsets_cached or {}),
                     context=orchestrator.build_context(
                         prepared.entry,
@@ -253,16 +242,16 @@ class LoadController:
         if disk_cached is not None:
             data_cached, offsets_cached = disk_cached
             if cache is not None:
-                cache[cache_key] = (_clone_loaded_value(data_cached), dict(offsets_cached or {}))
+                cache[cache_key] = (clone_loaded_value(data_cached), dict(offsets_cached or {}))
                 max_items = int(getattr(self._parent, "_raw_load_cache_max", 6) or 6)
                 while len(cache) > max_items:
                     cache.popitem(last=False)
             self._parent._last_load_cache_hit = True
-            self._parent._last_load_cache_source = "disque"
+            self._parent._last_load_cache_source = "disk"
             self._parent._current_raw_load_cache_key = cache_key
             return (
                 LoaderOrchestratorResult(
-                    data=_clone_loaded_value(data_cached),
+                    data=clone_loaded_value(data_cached),
                     angle_offsets=dict(offsets_cached or {}),
                     context=orchestrator.build_context(
                         prepared.entry,
@@ -277,17 +266,18 @@ class LoadController:
         self._parent._last_load_cache_hit = False
         self._parent._last_load_cache_source = ""
         self._parent._current_raw_load_cache_key = cache_key
-        sample = sample_for_entry(self._session, prepared.entry)
-        a_lattice = sample.a_angstrom if sample.has_lattice_a else None
-        work_func = work_function_for_entry(
-            self._session,
-            prepared.entry,
-            fallback=self._params.sp_phi.value(),
-        )
+        a_lattice = self._lattice_a_for_load(prepared.entry)
+        work_func = self._work_function_for_load(path, prepared)
         if work_func <= 0:
             raise ValueError(
-                "Fonction de travail φ manquante. "
-                "Renseigne φ dans l'UI ou SampleConfig.work_function_eV avant chargement."
+                "Work function φ missing. "
+                "Enter φ in the UI or SampleConfig.work_function_eV before loading."
+            )
+        if a_lattice is None and str(prepared.fmt_guess or "") in {"cls_txt", "bessy_ses_ibw", "solaris_da30"}:
+            raise ValueError(
+                "Lattice parameter a missing. "
+                "Enter crystal a (Å) in Lattice and units before loading; "
+                "otherwise the kx/ky axes in π/a collapse to 0 and the map looks empty."
             )
         load_result = orchestrator.load(
             path,
@@ -302,7 +292,7 @@ class LoadController:
         )
         if cache is not None and load_result.data is not None:
             cache[cache_key] = (
-                _clone_loaded_value(load_result.data),
+                clone_loaded_value(load_result.data),
                 dict(load_result.angle_offsets or {}),
             )
             max_items = int(getattr(self._parent, "_raw_load_cache_max", 6) or 6)
@@ -332,96 +322,106 @@ class LoadController:
 
     def _load_cache_key(self, path: str, prepared: _PreparedEntry) -> tuple:
         entry = prepared.entry
+        work_func = self._work_function_for_load(path, prepared)
+        a_lattice = self._lattice_a_for_load(entry)
+        return (
+            f"raw-loader-v{RAW_LOAD_CACHE_VERSION}",
+            str(prepared.fmt_guess or ""),
+            path_signature(Path(path), self._parent),
+            round(float(work_func), 8),
+            round(float(self._params.sp_ef.value()), 8),
+            round(float(a_lattice or 0.0), 8),
+            round(float(prepared.hv_for_load or 0.0), 8),
+            round(float(getattr(entry.meta, "temperature", 0.0) or 0.0), 8),
+            round(float(getattr(entry.meta, "azi", 0.0) or 0.0), 8),
+            str(getattr(entry.meta, "polarization", "") or ""),
+            freeze_cache_value(prepared.angle_offsets or {}),
+            self._parent._bessy_energy_reference_mode(),
+        )
+
+    def _lattice_a_for_load(self, entry) -> float | None:
         sample = sample_for_entry(self._session, entry)
+        if sample.has_lattice_a:
+            return float(sample.a_angstrom)
+        try:
+            ui_a = float(self._params.sp_crystal_a.value())
+        except Exception:
+            ui_a = 0.0
+        if ui_a <= 0:
+            try:
+                fs_controls = getattr(self._parent, "_fs_controls", None)
+                ui_a = float(getattr(fs_controls, "sp_a").value()) if fs_controls is not None else 0.0
+            except Exception:
+                ui_a = 0.0
+        if ui_a > 0:
+            entry.meta.crystal_a_angstrom = float(ui_a)
+            try:
+                self._params.sp_crystal_a.blockSignals(True)
+                self._params.sp_crystal_a.setValue(float(ui_a))
+                self._params.sp_crystal_a.blockSignals(False)
+            except Exception:
+                pass
+            try:
+                self._session.save()
+            except Exception:
+                pass
+            return float(ui_a)
+        return None
+
+    def _work_function_for_load(self, path: str, prepared: _PreparedEntry) -> float:
+        entry = prepared.entry
         work_func = work_function_for_entry(
             self._session,
             entry,
             fallback=self._params.sp_phi.value(),
         )
-        return (
-            f"raw-loader-v{RAW_LOAD_CACHE_VERSION}",
-            str(prepared.fmt_guess or ""),
-            self._path_signature(Path(path)),
-            round(float(work_func), 8),
-            round(float(self._params.sp_ef.value()), 8),
-            round(float(sample.a_angstrom if sample.has_lattice_a else 0.0), 8),
-            round(float(prepared.hv_for_load or 0.0), 8),
-            round(float(getattr(entry.meta, "temperature", 0.0) or 0.0), 8),
-            round(float(getattr(entry.meta, "azi", 0.0) or 0.0), 8),
-            str(getattr(entry.meta, "polarization", "") or ""),
-            _freeze_cache_value(prepared.angle_offsets or {}),
-            self._parent._bessy_energy_reference_mode(),
-        )
-
-    def _path_signature(self, path: Path) -> tuple:
+        if work_func > 0:
+            return float(work_func)
+        inferred = self._infer_cls_work_function(path, prepared)
+        if inferred is None:
+            return float(work_func)
+        entry.meta.work_function_eV = float(inferred)
+        self._params.sp_phi.blockSignals(True)
+        self._params.sp_phi.setValue(float(inferred))
+        self._params.sp_phi.blockSignals(False)
         try:
-            p = path.resolve()
+            self._session.save()
         except Exception:
-            p = path
-        cache = getattr(self._parent, "_path_signature_cache", None)
-        cache_key = str(p)
-        quick_sig = self._quick_path_signature(p)
-        if cache is not None and not p.is_dir():
-            cached = cache.get(cache_key)
-            if cached is not None and cached[0] == quick_sig:
-                cache.move_to_end(cache_key)
-                self._parent._last_path_signature_cache_hit = True
-                return cached[1]
-        self._parent._last_path_signature_cache_hit = False
+            pass
+        self._status(f"CLS-inferred φ = {float(inferred):.3f} eV (hν - Central Energy).")
+        return float(inferred)
 
-        if p.is_dir():
-            items = []
+    def _infer_cls_work_function(self, path: str, prepared: _PreparedEntry) -> float | None:
+        fmt = str(prepared.fmt_guess or "")
+        if fmt and fmt != "cls_txt":
+            return None
+        hv = float(prepared.hv_for_load or 0.0)
+        if hv <= 0:
+            return None
+        p = Path(path)
+        param_files: list[Path]
+        if p.is_file():
+            param_files = [p.parent / f"{p.name}_param.txt"]
+        elif p.is_dir():
+            param_files = sorted(p.glob("*_param.txt"))
+        else:
+            param_files = []
+        for param_file in param_files:
             try:
-                for child in sorted(p.rglob("*")):
-                    if not child.is_file():
-                        continue
-                    rel_parts = child.relative_to(p).parts
-                    if rel_parts and rel_parts[0] in {".arpes_cache", ".arpes_theory_cache"}:
-                        continue
-                    st = child.stat()
-                    items.append(("/".join(rel_parts), int(st.st_size), int(st.st_mtime_ns)))
-            except Exception:
-                try:
-                    st = p.stat()
-                    items.append((".", int(st.st_size), int(st.st_mtime_ns)))
-                except Exception:
-                    items.append((".", -1, -1))
-            return ("dir", str(p), tuple(items))
-        signature = self._file_signature_with_sidecars(p)
-        if cache is not None:
-            cache[cache_key] = (quick_sig, signature)
-            max_items = int(getattr(self._parent, "_path_signature_cache_max", 128) or 128)
-            while len(cache) > max_items:
-                cache.popitem(last=False)
-        return signature
-
-    def _quick_path_signature(self, path: Path) -> tuple:
-        if path.is_file():
-            return self._file_signature_with_sidecars(path)
-        try:
-            st = path.stat()
-            return (
-                "dir" if path.is_dir() else "file",
-                str(path),
-                int(st.st_size),
-                int(st.st_mtime_ns),
-            )
-        except Exception:
-            return ("missing", str(path))
-
-    def _file_signature_with_sidecars(self, path: Path) -> tuple:
-        files = [path]
-        cls_param = path.parent / f"{path.name}_param.txt"
-        if cls_param.exists():
-            files.append(cls_param)
-        items = []
-        for item in files:
+                text = param_file.read_text(errors="ignore")
+            except OSError:
+                continue
+            match = re.search(r"Central Energy:\s*([-\d.]+)", text)
+            if not match:
+                continue
             try:
-                st = item.stat()
-                items.append((item.name, int(st.st_size), int(st.st_mtime_ns)))
-            except Exception:
-                items.append((item.name, -1, -1))
-        return ("file", str(path), tuple(items))
+                central = float(match.group(1))
+            except ValueError:
+                continue
+            phi = hv - central
+            if 0.0 < phi <= 7.0:
+                return float(phi)
+        return None
 
     def _apply_post_load(self, d, prepared, load_result, orchestrator, path):
         entry = prepared.entry
@@ -573,7 +573,7 @@ class LoadController:
         self._parent._update_display_data()
         grid_note = ""
         if entry.grid_correction.get("enabled"):
-            grid_msg = self._parent._grid_status_text(self._parent._grid_display_info, "affichage BM")
+            grid_msg = self._parent._grid_status_text(self._parent._grid_display_info, "BM display")
             grid_note = "  |  " + grid_msg
             self._params.lbl_grid.setText(grid_msg)
         gamma_note = ""
@@ -583,16 +583,16 @@ class LoadController:
             cand = md_now.get("angle_offset_candidate", ao.get("candidate", ""))
             cand_txt = f" {cand}" if cand else ""
             gamma_note = (
-                f"  |  Γ offset angulaire{cand_txt} θ0={float(ao.get('theta0_deg', 0.0)):+.3f}°"
+                f"  |  Γ angular offset{cand_txt} θ0={float(ao.get('theta0_deg', 0.0)):+.3f}°"
             )
         elif md_now.get("bm_gamma_axis_centered"):
-            gamma_note = f"  |  Γ axe shift={float(md_now.get('bm_gamma_axis_shift', 0.0)):+.4f}"
+            gamma_note = f"  |  Γ axis shift={float(md_now.get('bm_gamma_axis_shift', 0.0)):+.4f}"
         loader_note = ""
         loader_warnings = md_now.get("loader_warnings") or []
         cache_source = getattr(self._parent, "_last_load_cache_source", "")
         cache_note = f"  |  cache {cache_source}" if getattr(self._parent, "_last_load_cache_hit", False) else ""
         if loader_warnings:
-            loader_note = f"  |  Attention: loader: {str(loader_warnings[0])[:120]}"
+            loader_note = f"  |  Warning: loader: {str(loader_warnings[0])[:120]}"
         elif md_now.get("energy_reference"):
             loader_note = f"  |  refE={md_now.get('energy_reference')}"
         self._parent._sel_ev = float(np.clip(-0.30, d["ev_arr"].min(), d["ev_arr"].max()))
@@ -612,23 +612,16 @@ class LoadController:
         hv_txt = f"{d['hv']:.0f} eV" if d.get("hv") is not None else "—"
         lb_txt = "  |  logbook" if prepared.logbook_hit else ""
         self._status(
-            f"Chargé : {Path(path).name}  hν={hv_txt}  |  "
+            f"Loaded: {Path(path).name}  hν={hv_txt}  |  "
             f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
             f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV"
             f"{lb_txt}{cache_note}{grid_note}{gamma_note}{loader_note}"
         )
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done(f"fichier chargé ({Path(path).name})")
+            self._params.mark_action_done(f"file loaded ({Path(path).name})")
         self._parent._refresh_helper_buttons()
         self._parent._auto_fetch_theory_overlay_from_logbook()
 
     @staticmethod
     def _entry_state_token(entry) -> str:
-        try:
-            payload = asdict(entry)
-        except Exception:
-            payload = getattr(entry, "__dict__", {})
-        try:
-            return json.dumps(_freeze_cache_value(payload), sort_keys=True)
-        except Exception:
-            return repr(payload)
+        return entry_state_token(entry)

@@ -1,20 +1,24 @@
-"""Calculs purs pour cartes k//-kz ARPES.
+"""Pure calculations for ARPES k//-kz maps.
 
-Convention interne:
-- energie en eV, axe `energy = E - EF`.
-- k// fourni par les loaders en pi/a.
-- kz calcule en A^-1 en interne, avec affichage optionnel en pi/c.
+Internal convention:
+- energy in eV, axis `energy = E - EF`.
+- k// provided by loaders in pi/a.
+- kz computed internally in A^-1, with optional display in pi/c.
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 import numpy as np
 
+# Above this |energy| (eV), the slice is no longer the Fermi surface.
+FS_ENERGY_TOL_EV = 0.05
+
 try:
     from scipy.interpolate import griddata as _scipy_griddata
-except Exception:  # pragma: no cover - fallback numpy si scipy absent
+except Exception:  # pragma: no cover - numpy fallback if scipy is missing
     _scipy_griddata = None
 
 try:
@@ -76,6 +80,16 @@ class MdcWaterfallResult:
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
+def _warn_energy_center(energy_center: float) -> None:
+    """P2.5: warn if the slice is no longer at E_F."""
+    if abs(float(energy_center)) > FS_ENERGY_TOL_EV:
+        warnings.warn(
+            f"kz: |E_center|={float(energy_center):.3f} eV > {FS_ENERGY_TOL_EV} "
+            "→ this is no longer the Fermi surface (kz plotted away from E_F).",
+            RuntimeWarning, stacklevel=2,
+        )
+
+
 def _finite_float(value: Any) -> float | None:
     try:
         out = float(value)
@@ -87,7 +101,7 @@ def _finite_float(value: Any) -> float | None:
 def scan_from_legacy_dict(d: dict[str, Any]) -> KzScanInput:
     hv = _finite_float(d.get("hv") or (d.get("metadata", {}) or {}).get("hv"))
     if hv is None or hv <= 0:
-        raise ValueError("kz impossible: hν absent ou invalide")
+        raise ValueError("kz impossible: hν missing or invalid")
     return KzScanInput(
         data=np.asarray(d["data"], dtype=float),
         kpar=np.asarray(d["kpar"], dtype=float),
@@ -103,13 +117,13 @@ def standardize_scan(scan: KzScanInput) -> KzScanInput:
     kpar = np.asarray(scan.kpar, dtype=float)
     energy = np.asarray(scan.energy, dtype=float)
     if data.ndim != 2:
-        raise ValueError(f"kz scan invalide: data.ndim={data.ndim}, attendu 2")
+        raise ValueError(f"invalid kz scan: data.ndim={data.ndim}, expected 2")
     if data.shape != (kpar.size, energy.size):
         raise ValueError(
-            f"kz scan invalide: shape={data.shape}, axes={(kpar.size, energy.size)}"
+            f"invalid kz scan: shape={data.shape}, axes={(kpar.size, energy.size)}"
         )
     if kpar.size < 2 or energy.size < 2:
-        raise ValueError("kz scan invalide: axes trop courts")
+        raise ValueError("invalid kz scan: axes too short")
     if kpar[0] > kpar[-1]:
         kpar = kpar[::-1]
         data = data[::-1, :]
@@ -144,24 +158,32 @@ def kz_from_hv_kpar(
     a_lattice: float,
     energy: float = 0.0,
 ) -> np.ndarray:
-    """Retourne kz en A^-1 depuis hν et k// en pi/a."""
+    """Return kz in A^-1 from hν and k// in pi/a."""
     hv = float(hv)
     work_func = float(work_func)
     inner_potential = float(inner_potential)
     a_lattice = float(a_lattice)
     if inner_potential <= 0:
-        raise ValueError(f"kz invalide: V0={inner_potential:.3f} eV")
+        raise ValueError(f"invalid kz: V0={inner_potential:.3f} eV")
     if a_lattice <= 0:
-        raise ValueError(f"kz invalide: a={a_lattice:.3f} A")
+        raise ValueError(f"invalid kz: a={a_lattice:.3f} A")
     ekin = hv - work_func + float(energy)
     if ekin <= 0:
-        raise ValueError(f"kz invalide: Ekin={ekin:.3f} eV")
+        raise ValueError(f"invalid kz: Ekin={ekin:.3f} eV")
     kpar_a = np.asarray(kpar_pi_over_a, dtype=float) * np.pi / a_lattice
     ktot2 = (K_INV_A_PER_SQRT_EV ** 2) * (ekin + inner_potential)
     radicand = ktot2 - kpar_a**2
     out = np.full_like(kpar_a, np.nan, dtype=float)
     valid = radicand > 0
     out[valid] = np.sqrt(radicand[valid])
+    # P2.5: k// > k_tot: negative radicand, kz undefined (free final state invalid).
+    n_neg = int(np.sum(np.isfinite(kpar_a) & ~valid))
+    if n_neg:
+        warnings.warn(
+            f"kz: {n_neg}/{kpar_a.size} points with radicand ≤ 0 (k// > k_tot, "
+            f"hν={hv:.0f} eV) → kz=NaN. k// too large for this hν.",
+            RuntimeWarning, stacklevel=2,
+        )
     return out
 
 
@@ -171,24 +193,24 @@ def fold_kz_to_1bz(
     *,
     plane_tol: float = 0.05,
 ) -> dict:
-    """Replie kz dans la 1ère zone de Brillouin (kz ∈ [0, π/c]).
+    """Fold kz into the 1st Brillouin zone (kz ∈ [0, π/c]).
 
-    Retourne ``{"kz_reduced_pi_over_c", "n_zone", "plane", "near_boundary"}``.
+    Returns ``{"kz_reduced_pi_over_c", "n_zone", "plane", "near_boundary"}``.
 
-    - ``plane`` ∈ {"Gamma", "Z", "intermediate"} selon proximité 0 ou π/c.
-    - ``near_boundary`` = True si |kz_red − π/c| < plane_tol·π/c (ou |kz_red| < tol).
-    - ``plane_tol`` : tolérance relative à π/c (défaut 5%).
+    - ``plane`` ∈ {"Gamma", "Z", "intermediate"} depending on proximity to 0 or π/c.
+    - ``near_boundary`` = True if |kz_red − π/c| < plane_tol·π/c (or |kz_red| < tol).
+    - ``plane_tol``: relative tolerance to π/c (default 5%).
     """
     if c_lattice <= 0:
-        raise ValueError(f"fold_kz: c={c_lattice:.3f} A invalide")
+        raise ValueError(f"fold_kz: c={c_lattice:.3f} A invalid")
     kz = float(kz_inv_a)
     if not np.isfinite(kz):
-        raise ValueError("fold_kz: kz non fini")
-    g_z = 2.0 * np.pi / float(c_lattice)  # vecteur réciproque
+        raise ValueError("fold_kz: kz is not finite")
+    g_z = 2.0 * np.pi / float(c_lattice)  # reciprocal vector
     n_zone = int(np.floor((abs(kz) + 0.5 * g_z) / g_z))
     kz_red = abs(kz) - n_zone * g_z  # ∈ [-π/c, +π/c]
-    kz_red = abs(kz_red)             # plier symétrie kz ↔ -kz : ∈ [0, π/c]
-    kz_red_pi_c = kz_red / (np.pi / float(c_lattice))  # en unités π/c, ∈ [0, 1]
+    kz_red = abs(kz_red)             # fold kz ↔ -kz symmetry: ∈ [0, π/c]
+    kz_red_pi_c = kz_red / (np.pi / float(c_lattice))  # in π/c units, ∈ [0, 1]
     tol = float(plane_tol)
     if kz_red_pi_c <= tol:
         plane = "Gamma"
@@ -213,9 +235,9 @@ def convert_kz_unit(kz_inv_a, *, unit: str, c_lattice: float) -> np.ndarray:
         return kz
     if unit == "pi/c":
         if c_lattice <= 0:
-            raise ValueError(f"kz invalide: c={c_lattice:.3f} A")
+            raise ValueError(f"invalid kz: c={c_lattice:.3f} A")
         return kz * float(c_lattice) / np.pi
-    raise ValueError(f"unite kz inconnue: {unit}")
+    raise ValueError(f"unknown kz unit: {unit}")
 
 
 def _normalize_slice(values: np.ndarray, mode: str) -> np.ndarray:
@@ -229,7 +251,7 @@ def _normalize_slice(values: np.ndarray, mode: str) -> np.ndarray:
             if scale > 1e-12:
                 return vals / scale
         return vals
-    raise ValueError(f"normalisation kz inconnue: {mode}")
+    raise ValueError(f"unknown kz normalization: {mode}")
 
 
 def _interpolate_cloud_to_grid(
@@ -239,12 +261,12 @@ def _interpolate_cloud_to_grid(
     kk_grid: np.ndarray,
     zz_grid: np.ndarray,
 ) -> np.ndarray:
-    """Interpolation nuage -> grille, avec masque de support pour éviter faux remplissage."""
+    """Cloud -> grid interpolation, with support mask to avoid false filling."""
     points = np.column_stack([k, z])
     if _scipy_griddata is not None:
         return _scipy_griddata(points, intensity, (kk_grid, zz_grid), method="linear")
 
-    # Fallback sans scipy.interpolate.griddata : IDW local sur k-NN.
+    # Fallback without scipy.interpolate.griddata: local IDW over k-NN.
     out = np.full(kk_grid.shape, np.nan, dtype=float)
     k_span = max(float(np.nanmax(k) - np.nanmin(k)), 1e-12)
     z_span = max(float(np.nanmax(z) - np.nanmin(z)), 1e-12)
@@ -266,7 +288,7 @@ def _interpolate_cloud_to_grid(
         if exact.any():
             flat_out[exact] = intensity[idx[exact, 0]]
     else:
-        # cKDTree absent : boucle Python (lent, mais évite plantage env minimal).
+        # cKDTree missing: Python loop (slow, but avoids crashing in a minimal env).
         for idx_row, (kg, zg) in enumerate(zip(flat_k, flat_z)):
             d2 = (pts[:, 0] - kg) ** 2 + (pts[:, 1] - zg) ** 2
             nearest = np.argpartition(d2, n_neigh - 1)[:n_neigh]
@@ -290,9 +312,10 @@ def _interpolate_cloud_to_grid(
 def compute_kz_map(scans: Iterable[KzScanInput], params: KzParams) -> KzMapResult:
     scans_std = [standardize_scan(s) for s in scans]
     if len(scans_std) < 2:
-        raise ValueError("kz: au moins deux scans hν requis")
+        raise ValueError("kz: at least two hν scans required")
     if params.inner_potential <= 0:
-        raise ValueError(f"kz invalide: V0={params.inner_potential:.3f} eV")
+        raise ValueError(f"invalid kz: V0={params.inner_potential:.3f} eV")
+    _warn_energy_center(params.energy_center)
 
     point_k: list[np.ndarray] = []
     point_z: list[np.ndarray] = []
@@ -319,7 +342,7 @@ def compute_kz_map(scans: Iterable[KzScanInput], params: KzParams) -> KzMapResul
             point_z.append(kz[valid])
             point_i.append(vals[valid])
     if not point_i:
-        raise ValueError("kz: aucun point valide")
+        raise ValueError("kz: no valid points")
 
     k = np.concatenate(point_k)
     z = np.concatenate(point_z)
@@ -354,7 +377,7 @@ def compute_kz_map(scans: Iterable[KzScanInput], params: KzParams) -> KzMapResul
     elif mode == "points":
         image = image_binned
     else:
-        raise ValueError(f"mode KZ inconnu: {mode}")
+        raise ValueError(f"unknown KZ mode: {mode}")
 
     diagnostics = {
         "n_scans": len(scans_std),
@@ -374,14 +397,15 @@ def compute_kz_map(scans: Iterable[KzScanInput], params: KzParams) -> KzMapResul
 
 
 def compute_hv_k_map(scans: Iterable[KzScanInput], params: KzParams) -> HvKMapResult:
-    """Carte brute hν-k// intégrée autour d'une énergie, sans conversion kz."""
+    """Raw hν-k// map integrated around an energy, without kz conversion."""
     scans_std = [standardize_scan(s) for s in scans]
     if len(scans_std) < 2:
-        raise ValueError("hν map: au moins deux scans requis")
+        raise ValueError("hν map: at least two scans required")
 
+    _warn_energy_center(params.energy_center)
     hv_values = np.asarray([scan.hv for scan in scans_std], dtype=float)
     if np.unique(np.round(hv_values, 6)).size < 2:
-        raise ValueError("hν map: hν doit varier entre les scans")
+        raise ValueError("hν map: hν must vary between scans")
 
     k_min = min(float(np.nanmin(scan.kpar)) for scan in scans_std)
     k_max = max(float(np.nanmax(scan.kpar)) for scan in scans_std)
@@ -399,13 +423,13 @@ def compute_hv_k_map(scans: Iterable[KzScanInput], params: KzParams) -> HvKMapRe
             continue
         valid = np.isfinite(scan.kpar) & np.isfinite(vals)
         if valid.sum() < 2:
-            skipped.append(f"{scan.path or scan.hv}: pas assez de points k valides")
+            skipped.append(f"{scan.path or scan.hv}: not enough valid k points")
             continue
         rows.append(np.interp(k_grid, scan.kpar[valid], vals[valid], left=np.nan, right=np.nan))
         hv_kept.append(float(scan.hv))
 
     if len(rows) < 2:
-        raise ValueError("hν map: pas assez de scans valides")
+        raise ValueError("hν map: not enough valid scans")
 
     order = np.argsort(hv_kept)
     hv_grid = np.asarray(hv_kept, dtype=float)[order]
@@ -424,7 +448,7 @@ def compute_hv_k_map(scans: Iterable[KzScanInput], params: KzParams) -> HvKMapRe
 
 
 def compute_mdc_waterfall(scans: Iterable[KzScanInput], params: KzParams) -> MdcWaterfallResult:
-    """Courbes MDC I(k//) empilées par hν, intégrées autour d'une énergie."""
+    """MDC I(k//) curves stacked by hν, integrated around an energy."""
     hv_map = compute_hv_k_map(scans, params)
     curves = np.asarray(hv_map.image, dtype=float)
     curves = np.where(np.isfinite(curves), curves, np.nan)

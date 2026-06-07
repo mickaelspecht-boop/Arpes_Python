@@ -22,13 +22,13 @@ class HelpSection:
 
 DEFAULT_SECTIONS = (
     HelpSection("Workflow", "workflow.md"),
-    HelpSection("Raccourcis", "shortcuts.md"),
-    HelpSection("Physique", "physics.md"),
+    HelpSection("Shortcuts", "shortcuts.md"),
+    HelpSection("Physics", "physics.md"),
 )
 
 
 class HelpPanel(QWidget):
-    """QWidget autonome affichant les fichiers Markdown de ``arpes/docs``."""
+    """Standalone QWidget displaying Markdown files from ``arpes/docs``."""
 
     def __init__(self, docs_dir: Path | None = None, parent=None):
         super().__init__(parent)
@@ -78,4 +78,4 @@ class HelpPanel(QWidget):
         try:
             return path.read_text(encoding="utf-8")
         except OSError:
-            return f"# Documentation indisponible\n\nFichier manquant: `{filename}`."
+            return f"# Documentation unavailable\n\nMissing file: `{filename}`."

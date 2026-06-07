@@ -46,26 +46,26 @@ class ZonesStrip(QWidget):
         self.cmb = QComboBox()
         self.cmb.setMinimumWidth(140)
         self.cmb.setToolTip(
-            "Zones MDC. Sélectionner une zone charge ses paramètres dans le "
-            "panneau. 'Fit complet' met à jour la zone active."
+            "MDC zones. Selecting a zone loads its parameters into the "
+            "panel. 'Full fit' updates the active zone."
         )
         self.cmb.currentIndexChanged.connect(self._on_combo_changed)
         self.chk_active = QCheckBox("Active")
-        self.chk_active.setToolTip("Inclure la zone dans 'Run all'.")
+        self.chk_active.setToolTip("Include this zone in 'Run all'.")
         self.chk_active.toggled.connect(self._on_toggle_active)
         self.btn_add = QToolButton()
         self.btn_add.setText("+")
         self.btn_add.setToolTip(
-            "Créer une zone à partir des bornes courantes (k_min/k_max/E_start/E_end)."
+            "Create a zone from the current bounds (k_min/k_max/E_start/E_end)."
         )
         self.btn_add.clicked.connect(self.add_zone_requested.emit)
         self.btn_remove = QToolButton()
         self.btn_remove.setText("−")
-        self.btn_remove.setToolTip("Supprimer la zone sélectionnée.")
+        self.btn_remove.setToolTip("Remove the selected zone.")
         self.btn_remove.clicked.connect(self._on_remove)
         self.btn_run_all = QPushButton("▶ Run all")
         self.btn_run_all.setToolTip(
-            "Lancer un fit MDC indépendant pour chaque zone active."
+            "Run an independent MDC fit for each active zone."
         )
         self.btn_run_all.clicked.connect(self.run_all_zones_requested.emit)
         self.btn_run_all.setStyleSheet(
@@ -73,7 +73,7 @@ class ZonesStrip(QWidget):
         )
         self.btn_clear = QToolButton()
         self.btn_clear.setText("⌫")
-        self.btn_clear.setToolTip("Effacer tous les résultats fit des zones.")
+        self.btn_clear.setToolTip("Clear all zone fit results.")
         self.btn_clear.clicked.connect(self.clear_zone_results.emit)
         self.lbl_info = QLabel("0 zone")
         self.lbl_info.setStyleSheet("color:#888;")

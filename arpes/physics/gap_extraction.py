@@ -48,15 +48,56 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 def dynes(omega: np.ndarray, Delta: float, Gamma: float) -> np.ndarray:
-    """Dynes density of states (symmetric magnitude form used in ARPES).
+    """Dynes quasiparticle DOS ``N(ω)=Re[(ω-iΓ)/√((ω-iΓ)²-Δ²)]``.
 
-    Standard Dynes DOS Re[(ω - i Γ)/sqrt((ω - i Γ)² - Δ²)] is anti-symmetric
-    in ω; for symmetrized-EDC fits we take the magnitude so I(ω) = I(-ω).
+    Observable: *tunneling* DOS (STS/jonction), pas la fonction spectrale
+    ARPES (pour un EDC symétrisé à k_F utiliser ``norman_spectral``).
+
+    P2.5 — l'ancien ``|Re[…]|`` (magnitude) déformait la forme de raie. On
+    retire l'``abs`` et on fixe la branche de la racine : Im(denom) ≤ 0 (même
+    signe que Im(ω-iΓ)=−Γ) → N(ω) ≥ 0 partout sans hack de magnitude
+    (le naïf ``Re`` seul donne N<0 dans le gap à cause de la branche
+    principale de ``np.sqrt``).
     """
     w = np.asarray(omega, complex)
     denom = np.sqrt((w - 1j * Gamma) ** 2 - Delta ** 2)
-    val = (w - 1j * Gamma) / denom
-    return np.abs(np.real(val))
+    denom = np.where(np.imag(denom) > 0.0, -denom, denom)  # force Im(denom) ≤ 0
+    return np.real((w - 1j * Gamma) / denom)
+
+
+def norman_spectral(
+    omega: np.ndarray, Delta: float, Gamma1: float, Gamma0: float = 1.0
+) -> np.ndarray:
+    """Fonction spectrale ARPES à k_F — Norman et al. PRB 57, R11093 (1998).
+
+    Σ(ω) = −iΓ₁ + Δ²/(ω + iΓ₀) ; A(k_F,ω) = −(1/π)·Im G, G=1/(ω−Σ).
+    Définie-positive partout (pas d'``abs``). ``Γ₀`` régularise la
+    singularité Σ'=Δ²/ω en ω=0 (fixer ≳ résolution, jamais 0).
+
+    Limites : Δ→0 → lorentzienne unique en ω=0 ; Γ→0 → deux pics en ±Δ.
+    """
+    w = np.asarray(omega, dtype=float)
+    w2 = w * w + float(Gamma0) ** 2
+    # ReΣ = Δ²ω/(ω²+Γ₀²) → ω−ReΣ = ω(1−Δ²/(ω²+Γ₀²)) : zéros en ±√(Δ²−Γ₀²)≈±Δ.
+    re_denom = w - (Delta ** 2) * w / w2          # ω − ReΣ
+    im_denom = float(Gamma1) + (Delta ** 2) * float(Gamma0) / w2  # −ImΣ > 0
+    return im_denom / (np.pi * (re_denom ** 2 + im_denom ** 2))
+
+
+def norman_multi(
+    omega: np.ndarray,
+    deltas: list[float],
+    gammas: list[float],
+    weights: list[float],
+    gamma0: float = 1.0,
+) -> np.ndarray:
+    """Weighted sum of Norman spectral functions (multi-gap s+-)."""
+    omega = np.asarray(omega, float)
+    out = np.zeros_like(omega)
+    norm = sum(weights) or 1.0
+    for D, G, w in zip(deltas, gammas, weights):
+        out = out + (w / norm) * norman_spectral(omega, D, G, gamma0)
+    return out
 
 
 def dynes_multi(
@@ -183,7 +224,8 @@ def fit_dynes_single(
         return spec
 
     p0 = (Delta_guess_meV, Gamma_guess_meV, A0, bg0)
-    bounds = ([0.05, 0.0, 0.0, -np.inf], [50.0, 20.0, 10.0 * A0 + 1e-6, np.inf])
+    # P2.5 — borne Δ 50→100 meV (régime pseudogap, Bi2212 sous-dopé).
+    bounds = ([0.05, 0.0, 0.0, -np.inf], [100.0, 20.0, 10.0 * A0 + 1e-6, np.inf])
     popt, pcov = curve_fit(_model, omega_meV, I_sym, p0=p0, bounds=bounds)
     perr = np.sqrt(np.diag(pcov))
     D, G, A, B = popt
@@ -237,8 +279,9 @@ def fit_dynes_two_gap(
         return spec
 
     p0 = (D1_guess_meV, D2_guess_meV, Gamma_guess_meV, Gamma_guess_meV, 0.5, A0, bg0)
+    # P2.5 — borne Δ 50→100 meV (pseudogap).
     bounds = ([0.05, 0.05, 0.0, 0.0, 0.0, 0.0, -np.inf],
-              [50.0, 50.0, 20.0, 20.0, 1.0, 10.0 * A0 + 1e-6, np.inf])
+              [100.0, 100.0, 20.0, 20.0, 1.0, 10.0 * A0 + 1e-6, np.inf])
     popt, pcov = curve_fit(_model, omega_meV, I_sym, p0=p0, bounds=bounds)
     perr = np.sqrt(np.diag(pcov))
     D1, D2, G1, G2, w1, A, B = popt
@@ -262,6 +305,114 @@ def fit_dynes_two_gap(
         resolution_meV=float(resolution_meV),
         chi2_red=chi2,
         notes=notes,
+    )
+
+
+def _gamma0_for(resolution_meV: float) -> float:
+    """Norman Gamma0 regularization: near resolution scale, never 0."""
+    return float(max(1.0, 0.3 * float(resolution_meV)))
+
+
+def fit_norman_single(
+    omega_meV: np.ndarray,
+    I_sym: np.ndarray,
+    *,
+    resolution_meV: float = 0.0,
+    Delta_guess_meV: float = 5.0,
+    Gamma_guess_meV: float = 1.0,
+    amplitude_guess: float | None = None,
+) -> GapFitResult:
+    """Fit gap ARPES sur EDC symétrisé via fonction spectrale Norman (1998).
+
+    Modèle physiquement correct pour un EDC ARPES symétrisé à k_F (vs Dynes
+    qui est une DOS tunnel). Γ₀ fixé (régularisation), params libres
+    (Δ, Γ₁, A, B).
+    """
+    if not _HAS_SCIPY:
+        raise RuntimeError("scipy required")
+    omega_meV = np.asarray(omega_meV, float)
+    I_sym = np.asarray(I_sym, float)
+    A0 = amplitude_guess if amplitude_guess is not None else float(np.max(I_sym))
+    bg0 = float(np.median(I_sym[: max(1, len(I_sym) // 8)]))
+    g0 = _gamma0_for(resolution_meV)
+
+    def _model(w, D, G, A, B):
+        spec = A * norman_spectral(w, abs(D), abs(G), g0) + B
+        if resolution_meV > 0:
+            spec = convolve_resolution(spec, w, resolution_meV)
+        return spec
+
+    p0 = (Delta_guess_meV, Gamma_guess_meV, A0, bg0)
+    bounds = ([0.05, 0.0, 0.0, -np.inf], [100.0, 50.0, 10.0 * A0 + 1e-6, np.inf])
+    popt, pcov = curve_fit(_model, omega_meV, I_sym, p0=p0, bounds=bounds)
+    perr = np.sqrt(np.diag(pcov))
+    D, G, A, B = popt
+    I_fit = _model(omega_meV, *popt)
+    dof = max(1, len(I_sym) - len(popt))
+    chi2 = float(np.sum((I_sym - I_fit) ** 2) / dof)
+
+    notes = [f"Norman PRB 57 R11093 (1998), Γ₀={g0:.1f} meV fixed."]
+    if abs(D) > 1e-9 and abs(G) / abs(D) > 0.5:
+        notes.append("Γ₁/Δ > 0.5 - merged peaks, Δ unreliable (filled gap).")
+    if abs(D) >= 99.0:
+        notes.append("Δ at the 100 meV bound - check possible gap/phonon-kink confusion (~60-70 meV).")
+    if resolution_meV == 0:
+        notes.append("No convoluted resolution - Γ overestimated.")
+
+    return GapFitResult(
+        omega_meV=omega_meV, I_sym=I_sym, I_fit=I_fit,
+        deltas_meV=[abs(float(D))], gammas_meV=[abs(float(G))], weights=[1.0],
+        delta_err_meV=[float(perr[0])], n_gaps=1,
+        resolution_meV=float(resolution_meV), chi2_red=chi2, notes=notes,
+    )
+
+
+def fit_norman_two_gap(
+    omega_meV: np.ndarray,
+    I_sym: np.ndarray,
+    *,
+    resolution_meV: float = 0.0,
+    D1_guess_meV: float = 3.0,
+    D2_guess_meV: float = 8.0,
+    Gamma_guess_meV: float = 1.0,
+) -> GapFitResult:
+    """Fit 2-gap (s±) ARPES via somme de fonctions spectrales Norman."""
+    if not _HAS_SCIPY:
+        raise RuntimeError("scipy required")
+    omega_meV = np.asarray(omega_meV, float)
+    I_sym = np.asarray(I_sym, float)
+    A0 = float(np.max(I_sym))
+    bg0 = float(np.median(I_sym[: max(1, len(I_sym) // 8)]))
+    g0 = _gamma0_for(resolution_meV)
+
+    def _model(w, D1, D2, G1, G2, w1, A, B):
+        spec = A * norman_multi(w, [abs(D1), abs(D2)], [abs(G1), abs(G2)],
+                                [abs(w1), max(0.0, 1.0 - abs(w1))], g0) + B
+        if resolution_meV > 0:
+            spec = convolve_resolution(spec, w, resolution_meV)
+        return spec
+
+    p0 = (D1_guess_meV, D2_guess_meV, Gamma_guess_meV, Gamma_guess_meV, 0.5, A0, bg0)
+    bounds = ([0.05, 0.05, 0.0, 0.0, 0.0, 0.0, -np.inf],
+              [100.0, 100.0, 50.0, 50.0, 1.0, 10.0 * A0 + 1e-6, np.inf])
+    popt, pcov = curve_fit(_model, omega_meV, I_sym, p0=p0, bounds=bounds)
+    perr = np.sqrt(np.diag(pcov))
+    D1, D2, G1, G2, w1, A, B = popt
+    w2 = max(0.0, 1.0 - abs(w1))
+    I_fit = _model(omega_meV, *popt)
+    chi2 = float(np.sum((I_sym - I_fit) ** 2) / max(1, len(I_sym) - len(popt)))
+
+    notes = [f"Norman PRB 57 R11093 (1998), Γ₀={g0:.1f} meV fixed."]
+    if abs(abs(D1) - abs(D2)) < 0.1:
+        notes.append("Δ₁ ≈ Δ₂ - 2-gap model indistinguishable from 1-gap.")
+
+    return GapFitResult(
+        omega_meV=omega_meV, I_sym=I_sym, I_fit=I_fit,
+        deltas_meV=[abs(float(D1)), abs(float(D2))],
+        gammas_meV=[abs(float(G1)), abs(float(G2))],
+        weights=[abs(float(w1)), w2],
+        delta_err_meV=[float(perr[0]), float(perr[1])], n_gaps=2,
+        resolution_meV=float(resolution_meV), chi2_red=chi2, notes=notes,
     )
 
 

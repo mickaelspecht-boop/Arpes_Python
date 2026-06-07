@@ -1,4 +1,4 @@
-"""Controller Qt pour l'onglet KZ."""
+"""Qt controller for the KZ tab."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,7 +64,7 @@ class KzController:
         start = self._last_folder
         if not start and self._parent._session.folder:
             start = str(self._parent._session.folder)
-        folder = QFileDialog.getExistingDirectory(self._parent, "Choisir dossier KZ", start or str(Path.home()))
+        folder = QFileDialog.getExistingDirectory(self._parent, "Choose KZ folder", start or str(Path.home()))
         if not folder:
             return
         self._last_folder = folder
@@ -76,7 +76,7 @@ class KzController:
             self._parent,
             "Logbook KZ",
             start,
-            "Tous les fichiers (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)",
+            "All files (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)",
         )
         if not path:
             return
@@ -90,19 +90,19 @@ class KzController:
             session.save()
             used = ", ".join(f"{k}={v or '—'}" for k, v in mapping.items())
             sheet_txt = f" [{sheet_name}]" if sheet_name else ""
-            self._status(f"Logbook KZ chargé : {Path(path).name}{sheet_txt} | {len(records)} lignes | {used}")
+            self._status(f"KZ logbook loaded: {Path(path).name}{sheet_txt} | {len(records)} rows | {used}")
             if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done(f"logbook KZ chargé ({len(records)} lignes)")
+                self._params.mark_action_done(f"KZ logbook loaded ({len(records)} rows)")
             QMessageBox.information(
                 self._parent,
-                "Logbook KZ chargé",
-                f"{Path(path).name}{sheet_txt}\n{len(records)} lignes lues.\n\nColonnes détectées :\n{used}",
+                "KZ Logbook Loaded",
+                f"{Path(path).name}{sheet_txt}\n{len(records)} rows read.\n\nDetected columns:\n{used}",
             )
             if self._last_folder:
                 self._refresh_kz_dataset()
         except Exception as exc:
             QMessageBox.warning(self._parent, "Logbook KZ", str(exc))
-            self._status(f"Attention: Logbook KZ : {exc}")
+            self._status(f"Warning: Logbook KZ : {exc}")
 
     @staticmethod
     def _format_hv_sources(sources: dict) -> str:
@@ -113,7 +113,7 @@ class KzController:
 
     def _refresh_kz_dataset(self):
         if not self._last_folder:
-            self._status("Attention: KZ : choisir un dossier")
+            self._status("Warning: KZ: choose a folder")
             return
         try:
             ds = load_kz_stack(
@@ -131,18 +131,18 @@ class KzController:
             summary = dataset_summary(ds)
             n_ignored = len(summary["warnings"])
             self._parent._kz_controls.set_info(
-                f"{summary['n_scans']} scans retenus | {n_ignored} ignorés | "
+                f"{summary['n_scans']} scans kept | {n_ignored} ignored | "
                 f"hν={summary['hv_min']:.1f}→{summary['hv_max']:.1f} eV | "
                 f"{self._format_hv_sources(summary['hv_sources'])}"
             )
-            self._status(f"OK KZ : {summary['n_scans']} scans chargés")
+            self._status(f"OK KZ: {summary['n_scans']} scans loaded")
             if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done(f"KZ chargé ({summary['n_scans']} scans)")
+                self._params.mark_action_done(f"KZ loaded ({summary['n_scans']} scans)")
             self._draw_kz_tab()
         except Exception as exc:
             self._dataset = None
-            self._parent._kz_controls.set_info(f"Erreur KZ : {exc}")
-            self._status(f"Attention: KZ : {exc}")
+            self._parent._kz_controls.set_info(f"KZ error: {exc}")
+            self._status(f"Warning: KZ: {exc}")
             traceback.print_exc()
 
     def _on_kz_params_changed(self, _=None):
@@ -159,7 +159,7 @@ class KzController:
         if self._dataset is None:
             ax.text(
                 0.5, 0.5,
-                "Choisir un dossier KZ\n(série de band maps à hν variable)",
+                "Choose a KZ folder\n(variable-hν band-map series)",
                 transform=ax.transAxes,
                 ha="center", va="center",
                 color="white", fontsize=11,
@@ -192,7 +192,7 @@ class KzController:
             ax.text(0.5, 0.5, str(exc), transform=ax.transAxes,
                     ha="center", va="center", color="tomato", fontsize=10)
             self._parent._kz_canvas.map.redraw()
-            self._status(f"Attention: KZ : {exc}")
+            self._status(f"Warning: KZ : {exc}")
             return
 
         diag = result.diagnostics
@@ -268,19 +268,19 @@ class KzController:
         hv_source_txt = self._format_hv_sources(summary["hv_sources"])
         if ui.display_mode == "hv map":
             info = (
-                f"{diag['n_scans']} scans retenus | {len(summary['warnings'])} ignorés | "
+                f"{diag['n_scans']} scans kept | {len(summary['warnings'])} ignored | "
                 f"hν={diag['hv_min']:.1f}→{diag['hv_max']:.1f} eV | "
                 f"points={diag['n_points']} | raw hν map (no kz conversion) | {hv_source_txt}"
             )
         elif ui.display_mode == "MDC waterfall":
             info = (
-                f"{diag['n_scans']} scans retenus | {len(summary['warnings'])} ignorés | "
+                f"{diag['n_scans']} scans kept | {len(summary['warnings'])} ignored | "
                 f"hν={diag['hv_min']:.1f}→{diag['hv_max']:.1f} eV | "
                 f"points={diag['n_points']} | MDC waterfall (no fits) | {hv_source_txt}"
             )
         else:
             info = (
-                f"{diag['n_scans']} scans retenus | {len(summary['warnings'])} ignorés | "
+                f"{diag['n_scans']} scans kept | {len(summary['warnings'])} ignored | "
                 f"hν={summary['hv_min']:.1f}→{summary['hv_max']:.1f} eV | "
                 f"points={diag['n_points']} | bins={diag['n_bins_filled']} | "
                 f"{diag['display_mode']} ({diag['interpolation_backend']}) | {hv_source_txt}"
@@ -290,5 +290,5 @@ class KzController:
         self._parent._kz_canvas.map.redraw()
 
     def _save_kz_session(self):
-        # MVP: seuls les paramètres UI restent dans les widgets.
-        self._status("KZ : rien à sauvegarder pour l'instant")
+        # MVP: only UI parameters remain in the widgets.
+        self._status("KZ: nothing to save for now")

@@ -19,6 +19,13 @@ from arpes.physics.pocket import (
     pocket_topology,
     smooth_fs_image,
 )
+from arpes.physics.ellipse_conic import (
+    ARC_FULL_DEG,
+    ARC_REFUSE_DEG,
+    conic_axis_sigma,
+    contiguous_coverage_deg,
+    fit_ellipse_conic,
+)
 from arpes.physics.pocket_mdc_radial import (
     arc_coverage_deg,
     characterize_pocket_mdc_radial,
@@ -30,7 +37,7 @@ from arpes.ui.widgets.dialogs.pocket_result import PocketResultDialog
 
 def characterize_mdc_at(ctrl, payload: dict):
     if ctrl._raw_data is None or not ctrl._current_is_fs():
-        ctrl._status("Poche MDC : charge une carte FS d'abord.")
+        ctrl._status("MDC pocket: load an FS map first.")
         return None
     entry = ctrl._current_entry()
     if entry is None:
@@ -55,7 +62,26 @@ def characterize_mdc_at(ctrl, payload: dict):
         contour_closed = _close_contour(contour_raw)
         area = abs(pocket_area(contour_closed))
         bz_area = abs(pocket_area(_close_contour(bz_raw)))
-        kf_a, kf_b, angle = fit_pocket_ellipse(contour_closed)
+        # P2.4: ellipse from algebraic conic (arc OK) + center to measure
+        # CONTIGUOUS angular coverage (not the N_ok/N_total fraction).
+        geo = fit_ellipse_conic(contour_raw)
+        if geo.get("ok"):
+            kf_a, kf_b, angle = float(geo["a"]), float(geo["b"]), float(geo["angle_deg"])
+            ell_center = (float(geo["cx"]), float(geo["cy"]))
+            ellipse_valid = True
+            fit_method = "conic"
+        else:
+            kf_a, kf_b, angle = fit_pocket_ellipse(contour_closed)
+            ell_center = (float(center[0]), float(center[1]))
+            ellipse_valid = bool(kf_a > 0)
+            fit_method = "pca"
+        coverage_contig = contiguous_coverage_deg(contour_raw, ell_center)
+        if coverage_contig < ARC_REFUSE_DEG:
+            ctrl._status(
+                f"MDC pocket rejected: visible arc {coverage_contig:.0f}° < "
+                f"{ARC_REFUSE_DEG:.0f}° — pocket too open, widen the scan."
+            )
+            return None
         kf_per_dir = [r.kF for r in results if r.ok]
         kf_std_per_dir = [r.kF_std for r in results if r.ok and np.isfinite(r.kF_std)]
         kf_mean = float(np.nanmean(kf_per_dir)) if kf_per_dir else float("nan")
@@ -76,10 +102,20 @@ def characterize_mdc_at(ctrl, payload: dict):
             ecc = float(np.sqrt(max(0.0, 1.0 - (min(kf_a, kf_b) / max(kf_a, kf_b)) ** 2)))
         else:
             ratio = float("nan"); ecc = float("nan")
-        coverage_deg = arc_coverage_deg(results)
+        coverage_deg = arc_coverage_deg(results)  # legacy N_ok/N_total (display)
         on_border = contour_touches_border(contour_closed, kx, ky)
         force_arc = bool(payload.get("force_arc", False))
-        closed = (not on_border) and (coverage_deg >= 355.0) and (not force_arc)
+        # Extrapolated if contiguous arc incomplete, border touched, or forced.
+        extrapolated = (coverage_contig < ARC_FULL_DEG) or on_border or force_arc
+        closed = not extrapolated
+        # σ axes: bootstrap scatter + model error on the unseen portion.
+        sa, sb = conic_axis_sigma(contour_raw) if fit_method == "conic" else (float("nan"), float("nan"))
+        gap_frac = float(max(0.0, min(1.0, (360.0 - coverage_contig) / 360.0)))
+        kf_a_sigma = float(np.hypot(sa if np.isfinite(sa) else 0.0, gap_frac * kf_a))
+        kf_b_sigma = float(np.hypot(sb if np.isfinite(sb) else 0.0, gap_frac * kf_b))
+        # Area: π·a·b extrapolated if arc is open, shoelace if closed.
+        area_out = float(np.pi * kf_a * kf_b) if (extrapolated and fit_method == "conic") else float(area)
+        # Luttinger requires ENCLOSED area: NaN if extrapolated (arpes-physicist).
         n_carriers = (
             luttinger_count(area, bz_area,
                             n_bands=int(settings.get("n_bands", 1)),
@@ -90,10 +126,16 @@ def characterize_mdc_at(ctrl, payload: dict):
         shifted[:, 0] -= float(params.kx_center); shifted[:, 1] -= float(params.ky_center)
         pocket = {
             "centroid_kx": float(center[0]), "centroid_ky": float(center[1]),
-            "area_inv_a2": float(area) if closed else float("nan"),
-            "area_pct_bz": (float(100.0 * area / bz_area) if (bz_area > 0 and closed) else float("nan")),
+            "area_inv_a2": float(area_out),
+            "area_pct_bz": (float(100.0 * area_out / bz_area) if bz_area > 0 else float("nan")),
             "closed": bool(closed),
+            "is_extrapolated": bool(extrapolated),
+            "ellipse_fit_valid": bool(ellipse_valid),
+            "fit_method": str(fit_method),
             "arc_coverage_deg": float(coverage_deg),
+            "arc_coverage_contig_deg": float(coverage_contig),
+            "kF_a_sigma": float(kf_a_sigma),
+            "kF_b_sigma": float(kf_b_sigma),
             "kF_mean": kf_mean, "kF_mean_std": kf_std_agg,
             "kF_a": kf_a, "kF_b": kf_b, "ellipse_angle_deg": float(angle),
             "topology": topology, "topology_confidence": float(conf),
@@ -128,7 +170,7 @@ def characterize_mdc_at(ctrl, payload: dict):
         blocking = [g for g in guards if not g.ok]
         if blocking:
             msgs = " | ".join(g.message for g in blocking if g.message)
-            ctrl._status(f"Poche MDC rejetée : {msgs}")
+            ctrl._status(f"MDC pocket rejected: {msgs}")
             return None
         ctrl._attach_dft_compare(pocket, entry, params)
         entry.fs_pockets = list(getattr(entry, "fs_pockets", []) or []) + [pocket]
@@ -140,13 +182,13 @@ def characterize_mdc_at(ctrl, payload: dict):
         if getattr(dialog, "delete_requested", False):
             ctrl._delete_pocket({"index": idx})
             return None
-        badge = "fermée" if closed else f"ARC {coverage_deg:.0f}°"
+        badge = "closed" if closed else f"ARC {coverage_deg:.0f}°"
         ctrl._status(
-            f"Poche MDC [{badge}] : {hs_label or '?'} "
+            f"MDC pocket [{badge}]: {hs_label or '?'} "
             f"kF={kf_mean:.3f}±{kf_std_agg:.3f} "
             f"({pocket['n_valid_directions']}/{n_dirs} dirs), {topology}."
         )
         return pocket
     except Exception as exc:
-        ctrl._status(f"Poche MDC : {exc}")
+        ctrl._status(f"MDC pocket: {exc}")
         return None

@@ -1,8 +1,8 @@
-"""Dialog Materials Project — recherche MPID par formule chimique.
+"""Materials Project dialog: search MPID by chemical formula.
 
-Lance la recherche réseau dans un QThread pour ne pas bloquer l'UI 2-5s.
-Le dialog n'importe aucun controller : il émet `mpid_selected(str)` que
-le widget parent connecte vers `txt_theory_mpid`.
+Runs the network search in a QThread so the UI is not blocked for 2-5 s.
+The dialog imports no controller: it emits `mpid_selected(str)`, which
+the parent widget connects to `txt_theory_mpid`.
 """
 from __future__ import annotations
 
@@ -46,17 +46,17 @@ class _SearchWorker(QObject):
         except MaterialsProjectUnavailable as exc:
             self.failed.emit(str(exc))
         except Exception as exc:
-            self.failed.emit(f"Recherche échouée: {exc}")
+            self.failed.emit(f"Search failed: {exc}")
 
 
 class MPSearchDialog(QDialog):
     mpid_selected = pyqtSignal(str)
 
-    COLUMNS = ("MPID", "Formule", "Système", "Groupe d'espace", "ΔE hull (eV/atom)", "Stable")
+    COLUMNS = ("MPID", "Formula", "System", "Space group", "ΔE hull (eV/atom)", "Stable")
 
     def __init__(self, parent=None, initial_formula: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("Materials Project — recherche par formule")
+        self.setWindowTitle("Materials Project — formula search")
         self.resize(720, 480)
         self._thread: QThread | None = None
         self._worker: _SearchWorker | None = None
@@ -67,17 +67,17 @@ class MPSearchDialog(QDialog):
         lay = QVBoxLayout(self)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("Formule:"))
+        row.addWidget(QLabel("Formula:"))
         self.txt_formula = QLineEdit(initial_formula)
         self.txt_formula.setPlaceholderText("BaNi2As2")
         self.txt_formula.returnPressed.connect(self._start_search)
         row.addWidget(self.txt_formula, 1)
-        self.btn_search = QPushButton("Chercher")
+        self.btn_search = QPushButton("Search")
         self.btn_search.clicked.connect(self._start_search)
         row.addWidget(self.btn_search)
         lay.addLayout(row)
 
-        self.lbl_status = QLabel("Tape une formule chimique puis Entrée.")
+        self.lbl_status = QLabel("Type a chemical formula, then press Enter.")
         self.lbl_status.setStyleSheet("color:#9fc;font-size:10px;")
         lay.addWidget(self.lbl_status)
 
@@ -91,7 +91,7 @@ class MPSearchDialog(QDialog):
         lay.addWidget(self.tbl, 1)
 
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        bb.button(QDialogButtonBox.StandardButton.Ok).setText("Sélectionner")
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText("Select")
         bb.accepted.connect(self._accept_selection)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -99,13 +99,13 @@ class MPSearchDialog(QDialog):
     def _start_search(self) -> None:
         formula = self.txt_formula.text().strip()
         if not formula:
-            self.lbl_status.setText("Attention : formule vide.")
+            self.lbl_status.setText("Warning: empty formula.")
             return
         self._cancel_thread()
         self._search_token += 1
         token = self._search_token
         self.btn_search.setEnabled(False)
-        self.lbl_status.setText(f"Recherche {formula} sur Materials Project ...")
+        self.lbl_status.setText(f"Searching {formula} on Materials Project ...")
         self.tbl.setRowCount(0)
 
         self._thread = QThread()
@@ -129,9 +129,9 @@ class MPSearchDialog(QDialog):
             return
         self.btn_search.setEnabled(True)
         if not results:
-            self.lbl_status.setText("Aucun résultat. Vérifie la formule (sensible au cas, Ba2NiAs2 ≠ BaNi2As2).")
+            self.lbl_status.setText("No results. Check the formula (case-sensitive, Ba2NiAs2 ≠ BaNi2As2).")
             return
-        self.lbl_status.setText(f"{len(results)} candidat(s). Double-clic ou Sélectionner.")
+        self.lbl_status.setText(f"{len(results)} candidate(s). Double-click or Select.")
         self.tbl.setRowCount(len(results))
         for row, r in enumerate(results):
             cells = [
@@ -140,7 +140,7 @@ class MPSearchDialog(QDialog):
                 r["crystal_system"],
                 r["spacegroup_symbol"],
                 f"{r['energy_above_hull']:.4f}",
-                "Oui" if r["is_stable"] else "Non",
+                "Yes" if r["is_stable"] else "No",
             ]
             for col, text in enumerate(cells):
                 item = QTableWidgetItem(str(text))
@@ -153,7 +153,7 @@ class MPSearchDialog(QDialog):
         if token != self._search_token:
             return
         self.btn_search.setEnabled(True)
-        self.lbl_status.setText(f"Erreur : {message}")
+        self.lbl_status.setText(f"Error: {message}")
 
     def _on_row_double_click(self, _item: QTableWidgetItem) -> None:
         self._accept_selection()
@@ -161,7 +161,7 @@ class MPSearchDialog(QDialog):
     def _accept_selection(self) -> None:
         row = self.tbl.currentRow()
         if row < 0:
-            self.lbl_status.setText("Sélectionne une ligne d'abord.")
+            self.lbl_status.setText("Select a row first.")
             return
         cell = self.tbl.item(row, 0)
         mpid = str(cell.data(Qt.ItemDataRole.UserRole) or cell.text() or "").strip()

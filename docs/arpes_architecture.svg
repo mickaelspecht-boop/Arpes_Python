@@ -1,331 +1,378 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1700" viewBox="0 0 2400 1700" role="img" aria-labelledby="title desc">
-  <title id="title">Architecture detaillee ARPES Explorer</title>
-  <desc id="desc">Carte rigoureuse des couches, modules, flux de donnees, contrats runtime, persistance et tests de l'application ARPES Explorer observee dans le code local.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="2800" height="2200" viewBox="0 0 2800 2200" role="img" aria-labelledby="title desc">
+  <title id="title">Complete Architecture of the ARPES Explorer Application</title>
+  <desc id="desc">Comprehensive diagram of layers, data flows, modules, contracts, caches, UI controls, analyses, and tests for the local ARPES Explorer application.</desc>
   <defs>
     <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#27364a"/>
+      <path d="M2,2 L10,6 L2,10 Z" fill="#263238"/>
     </marker>
     <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#1d4ed8"/>
+      <path d="M2,2 L10,6 L2,10 Z" fill="#2563eb"/>
     </marker>
     <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
       <path d="M2,2 L10,6 L2,10 Z" fill="#15803d"/>
     </marker>
+    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#c2410c"/>
+    </marker>
     <style>
-      .bg { fill: #f6f8fb; }
-      .panel { fill: #ffffff; stroke: #d0d5dd; stroke-width: 1.4; rx: 14; }
-      .panelSoft { fill: #fbfcfe; stroke: #d0d5dd; stroke-width: 1.2; rx: 14; }
-      .title { font: 700 38px Arial, Helvetica, sans-serif; fill: #101828; }
+      .bg { fill: #f7f9fc; }
+      .panel { fill: #ffffff; stroke: #cfd7e3; stroke-width: 1.5; rx: 16; }
+      .panel2 { fill: #fbfdff; stroke: #d7dee9; stroke-width: 1.2; rx: 14; }
+      .title { font: 700 40px Arial, Helvetica, sans-serif; fill: #101828; }
       .subtitle { font: 18px Arial, Helvetica, sans-serif; fill: #475467; }
-      .section { font: 700 20px Arial, Helvetica, sans-serif; fill: #101828; }
-      .groupTitle { font: 700 17px Arial, Helvetica, sans-serif; fill: #101828; }
+      .stamp { font: 12px Arial, Helvetica, sans-serif; fill: #667085; }
+      .section { font: 700 22px Arial, Helvetica, sans-serif; fill: #101828; }
       .label { font: 700 15px Arial, Helvetica, sans-serif; fill: #111827; }
-      .small { font: 13.5px Arial, Helvetica, sans-serif; fill: #344054; }
-      .tiny { font: 12px Arial, Helvetica, sans-serif; fill: #667085; }
-      .mono { font: 12.5px "SFMono-Regular", Consolas, "Liberation Mono", monospace; fill: #344054; }
-      .monoStrong { font: 700 12.5px "SFMono-Regular", Consolas, "Liberation Mono", monospace; fill: #1f2937; }
-      .box { fill: #ffffff; stroke: #98a2b3; stroke-width: 1.2; rx: 8; }
-      .entry { fill: #eef4ff; stroke: #2563eb; stroke-width: 1.8; rx: 8; }
-      .ui { fill: #eff6ff; stroke: #2e90fa; stroke-width: 1.5; rx: 8; }
-      .ctrl { fill: #f0f9ff; stroke: #0284c7; stroke-width: 1.6; rx: 8; }
-      .data { fill: #f4f3ff; stroke: #7a5af8; stroke-width: 1.6; rx: 8; }
-      .io { fill: #ecfdf3; stroke: #16a34a; stroke-width: 1.6; rx: 8; }
-      .physics { fill: #f0fdf4; stroke: #22c55e; stroke-width: 1.6; rx: 8; }
-      .analysis { fill: #fff7ed; stroke: #f97316; stroke-width: 1.6; rx: 8; }
-      .theory { fill: #fdf4ff; stroke: #c026d3; stroke-width: 1.6; rx: 8; }
-      .risk { fill: #fff1f3; stroke: #e11d48; stroke-width: 1.6; rx: 8; }
-      .test { fill: #f8fafc; stroke: #64748b; stroke-width: 1.3; rx: 8; }
-      .flow { stroke: #27364a; stroke-width: 2.1; fill: none; marker-end: url(#arrow); }
-      .flowBlue { stroke: #1d4ed8; stroke-width: 2.0; fill: none; marker-end: url(#arrowBlue); }
+      .small { font: 13px Arial, Helvetica, sans-serif; fill: #344054; }
+      .tiny { font: 11.5px Arial, Helvetica, sans-serif; fill: #667085; }
+      .mono { font: 12px "SFMono-Regular", Consolas, "Liberation Mono", monospace; fill: #344054; }
+      .monoStrong { font: 700 12px "SFMono-Regular", Consolas, "Liberation Mono", monospace; fill: #1f2937; }
+      .box { fill: #ffffff; stroke: #98a2b3; stroke-width: 1.2; rx: 9; }
+      .ui { fill: #eff6ff; stroke: #2563eb; stroke-width: 1.5; rx: 9; }
+      .ctrl { fill: #ecfeff; stroke: #0891b2; stroke-width: 1.5; rx: 9; }
+      .io { fill: #ecfdf3; stroke: #16a34a; stroke-width: 1.5; rx: 9; }
+      .model { fill: #f4f3ff; stroke: #7c3aed; stroke-width: 1.5; rx: 9; }
+      .physics { fill: #f0fdf4; stroke: #22c55e; stroke-width: 1.5; rx: 9; }
+      .render { fill: #fff7ed; stroke: #f97316; stroke-width: 1.5; rx: 9; }
+      .analysis { fill: #fffbeb; stroke: #d97706; stroke-width: 1.5; rx: 9; }
+      .theory { fill: #fdf4ff; stroke: #c026d3; stroke-width: 1.5; rx: 9; }
+      .risk { fill: #fff1f2; stroke: #e11d48; stroke-width: 1.5; rx: 9; }
+      .test { fill: #f8fafc; stroke: #64748b; stroke-width: 1.3; rx: 9; }
+      .flow { stroke: #263238; stroke-width: 2.0; fill: none; marker-end: url(#arrow); }
+      .flowBlue { stroke: #2563eb; stroke-width: 2.0; fill: none; marker-end: url(#arrowBlue); }
       .flowGreen { stroke: #15803d; stroke-width: 2.0; fill: none; marker-end: url(#arrowGreen); }
-      .flowSoft { stroke: #667085; stroke-width: 1.6; stroke-dasharray: 8 6; fill: none; marker-end: url(#arrow); }
-      .flowThin { stroke: #667085; stroke-width: 1.2; fill: none; marker-end: url(#arrow); }
+      .flowOrange { stroke: #c2410c; stroke-width: 2.0; fill: none; marker-end: url(#arrowOrange); }
+      .flowSoft { stroke: #667085; stroke-width: 1.5; stroke-dasharray: 8 6; fill: none; marker-end: url(#arrow); }
       .divider { stroke: #d0d5dd; stroke-width: 1; }
-      .badge { fill: #101828; rx: 10; }
-      .badgeText { font: 700 11px Arial, Helvetica, sans-serif; fill: #ffffff; }
+      .legendLine { stroke: #667085; stroke-width: 1.5; }
     </style>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="2400" height="1700"/>
+  <rect class="bg" width="2800" height="2200"/>
+  <text class="title" x="60" y="62">ARPES Explorer - complete operating diagram</text>
+  <text class="subtitle" x="60" y="94">PyQt6 + Matplotlib for ARPES: data/logbook ingestion, EF/Gamma calibration, BM/MDC/FS/KZ, FS-BM pairing, DFT, analysis, and export.</text>
+  <text class="stamp" x="60" y="120">Generated from local code. Goal: visualize real dependencies and execution flows without conceptual shortcuts.</text>
 
-  <text class="title" x="60" y="62">ARPES Explorer - architecture applicative detaillee</text>
-  <text class="subtitle" x="60" y="94">Application PyQt6 / Matplotlib pour chargement, calibration, visualisation, fit MDC, FS, KZ, theorie DFT, analyse et export ARPES.</text>
-  <text class="tiny" x="60" y="120">Source: code local dans arpes/, tests/ et docs/; diagramme centre sur les modules presents et leurs contrats observables. Derniere mise a jour: 2026-05-20.</text>
+  <rect class="panel" x="40" y="150" width="2720" height="340"/>
+  <text class="section" x="70" y="186">1. Application shell, widgets, and controllers</text>
 
-  <rect class="panel" x="40" y="150" width="2320" height="370"/>
-  <text class="section" x="70" y="185">1. Composition UI et orchestration</text>
+  <rect class="ui" x="70" y="220" width="350" height="205"/>
+  <text class="label" x="95" y="250">Main window</text>
+  <text class="monoStrong" x="95" y="277">arpes/app.py</text>
+  <text class="small" x="95" y="305">ArpesExplorer(QMainWindow)</text>
+  <text class="small" x="95" y="328">Runtime state: _session, _raw_data, _data_disp,</text>
+  <text class="small" x="95" y="351">_fit_res, _current_path, selections E/k,</text>
+  <text class="small" x="95" y="374">timers redraw, caches RAM, statusbar.</text>
+  <text class="tiny" x="95" y="402">Still exposes legacy methods through proxy_map.</text>
 
-  <rect class="entry" x="70" y="215" width="310" height="220"/>
-  <text class="label" x="95" y="245">Point d'entree / etat courant</text>
-  <text class="monoStrong" x="95" y="274">arpes/app.py</text>
-  <text class="small" x="95" y="303">ArpesExplorer(QMainWindow)</text>
-  <text class="small" x="95" y="329">Possede: _session, _raw_data, _current_path,</text>
-  <text class="small" x="95" y="352">_fit_res, _display_data, selections MDC,</text>
-  <text class="small" x="95" y="375">timers redraw/live-fit, Qt shortcuts.</text>
-  <text class="tiny" x="95" y="404">Role: shell UI + compatibilite legacy via __getattr__.</text>
+  <rect class="ui" x="470" y="205" width="405" height="235"/>
+  <text class="label" x="495" y="235">UI construction</text>
+  <text class="mono" x="495" y="262">ui/builders/panels.py</text>
+  <text class="mono" x="495" y="285">ui/builders/menus.py</text>
+  <text class="small" x="495" y="314">Creates: file browser, central tabs,</text>
+  <text class="small" x="495" y="337">params panel, FS controls, ResultsPanel,</text>
+  <text class="small" x="495" y="360">KZ/Notes/Help, menus cache/export/session.</text>
+  <text class="small" x="495" y="383">Connects Qt signals to controllers.</text>
+  <text class="tiny" x="495" y="411">Principle: declarative UI, domain logic in controllers/physics/io.</text>
 
-  <rect class="ui" x="430" y="205" width="330" height="245"/>
-  <text class="label" x="455" y="235">Builders d'interface</text>
-  <text class="mono" x="455" y="262">ui/builders/panels.py</text>
-  <text class="mono" x="455" y="285">ui/builders/menus.py</text>
-  <text class="small" x="455" y="316">Construit layout: navigateur gauche, panneau</text>
-  <text class="small" x="455" y="339">parametres droit, onglets centraux.</text>
-  <text class="small" x="455" y="365">Wire signaux: file_selected, params_changed,</text>
-  <text class="small" x="455" y="388">fit_only_changed, FS/KZ/theory/logbook.</text>
-  <text class="tiny" x="455" y="417">Contrat: aucune logique metier lourde.</text>
+  <rect class="ui" x="925" y="205" width="430" height="235"/>
+  <text class="label" x="950" y="235">Widgets</text>
+  <text class="mono" x="950" y="262">ui/widgets/canvas.py</text>
+  <text class="mono" x="950" y="285">ui/widgets/params*.py, fs_panel.py, kz.py</text>
+  <text class="mono" x="950" y="308">ui/widgets/browsers/*, dialogs/*, plots/*</text>
+  <text class="small" x="950" y="337">MplCanvas, FitParamsPanel, FermiSurfaceCanvas,</text>
+  <text class="small" x="950" y="360">FileBrowserPanel, ResultsPanel, dialogs EF/MP/export.</text>
+  <text class="small" x="950" y="383">Emits: params_changed, fit_only_changed, requests.</text>
+  <text class="tiny" x="950" y="411">Receives: already prepared data or controller callbacks.</text>
 
-  <rect class="ui" x="810" y="205" width="405" height="245"/>
-  <text class="label" x="835" y="235">Widgets et dialogues</text>
-  <text class="mono" x="835" y="262">ui/widgets/canvas.py, params*.py, results.py</text>
-  <text class="mono" x="835" y="285">ui/widgets/plots/*, dialogs/*, browsers/*</text>
-  <text class="small" x="835" y="316">MplCanvas, FitParamsPanel, FileBrowserPanel,</text>
-  <text class="small" x="835" y="339">ResultsPanel, HelpPanel, NotesPanel, KZ controls.</text>
-  <text class="small" x="835" y="365">Dialogs: EF calibration, export, MP search,</text>
-  <text class="small" x="835" y="388">theory band picker, BZ selector, session diff.</text>
-  <text class="tiny" x="835" y="417">Matplotlib events: clic BM/FS, ROI, drag kF, scroll zoom.</text>
+  <rect class="ctrl" x="1405" y="190" width="610" height="265"/>
+  <text class="label" x="1430" y="220">Specialized controllers</text>
+  <text class="mono" x="1430" y="247">load_controller, logbook_controller, session_io_controller</text>
+  <text class="mono" x="1430" y="270">plot_controller, interaction_controller, fs_controller, kz_controller</text>
+  <text class="mono" x="1430" y="293">fit_runner, fit_zones, gamma, norm, distortion, pocket</text>
+  <text class="mono" x="1430" y="316">pairing, theory_overlay, batch, band_analysis, browser</text>
+  <text class="small" x="1430" y="348">Orchestrate user actions, session read/write,</text>
+  <text class="small" x="1430" y="371">redraw, fit, overlays, caches, pure-module calls.</text>
+  <text class="tiny" x="1430" y="400">Each controller writes parent through allowlisted attributes or proxies.</text>
 
-  <rect class="ctrl" x="1265" y="190" width="505" height="280"/>
-  <text class="label" x="1290" y="220">Controllers UI specialises</text>
-  <text class="mono" x="1290" y="247">load, browser, session_io, logbook, batch</text>
-  <text class="mono" x="1290" y="270">plot, interaction, fit_runner, norm</text>
-  <text class="mono" x="1290" y="293">gamma, fs, kz, distortion, theory_overlay</text>
-  <text class="small" x="1290" y="324">Responsabilites: charger, redessiner, fitter, appliquer</text>
-  <text class="small" x="1290" y="347">EF/Gamma/grille/distorsion, KZ, theory overlay,</text>
-  <text class="small" x="1290" y="370">batch fit, persistance session et dialogues.</text>
-  <text class="small" x="1290" y="397">Chaque controller delegue a _parent pour etat commun.</text>
-  <text class="tiny" x="1290" y="426">PROXY_MAP route les anciennes methodes privees vers controllers.</text>
+  <rect class="model" x="2065" y="205" width="640" height="235"/>
+  <text class="label" x="2090" y="235">Proxy and legacy routing</text>
+  <text class="mono" x="2090" y="262">ui/controllers/proxy_map.py</text>
+  <text class="small" x="2090" y="292">_PROXY_MAP maps old methods _draw_bm, _fit_full,</text>
+  <text class="small" x="2090" y="315">_apply_gamma_reference_to_bm, _draw_fs_tab, _draw_kz_tab, etc.</text>
+  <text class="small" x="2090" y="338">Allows progressive redesign without breaking Qt signals or tests.</text>
+  <text class="small" x="2090" y="361">Risk: implicit API; mitigation: smoke tests and fail-loud AttributeError.</text>
+  <text class="tiny" x="2090" y="390">Final goal: reduce legacy surface once controllers stabilize.</text>
 
-  <rect class="data" x="1820" y="205" width="500" height="245"/>
-  <text class="label" x="1845" y="235">Proxy legacy et evenements</text>
-  <text class="mono" x="1845" y="262">ui/controllers/proxy_map.py</text>
-  <text class="small" x="1845" y="294">_PROXY_MAP couvre FS, plot, Gamma, norm,</text>
-  <text class="small" x="1845" y="317">distortion, interaction, fit_runner, KZ, theory,</text>
-  <text class="small" x="1845" y="340">session IO, batch.</text>
-  <text class="small" x="1845" y="370">Tests smoke verifient: controllers presents,</text>
-  <text class="small" x="1845" y="393">proxy resolvable, widgets construits.</text>
-  <text class="tiny" x="1845" y="422">Risque controle: API implicite encore necessaire a la refonte.</text>
+  <path class="flowBlue" d="M420 322 H470"/>
+  <path class="flowBlue" d="M875 322 H925"/>
+  <path class="flowBlue" d="M1355 322 H1405"/>
+  <path class="flowSoft" d="M2015 322 H2065"/>
 
-  <path class="flowBlue" d="M380 325 H430"/>
-  <path class="flowBlue" d="M760 325 H810"/>
-  <path class="flowBlue" d="M1215 325 H1265"/>
-  <path class="flowSoft" d="M1770 325 H1820"/>
-  <path class="flowSoft" d="M1820 435 C1540 515 760 500 225 435"/>
+  <rect class="panel" x="40" y="520" width="2720" height="440"/>
+  <text class="section" x="70" y="556">2. File ingestion, logbooks, and ARPESData normalization</text>
 
-  <rect class="panel" x="40" y="550" width="2320" height="390"/>
-  <text class="section" x="70" y="585">2. Pipeline donnees: fichiers bruts vers donnees internes, affichages, resultats</text>
+  <rect class="box" x="70" y="595" width="315" height="255"/>
+  <text class="label" x="95" y="625">Data sources</text>
+  <text class="small" x="95" y="655">Solaris / DA30: .pxt, .ibw, .zip via erlab</text>
+  <text class="small" x="95" y="678">BESSY SES/R8000: IBW v5 + note SES</text>
+  <text class="small" x="95" y="701">CLS/LNLS text: BM file + *_param.txt</text>
+  <text class="small" x="95" y="724">CLS FS: FS folder + Cycle/Step + FS_param.txt</text>
+  <text class="small" x="95" y="747">Logbooks: global or scoped CSV/TSV/XLSX</text>
+  <text class="small" x="95" y="770">Sessions: .arpes_session.json</text>
+  <text class="small" x="95" y="793">Theory: Materials Project or local files</text>
+  <text class="tiny" x="95" y="822">Data root typique: Documents/Stage_M2/code/Data.</text>
 
-  <rect class="box" x="70" y="620" width="255" height="220"/>
-  <text class="label" x="95" y="650">Entrees</text>
-  <text class="small" x="95" y="680">Fichiers/dossiers ARPES</text>
-  <text class="small" x="95" y="703">Solaris DA30, BESSY SES IBW, CLS txt</text>
-  <text class="small" x="95" y="730">Logbooks CSV/XLSX, dossiers KZ</text>
-  <text class="small" x="95" y="754">Theory local ou Materials Project</text>
-  <text class="small" x="95" y="780">Parametres UI: hv, phi, EF, fit,</text>
-  <text class="small" x="95" y="803">ROI, normalisation, distorsion, tags.</text>
+  <rect class="io" x="430" y="575" width="380" height="300"/>
+  <text class="label" x="455" y="605">Loader registry</text>
+  <text class="mono" x="455" y="632">io/loaders/common.py</text>
+  <text class="small" x="455" y="662">register_loader(name, detector_fn, loader_fn)</text>
+  <text class="small" x="455" y="685">detect_format(path) scans _LOADER_REGISTRY</text>
+  <text class="small" x="455" y="708">load_arpes(...) applies format_hint then validation</text>
+  <text class="small" x="455" y="731">detect_scan_kind: BM, FS, KZ, EDC, unknown</text>
+  <text class="mono" x="455" y="764">ARPESData(data, energy, kx, ky, hv, metadata)</text>
+  <text class="small" x="455" y="795">Internal contract: data (n_k,n_E), energy E-EF,</text>
+  <text class="small" x="455" y="818">kx/ky en pi/a, FS metadata shape (ny,nx,nE).</text>
+  <text class="tiny" x="455" y="847">assert_arpes_data_valid blocks inconsistent shapes/axes.</text>
 
-  <rect class="io" x="375" y="610" width="380" height="250"/>
-  <text class="label" x="400" y="640">Detection et chargement normalise</text>
-  <text class="mono" x="400" y="667">io/loaders/common.py</text>
-  <text class="mono" x="400" y="690">io/loaders/{solaris,bessy,cls}.py</text>
-  <text class="mono" x="400" y="713">io/loader_orchestrator.py</text>
-  <text class="small" x="400" y="744">detect_format / detect_scan_kind / registry</text>
-  <text class="small" x="400" y="767">ARPESData(data, energy, kx, ky, hv, metadata)</text>
-  <text class="small" x="400" y="790">Validation: shape, axes monotones, convention FS.</text>
-  <text class="tiny" x="400" y="821">Sortie legacy: {data, kpar, ev_arr, hv, path, metadata}.</text>
+  <rect class="io" x="855" y="575" width="420" height="300"/>
+  <text class="label" x="880" y="605">Current loader backends</text>
+  <text class="mono" x="880" y="632">io/loaders/solaris.py</text>
+  <text class="small" x="880" y="655">erlab.io da30, E-EF = eV - (hv - phi) + EF offset,</text>
+  <text class="small" x="880" y="678">kspace.convert, A^-1 to pi/a conversion.</text>
+  <text class="mono" x="880" y="708">io/loaders/bessy.py</text>
+  <text class="small" x="880" y="731">Manual IBW v5, [SES] note, hv via file/logbook/manual,</text>
+  <text class="small" x="880" y="754">E/theta/P axes, FS if 3D, energy warnings.</text>
+  <text class="mono" x="880" y="784">io/loaders/cls.py</text>
+  <text class="small" x="880" y="807">Param files, Cycle/Step, cache FS mean, P/T motors,</text>
+  <text class="small" x="880" y="830">hv guards, static_polar_for_kx.</text>
 
-  <rect class="data" x="805" y="610" width="350" height="250"/>
-  <text class="label" x="830" y="640">Etat de travail en memoire</text>
-  <text class="mono" x="830" y="667">_raw_data</text>
-  <text class="mono" x="830" y="690">_display_data / _grid_display_info</text>
-  <text class="mono" x="830" y="713">_fit_res / _selected_* / _undo</text>
-  <text class="small" x="830" y="744">Dict mutable: data, kpar, ev_arr, metadata.</text>
-  <text class="small" x="830" y="767">Metadata porte: loader, geometry, EF/Gamma,</text>
-  <text class="small" x="830" y="790">FS volume, distorsion, cache signatures.</text>
-  <text class="tiny" x="830" y="821">Point sensible: contrats encore partiellement dynamiques.</text>
+  <rect class="io" x="1320" y="575" width="420" height="300"/>
+  <text class="label" x="1345" y="605">Logbooks and metadata enrichment</text>
+  <text class="mono" x="1345" y="632">io/logbook.py</text>
+  <text class="mono" x="1345" y="655">io/logbook_io.py</text>
+  <text class="mono" x="1345" y="678">io/logbook_matching.py</text>
+  <text class="small" x="1345" y="708">Read CSV/XLSX, header detection, column mapping,</text>
+  <text class="small" x="1345" y="731">inherit context direction/pol/azi, scoped sheets.</text>
+  <text class="small" x="1345" y="754">Applies: hv, temperature, polarization, direction,</text>
+  <text class="small" x="1345" y="777">azi, polar, tilt, formula, mp_id, crystal_a.</text>
+  <text class="small" x="1345" y="800">KZ row disambiguation: identical File + Spectrum Name.</text>
+  <text class="tiny" x="1345" y="830">Priority source when raw file lacks reliable metadata.</text>
 
-  <rect class="physics" x="1205" y="610" width="420" height="250"/>
-  <text class="label" x="1230" y="640">Calculs physiques et transformations</text>
-  <text class="mono" x="1230" y="667">physics/plot_compute.py, fit.py, norm.py</text>
-  <text class="mono" x="1230" y="690">physics/gamma.py, ef_calibration.py</text>
-  <text class="mono" x="1230" y="713">physics/fs.py, kz.py, distortion.py</text>
-  <text class="mono" x="1230" y="736">physics/bz.py, resolution.py, cls_geometry.py</text>
-  <text class="small" x="1230" y="767">BM/MDC/EDC, fit MDC, EF edge, Gamma FS/BM,</text>
-  <text class="small" x="1230" y="790">normalisation flux, grille detecteur, KZ, BZ, FS.</text>
-  <text class="tiny" x="1230" y="821">Preferer fonctions pures; UI appelle depuis controllers.</text>
+  <rect class="ctrl" x="1785" y="575" width="360" height="300"/>
+  <text class="label" x="1810" y="605">LoadController and context</text>
+  <text class="mono" x="1810" y="632">ui/controllers/load_controller.py</text>
+  <text class="mono" x="1810" y="655">io/loader_orchestrator.py</text>
+  <text class="small" x="1810" y="685">Prepare FileEntry, hv source, work_func, lattice a,</text>
+  <text class="small" x="1810" y="708">angle_offsets, BESSY energy policy.</text>
+  <text class="small" x="1810" y="731">Dispatches loader, applies loaded metadata,</text>
+  <text class="small" x="1810" y="754">updates scan_kind, tilt, resolution, caches.</text>
+  <text class="small" x="1810" y="777">Force reload if a lattice / phi / offsets change.</text>
+  <text class="tiny" x="1810" y="807">Bridge between UI/session and pure IO.</text>
 
-  <rect class="analysis" x="1675" y="610" width="310" height="250"/>
-  <text class="label" x="1700" y="640">Analyse post-fit</text>
-  <text class="mono" x="1700" y="667">analysis/results.py</text>
-  <text class="mono" x="1700" y="690">analysis/bootstrap.py</text>
-  <text class="mono" x="1700" y="713">analysis/self_energy.py</text>
-  <text class="mono" x="1700" y="736">analysis/aggregation.py</text>
-  <text class="small" x="1700" y="767">vF, m*, Gamma FL, asymetrie,</text>
-  <text class="small" x="1700" y="790">bootstrap, Re/Im self-energy, multi-fichiers.</text>
-  <text class="tiny" x="1700" y="821">Dataclasses resultats testables hors Qt.</text>
+  <rect class="model" x="2190" y="595" width="515" height="255"/>
+  <text class="label" x="2215" y="625">Caches and input signatures</text>
+  <text class="mono" x="2215" y="652">io/artifact_cache.py</text>
+  <text class="small" x="2215" y="682">Disk cache .arpes_cache/raw_artifacts/*.npz</text>
+  <text class="small" x="2215" y="705">Cache RAM _raw_load_cache et _path_signature_cache</text>
+  <text class="small" x="2215" y="728">CLS FS mean cache: *_fs_mean_v*.npz</text>
+  <text class="small" x="2215" y="751">Cache key inclut path signature, params, hv, phi, a, offsets</text>
+  <text class="small" x="2215" y="774">Menu: reload without cache, clear cache, toggle disk cache</text>
+  <text class="tiny" x="2215" y="803">Goal: accelerate reload without hiding metadata changes.</text>
 
-  <rect class="box" x="2035" y="620" width="285" height="220"/>
-  <text class="label" x="2060" y="650">Sorties</text>
-  <text class="small" x="2060" y="680">Figures Matplotlib: BM, MDC, EDC, FS, KZ</text>
-  <text class="small" x="2060" y="704">Overlays: kF, theory, ROI, EF, Gamma, BZ</text>
-  <text class="small" x="2060" y="728">Tables ResultsPanel</text>
-  <text class="small" x="2060" y="752">CSV via io/export.py</text>
-  <text class="small" x="2060" y="776">Styles export via io/export_styles.py</text>
-  <text class="small" x="2060" y="800">Sessions JSON / diff de sessions</text>
+  <path class="flowGreen" d="M385 725 H430"/>
+  <path class="flowGreen" d="M810 725 H855"/>
+  <path class="flowGreen" d="M1275 725 H1320"/>
+  <path class="flowGreen" d="M1740 725 H1785"/>
+  <path class="flowGreen" d="M2145 725 H2190"/>
 
-  <path class="flowGreen" d="M325 730 H375"/>
-  <path class="flowGreen" d="M755 730 H805"/>
-  <path class="flowGreen" d="M1155 730 H1205"/>
-  <path class="flowGreen" d="M1625 730 H1675"/>
-  <path class="flowGreen" d="M1985 730 H2035"/>
-  <path class="flowSoft" d="M1415 610 C1400 535 1060 505 980 610"/>
-  <path class="flowSoft" d="M980 860 C1140 910 1450 910 1830 860"/>
+  <rect class="panel" x="40" y="990" width="2720" height="375"/>
+  <text class="section" x="70" y="1026">3. Domain model, session, and value provenance</text>
 
-  <rect class="panel" x="40" y="970" width="1135" height="500"/>
-  <text class="section" x="70" y="1005">3. Contrats, persistance, caches</text>
+  <rect class="model" x="70" y="1060" width="380" height="230"/>
+  <text class="label" x="95" y="1090">Session and durable storage</text>
+  <text class="mono" x="95" y="1117">core/session.py</text>
+  <text class="small" x="95" y="1147">Session.VERSION, atomic JSON save/load</text>
+  <text class="small" x="95" y="1170">files: key path -> FileEntry</text>
+  <text class="small" x="95" y="1193">folder, work_func, logbook_records/mapping</text>
+  <text class="small" x="95" y="1216">scoped_logbooks, gamma_reference, ef_reference</text>
+  <text class="small" x="95" y="1239">convention_registry, recent sessions.</text>
+  <text class="tiny" x="95" y="1268">Preserve dirty worktree/session state; backup option.</text>
 
-  <rect class="data" x="70" y="1040" width="335" height="205"/>
-  <text class="label" x="95" y="1070">Session persistante</text>
-  <text class="mono" x="95" y="1097">core/session.py</text>
-  <text class="small" x="95" y="1127">Session(folder, work_func)</text>
-  <text class="small" x="95" y="1150">files: dict[str, FileEntry]</text>
-  <text class="small" x="95" y="1173">logbooks, scoped_logbooks, KZ logbook</text>
-  <text class="small" x="95" y="1196">gamma_reference, angle_offsets, ef_reference</text>
-  <text class="tiny" x="95" y="1223">Fichier: .arpes_session.json; keys relatifs au dossier.</text>
+  <rect class="model" x="500" y="1060" width="425" height="230"/>
+  <text class="label" x="525" y="1090">FileEntry per file</text>
+  <text class="mono" x="525" y="1117">FileMeta, FitParams, FileEntry</text>
+  <text class="small" x="525" y="1147">FitParams: ranges E/k, n_pairs, widths, smoothing,</text>
+  <text class="small" x="525" y="1170">gamma init/max, k0, shape, resolution, pairs.</text>
+  <text class="small" x="525" y="1193">FileMeta: hv, T, direction, pol, meas_no, azi,</text>
+  <text class="small" x="525" y="1216">polar, tilt, loader, source_format, formula, mp_id, a/c.</text>
+  <text class="small" x="525" y="1239">Extras: fs center, fs lattice, grid, EF, distortion,</text>
+  <text class="small" x="525" y="1262">theory overlay, band analysis, pockets, annotations.</text>
 
-  <rect class="data" x="435" y="1040" width="340" height="205"/>
-  <text class="label" x="460" y="1070">FileEntry et proprietes par fichier</text>
-  <text class="mono" x="460" y="1097">FitParams, FileMeta, FileEntry</text>
-  <text class="small" x="460" y="1127">Fit: n_pairs, ev/k range, gamma, shape, pairs</text>
-  <text class="small" x="460" y="1150">Meta: hv, T, direction, pol, meas_no, azi,</text>
-  <text class="small" x="460" y="1173">polar, tilt, loader, formula, mp_id, tags</text>
-  <text class="small" x="460" y="1196">Extras: fs_center, grid, EF, distortion, theory, annotations</text>
-  <text class="tiny" x="460" y="1223">Status derive: fitted si fit_result existe.</text>
+  <rect class="model" x="975" y="1060" width="390" height="230"/>
+  <text class="label" x="1000" y="1090">Provenance and explicit contracts</text>
+  <text class="mono" x="1000" y="1117">core/models.py</text>
+  <text class="small" x="1000" y="1147">MetadataSource(value, source, unit)</text>
+  <text class="small" x="1000" y="1170">ResolutionInfo(dE_meV, dk_inv_a, source)</text>
+  <text class="small" x="1000" y="1193">LoadContext(hv, T, azi, pol, angle_offsets)</text>
+  <text class="small" x="1000" y="1216">Gamma/Fit summaries, detected file tags, axis guards.</text>
+  <text class="small" x="1000" y="1239">Goal: track file vs logbook vs manual vs session.</text>
+  <text class="tiny" x="1000" y="1268">Helps avoid silent corrections.</text>
 
-  <rect class="data" x="805" y="1040" width="340" height="205"/>
-  <text class="label" x="830" y="1070">Contrats runtime supplementaires</text>
-  <text class="mono" x="830" y="1097">core/models.py</text>
-  <text class="small" x="830" y="1127">MetadataSource: valeur + provenance + unite</text>
-  <text class="small" x="830" y="1150">ResolutionInfo: dE_meV, dk_inv_a, source</text>
-  <text class="small" x="830" y="1173">FitGammaSummary: medianes Gamma + limite resolution</text>
-  <text class="small" x="830" y="1196">LoadContext: hv, T, azi, pol, angle_offsets</text>
-  <text class="tiny" x="830" y="1223">But: expliciter progressivement les dicts legacy.</text>
+  <rect class="model" x="1415" y="1060" width="380" height="230"/>
+  <text class="label" x="1440" y="1090">Undo, tags, notes, export, and diff</text>
+  <text class="mono" x="1440" y="1117">core/undo.py</text>
+  <text class="mono" x="1440" y="1140">analysis/session_diff.py</text>
+  <text class="mono" x="1440" y="1163">io/export.py, export_styles.py</text>
+  <text class="small" x="1440" y="1193">UndoStack keeps snapshots for sensitive actions.</text>
+  <text class="small" x="1440" y="1216">File tags and session notes through UI panels.</text>
+  <text class="small" x="1440" y="1239">CSV/figure export with publication style.</text>
+  <text class="tiny" x="1440" y="1268">Session comparison for change audits.</text>
 
-  <rect class="io" x="70" y="1280" width="335" height="145"/>
-  <text class="label" x="95" y="1310">Caches disque et recents</text>
-  <text class="mono" x="95" y="1337">io/artifact_cache.py</text>
-  <text class="mono" x="95" y="1360">io/recent_sessions.py</text>
-  <text class="small" x="95" y="1390">Cache loader/artefacts, clear/toggle via menu,</text>
-  <text class="small" x="95" y="1413">registre de sessions recentes.</text>
+  <rect class="risk" x="1845" y="1060" width="405" height="230"/>
+  <text class="label" x="1870" y="1090">Critical invariants</text>
+  <text class="small" x="1870" y="1120">1. Displayed energy = E - EF if calibration is known.</text>
+  <text class="small" x="1870" y="1143">2. BM data shape = (n_k, n_E).</text>
+  <text class="small" x="1870" y="1166">3. FS data shape = (n_ky, n_kx, n_E).</text>
+  <text class="small" x="1870" y="1189">4. kx/ky displayed in pi/a, not A^-1.</text>
+  <text class="small" x="1870" y="1212">5. Every automatic correction must leave warning/source.</text>
+  <text class="small" x="1870" y="1235">6. No scoped-logbook mixing across subfolders.</text>
+  <text class="tiny" x="1870" y="1264">These invariants control Gamma, KZ, FS-BM, and DFT.</text>
 
-  <rect class="data" x="435" y="1280" width="340" height="145"/>
-  <text class="label" x="460" y="1310">Undo et editions interactives</text>
-  <text class="mono" x="460" y="1337">core/undo.py</text>
-  <text class="small" x="460" y="1367">UndoFrame + UndoStack.</text>
-  <text class="small" x="460" y="1390">Utilise surtout suppressions/editions kF,</text>
-  <text class="small" x="460" y="1413">raccourcis Ctrl+Z / Ctrl+Y.</text>
+  <rect class="test" x="2300" y="1060" width="405" height="230"/>
+  <text class="label" x="2325" y="1090">Contract tests</text>
+  <text class="mono" x="2325" y="1117">tests/test_session.py</text>
+  <text class="mono" x="2325" y="1140">tests/test_models.py</text>
+  <text class="mono" x="2325" y="1163">tests/test_load_cache.py</text>
+  <text class="mono" x="2325" y="1186">tests/test_logbook*.py</text>
+  <text class="small" x="2325" y="1216">Cover persistence, migration, caches, mapping,</text>
+  <text class="small" x="2325" y="1239">scan_kind, file tags, loaders integration.</text>
+  <text class="tiny" x="2325" y="1268">Recommended pre-release run: selected test suite + smoke.</text>
 
-  <rect class="io" x="805" y="1280" width="340" height="145"/>
-  <text class="label" x="830" y="1310">Logbook et provenance metadata</text>
-  <text class="mono" x="830" y="1337">io/logbook.py, io/logbook_io.py</text>
-  <text class="small" x="830" y="1367">Infer mapping colonnes, scoped logbooks,</text>
-  <text class="small" x="830" y="1390">matching chemin/numero mesure, application</text>
-  <text class="small" x="830" y="1413">hv/T/pol/direction/azi/polar/tilt/formula.</text>
+  <path class="flow" d="M450 1175 H500"/>
+  <path class="flow" d="M925 1175 H975"/>
+  <path class="flowSoft" d="M1365 1175 H1415"/>
+  <path class="flowSoft" d="M1795 1175 H1845"/>
+  <path class="flowSoft" d="M2250 1175 H2300"/>
 
-  <path class="flowSoft" d="M980 860 V1040"/>
-  <path class="flowThin" d="M405 1140 H435"/>
-  <path class="flowThin" d="M775 1140 H805"/>
-  <path class="flowThin" d="M240 1245 V1280"/>
-  <path class="flowThin" d="M605 1245 V1280"/>
-  <path class="flowThin" d="M975 1245 V1280"/>
+  <rect class="panel" x="40" y="1395" width="2720" height="450"/>
+  <text class="section" x="70" y="1431">4. Visualization, rendering, and scientific interactions</text>
 
-  <rect class="panel" x="1210" y="970" width="1150" height="500"/>
-  <text class="section" x="1240" y="1005">4. Sous-systemes metier principaux</text>
+  <rect class="render" x="70" y="1470" width="430" height="260"/>
+  <text class="label" x="95" y="1500">Main band map</text>
+  <text class="mono" x="95" y="1527">ui/controllers/plot_controller.py</text>
+  <text class="mono" x="95" y="1550">physics/plot_compute.py</text>
+  <text class="small" x="95" y="1580">_update_display_data: Raw, EDCnorm, SecDev, Curvature,</text>
+  <text class="small" x="95" y="1603">distortion, grid correction, display cache.</text>
+  <text class="small" x="95" y="1626">draw_bandmap_axes: reusable pcolormesh/mesh.set_array,</text>
+  <text class="small" x="95" y="1649">color cache, selection lines, ROI, EF, Gamma, theory, kF.</text>
+  <text class="small" x="95" y="1672">Interactions: click map, scroll zoom, ROI fit, annotation.</text>
+  <text class="tiny" x="95" y="1702">Future optimization: imshow if regular axes, overlay-only selection.</text>
 
-  <rect class="physics" x="1240" y="1040" width="330" height="175"/>
-  <text class="label" x="1265" y="1070">BM / MDC / EDC / Fit</text>
-  <text class="mono" x="1265" y="1097">plot_controller.py</text>
-  <text class="mono" x="1265" y="1120">fit_runner_controller.py</text>
-  <text class="small" x="1265" y="1150">Views Raw/EDC norm/secdev/curvature,</text>
-  <text class="small" x="1265" y="1173">MDC waterfall, kF overlay, ROI, fit full/guess.</text>
-  <text class="tiny" x="1265" y="1198">MdcFitter + ensemble_fit; resultats stockes dans FileEntry.</text>
+  <rect class="render" x="545" y="1470" width="390" height="260"/>
+  <text class="label" x="570" y="1500">MDC / EDC / waterfall</text>
+  <text class="mono" x="570" y="1527">ui/controllers/mdc_edc_drawer.py</text>
+  <text class="mono" x="570" y="1550">ui/widgets/plots/mdc_*.py</text>
+  <text class="mono" x="570" y="1573">physics/waterfall_compute.py</text>
+  <text class="small" x="570" y="1603">MDC integrates around selected E.</text>
+  <text class="small" x="570" y="1626">EDC cut at selected k.</text>
+  <text class="small" x="570" y="1649">Stacked MDC waterfall + fits/residuals.</text>
+  <text class="small" x="570" y="1672">Drag kF init, snap-to-peak, fit annotations.</text>
+  <text class="tiny" x="570" y="1702">Likely hot path: cla/tight_layout on every redraw.</text>
 
-  <rect class="physics" x="1605" y="1040" width="330" height="175"/>
-  <text class="label" x="1630" y="1070">EF, Gamma, resolution</text>
-  <text class="mono" x="1630" y="1097">gamma_controller.py</text>
-  <text class="mono" x="1630" y="1120">physics/gamma.py, ef_calibration.py</text>
-  <text class="small" x="1630" y="1150">Auto Gamma BM, Gamma FS auto/manuel,</text>
-  <text class="small" x="1630" y="1173">projection azimutale, offsets angulaires, EF ref.</text>
-  <text class="tiny" x="1630" y="1198">FS garde centre choisi; BM peut recentrer axe k si applicable.</text>
+  <rect class="render" x="980" y="1470" width="390" height="260"/>
+  <text class="label" x="1005" y="1500">Fermi surface</text>
+  <text class="mono" x="1005" y="1527">ui/widgets/fs_panel.py</text>
+  <text class="mono" x="1005" y="1550">ui/controllers/fs_controller.py</text>
+  <text class="mono" x="1005" y="1573">physics/fs.py, fs_gamma.py</text>
+  <text class="small" x="1005" y="1603">extract_fs_map: EF integration, norm flux, smoothing,</text>
+  <text class="small" x="1005" y="1626">robust normalization, FS cache.</text>
+  <text class="small" x="1005" y="1649">Draw: FS image, BZ, MP crystal BZ, pockets, BM cuts.</text>
+  <text class="small" x="1005" y="1672">Gamma FS detect, manual center, save center.</text>
+  <text class="tiny" x="1005" y="1702">Debounced redraw 150 ms; 1-entry distortion volume cache.</text>
 
-  <rect class="physics" x="1970" y="1040" width="330" height="175"/>
-  <text class="label" x="1995" y="1070">FS, BZ, normalisation</text>
-  <text class="mono" x="1995" y="1097">fs_controller.py, physics/fs.py</text>
-  <text class="mono" x="1995" y="1120">norm_controller.py, physics/norm.py</text>
-  <text class="small" x="1995" y="1150">Volume FS, EF window, flux profile,</text>
-  <text class="small" x="1995" y="1173">BZ presets, centre kx/ky, cache mesh.</text>
-  <text class="tiny" x="1995" y="1198">Detect Gamma FS seulement pour axes kx/ky en pi/a.</text>
+  <rect class="render" x="1415" y="1470" width="370" height="260"/>
+  <text class="label" x="1440" y="1500">KZ view</text>
+  <text class="mono" x="1440" y="1527">ui/controllers/kz_controller.py</text>
+  <text class="mono" x="1440" y="1550">ui/widgets/kz.py</text>
+  <text class="mono" x="1440" y="1573">io/kz_dataset.py</text>
+  <text class="mono" x="1440" y="1596">physics/kz.py</text>
+  <text class="small" x="1440" y="1626">Builds hv/kpar/E dataset into k,kz.</text>
+  <text class="small" x="1440" y="1649">Parameters V0, a, c, E window, bins.</text>
+  <text class="small" x="1440" y="1672">Fold kz to 1BZ, plot intensity, Gamma/Z labels.</text>
+  <text class="tiny" x="1440" y="1702">Strongly depends on reliable logbook hv mapping.</text>
 
-  <rect class="physics" x="1240" y="1245" width="330" height="175"/>
-  <text class="label" x="1265" y="1275">KZ / hv maps</text>
-  <text class="mono" x="1265" y="1302">kz_controller.py</text>
-  <text class="mono" x="1265" y="1325">io/kz_dataset.py, physics/kz.py</text>
-  <text class="small" x="1265" y="1355">Discover scans, load stack, compute kz map,</text>
-  <text class="small" x="1265" y="1378">hv-k map, MDC waterfall, units invA / pi/c.</text>
-  <text class="tiny" x="1265" y="1403">Supporte dossiers CLS photon scans + logbook KZ.</text>
+  <rect class="theory" x="1830" y="1470" width="405" height="260"/>
+  <text class="label" x="1855" y="1500">Theory / DFT overlays</text>
+  <text class="mono" x="1855" y="1527">theory/materials_project.py</text>
+  <text class="mono" x="1855" y="1550">theory/local_loaders.py, dft_grid.py</text>
+  <text class="mono" x="1855" y="1573">theory/alignment.py, comparison.py</text>
+  <text class="mono" x="1855" y="1596">ui/controllers/theory_overlay_controller.py</text>
+  <text class="small" x="1855" y="1626">MP band structures/lattice cache, local DFT bands,</text>
+  <text class="small" x="1855" y="1649">manual mu/Z/dk/k-scale, auto align/EF align.</text>
+  <text class="small" x="1855" y="1672">3D FS DFT grid for pocket comparison.</text>
+  <text class="tiny" x="1855" y="1702">Optional overlay, never the single source of ARPES data.</text>
 
-  <rect class="physics" x="1605" y="1245" width="330" height="175"/>
-  <text class="label" x="1630" y="1275">Distorsion / grille detecteur</text>
-  <text class="mono" x="1630" y="1302">distortion_controller.py</text>
-  <text class="mono" x="1630" y="1325">physics/distortion.py, physics/norm.py</text>
-  <text class="small" x="1630" y="1355">Trap/parabola correction, auto-detect,</text>
-  <text class="small" x="1630" y="1378">calib reuse guards, angle_offsets hash, grid FFT.</text>
-  <text class="tiny" x="1630" y="1403">Garde-fous: pas FS, stale calib warning.</text>
+  <rect class="analysis" x="2280" y="1470" width="425" height="260"/>
+  <text class="label" x="2305" y="1500">Advanced analyses</text>
+  <text class="mono" x="2305" y="1527">physics/fit.py, tb_fit.py, gap_extraction.py</text>
+  <text class="mono" x="2305" y="1550">physics/kink_analysis.py, pocket*.py</text>
+  <text class="mono" x="2305" y="1573">analysis/results.py, self_energy.py</text>
+  <text class="small" x="2305" y="1603">Lorentzian/Voigt MDC, fit zones, quality metrics.</text>
+  <text class="small" x="2305" y="1626">Self-energy, kink, gap Dynes/symmetrized EDC.</text>
+  <text class="small" x="2305" y="1649">FS pockets: contour, radial MDC, Luttinger, bootstrap.</text>
+  <text class="small" x="2305" y="1672">Band analysis panel: TB, kink, gap, summary HTML.</text>
+  <text class="tiny" x="2305" y="1702">Results persisted in FileEntry.fit_result/band_analysis/fs_pockets.</text>
 
-  <rect class="theory" x="1970" y="1245" width="330" height="175"/>
-  <text class="label" x="1995" y="1275">Theory / DFT / Materials Project</text>
-  <text class="mono" x="1995" y="1302">theory_overlay_controller.py</text>
-  <text class="mono" x="1995" y="1325">theory/{models,data,plot,...}.py</text>
-  <text class="small" x="1995" y="1355">Import MP ou local, selection bandes,</text>
-  <text class="small" x="1995" y="1378">alignement k/E/mu, comparaison, self-energy.</text>
-  <text class="tiny" x="1995" y="1403">Overlay stocke par FileEntry.theory_overlay.</text>
+  <path class="flowOrange" d="M500 1600 H545"/>
+  <path class="flowOrange" d="M935 1600 H980"/>
+  <path class="flowOrange" d="M1370 1600 H1415"/>
+  <path class="flowOrange" d="M1785 1600 H1830"/>
+  <path class="flowOrange" d="M2235 1600 H2280"/>
 
-  <path class="flowThin" d="M1155 735 C1235 885 1370 955 1405 1040"/>
-  <path class="flowThin" d="M1155 735 C1425 890 1700 940 1770 1040"/>
-  <path class="flowThin" d="M1155 735 C1660 870 2050 940 2135 1040"/>
-  <path class="flowThin" d="M1155 805 C1215 1030 1320 1165 1405 1245"/>
-  <path class="flowThin" d="M1155 805 C1450 1015 1690 1160 1770 1245"/>
-  <path class="flowThin" d="M1155 805 C1700 1010 2050 1160 2135 1245"/>
+  <rect class="panel" x="40" y="1875" width="2720" height="260"/>
+  <text class="section" x="70" y="1911">5. Tests, audits, and watch areas</text>
 
-  <rect class="panelSoft" x="40" y="1500" width="740" height="150"/>
-  <text class="section" x="70" y="1535">5. Tests et validation automatique</text>
-  <text class="small" x="70" y="1565">44 fichiers tests couvrent IO, loaders, cache, session, UI smoke, gamma, FS, KZ, EF, fit, distortion, theory, export, analyse.</text>
-  <text class="mono" x="70" y="1592">tests/test_ui_smoke.py, test_fs.py, test_gamma.py, test_load_cache.py, test_loader_orchestrator.py, ...</text>
-  <text class="small" x="70" y="1622">Smoke UI: instanciation ArpesExplorer, controllers/proxy/widgets. Tests purs: dataclasses, numerique, loaders sans Qt autant que possible.</text>
+  <rect class="test" x="70" y="1945" width="480" height="150"/>
+  <text class="label" x="95" y="1975">Tests IO / metadata / loaders</text>
+  <text class="mono" x="95" y="2002">tests/test_arpes_io.py, test_loaders_integration.py</text>
+  <text class="mono" x="95" y="2025">tests/test_logbook*.py, test_file_pairing.py</text>
+  <text class="small" x="95" y="2055">Verify format detection, loaders, scoped logbooks,</text>
+  <text class="small" x="95" y="2078">KZ hnu, FS-BM pairing, scan_kind, cache signatures.</text>
 
-  <rect class="panelSoft" x="820" y="1500" width="740" height="150"/>
-  <text class="section" x="850" y="1535">6. Forces structurelles</text>
-  <text class="small" x="850" y="1565">Separation nette en progression: UI builders/controllers, IO, physics, analysis, theory, core/session.</text>
-  <text class="small" x="850" y="1592">Conventions ARPES explicites au chargement: axes k/E, metadata, FS volume, validation ARPESData.</text>
-  <text class="small" x="850" y="1622">Refonte conserve compatibilite legacy via PROXY_MAP tout en sortant la logique metier vers modules testables.</text>
+  <rect class="test" x="590" y="1945" width="500" height="150"/>
+  <text class="label" x="615" y="1975">Physics / rendering / UI tests</text>
+  <text class="mono" x="615" y="2002">test_plot_controller.py, test_fs.py, test_kz.py</text>
+  <text class="mono" x="615" y="2025">test_gamma*.py, test_bm_cut_overlay.py, test_ui_smoke.py</text>
+  <text class="small" x="615" y="2055">Cover display caches, MDC/EDC curves, Gamma,</text>
+  <text class="small" x="615" y="2078">FS map, KZ dataset, overlays, smoke UI headless.</text>
 
-  <rect class="risk" x="1600" y="1500" width="760" height="150"/>
-  <text class="section" x="1630" y="1535">7. Risques techniques a surveiller</text>
-  <text class="small" x="1630" y="1565">ArpesExplorer reste un hub mutable: beaucoup de controllers partagent _raw_data, _session et widgets par delegation parent.</text>
-  <text class="small" x="1630" y="1592">Plusieurs contrats critiques restent des dicts runtime: metadata, fit_result, theory_overlay, corrections.</text>
-  <text class="small" x="1630" y="1622">Le proxy legacy simplifie la migration mais masque certaines dependances; maintenir tests smoke et tests de flux UI.</text>
+  <rect class="risk" x="1130" y="1945" width="520" height="150"/>
+  <text class="label" x="1155" y="1975">Areas to protect before refactor</text>
+  <text class="small" x="1155" y="2005">1. Conventions axes: E-EF, pi/a, shapes BM/FS.</text>
+  <text class="small" x="1155" y="2028">2. Loader order: BESSY vs Solaris IBW, CLS folder detection.</text>
+  <text class="small" x="1155" y="2051">3. Scoped logbook: do not mix BNA_S1/BNA_S2.</text>
+  <text class="small" x="1155" y="2074">4. Gamma/EF: never apply an offset twice.</text>
 
-  <rect class="panelSoft" x="40" y="138" width="2320" height="1"/>
-  <rect class="badge" x="2005" y="48" width="118" height="24"/>
-  <text class="badgeText" x="2020" y="65">code-observe</text>
-  <rect class="badge" x="2135" y="48" width="86" height="24"/>
-  <text class="badgeText" x="2150" y="65">PyQt6</text>
-  <rect class="badge" x="2235" y="48" width="96" height="24"/>
-  <text class="badgeText" x="2250" y="65">Matplotlib</text>
+  <rect class="risk" x="1690" y="1945" width="470" height="150"/>
+  <text class="label" x="1715" y="1975">Planned rendering optimization</text>
+  <text class="small" x="1715" y="2005">Profiling per draw, imshow fallback pcolormesh,</text>
+  <text class="small" x="1715" y="2028">overlay-only E/k selection, reused MDC/EDC artists,</text>
+  <text class="small" x="1715" y="2051">FS collect_cuts cache, display downsample if measurement proves it.</text>
+  <text class="tiny" x="1715" y="2078">pyqtgraph/GPU = late option, higher risk.</text>
 
-  <rect class="panelSoft" x="60" y="455" width="680" height="36"/>
-  <text class="tiny" x="80" y="478">Legende flux: bleu = signaux/evenements UI; vert = pipeline donnees; gris pointille = persistance, cache ou compatibilite legacy.</text>
-  <rect class="panelSoft" x="780" y="455" width="640" height="36"/>
-  <text class="tiny" x="800" y="478">Convention centrale: ARPESData valide puis dict legacy {data, kpar, ev_arr, metadata} pour controllers et widgets historiques.</text>
-  <rect class="panelSoft" x="1460" y="455" width="840" height="36"/>
-  <text class="tiny" x="1480" y="478">Limite: diagramme ne suppose aucun backend distant ni base externe, seulement modules presents localement et appels reseau MP cote theory.</text>
+  <rect class="box" x="2200" y="1945" width="505" height="150"/>
+  <text class="label" x="2225" y="1975">Usual verification commands</text>
+  <text class="mono" x="2225" y="2002">python3 -m pytest tests/test_plot_controller.py</text>
+  <text class="mono" x="2225" y="2025">python3 -m pytest tests/test_logbook.py tests/test_kz.py</text>
+  <text class="mono" x="2225" y="2048">python3 -m pytest tests/test_gamma*.py tests/test_fs.py</text>
+  <text class="mono" x="2225" y="2071">python3 tools/audit_real_data_metadata.py</text>
+
+  <path class="flowSoft" d="M310 1875 C310 1815 280 1785 285 1730"/>
+  <path class="flowSoft" d="M840 1875 C840 1815 740 1780 740 1730"/>
+  <path class="flowSoft" d="M1390 1875 C1390 1815 1175 1780 1175 1730"/>
+  <path class="flowSoft" d="M1925 1875 C1925 1815 2032 1780 2032 1730"/>
+
+  <rect class="panel2" x="60" y="1320" width="2645" height="1"/>
+  <text class="stamp" x="60" y="2165">Legend: blue = UI/events, green = IO ingestion, violet = model/session, orange = rendering/analysis, red = invariants/risks. Displayed paths are the main source files, not an exhaustive helper list.</text>
 </svg>

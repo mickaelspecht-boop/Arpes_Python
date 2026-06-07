@@ -41,7 +41,7 @@ class TestBZPresets(unittest.TestCase):
         self.assertIn((1.0, 0.0), by_lbl["X"])
         self.assertIn((0.0, 0.75), by_lbl["Y"])
         self.assertIn((1.0, 0.75), by_lbl["S"])
-        self.assertNotIn("M", by_lbl)  # M réservé carré/hexagonal
+        self.assertNotIn("M", by_lbl)  # M reserved for square/hexagonal
 
     def test_centered_rect_no_m(self):
         labels = {p[2] for p in bz_high_symmetry_points("centered_rect", 1.0, 0.75)}

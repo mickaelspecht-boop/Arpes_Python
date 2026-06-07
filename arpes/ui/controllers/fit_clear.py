@@ -19,7 +19,7 @@ def clear_kf(ctrl) -> None:
         ctrl._params.update_fit_quality(None, 5.0)
     ctrl._update_mdc_tab_label(None)
     ctrl._redraw_all_fit_views()
-    ctrl._params.lbl_res.setText("kF effacé")
+    ctrl._params.lbl_res.setText("kF cleared")
     results = getattr(p, "_results", None)
     if results is not None and hasattr(results, "refresh"):
         results.refresh()

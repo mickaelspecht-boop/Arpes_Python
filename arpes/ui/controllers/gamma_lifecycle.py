@@ -1,7 +1,7 @@
-"""Cycle de vie Γ (reset + badge état) — free functions prenant `ctrl` en arg.
+"""Γ lifecycle (reset + state badge): free functions taking `ctrl` as arg.
 
-Extrait de `gamma_controller.py` pour rester sous le plafond 700 LOC.
-Pattern free-function + thin wrapper documenté dans CLAUDE.md.
+Extracted from `gamma_controller.py` to stay under the 700 LOC ceiling.
+Free-function + thin-wrapper pattern documented in CLAUDE.md.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QMessageBox
 
 
 def format_badge_text(ctrl) -> str:
-    """Texte court pour le badge statusbar (état Γ courant)."""
+    """Short text for the status-bar badge (current Γ state)."""
     ref = ctrl._stored_gamma_reference()
     meta = (ctrl._raw_data or {}).get("metadata", {}) or {}
     if meta.get("angle_offsets_applied"):
@@ -32,9 +32,9 @@ def format_badge_text(ctrl) -> str:
     same = ctrl._same_path(ref.get("path"), (ctrl._raw_data or {}).get("path")) \
         if ctrl._raw_data else False
     if meta.get("bm_gamma_axis_centered") or meta.get("fs_gamma_axis_centered"):
-        state = "appliqué" if same else "propagé"
+        state = "applied" if same else "propagated"
     else:
-        state = "stocké"
+        state = "stored"
     return f"Γ kx={kx:+.3f} ky={ky:+.3f} · {src} · {state}"
 
 
@@ -49,13 +49,13 @@ def update_badge(ctrl) -> None:
 
 
 def forget_with_confirm(ctrl, gamma_meta_keys: tuple) -> None:
-    """Dialog de confirmation puis appel `forget(ctrl)`."""
+    """Show confirmation dialog, then call `forget(ctrl)`."""
     n_files = len(getattr(ctrl._session, "files", {}) or {})
     reply = QMessageBox.question(
-        ctrl._parent, "Oublier Γ",
-        f"Effacer la référence Γ session et restaurer l'axe brut ?\n"
-        f"Impact : {n_files} fichier(s) de la session. fit_result sera remappé "
-        f"en sens inverse pour rester aligné avec l'axe brut.",
+        ctrl._parent, "Forget Γ",
+        f"Clear the session Γ reference and restore the raw axis?\n"
+        f"Impact: {n_files} session file(s). fit_result will be remapped "
+        f"in the opposite direction to stay aligned with the raw axis.",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.No,
     )
@@ -64,11 +64,11 @@ def forget_with_confirm(ctrl, gamma_meta_keys: tuple) -> None:
 
 
 def forget(ctrl, gamma_meta_keys: tuple) -> None:
-    """Réinitialise tout l'état Γ (session + entry + raw_data).
+    """Reset the full Γ state (session + entry + raw_data).
 
-    Porte de sortie aux gardes `_is_axis_locked` : inverse le shift d'axe en
-    utilisant la valeur courante de `bm_gamma_axis_shift`, remap `fit_result`
-    en sens inverse, puis efface tous les flags Γ + références session.
+    Escape hatch for `_is_axis_locked` guards: reverse the axis shift using
+    the current `bm_gamma_axis_shift`, remap `fit_result` in the opposite
+    direction, then clear all Γ flags and session references.
     """
     meta = ctrl._raw_data.get("metadata", {}) if ctrl._raw_data else {}
     try:
@@ -134,9 +134,9 @@ def forget(ctrl, gamma_meta_keys: tuple) -> None:
     try:
         ctrl._session.save()
     except Exception as exc:
-        ctrl._status(f"Attention: sauvegarde après reset Γ échouée : {exc}")
+        ctrl._status(f"Warning: save after Γ reset failed: {exc}")
 
-    ctrl._status("Γ réinitialisé : références session, axes et flags effacés.")
+    ctrl._status("Γ reset: session references, axes, and flags cleared.")
     update_badge(ctrl)
     try:
         ctrl._draw_current_view()

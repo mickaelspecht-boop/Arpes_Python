@@ -1,4 +1,4 @@
-"""Tests A.2 — pairing BM ↔ FS (M4 hybride)."""
+"""Tests A.2 — BM ↔ FS pairing (hybrid M4)."""
 from __future__ import annotations
 
 import unittest
@@ -39,7 +39,7 @@ class TestFindBmsForFs(unittest.TestCase):
         out = find_bms_for_fs(files["/d/bna_s2/fs1.txt"], "/d/bna_s2/fs1.txt", files)
         paths = [m.path for m in out]
         self.assertEqual(set(paths), {"/d/bna_s2/bm03.txt", "/d/bna_s2/bm04.txt"})
-        # bm03 distance plus petite (azi=0)
+        # bm03 has smaller distance (azi=0).
         self.assertEqual(out[0].path, "/d/bna_s2/bm03.txt")
 
     def test_excludes_fs_files(self):
@@ -100,7 +100,7 @@ class TestFindBmsForFs(unittest.TestCase):
             "/d/fs1.txt": _entry(scan_kind="FS", hv=60.0, azi=0.0),
             "/d/bm_auto.txt": _entry(scan_kind="BM", hv=60.0, azi=0.0),
             "/d/somewhere_else/bm_pinned.txt": _entry(
-                scan_kind="BM", hv=90.0, azi=20.0,  # ne passerait pas l'auto
+                scan_kind="BM", hv=90.0, azi=20.0,  # would not pass auto
                 parent_fs_path="/d/fs1.txt",
             ),
         }
@@ -108,7 +108,7 @@ class TestFindBmsForFs(unittest.TestCase):
                               PairingCriteria(folder_depth=2))
         self.assertEqual(out[0].path, "/d/somewhere_else/bm_pinned.txt")
         self.assertEqual(out[0].reason, "manual")
-        # bm_auto vient après car distance plus grande que 0.0
+        # bm_auto comes after because the distance is greater than 0.0.
         paths_auto = [m.path for m in out if m.reason == "auto"]
         self.assertIn("/d/bm_auto.txt", paths_auto)
 
@@ -149,19 +149,19 @@ class TestGroupFilesByFs(unittest.TestCase):
         }
         tree, orphans = group_files_by_fs(files)
         self.assertEqual(len(tree), 2)
-        # fs1 a bm_a
+        # fs1 has bm_a.
         fs1_entry = [t for t in tree if t[0] == "/d/fs1.txt"][0]
         self.assertEqual([m.path for m in fs1_entry[2]], ["/d/bm_a.txt"])
-        # fs2 a bm_b
+        # fs2 has bm_b.
         fs2_entry = [t for t in tree if t[0] == "/d/fs2.txt"][0]
         self.assertEqual([m.path for m in fs2_entry[2]], ["/d/bm_b.txt"])
-        # orphans : bm_orphan + kz_scan
+        # Orphans: bm_orphan + kz_scan.
         orphan_paths = sorted([p for p, _ in orphans])
         self.assertEqual(orphan_paths, ["/d/bm_orphan.txt", "/d/kz_scan.txt"])
 
 
 class TestPseudoEntriesFromLogbook(unittest.TestCase):
-    """Synthèse FileEntry depuis logbook records (BMs candidates non chargées)."""
+    """FileEntry synthesis from logbook records (unloaded candidate BMs)."""
 
     def _stub_session(self, records, mapping, files=None, folder=None):
         s = SimpleNamespace()
@@ -174,12 +174,12 @@ class TestPseudoEntriesFromLogbook(unittest.TestCase):
         return s
 
     def test_synthesize_from_real_files_in_folder(self):
-        """Scan physique du folder + matching logbook par values_for_path."""
+        """Physical folder scan + logbook matching through values_for_path."""
         import tempfile
         from arpes.io.file_pairing import build_pseudo_entries_from_logbook
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            # Crée un faux fichier BM (extension data) et un fichier ignoré
+            # Creates a fake BM file (data extension) and an ignored file.
             (tmp_path / "BM99.pxt").write_text("")
             (tmp_path / "BM99_param.txt").write_text("")  # sidecar → skip
             records = [{"file": "BM99.pxt", "hv": "60", "Pol": "LH", "P": "1.2"}]
@@ -189,9 +189,9 @@ class TestPseudoEntriesFromLogbook(unittest.TestCase):
                 s, scan_kind_resolver=lambda p: "BM",
             )
             keys = list(out.keys())
-            # Vérifie qu'au moins une entrée BM99 a été créée (path absolu)
+            # Verifies that at least one BM99 entry was created (absolute path).
             bm_key = next((k for k in keys if "BM99" in k), None)
-            self.assertIsNotNone(bm_key, f"Aucune entry BM99 dans {keys}")
+            self.assertIsNotNone(bm_key, f"No BM99 entry in {keys}")
             e = out[bm_key]
             self.assertEqual(e.meta.scan_kind, "BM")
             self.assertAlmostEqual(e.meta.hv, 60.0)

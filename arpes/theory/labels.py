@@ -23,7 +23,7 @@ def normalize_direction_label(value: Any) -> str:
 
 
 def branch_display_names(branches: list[dict[str, Any]] | None) -> list[str]:
-    """Noms affichables des branches MP, ordre du chemin réel."""
+    """Display names for MP branches, in real path order."""
     out: list[str] = []
     counts: dict[str, int] = {}
     for br in branches or []:
@@ -46,7 +46,7 @@ def _clean_segment_name(name: str) -> str:
 def _branch_index_for_segment(
     branches: list[dict[str, Any]], segment: str
 ) -> dict[str, Any] | None:
-    """Retrouve la branche dont le nom affiché == segment choisi."""
+    """Find the branch whose display name matches the selected segment."""
     names = branch_display_names(branches)
     for disp, br in zip(names, branches):
         if disp == segment:

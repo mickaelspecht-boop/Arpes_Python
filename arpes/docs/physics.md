@@ -1,25 +1,25 @@
-# Formules Physiques
+# Physics Formulas
 
-## Axe energie
+## Energy Axis
 
-Les cartes sont affichees en energie relative a EF. L'offset EF sauvegarde corrige le zero d'energie du fichier courant.
+Maps are displayed in energy relative to EF. The saved EF offset corrects the energy zero of the current file.
 
 ## MDC
 
-Un fit MDC ajuste des profils en k a energie fixe. Les points kF extraits forment la dispersion experimentale utilisee pour les resultats de branche.
+An MDC fit adjusts profiles in k at fixed energy. The extracted kF points form the experimental dispersion used for branch results.
 
-## Largeur et resolution
+## Width and Resolution
 
-La largeur brute mesuree par fit contient la contribution instrumentale. Les resultats physiques utilisent les resolutions energie et k disponibles dans la session lorsque c'est possible.
+The raw width measured by the fit contains the instrumental contribution. Physical results use the available energy and k resolutions from the session when possible.
 
-## Masse effective
+## Effective Mass
 
-La masse effective est estimee a partir de la pente locale de dispersion. Le parametre de maille a sert a convertir les unites reduites vers A^-1.
+The effective mass is estimated from the local dispersion slope. The lattice parameter a is used to convert reduced units to A^-1.
 
 ## Self-energy
 
-L'outil Re Sigma compare la dispersion experimentale a une bande DFT interpolee au meme k. Le resultat est un diagnostic visuel: il depend du choix de bande, du segment et de l'alignement manuel.
+The Re Sigma tool compares the experimental dispersion with a DFT band interpolated at the same k. The result is a visual diagnostic: it depends on the chosen band, segment, and manual alignment.
 
 ## KZ
 
-Le calcul kz utilise l'energie photon, la fonction de travail, le potentiel interne et la geometrie. Les cartes kz sont comparatives et doivent etre interpretees avec les hypotheses de modele electron libre final.
+The kz calculation uses photon energy, work function, inner potential, and geometry. kz maps are comparative and must be interpreted with the final-state free-electron model assumptions.

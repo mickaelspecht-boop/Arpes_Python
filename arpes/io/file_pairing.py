@@ -1,14 +1,14 @@
-"""Pairing BM ↔ FS — auto-discovery par métadonnées + override manuel.
+"""BM ↔ FS pairing by metadata auto-discovery plus manual override.
 
-A.2 du plan BM↔FS (cf BM_FS_ORGANIZATION_PLAN.md). Modèle M4 hybride :
-- Override manuel via `entry.parent_fs_path` (priorité absolue).
-- Sinon filtrage par dossier + hv (±5%) + azi (±2°) + polarization.
+A.2 of the BM↔FS plan (see BM_FS_ORGANIZATION_PLAN.md). Hybrid M4 model:
+- Manual override through `entry.parent_fs_path` (absolute priority).
+- Otherwise filter by folder + hv (±5%) + azi (±2°) + polarization.
 
-L'auto-discovery itère aussi les records du logbook (BMs candidates non
-chargées) — synthétise un FileEntry minimal depuis chaque record pour
-les passer aux mêmes filtres. Cf `build_pseudo_entries_from_logbook`.
+Auto-discovery also iterates logbook records (candidate BMs not loaded) and
+synthesizes a minimal FileEntry from each record so they can pass through the
+same filters. See `build_pseudo_entries_from_logbook`.
 
-Pure : sans Qt, I/O optionnel uniquement pour `detect_scan_kind`.
+Pure: no Qt, optional I/O only for `detect_scan_kind`.
 """
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ import math
 
 @dataclass(frozen=True)
 class PairingCriteria:
-    """Critères de compatibilité BM↔FS pour l'auto-discovery.
+    """BM↔FS compatibility criteria for auto-discovery.
 
-    Defaults documentés dans BM_FS_ORGANIZATION_PLAN.md Q2.
+    Defaults are documented in BM_FS_ORGANIZATION_PLAN.md Q2.
     """
     same_folder: bool = True
-    folder_depth: int = 0            # 0 = même dossier strict (évite cross-sample BNA_S1↔BNA_S2)
+    folder_depth: int = 0            # 0 = strict same folder (avoids cross-sample BNA_S1↔BNA_S2)
     hv_tolerance_rel: float = 0.05   # ±5 %
     azi_tolerance_deg: float = 2.0
     require_polarization: bool = True
@@ -35,19 +35,19 @@ class PairingCriteria:
 
 @dataclass(frozen=True)
 class PairingMatch:
-    """Résultat d'un pairing : path, entry compatible, raison + distance."""
+    """Pairing result: path, compatible entry, reason + distance."""
     path: str
-    entry: object                # FileEntry — typé Any pour éviter import circulaire
+    entry: object                # FileEntry - typed as Any to avoid circular import
     reason: str                  # "manual" | "auto"
-    distance: float              # 0.0 = parfait ; +∞ = incompatible (filtré avant)
+    distance: float              # 0.0 = perfect; +∞ = incompatible (filtered before)
 
 
 def _same_folder(path_a: str, path_b: str, *, depth: int) -> bool:
-    """True si les deux paths partagent leur dossier parent à `depth` près.
+    """True if both paths share their parent folder within `depth`.
 
-    depth=0 : même dossier direct exact.
-    depth=1 : même dossier OU même grand-parent (un sous-dossier d'écart).
-    depth>=2 : même dossier OU jusqu'à N niveaux d'écart.
+    depth=0: exact same direct folder.
+    depth=1: same folder OR same grandparent (one subfolder apart).
+    depth>=2: same folder OR up to N levels apart.
     """
     try:
         a = Path(path_a).resolve(strict=False)
@@ -60,7 +60,7 @@ def _same_folder(path_a: str, path_b: str, *, depth: int) -> bool:
         return True
     if depth <= 0:
         return False
-    # Remonte jusqu'à `depth` niveaux des deux côtés et compare
+    # Walk up to `depth` levels on both sides and compare.
     for da in range(depth + 1):
         for db in range(depth + 1):
             anc_a = pa
@@ -75,7 +75,7 @@ def _same_folder(path_a: str, path_b: str, *, depth: int) -> bool:
 
 
 def _relative_hv_diff(hv_a, hv_b) -> float:
-    """|Δhv|/max(hv_a, hv_b). Retourne +inf si l'une des deux valeurs absente."""
+    """|Δhv|/max(hv_a, hv_b). Return +inf if either value is missing."""
     try:
         ha = float(hv_a)
         hb = float(hv_b)
@@ -87,8 +87,8 @@ def _relative_hv_diff(hv_a, hv_b) -> float:
 
 
 def _azi_diff_deg(azi_a, azi_b) -> float:
-    """|Δazi| en deg. Retourne 0.0 si les deux azi sont None (compatible).
-    Retourne +inf si une seule est None."""
+    """|Δazi| in deg. Return 0.0 if both azi values are None (compatible).
+    Return +inf if only one is None."""
     if azi_a is None and azi_b is None:
         return 0.0
     if azi_a is None or azi_b is None:
@@ -101,7 +101,7 @@ def _azi_diff_deg(azi_a, azi_b) -> float:
 
 
 def _polarization_compatible(pol_a, pol_b) -> bool:
-    """Compare polarizations (LH/LV/...). Tolère vide d'un côté."""
+    """Compare polarizations (LH/LV/...). Tolerate an empty value on either side."""
     a = str(pol_a or "").strip().lower()
     b = str(pol_b or "").strip().lower()
     if not a or not b:
@@ -110,7 +110,7 @@ def _polarization_compatible(pol_a, pol_b) -> bool:
 
 
 def _sample_compatible(entry_a, entry_b) -> bool:
-    """Compare formula / mp_id de deux entries. Tolère vide d'un côté."""
+    """Compare formula / mp_id for two entries. Tolerate an empty value on either side."""
     for attr in ("formula", "mp_id"):
         va = str(getattr(entry_a.meta, attr, "") or "").strip().lower()
         vb = str(getattr(entry_b.meta, attr, "") or "").strip().lower()
@@ -124,10 +124,10 @@ def _is_compatible_auto(
     fs_entry, fs_path: str,
     criteria: PairingCriteria,
 ) -> tuple[bool, float]:
-    """Filtre auto-discovery + score distance pour tri.
+    """Filter auto-discovery and compute a distance score for sorting.
 
     Returns:
-        (compatible, distance). distance ∈ [0, +∞), 0 = parfait.
+        (compatible, distance). distance ∈ [0, +∞), 0 = perfect.
     """
     if criteria.same_folder and not _same_folder(
         bm_path, fs_path, depth=criteria.folder_depth
@@ -150,8 +150,8 @@ def _is_compatible_auto(
     if criteria.require_sample and not _sample_compatible(bm_entry, fs_entry):
         return False, math.inf
 
-    # Score : moyenne quadratique normalisée des écarts (0 = parfait).
-    # Tolérances utilisées comme dénominateurs (évite div/0 par max(1e-6, …)).
+    # Score: normalized root-mean-square of differences (0 = perfect).
+    # Tolerances are used as denominators (avoids div/0 via max(1e-6, ...)).
     azi_norm = azi_diff / max(criteria.azi_tolerance_deg, 1e-6)
     hv_norm = hv_rel / max(criteria.hv_tolerance_rel, 1e-6)
     distance = math.sqrt(azi_norm ** 2 + hv_norm ** 2)
@@ -164,16 +164,16 @@ def find_bms_for_fs(
     all_files: dict,
     criteria: PairingCriteria | None = None,
 ) -> list[PairingMatch]:
-    """Retourne les BMs compatibles avec une FS donnée.
+    """Return BMs compatible with a given FS.
 
-    Order : manual overrides (entry.parent_fs_path == fs_path) en premier,
-    puis auto-discovered triées par distance croissante.
+    Order: manual overrides (entry.parent_fs_path == fs_path) first, then
+    auto-discovered matches sorted by increasing distance.
 
     Args:
-        fs_entry: FileEntry de la FS.
-        fs_path: clé/path de la FS dans session.files.
-        all_files: dict {path → FileEntry} (souvent session.files).
-        criteria: PairingCriteria (defaults si None).
+        fs_entry: FS FileEntry.
+        fs_path: FS key/path in session.files.
+        all_files: dict {path → FileEntry} (usually session.files).
+        criteria: PairingCriteria (defaults if None).
 
     Returns:
         list[PairingMatch].
@@ -189,7 +189,7 @@ def find_bms_for_fs(
             continue
         if getattr(bm_entry.meta, "scan_kind", "") != "BM":
             continue
-        # Override manuel : priorité absolue
+        # Manual override: absolute priority.
         if getattr(bm_entry, "parent_fs_path", None) == fs_path:
             manual.append(PairingMatch(bm_path, bm_entry, "manual", 0.0))
             continue
@@ -210,10 +210,10 @@ def find_fs_for_bm(
     all_files: dict,
     criteria: PairingCriteria | None = None,
 ) -> list[PairingMatch]:
-    """Symétrique : retourne les FS compatibles avec une BM donnée.
+    """Symmetric helper: return FS entries compatible with a given BM.
 
-    Override manuel : si `bm_entry.parent_fs_path` est défini et qu'il
-    pointe vers une FS de `all_files`, elle apparaît en premier avec
+    Manual override: if `bm_entry.parent_fs_path` is set and points to an FS in
+    `all_files`, it appears first with
     reason="manual".
     """
     criteria = criteria or PairingCriteria()
@@ -246,14 +246,14 @@ def group_files_by_fs(
     all_files: dict,
     criteria: PairingCriteria | None = None,
 ) -> tuple[list[tuple[str, object, list[PairingMatch]]], list[tuple[str, object]]]:
-    """Construit une vue arborescente (FS → BMs liées) + liste orphelins.
+    """Build a tree view (FS → linked BMs) plus an orphan list.
 
-    Pour le file browser O3 (Phase A.5).
+    For the O3 file browser (Phase A.5).
 
     Returns:
-        (tree, orphans) où :
-        - tree : [(fs_path, fs_entry, [PairingMatch BM]), ...] trié par fs_path
-        - orphans : [(path, entry), ...] = BMs non rattachées + autres scan_kind
+        (tree, orphans), where:
+        - tree: [(fs_path, fs_entry, [PairingMatch BM]), ...] sorted by fs_path
+        - orphans: [(path, entry), ...] = unattached BMs + other scan_kind values
     """
     criteria = criteria or PairingCriteria()
     tree: list[tuple[str, object, list[PairingMatch]]] = []
@@ -279,13 +279,13 @@ def group_files_by_fs(
 
 
 def _iter_data_candidates(folder: Path, *, max_depth: int = 1) -> Iterable[Path]:
-    """Yield fichiers/dossiers data-like sous `folder`.
+    """Yield data-like files/folders under `folder`.
 
-    Pour chaque CLS BM = un fichier sans extension nommé `BMxx`, pour CLS FS
-    = un dossier nommé `FSxx` contenant des fichiers _Cycle_Step. Autres
-    formats (.pxt, .ibw, .zip Solaris) traités comme fichiers.
+    For CLS, BM = an extensionless file named `BMxx`; FS = a folder named
+    `FSxx` containing _Cycle_Step files. Other formats (.pxt, .ibw, .zip
+    Solaris) are treated as files.
 
-    Skip : fichiers cachés, `*_param.txt` (sidecars CLS), dossiers `.arpes_*`.
+    Skip: hidden files, `*_param.txt` (CLS sidecars), `.arpes_*` folders.
     """
     if not folder or not folder.exists() or not folder.is_dir():
         return
@@ -299,12 +299,12 @@ def _iter_data_candidates(folder: Path, *, max_depth: int = 1) -> Iterable[Path]
         if entry.is_file():
             if entry.name.endswith("_param.txt"):
                 continue
-            # Fichier sans extension OU avec extension data → candidat
+            # Extensionless file OR data extension -> candidate.
             if not entry.suffix or entry.suffix.lower() in DATA_SUFFIXES:
                 yield entry
             continue
         if entry.is_dir():
-            # Dossier CLS-FS ou similaire → candidat direct
+            # CLS-FS or similar folder -> direct candidate.
             yield entry
             if max_depth > 1:
                 yield from _iter_data_candidates(entry, max_depth=max_depth - 1)
@@ -315,20 +315,20 @@ def build_pseudo_entries_from_logbook(
     *,
     scan_kind_resolver: Callable[[str], str] | None = None,
 ) -> dict:
-    """Construit des FileEntry minimaux pour les fichiers du dossier session
-    qui apparaissent dans le logbook mais ne sont pas encore chargés.
+    """Build minimal FileEntry objects for session-folder files that appear in
+    the logbook but are not loaded yet.
 
-    Stratégie : scanne `session.folder` pour les paths data-like, puis pour
-    chaque path appelle `LogbookManager.values_for_path` (qui gère le
-    matching fuzzy BM1↔BM01 via les heuristiques internes). Si values
-    présentes et path non chargé → pseudo entry.
+    Strategy: scan `session.folder` for data-like paths, then call
+    `LogbookManager.values_for_path` on each path (it handles fuzzy BM1↔BM01
+    matching through internal heuristics). If values are present and the path is
+    not loaded, create a pseudo entry.
 
-    Permet de combler le pairing BM↔FS quand l'utilisateur n'a chargé que
-    la FS de référence mais que les BMs candidates existent dans le dossier
-    (cf BM_FS_ORGANIZATION_PLAN.md, feedback user 2026-06-01).
+    This fills BM↔FS pairing when the user loaded only the reference FS but the
+    candidate BMs exist in the folder (see BM_FS_ORGANIZATION_PLAN.md, user
+    feedback 2026-06-01).
 
     Returns:
-        dict {key → FileEntry pseudo}.
+        dict {key → pseudo FileEntry}.
     """
     from arpes.core.session import FileEntry, FileMeta
     from arpes.io.logbook import LogbookManager

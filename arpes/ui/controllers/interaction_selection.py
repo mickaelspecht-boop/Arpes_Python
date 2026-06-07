@@ -17,7 +17,7 @@ def handle_single_click_selection(ctrl, ax, click_disp, *, additive: bool) -> No
     if nearest is None:
         if not additive and p._fit_selected:
             p._fit_selected = []
-            ctrl._status("Sélection vidée.")
+            ctrl._status("Selection cleared.")
         return
     if not additive:
         if nearest in p._fit_selected and len(p._fit_selected) == 1:
@@ -29,7 +29,7 @@ def handle_single_click_selection(ctrl, ax, click_disp, *, additive: bool) -> No
             p._fit_selected.remove(nearest)
         else:
             p._fit_selected.append(nearest)
-    ctrl._status(f"{len(p._fit_selected)} point(s) sélectionné(s). Suppr pour retirer.")
+    ctrl._status(f"{len(p._fit_selected)} point(s) selected. Press Delete to remove.")
 
 
 def handle_rect_selection(ctrl, ax, xs, ys, *, additive: bool) -> None:
@@ -68,4 +68,4 @@ def handle_rect_selection(ctrl, ax, xs, ys, *, additive: bool) -> None:
             else:
                 existing.add(h)
         p._fit_selected = list(existing)
-    ctrl._status(f"{len(p._fit_selected)} point(s) sélectionné(s). Suppr pour retirer.")
+    ctrl._status(f"{len(p._fit_selected)} point(s) selected. Press Delete to remove.")

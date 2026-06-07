@@ -1,4 +1,4 @@
-"""Loader CLS/LNLS texte (BM individuel + FS Cycle/Step)."""
+"""CLS/LNLS text loader (individual BM + FS Cycle/Step)."""
 from __future__ import annotations
 
 import json
@@ -30,11 +30,11 @@ _CYCLE_STEP_RE = re.compile(r"Cycle_(\d+)_Step_(\d+)")
 
 def _parse_cls_param(folder: Path, prefix: str) -> dict[str, Any]:
     param_file = folder / f"{prefix}_param.txt"
-    if not param_file.exists(): raise FileNotFoundError(f"Paramètres CLS introuvables : {param_file}")
+    if not param_file.exists(): raise FileNotFoundError(f"CLS parameters not found: {param_file}")
     txt = param_file.read_text(errors="replace"); lines = txt.strip().splitlines()
     em = re.search(r"Energy min:\s*([-\d.]+);\s*Energy delta:\s*([-\d.]+)", txt)
     am = re.search(r"Angle min:\s*([-\d.]+);\s*Angle delta:\s*([-\d.]+)", txt)
-    if not em or not am: raise ValueError(f"Impossible de lire Energy/Angle min-delta dans {param_file}")
+    if not em or not am: raise ValueError(f"Could not read Energy/Angle min-delta in {param_file}")
     def fmatch(pat):
         m = re.search(pat, txt); return float(m.group(1)) if m else None
     def smatch(pat):
@@ -78,7 +78,7 @@ def _is_cls_bm_file(path: Path) -> bool:
 def _cls_cycle_step(path: Path) -> tuple[int, int]:
     m = _CYCLE_STEP_RE.search(path.name)
     if not m:
-        raise ValueError(f"Nom CLS Cycle/Step invalide : {path.name}")
+        raise ValueError(f"Invalid CLS Cycle/Step name: {path.name}")
     return int(m.group(1)), int(m.group(2))
 
 
@@ -132,7 +132,7 @@ def _save_cls_fs_cache(cache_path: Path, signature: str, volume: np.ndarray, ste
 def _load_cls_fs_volume(folder: Path, prefix: str) -> tuple[np.ndarray, list[int], int]:
     all_files = sorted(folder.glob(f"{prefix}_Cycle_*_Step_*.txt"), key=_cls_cycle_step)
     if not all_files:
-        raise FileNotFoundError(f"Aucun fichier Cycle/Step dans {folder}")
+        raise FileNotFoundError(f"No Cycle/Step file in {folder}")
 
     steps: dict[int, list[Path]] = defaultdict(list)
     for f in all_files:
@@ -166,7 +166,7 @@ def _load_cls_fs_volume(folder: Path, prefix: str) -> tuple[np.ndarray, list[int
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             for i, arr in pool.map(lambda item: (item[0], _loadtxt_float32(item[1])), tasks):
                 if arr.shape != (n_e, n_th):
-                    raise ValueError(f"Shape CLS incohérente dans {steps[step_ids[i]][0].parent}: {arr.shape} vs {(n_e, n_th)}")
+                    raise ValueError(f"Inconsistent CLS shape in {steps[step_ids[i]][0].parent}: {arr.shape} vs {(n_e, n_th)}")
                 sums[i] += arr
 
     for i, sid in enumerate(step_ids):
@@ -185,8 +185,8 @@ def load_cls_txt(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
     hv_val = float(hv) if hv is not None and np.isfinite(hv) and float(hv) > 0 else np.nan
     if not np.isfinite(hv_val):
         raise ValueError(
-            "hν est obligatoire pour les données CLS/LNLS : entre l'énergie photon "
-            "du logbook avant de charger le fichier."
+            "hν is required for CLS/LNLS data: enter the logbook photon energy "
+            "before loading the file."
         )
     temp_val = float(temperature) if temperature is not None and np.isfinite(temperature) else np.nan
     if path.is_file():
@@ -195,7 +195,7 @@ def load_cls_txt(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
         scan_kind, n_steps, n_cycles = "BM", 1, 1
     else:
         folder = path; param_files = sorted(folder.glob("*_param.txt"))
-        if not param_files: raise FileNotFoundError(f"Aucun *_param.txt dans {folder}")
+        if not param_files: raise FileNotFoundError(f"No *_param.txt in {folder}")
         candidates = []
         for pf in param_files:
             cand = pf.name.removesuffix("_param.txt")
@@ -203,8 +203,8 @@ def load_cls_txt(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
                 candidates.append(cand)
         if not candidates:
             raise ValueError(
-                f"{folder} contient des paramètres CLS mais aucun fichier Cycle/Step. "
-                "Charge un fichier BM individuel, pas le dossier."
+                f"{folder} contains CLS parameters but no Cycle/Step file. "
+                "Load an individual BM file, not the folder."
             )
         prefix = candidates[0]; p = _parse_cls_param(folder, prefix)
         volume, step_ids, n_cycles = _load_cls_fs_volume(folder, prefix)
@@ -223,12 +223,12 @@ def load_cls_txt(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
     n_e, n_theta = raw.shape
     energy_raw = p["energy_min"] + np.arange(n_e) * p["energy_delta"]
     ef_kin_from_hv = hv_val - float(work_func)
-    # --- garde-fou cohérence hν ----------------------------------------------
-    # L'échelle d'énergie CLS est cinétique (~ Central Energy). Pour une carte
-    # BM, la fenêtre est ~centrée sur EF, donc EF_kin ≈ hν - φ ≈ centre fenêtre.
-    # Si le hν fourni place EF_kin très loin de la fenêtre du fichier, hν est
-    # presque sûrement faux (mauvaise colonne/ligne du logbook). On bascule
-    # alors sur Central Energy comme référence EF et on prévient bruyamment.
+    # --- hν consistency guard -------------------------------------------------
+    # The CLS energy scale is kinetic (~ Central Energy). For a BM, the window
+    # is roughly centered on EF, so EF_kin ≈ hν - φ ≈ window center. If the
+    # supplied hν puts EF_kin far outside the file window, hν is almost
+    # certainly wrong (wrong logbook column/row). Fall back to Central Energy
+    # as the EF reference and warn loudly.
     central = p.get("central_energy")
     win_lo, win_hi = float(energy_raw[0]), float(energy_raw[-1])
     win_mid = 0.5 * (win_lo + win_hi)
@@ -241,23 +241,23 @@ def load_cls_txt(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
         energy_reference = "central_energy_assumed_EF"
         hv_implied = float(central) + float(work_func)
         hv_warning = (
-            f"hν={hv_val:g} eV ⇒ EF_kin={ef_kin_from_hv:g} eV, incohérent avec la "
-            f"fenêtre d'énergie du fichier [{win_lo:g}, {win_hi:g}] eV (Central Energy "
-            f"{float(central):g}). Référencement basé sur Central Energy (fenêtre supposée "
-            f"centrée sur EF). hν réelle probablement ≈ {hv_implied:g} eV — corrige le logbook."
+            f"hν={hv_val:g} eV ⇒ EF_kin={ef_kin_from_hv:g} eV, inconsistent with the "
+            f"file energy window [{win_lo:g}, {win_hi:g}] eV (Central Energy "
+            f"{float(central):g}). Referencing based on Central Energy (window assumed "
+            f"centered on EF). Real hν is probably ≈ {hv_implied:g} eV — fix the logbook."
         )
     elif hv_gap > 15.0:
         hv_warning = (
-            f"hν={hv_val:g} eV semble incohérent avec la fenêtre d'énergie du fichier "
-            f"[{win_lo:g}, {win_hi:g}] eV — vérifie le logbook (carte probablement hors EF)."
+            f"hν={hv_val:g} eV appears inconsistent with the file energy window "
+            f"[{win_lo:g}, {win_hi:g}] eV — check the logbook (map probably away from EF)."
         )
     elif hv_gap > 3.0:
         hv_guess = win_mid + float(work_func)
         hv_warning = (
-            f"hν={hv_val:g} eV ⇒ EF_kin={ef_kin_from_hv:g} eV, à {hv_gap:.1f} eV du centre "
-            f"de la fenêtre [{win_lo:g}, {win_hi:g}] eV — fenêtre pas centrée sur EF. "
-            f"Si la carte semble décalée (bande loin de EF), hν est probablement ≈ {hv_guess:.1f} eV "
-            f"(corrige le champ hν et recharge). Sinon c'est un offset volontaire."
+            f"hν={hv_val:g} eV ⇒ EF_kin={ef_kin_from_hv:g} eV, {hv_gap:.1f} eV from the center "
+            f"of the [{win_lo:g}, {win_hi:g}] eV window — window is not centered on EF. "
+            f"If the map looks shifted (band far from EF), hν is probably ≈ {hv_guess:.1f} eV "
+            f"(fix the hν field and reload). Otherwise this is an intentional offset."
         )
     energy = energy_raw - ef_kin_nominal + float(ef_offset)
     theta = p["angle_min"] + np.arange(n_theta) * p["angle_delta"]
@@ -289,7 +289,10 @@ def load_cls_txt(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
         "polar_already_applied_to_kx": True,
         "angle_offsets_applied": dict(angle_offsets),
         "theta0_deg": theta0_deg, "tilt0_deg": tilt0_deg,
-        "hv": hv_val if np.isfinite(hv_val) else None, "temperature": temp_val, "pol": pol, "azi": azi,
+        "hv": hv_val if np.isfinite(hv_val) else None,
+        "work_function_eV": float(work_func),
+        "a_lattice": float(a_lattice),
+        "temperature": temp_val, "pol": pol, "azi": azi,
         "polar": float(polar_for_kx), "polar_raw_motor": float(polar_raw_motor),
         "fs_scan_polar_ignored_for_kx": bool(ignored_scan_polar),
         "fs_static_polar_policy": "ignore_scanned_polar_for_fs_kx",

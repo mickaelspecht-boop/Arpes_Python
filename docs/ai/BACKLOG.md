@@ -14,19 +14,7 @@ Priorités : **P0** bloquant en cours · **P1** prochain · **P2** dette planifi
 
 ## EN COURS
 
-### Traduction app FR→EN (P0)
-Tout l'app en anglais (code/UI/commentaires/docstrings/help in-app), **sauf**
-mots-clés de matching logbook (`logbook*.py` : listes de noms de colonnes FR =
-clés, pas du texte UI). Parallélisé via sous-agents, partiellement fait avant
-limite de session.
-- **Reste à faire** : vérifier/finir controllers (ex. `fit_runner_controller.py`
-  messages « Fit déjà en cours » encore FR), widgets, dialogs/plots/browsers,
-  messages physics/io user-facing, docstrings publiques.
-- Mettre à jour les tests qui assertent du FR (`test_fit_reentrancy_p37.py`
-  « déjà en cours » ; tests pocket « rejetée »/« lissée » ; ~13 fichiers repérés).
-- Vérifier que les listes mots-clés logbook sont **intactes**.
-- **Done-when** : `grep` FR ne trouve plus de string user-facing FR ; suite verte
-  sous `peaks` ; launch réel OK.
+_(rien)_
 
 ---
 

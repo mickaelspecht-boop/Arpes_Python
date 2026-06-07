@@ -56,7 +56,7 @@ class TestPickerPure:
             k_distance=[0.0, float("nan"), 2.0],
             bands=[[0.0, 1.0, 2.0]],
         )
-        assert "axe k non fini" in validate_picker_data(data)
+        assert "non-finite k axis" in validate_picker_data(data)
 
     def test_legacy_without_band_meta_still_builds_curves(self):
         legacy = {
@@ -106,7 +106,7 @@ class TestPickerPure:
         assert path_label("Y", "mp_bulk") == "Y"
 
 
-@pytest.mark.skipif(not UI_AVAILABLE, reason="PyQt6 / Qt offscreen indisponible")
+@pytest.mark.skipif(not UI_AVAILABLE, reason="PyQt6 / Qt offscreen unavailable")
 class TestTheoryBandPickerDialog(unittest.TestCase):
     _qt_app = None
 

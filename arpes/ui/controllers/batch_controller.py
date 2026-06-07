@@ -1,8 +1,8 @@
-"""Batch fit : applique _fit_full sur tous les fichiers non-fittés du dossier.
+"""Batch fit: applies _fit_full to all unfitted files in the folder.
 
-Synchrone avec QApplication.processEvents entre fichiers (pas de threading).
-QProgressDialog avec bouton Annuler. Fichiers déjà fittés sont préservés
-sauf si `force=True` (réservé à un futur appel programmatique).
+Synchronous with QApplication.processEvents between files (no threading).
+QProgressDialog with Cancel button. Already-fitted files are preserved
+unless `force=True` (reserved for future programmatic calls).
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class BatchController:
         session = self._session
         if session.folder is None:
             QMessageBox.information(self._parent, "Batch fit",
-                                    "Aucun dossier ouvert.")
+                                    "No folder is open.")
             return
         targets: list[tuple[str, Path]] = []
         for name, entry in session.files.items():
@@ -39,24 +39,24 @@ class BatchController:
         if not targets:
             QMessageBox.information(
                 self._parent, "Batch fit",
-                "Aucun fichier non-fitté trouvé dans la session.\n"
-                "Charge d'abord les fichiers via le navigateur.",
+                "No unfitted files found in the session.\n"
+                "Load files via the browser first.",
             )
             return
 
         confirm = QMessageBox.question(
             self._parent, "Batch fit",
-            f"Lancer un fit MDC complet sur {len(targets)} fichier(s) ?\n\n"
-            "Les paramètres actuels du panneau Fit MDC sont utilisés.",
+            f"Run a full MDC fit on {len(targets)} file(s)?\n\n"
+            "The current MDC Fit panel parameters will be used.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
         progress = QProgressDialog(
-            "Batch fit en cours...", "Annuler", 0, len(targets), self._parent,
+            "Batch fit in progress...", "Cancel", 0, len(targets), self._parent,
         )
-        progress.setWindowTitle("Batch fit dossier")
+        progress.setWindowTitle("Batch fit folder")
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
@@ -78,7 +78,7 @@ class BatchController:
                     skipped += 1
             except Exception as exc:
                 skipped += 1
-                self._status(f"Batch : échec {name} ({exc})")
+                self._status(f"Batch: failed {name} ({exc})")
             progress.setValue(i + 1)
             QApplication.processEvents()
         progress.close()
@@ -90,6 +90,6 @@ class BatchController:
             except Exception:
                 pass
 
-        msg = f"Batch terminé : {ok} fittés, {skipped} échec/ignoré sur {len(targets)} cibles."
+        msg = f"Batch done: {ok} fitted, {skipped} failed/skipped out of {len(targets)} targets."
         self._status(msg)
         QMessageBox.information(self._parent, "Batch fit", msg)

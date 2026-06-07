@@ -52,7 +52,7 @@ def fit_run_all_zones(ctrl) -> None:
     """Run an independent MDC fit for every active zone, sequentially."""
     p = ctrl._parent
     if p.ap is None:
-        ctrl._status("Attention: arpes_plots non chargé")
+        ctrl._status("Warning: arpes_plots not loaded")
         return
     if not p._current_path:
         return
@@ -60,7 +60,7 @@ def fit_run_all_zones(ctrl) -> None:
     entry = ctrl._session.get_or_create(key)
     active = [z for z in entry.fit_zones if z.get("active", True)]
     if not active:
-        ctrl._status("Aucune zone active. Cliquez '+' pour en créer.")
+        ctrl._status("No active zone. Click '+' to create one.")
         return
     controller = MdcFitter(p.ap)
     n_ok = 0
@@ -115,7 +115,7 @@ def fit_run_all_zones(ctrl) -> None:
         except Exception as exc:
             traceback.print_exc()
             n_fail += 1
-            ctrl._status(f"Zone {zone.get('label')} échec : {exc}")
+            ctrl._status(f"Zone {zone.get('label')} failed: {exc}")
     if zctrl is not None:
         from arpes.core.fit_result_store import set_fit_result
         active_z = zctrl.active_zone(entry)
@@ -126,6 +126,6 @@ def fit_run_all_zones(ctrl) -> None:
     ctrl._refresh_zones_strip()
     ctrl._redraw_all_fit_views()
     ctrl._status(
-        f"Run multi-zones terminé : {n_ok} OK"
-        + (f", {n_fail} échec" if n_fail else "")
+        f"Multi-zone run finished: {n_ok} OK"
+        + (f", {n_fail} failed" if n_fail else "")
     )

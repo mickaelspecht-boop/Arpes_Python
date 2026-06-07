@@ -8,7 +8,7 @@ def signal_bbox(
     data: np.ndarray, kpar, ev,
     *, intensity_percentile: float = 50.0, finite_only: bool = True,
 ) -> dict:
-    """Détecte la boîte englobante du signal (intensité > seuil)."""
+    """Detect the signal bounding box (intensity > threshold)."""
     arr = np.asarray(data, dtype=float)
     kpar_axis = np.asarray(kpar, dtype=float)
     ev_axis = np.asarray(ev, dtype=float)

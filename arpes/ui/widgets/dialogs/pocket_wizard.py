@@ -1,8 +1,8 @@
 """3-step wizard guiding the user through pocket characterization.
 
-Page 1 : seed + σ smoothing + ΔE (display local SNR)
-Page 2 : algo choice (iso vs MDC radial) + level/level params
-Page 3 : HS orientation confirm (Γ-X, Γ-M, tolerance)
+Page 1: seed + σ smoothing + ΔE (display local SNR)
+Page 2: algorithm choice (iso vs MDC radial) + level/level parameters
+Page 3: HS orientation confirmation (Γ-X, Γ-M, tolerance)
 
 Returns a settings dict via ``result_settings()`` after accept.
 """
@@ -44,8 +44,8 @@ class _SeedSmoothingPage(QWizardPage):
         super().__init__()
         self.setTitle("1/3 — Seed + smoothing + ΔE")
         self.setSubTitle(
-            f"Seed (Γ-relatif) : ({seed_plot[0]:+.3f}, {seed_plot[1]:+.3f}) π/a. "
-            "Choisis le smoothing et la fenêtre EF cohérents avec la résolution instrument."
+            f"Seed (Γ-relative): ({seed_plot[0]:+.3f}, {seed_plot[1]:+.3f}) π/a. "
+            "Choose smoothing and the EF window consistently with the instrumental resolution."
         )
         self._snr_provider = snr_provider
         lay = QFormLayout(self)
@@ -54,13 +54,13 @@ class _SeedSmoothingPage(QWizardPage):
         self.sp_ef_window = _dspin(defaults["ef_window"], 0.001, 0.5, 0.005, dec=3)
         lay.addRow("σ smoothing ky (pixels) :", self.sp_sigma_y)
         lay.addRow("σ smoothing kx (pixels) :", self.sp_sigma_x)
-        lay.addRow("Fenêtre EF ±eV :", self.sp_ef_window)
-        self.lbl_snr = QLabel("SNR local autour seed : —")
+        lay.addRow("EF window ±eV:", self.sp_ef_window)
+        self.lbl_snr = QLabel("Local SNR around seed: —")
         self.lbl_snr.setStyleSheet("color:#9cf; font-weight:bold;")
         lay.addRow(self.lbl_snr)
         warn = QLabel(
-            "Rappel physique : σ·dk ne doit pas dépasser ~0.5·kF, sinon "
-            "la mesure de kF est biaisée. Vérifier après caractérisation."
+            "Physics reminder: σ·dk should not exceed ~0.5·kF, otherwise "
+            "the kF measurement is biased. Check after characterization."
         )
         warn.setStyleSheet("color:#aaa; font-size:10px;")
         warn.setWordWrap(True)
@@ -77,10 +77,10 @@ class _SeedSmoothingPage(QWizardPage):
         except Exception:
             snr = float("nan")
         if not np.isfinite(snr):
-            self.lbl_snr.setText("SNR local autour seed : non calculable")
+            self.lbl_snr.setText("Local SNR around seed: not computable")
             return
         color = "#9cf" if snr >= 3.0 else "#fa6"
-        self.lbl_snr.setText(f"SNR local autour seed : {snr:.2f}")
+        self.lbl_snr.setText(f"Local SNR around seed: {snr:.2f}")
         self.lbl_snr.setStyleSheet(f"color:{color}; font-weight:bold;")
 
     def values(self) -> dict[str, float]:
@@ -94,14 +94,14 @@ class _SeedSmoothingPage(QWizardPage):
 class _AlgoPage(QWizardPage):
     def __init__(self, defaults: dict):
         super().__init__()
-        self.setTitle("2/3 — Algorithme")
+        self.setTitle("2/3 — Algorithm")
         self.setSubTitle("MDC-radial = publication. Iso-contour = quicklook.")
         lay = QVBoxLayout(self)
         self.rb_mdc = QRadioButton(
-            "MDC radial Lorentzian fit (kF = max de A(k,EF), rigoureux)"
+            "MDC radial Lorentzian fit (kF = max of A(k,EF), rigorous)"
         )
         self.rb_iso = QRadioButton(
-            "Iso-contour à level fixe (heuristique, plus rapide)"
+            "Fixed-level iso-contour (heuristic, faster)"
         )
         self.rb_mdc.setChecked(True)
         group = QButtonGroup(self); group.addButton(self.rb_mdc); group.addButton(self.rb_iso)
@@ -117,18 +117,18 @@ class _AlgoPage(QWizardPage):
         from PyQt6.QtWidgets import QComboBox
         self.cmb_mode = QComboBox()
         self.cmb_mode.addItems([
-            "Auto (fermée si possible, arc sinon)",
-            "Arc forcé (poche coupée par bord scan)",
+            "Auto (closed if possible, arc otherwise)",
+            "Forced arc (pocket cut by scan edge)",
         ])
         self.cmb_mode.setToolTip(
-            "Mode poche. Arc forcé : ne tente pas de fermer ; rapporte kF par "
-            "direction + arc_coverage_deg. Aucune aire ni Luttinger."
+            "Pocket mode. Forced arc: does not try to close; reports kF by "
+            "direction + arc_coverage_deg. No area or Luttinger count."
         )
         form.addRow("Mode :", self.cmb_mode)
         lay.addLayout(form)
         note = QLabel(
-            "MDC : fit Lorentzien sur chaque rayon, incertitude par direction "
-            "(Damascelli RMP 2003). Iso : level utilisé tel quel — pas de fit."
+            "MDC: Lorentzian fit on each ray, uncertainty by direction "
+            "(Damascelli RMP 2003). Iso: level used as-is, no fit."
         )
         note.setWordWrap(True); note.setStyleSheet("color:#aaa; font-size:10px;")
         lay.addWidget(note)
@@ -148,8 +148,8 @@ class _HsOrientationPage(QWizardPage):
         super().__init__()
         self.setTitle("3/3 — Orientation HS Γ-X / Γ-M")
         self.setSubTitle(
-            "À confirmer à chaque sample : mount casse l'alignement. "
-            "Lis l'orientation sur l'overlay BZ théorique."
+            "Confirm for each sample: mounting breaks alignment. "
+            "Read the orientation from the theoretical BZ overlay."
         )
         lay = QFormLayout(self)
         self.sp_x = _dspin(float(defaults.get("hs_dir_x_deg", 0.0)), -180.0, 180.0, 1.0, dec=1)
@@ -157,10 +157,10 @@ class _HsOrientationPage(QWizardPage):
         self.sp_tol = _dspin(float(defaults.get("hs_dir_tol_deg", 10.0)), 1.0, 45.0, 1.0, dec=1)
         lay.addRow("Direction Γ-X (deg) :", self.sp_x)
         lay.addRow("Direction Γ-M (deg) :", self.sp_m)
-        lay.addRow("Tolérance secteur (±deg) :", self.sp_tol)
+        lay.addRow("Sector tolerance (±deg):", self.sp_tol)
         note = QLabel(
-            "kF(Γ-X) et kF(Γ-M) seront mesurés dans ces secteurs angulaires. "
-            "Une erreur d'orientation biaise l'anisotropie."
+            "kF(Γ-X) and kF(Γ-M) will be measured in these angular sectors. "
+            "An orientation error biases the anisotropy."
         )
         note.setWordWrap(True); note.setStyleSheet("color:#aaa; font-size:10px;")
         lay.addRow(note)
@@ -177,7 +177,7 @@ class PocketWizardDialog(QWizard):
     def __init__(self, parent, *, seed_plot: tuple[float, float],
                  defaults: dict, snr_provider):
         super().__init__(parent)
-        self.setWindowTitle("Caractérisation poche FS — guidée")
+        self.setWindowTitle("Guided FS Pocket Characterization")
         self.resize(520, 460)
         self.setOption(QWizard.WizardOption.NoBackButtonOnStartPage, True)
         self._page_seed = _SeedSmoothingPage(seed_plot, defaults, snr_provider)

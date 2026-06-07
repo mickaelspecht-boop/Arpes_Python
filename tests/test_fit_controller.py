@@ -204,7 +204,7 @@ class TestImSigma(unittest.TestCase):
 
 class TestEnsembleFit(unittest.TestCase):
     def _make_fitter(self):
-        # Fitter qui renvoie kF_minus = kF_init + bruit fixe par run
+        # Fitter that returns kF_minus = kF_init + fixed noise per run.
         from arpes.physics.fit import MdcFitter
         ev = np.linspace(-0.05, 0.0, 6)
 
@@ -216,7 +216,7 @@ class TestEnsembleFit(unittest.TestCase):
                 self._call += 1
                 pairs = kw.get("kF_init") or [0.30]
                 kf0 = float(pairs[0])
-                # bruit centré : sinus du numéro d'appel pour reproductibilité
+                # Centered noise: sine of call number for reproducibility.
                 noise = 0.001 * np.sin(self._call)
                 return {
                     "e_fitted": ev.tolist(),
@@ -241,7 +241,7 @@ class TestEnsembleFit(unittest.TestCase):
         self.assertEqual(ens["ensemble"], True)
         self.assertGreater(ens["n_ok"], 0)
         self.assertEqual(len(ens["e_fitted"]), ev.size)
-        # médiane kF_plus ≈ 0.30 (± jitter)
+        # median kF_plus ≈ 0.30 (± jitter).
         med = float(np.nanmedian(ens["kF_plus_med"]))
         self.assertAlmostEqual(med, 0.30, delta=0.05)
         self.assertGreater(np.nanmean(ens["kF_plus_std"]), 0.0)
@@ -292,7 +292,7 @@ class TestVoigtModel(unittest.TestCase):
         k = np.linspace(-1, 1, 51)
         y = model(k, *p)
         self.assertEqual(y.shape, k.shape)
-        # pic à k0 doit dépasser le minimum
+        # Peak at k0 must exceed the minimum.
         self.assertGreater(float(y.max()), float(y.min()) + 0.1)
 
     def test_shape_threads_through_fit_kwargs(self):
@@ -311,7 +311,7 @@ class TestWidthModeAliasing(unittest.TestCase):
         )
         self.assertEqual(_normalize_width_mode("asymmetric"), "independent")
         self.assertEqual(_normalize_width_mode("symmetric"), "symmetric")
-        # n_pp doit correspondre à 'independent' (5) pas 'symmetric' (4)
+        # n_pp must match 'independent' (5), not 'symmetric' (4).
         _m, npp_a, _ = _make_peak_pairs_model(1, width_mode="asymmetric")
         _m, npp_i, _ = _make_peak_pairs_model(1, width_mode="independent")
         self.assertEqual(npp_a, npp_i)

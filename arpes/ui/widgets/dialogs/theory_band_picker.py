@@ -51,13 +51,13 @@ class TheoryBandPickerDialog(QDialog):
         self._default_ylim: tuple[float, float] | None = None
 
         title_id = self.data.material_id or "DFT"
-        self.setWindowTitle(f"Bandes DFT - {title_id}")
+        self.setWindowTitle(f"DFT Bands - {title_id}")
         self.resize(920, 640)
         self.setModal(True)
 
         root = QVBoxLayout(self)
         top = QHBoxLayout()
-        top.addWidget(QLabel("Chemin:"))
+        top.addWidget(QLabel("Path:"))
         self.cmb_segment = QComboBox()
         self.cmb_segment.addItem("")
         self.cmb_segment.addItems(self._segments)
@@ -83,10 +83,10 @@ class TheoryBandPickerDialog(QDialog):
         bottom = QHBoxLayout()
         self.lbl_selection = QLabel()
         bottom.addWidget(self.lbl_selection, 1)
-        btn_clear = QPushButton("Tout deselec.")
+        btn_clear = QPushButton("Deselect all")
         btn_clear.clicked.connect(self._clear_selection)
         bottom.addWidget(btn_clear)
-        btn_invert = QPushButton("Inverser")
+        btn_invert = QPushButton("Invert")
         btn_invert.clicked.connect(self._invert_selection)
         bottom.addWidget(btn_invert)
         root.addLayout(bottom)
@@ -144,7 +144,7 @@ class TheoryBandPickerDialog(QDialog):
             self.canvas.canvas.draw_idle()
             return
         ax.axhline(0.0, color="#67e8f9", lw=0.8, ls="--", alpha=0.75)
-        ax.set_xlabel("chemin DFT")
+        ax.set_xlabel("DFT path")
         ax.set_ylabel("E - E_F (eV)")
         ax.tick_params(colors="#d1d5db")
         ax.xaxis.label.set_color("#d1d5db")

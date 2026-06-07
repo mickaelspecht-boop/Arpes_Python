@@ -1,4 +1,4 @@
-"""Dialog Qt pour Im Sigma(E) calculé depuis Γ(E) du fit MDC."""
+"""Qt dialog for Im Sigma(E) computed from Γ(E) of the MDC fit."""
 from __future__ import annotations
 
 import numpy as np
@@ -11,12 +11,12 @@ _SIDE_COLORS = {"mean": "#f97316", "left": "#38bdf8", "right": "#a78bfa"}
 
 
 class ImagSelfEnergyDialog(QDialog):
-    """Affiche Im Σ(E) = (vF/2)·Γ_k(E) en meV.
+    """Display Im Σ(E) = (vF/2)·Γ_k(E) in meV.
 
-    ``payload`` peut être :
-    - un seul résultat dict (compat) → trace une courbe.
-    - un mapping {label: result} → trace une courbe par entrée (utile
-      pour comparer mean / left / right en mode width_mode=independent).
+    ``payload`` can be:
+    - a single result dict (compat) → plot one curve.
+    - a mapping {label: result} → plot one curve per entry (useful
+      to compare mean / left / right in width_mode=independent mode).
     """
 
     def __init__(self, payload, parent=None):
@@ -24,9 +24,9 @@ class ImagSelfEnergyDialog(QDialog):
         self.setWindowTitle("Self-energy Im Σ(E)")
         self.resize(760, 520)
         lay = QVBoxLayout(self)
-        # Normalise vers mapping {label: result}
+        # Normalize to mapping {label: result}
         if isinstance(payload, dict) and "energy" in payload:
-            results = {"Moyenne": payload}
+            results = {"Mean": payload}
         elif isinstance(payload, dict):
             results = payload
         else:
@@ -35,9 +35,9 @@ class ImagSelfEnergyDialog(QDialog):
         first = next(iter(results.values()), {})
         vF = float(first.get("vF_eV_A") or float("nan"))
         pi = int(first.get("pair_index") or 0)
-        info = f"Paire P{pi + 1}  |  vF = {vF:.2f} eV·Å"
+        info = f"Pair P{pi + 1}  |  vF = {vF:.2f} eV·Å"
         if len(results) > 1:
-            info += f"  |  {len(results)} courbes (mean/left/right)"
+            info += f"  |  {len(results)} curves (mean/left/right)"
         lay.addWidget(QLabel(info))
         self._canvas = MplCanvas(figsize=(7, 4), toolbar=True)
         lay.addWidget(self._canvas, stretch=1)
@@ -71,7 +71,7 @@ class ImagSelfEnergyDialog(QDialog):
         ax.axhline(0.0, color="#888", lw=0.8, ls="--")
         ax.set_xlabel("E - EF (eV)", color="w")
         ax.set_ylabel("Im Σ (meV)", color="w")
-        ax.set_title("Im Σ(E) = (vF/2)·Γ_k(E)", color="w")
+        ax.set_title(r"$\mathrm{Im}\,\Sigma(E) = (v_F/2)\,\Gamma_k(E)$", color="w")
         ax.tick_params(colors="w")
         for sp in ax.spines.values():
             sp.set_edgecolor("#555")

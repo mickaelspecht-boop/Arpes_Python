@@ -203,9 +203,9 @@ class FitZonesController:
         k_max = float(fp.get("k_max", 0.0))
         if k_min >= gamma_center or k_max <= gamma_center:
             return (
-                f"Zone {zone.get('label')} entièrement d'un côté de Γ"
+                f"Zone {zone.get('label')} entirely on one side of Gamma"
                 f" (k∈[{k_min:.3f},{k_max:.3f}], Γ={gamma_center:.3f}) :"
-                " le modèle ±kF peut produire un kF miroir artefact."
+                " the +/-kF model can produce an artificial mirrored kF."
             )
         return None
 
@@ -215,7 +215,7 @@ class FitZonesController:
             self._parent._session.save()
         except Exception as exc:
             self._status(
-                f"⚠ Sauvegarde session échouée ({exc}). Zones non persistées."
+                f"Warning: session save failed ({exc}). Zones were not persisted."
             )
 
     def color_for_zone(self, zone: dict) -> str:

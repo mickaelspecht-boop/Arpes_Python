@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-arpes_explorer.py — Interface interactive ARPES (BaNi₂As₂) v3
+arpes_explorer.py — Interactive ARPES interface (BaNi2As2) v3
 ═══════════════════════════════════════════════════════════════
-Features :
-  • Panneau fichiers (browse dossier, statut unloaded/loaded/fitted)
-  • Session JSON (.arpes_session.json) — sauvegarde auto à chaque fit
+Features:
+  • File panel (folder browsing, unloaded/loaded/fitted status)
+  • JSON session (.arpes_session.json) — auto-saved after each fit
   • Band map avec modes Raw / EDCnorm / SecDev / Curvature
-  • MDC (en énergie) + EDC (en k) live sur clic
-  • Modèle Lorentzien par paire, temps réel
-  • Bouton Guess (fit MDC à l'énergie courante)
-  • Bouton Fit complet → kF superposés sur la carte
-  • Calibration EF sample-based intégrée
-  • Onglet Résultats : dispersions superposées + table + export CSV/PDF
+  • Live MDC (energy) + EDC (k) on click
+  • Pairwise Lorentzian model, real time
+  • Guess button (MDC fit at current energy)
+  • Full Fit button -> kF overlaid on the map
+  • Integrated sample-based EF calibration
+  • Results tab: overlaid dispersions + table + CSV/PDF export
 
-Lancement :
+Launch:
     /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python3 arpes_explorer.py
 """
 
@@ -87,18 +87,18 @@ from PyQt6.QtWidgets import (
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Chargement arpes_plots
+# arpes_plots loading
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_ap():
-    """Charge le module arpes_plots — retourne None si introuvable."""
+    """Load the arpes_plots module; return None if unavailable."""
     try:
         import arpes.ui.widgets.plots as plots
         return plots
     except Exception:
         pass
     code_dir = Path(__file__).resolve().parent
-    for name in ["arpes_plots.py", "arpes_plots(1).py"]:
+    for name in ["arpes_plots.py"]:
         p = code_dir / name
         if p.exists():
             spec = importlib.util.spec_from_file_location("arpes_plots", p)
@@ -107,26 +107,10 @@ def _load_ap():
             return mod
     return None
 
-try:
-    from arpes.io.loaders import (
-        load_arpes,
-        load_arpes_file,
-        detect_format,
-        detect_scan_kind,
-        ARPESData,
-    )
-    from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
-    ERLAB_OK = True
-except Exception:
-    load_arpes = None
-    load_arpes_file = None
-    detect_format = None
-    detect_scan_kind = None
-    ARPESData = None
-    FermiSurfaceCanvas = None
-    FSControlPanel = None
-    ERLAB_OK = False
-
+# P3.6: the old try/except that forced 7 symbols to None + ERLAB_OK was
+# removed. Those names were not used by app.py, and loaders/fs_panel are
+# already imported (and fail loudly) by the controllers and builders that
+# depend on them, so there is no silent degradation path.
 from arpes.physics.plot_compute import apply_ef_correction_to_dict
 from arpes.ui.widgets.canvas import MplCanvas
 from arpes.ui.widgets.browsers import FileBrowserPanel
@@ -135,7 +119,7 @@ from arpes.ui.widgets.results import ResultsPanel
 from arpes.ui.widgets.dialogs import EFCalibrationDialog
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fenêtre principale
+# Main window
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ArpesExplorer(QMainWindow):
@@ -148,15 +132,15 @@ class ArpesExplorer(QMainWindow):
         self.ap = _load_ap()
         self._session     = Session()
         self._current_path: str | None = None
-        # A.4 — FS épinglée pour overlay BM cuts (cf BM_FS_ORGANIZATION_PLAN.md).
-        # Quand on charge une BM, le pin peut pointer vers la FS « contexte »
-        # de cette BM (auto ou manual via parent_fs_path) → utilisé par
-        # l'overlay Phase B pour savoir sur quelle FS dessiner les lignes.
+        # A.4 — pinned FS for the BM cuts overlay (cf BM_FS_ORGANIZATION_PLAN.md).
+        # When a BM is loaded, the pin can point to this BM's context FS
+        # (auto or manual via parent_fs_path), which the Phase B overlay uses
+        # to know which FS should receive the line overlay.
         self._pinned_fs_path: str | None = None
-        # B.4 — toggle overlay BM cuts (False par défaut, off-screen safe).
+        # B.4 — BM cuts overlay toggle (False by default, off-screen safe).
         self._show_bm_cuts: bool = False
-        self._raw_data:   dict | None  = None   # chargé depuis fichier
-        self._data_disp:  np.ndarray | None = None  # données affichées (mode)
+        self._raw_data:   dict | None  = None   # loaded from file
+        self._data_disp:  np.ndarray | None = None  # displayed data (mode)
         self._grid_display_info: dict = {}
         self._fit_res:    dict | None  = None
         self._theory_overlay: dict = {}
@@ -165,6 +149,7 @@ class ArpesExplorer(QMainWindow):
         self._sel_k  = 0.0
         self._fs_pick_center_active = False
         self._fit_roi_active = False
+        self._fit_busy = False  # P3.7: re-entrancy guard for long fits
         self._fit_roi_start: tuple[float, float] | None = None
         self._fit_roi_ax = None
         self._fit_roi_rect = None
@@ -174,11 +159,13 @@ class ArpesExplorer(QMainWindow):
         self._fit_select_press_ax = None
         self._fit_select_rect = None
 
-        # Cache de _update_display_data : recompute uniquement si une des clés
-        # influence le résultat affiché.
+        # _update_display_data cache: recompute only when one of the keys
+        # affects the displayed result.
         self._disp_cache_key: tuple | None = None
         self._display_cache: OrderedDict[tuple, tuple[np.ndarray, dict]] = OrderedDict()
         self._display_cache_max = 24
+        self._color_kwargs_cache: OrderedDict[tuple, tuple[str, dict]] = OrderedDict()
+        self._color_kwargs_cache_max = 48
         self._current_raw_load_cache_key: tuple | None = None
         self._raw_load_cache: OrderedDict[tuple, tuple[dict, dict]] = OrderedDict()
         self._raw_load_cache_max = 16
@@ -187,6 +174,41 @@ class ArpesExplorer(QMainWindow):
         self._last_load_cache_source = ""
         self._path_signature_cache: OrderedDict[str, tuple[tuple, tuple]] = OrderedDict()
         self._path_signature_cache_max = 128
+
+        self._install_controllers()
+
+        # Debouncers: avoid N redraws when the user clicks a spinbox quickly
+        # or types a value.
+        self._redraw_timer = QTimer(self); self._redraw_timer.setSingleShot(True)
+        self._redraw_timer.timeout.connect(self._on_model_changed)
+        self._fit_redraw_timer = QTimer(self); self._fit_redraw_timer.setSingleShot(True)
+        self._fit_redraw_timer.timeout.connect(self._on_fit_only_changed)
+        # P2-B: live fit preview (debounced). Runs _fit_guess (not persisted)
+        # when the user adjusts initial kF / initial gamma / selected E / etc.
+        self._live_fit_timer = QTimer(self); self._live_fit_timer.setSingleShot(True)
+        self._live_fit_timer.timeout.connect(self._on_live_fit_guess)
+        self._distortion_preview_timer = QTimer(self); self._distortion_preview_timer.setSingleShot(True)
+        self._distortion_preview_timer.timeout.connect(self._redraw_distortion_preview)
+        self._fs_redraw_timer = QTimer(self); self._fs_redraw_timer.setSingleShot(True)
+        self._fs_redraw_timer.timeout.connect(self._on_fs_params_changed)
+
+        self._build_ui()
+        self._install_shortcuts()
+        self._status("Ready - open a folder or a file")
+
+    def _install_controllers(self) -> None:
+        """Instantiate all controllers (P3.6d).
+
+        Order = weak dependencies first. Each controller reads the parent only
+        via __getattr__ forwarding, so the order has no functional effect; it
+        remains documented for readability. **Must run BEFORE any
+        QTimer.timeout.connect** (CLAUDE.md rule #5), otherwise a timer could
+        resolve through __getattr__ before its controller exists.
+        """
+        from arpes.ui.controllers.batch_controller import BatchController
+        from arpes.ui.controllers.band_analysis_controller import BandAnalysisController
+        from arpes.ui.controllers.fit_zones_controller import FitZonesController
+        from arpes.ui.controllers.pairing_controller import PairingController
 
         self._logbook_ctrl = LogbookIngestController(self)
         self._load_ctrl = LoadController(self)
@@ -201,42 +223,18 @@ class ArpesExplorer(QMainWindow):
         self._kz_ctrl = KzController(self)
         self._theory_overlay_ctrl = TheoryOverlayController(self)
         self._session_io_ctrl = SessionIOController(self)
-        from arpes.ui.controllers.batch_controller import BatchController
         self._batch_ctrl = BatchController(self)
-        from arpes.ui.controllers.band_analysis_controller import BandAnalysisController
         self._band_analysis_ctrl = BandAnalysisController(self)
-        from arpes.ui.controllers.fit_zones_controller import FitZonesController
         self._fit_zones_ctrl = FitZonesController(self)
-        from arpes.ui.controllers.pairing_controller import PairingController
         self._pairing_ctrl = PairingController(self)
 
-        # Debouncers : évitent N redraws quand l'utilisateur clique-clique
-        # rapidement sur un spinbox ou tape une valeur.
-        self._redraw_timer = QTimer(self); self._redraw_timer.setSingleShot(True)
-        self._redraw_timer.timeout.connect(self._on_model_changed)
-        self._fit_redraw_timer = QTimer(self); self._fit_redraw_timer.setSingleShot(True)
-        self._fit_redraw_timer.timeout.connect(self._on_fit_only_changed)
-        # P2-B : preview de fit live (debounce) — lance _fit_guess (non
-        # persistant) quand l'utilisateur ajuste un kF init / γ init /
-        # E sélectionnée / etc.
-        self._live_fit_timer = QTimer(self); self._live_fit_timer.setSingleShot(True)
-        self._live_fit_timer.timeout.connect(self._on_live_fit_guess)
-        self._distortion_preview_timer = QTimer(self); self._distortion_preview_timer.setSingleShot(True)
-        self._distortion_preview_timer.timeout.connect(self._redraw_distortion_preview)
-        self._fs_redraw_timer = QTimer(self); self._fs_redraw_timer.setSingleShot(True)
-        self._fs_redraw_timer.timeout.connect(self._on_fs_params_changed)
-
-        self._build_ui()
-        self._install_shortcuts()
-        self._status("Prêt - ouvrir un dossier ou un fichier")
-
     # ─────────────────────────────────────────────────────────────────────────
-    # Proxy dispatch — délègue les méthodes legacy aux controllers.
+    # Proxy dispatch — delegates legacy methods to controllers.
     #
-    # Permet de garder l'API publique de ArpesExplorer (utilisée par les
-    # signaux Qt + appels internes) sans dupliquer ~40 stubs `def _x(self):
-    # return self._ctrl._x()`. Au connect-time Qt résout `getattr(window,
-    # "_method")` → dispatch ici → bound method du controller.
+    # Keeps ArpesExplorer's public API (used by Qt signals + internal calls)
+    # without duplicating ~40 stubs like `def _x(self): return self._ctrl._x()`.
+    # At Qt connect-time, `getattr(window, "_method")` resolves here and returns
+    # the bound controller method.
     # ─────────────────────────────────────────────────────────────────────────
 
     _PROXY_MAP = PROXY_MAP
@@ -282,15 +280,15 @@ class ArpesExplorer(QMainWindow):
         from arpes.io.artifact_cache import clear_cache_folder, cache_size_mb
         folder = self._session.folder
         if folder is None:
-            QMessageBox.information(self, "Cache disque",
-                                    "Aucun dossier de session ouvert.")
+            QMessageBox.information(self, "Disk cache",
+                                    "No session folder open.")
             return
         size_before = cache_size_mb(folder)
         confirm = QMessageBox.question(
-            self, "Vider cache disque",
-            f"Supprimer {size_before:.1f} MB d'artefacts dans\n"
+            self, "Clear disk cache",
+            f"Delete {size_before:.1f} MB of artifacts in\n"
             f"{folder}/.arpes_cache/ ?\n\n"
-            "Les fichiers seront rechargés depuis la source au prochain accès.",
+            "Files will be reloaded from source on next access.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
@@ -298,21 +296,21 @@ class ArpesExplorer(QMainWindow):
         n, total = clear_cache_folder(folder)
         self._raw_load_cache.clear()
         self._display_cache.clear()
-        self._status(f"Cache vidé : {n} fichier(s), {total / 1024 / 1024:.1f} MB libérés.")
+        self._status(f"Cache cleared: {n} file(s), {total / 1024 / 1024:.1f} MB freed.")
 
     def _reload_current_no_cache(self) -> None:
         from PyQt6.QtWidgets import QMessageBox
         path = getattr(self, "_current_path", None)
         if not path:
-            QMessageBox.information(self, "Recharger",
-                                    "Aucun fichier courant chargé.")
+            QMessageBox.information(self, "Reload",
+                                    "No current file loaded.")
             return
         self._load_ctrl.load(path, force_reload=True)
 
     def _toggle_disk_cache(self, enabled: bool) -> None:
         self._raw_disk_cache_enabled = bool(enabled)
-        state = "activé" if enabled else "désactivé"
-        self._status(f"Cache disque {state}.")
+        state = "enabled" if enabled else "disabled"
+        self._status(f"Disk cache {state}.")
 
     def _refresh_recent_sessions_menu(self) -> None:
         menu = getattr(self, "_recent_sessions_menu", None)
@@ -338,10 +336,10 @@ class ArpesExplorer(QMainWindow):
         self.setCentralWidget(central)
         self._wire_signals()
         self.setStatusBar(QStatusBar())
-        # P3 — badge état Γ permanent à droite de la statusbar
+        # P3 — persistent Γ status badge on the right side of the status bar
         from PyQt6.QtWidgets import QLabel as _QLabel
         self._gamma_status_label = _QLabel("Γ ∅")
-        self._gamma_status_label.setToolTip("État Γ courant (référence + axe).")
+        self._gamma_status_label.setToolTip("Current Γ state (reference + axis).")
         self.statusBar().addPermanentWidget(self._gamma_status_label)
 
     def _wire_signals(self):
@@ -349,7 +347,7 @@ class ArpesExplorer(QMainWindow):
         wire_ui_signals(self)
 
     def _on_tab_changed(self, index: int):
-        # 0=BM, 1=MDC Fit, 2=Résultats, 3=FS, 4=KZ, 5=Notes, 6=Aide
+        # 0=BM, 1=MDC Fit, 2=Results, 3=FS, 4=KZ, 5=Notes, 6=Help, 7=Start
         if hasattr(self, "_right_stack"):
             self._right_stack.setCurrentIndex(2 if index == 4 else (1 if index == 3 else 0))
         if index == 0:
@@ -406,11 +404,11 @@ class ArpesExplorer(QMainWindow):
 
 
     def _cls_manipulator_from_param(self, path: str | Path) -> dict:
-        """Wrapper UI : délègue à `arpes_cls_geometry.manipulator_from_param`."""
+        """UI wrapper: delegate to `arpes_cls_geometry.manipulator_from_param`."""
         return _cls_manipulator_from_param_pure(path)
 
     def _cls_geometry_for_path(self, path: str | Path, entry: FileEntry | None = None) -> dict:
-        """Wrapper UI : délègue à `arpes_cls_geometry.geometry_for_path`."""
+        """UI wrapper: delegate to `arpes_cls_geometry.geometry_for_path`."""
         return _cls_geometry_for_path_pure(
             path,
             entry_meta=(entry.meta if entry is not None else None),
@@ -461,11 +459,11 @@ class ArpesExplorer(QMainWindow):
         )
 
     def _bessy_energy_reference_mode(self) -> str:
-        """Mode BESSY exposé à l'app principale.
+        """BESSY mode exposed to the main app.
 
-        L'UI quotidienne reste simple : BESSY utilise le mode auto, qui se
-        résout côté loader en `ses_center_energy`. Le mode hν−φ reste disponible
-        dans `arpes_io.load_bessy_ses_ibw(...)` pour tests/diagnostic explicites.
+        The everyday UI stays simple: BESSY uses auto mode, resolved by the
+        loader as `ses_center_energy`. The hν-φ mode remains available in
+        `arpes_io.load_bessy_ses_ibw(...)` for explicit tests/diagnostics.
         """
         return "auto"
 
@@ -473,7 +471,7 @@ class ArpesExplorer(QMainWindow):
         QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(self._fit_guess)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._fit_full)
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(
-            lambda: self._session.save() or self._status("Session sauvegardée"))
+            lambda: self._session.save() or self._status("Session saved"))
         QShortcut(QKeySequence(Qt.Key.Key_Left),  self).activated.connect(
             lambda: self._browser.navigate(-1))
         QShortcut(QKeySequence(Qt.Key.Key_Right), self).activated.connect(
@@ -486,39 +484,20 @@ class ArpesExplorer(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Y"), self).activated.connect(self._redo_fit_delete)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Chargement fichier
+    # File loading
     # ─────────────────────────────────────────────────────────────────────────
 
     def _load_file(self, path: str):
         self._load_ctrl.load(path)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
     # ─────────────────────────────────────────────────────────────────────────
     # Fit
     # ─────────────────────────────────────────────────────────────────────────
 
-
-
-
-
     # ─────────────────────────────────────────────────────────────────────────
     # Calibration EF
     # ─────────────────────────────────────────────────────────────────────────
-
-
 
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -533,8 +512,8 @@ class ArpesExplorer(QMainWindow):
         if text.startswith(("✓", "⚠", "✗")):
             self.statusBar().showMessage(text)
             return
-        if text.startswith("Attention:"):
-            text = "⚠ " + text.removeprefix("Attention:").strip()
+        if text.startswith("Warning:"):
+            text = "⚠ " + text.removeprefix("Warning:").strip()
         elif text.startswith("OK "):
             text = "✓ " + text
         self.statusBar().showMessage(text)

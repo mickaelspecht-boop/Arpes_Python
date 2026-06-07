@@ -26,21 +26,21 @@ def handle_canvas_right_click(canvas, event) -> None:
     from PyQt6.QtGui import QCursor
 
     menu = QMenu(canvas)
-    act_wiz = menu.addAction("Caractérisation guidée (wizard)")
-    act = menu.addAction("Caractériser poche ici (iso-contour)")
-    act_mdc = menu.addAction("Caractériser par MDC radial (publication)")
-    act_preview = menu.addAction("Aperçu poche ici (slider)")
+    act_wiz = menu.addAction("Guided characterization (wizard)")
+    act = menu.addAction("Characterize pocket here (iso-contour)")
+    act_mdc = menu.addAction("Characterize with radial MDC (publication)")
+    act_preview = menu.addAction("Preview pocket here (slider)")
     act_validate = None
     act_cancel = None
     if canvas._pocket_preview_active:
         menu.addSeparator()
-        act_validate = menu.addAction("Valider l'aperçu")
-        act_cancel = menu.addAction("Annuler l'aperçu")
+        act_validate = menu.addAction("Validate preview")
+        act_cancel = menu.addAction("Cancel preview")
     menu.addSeparator()
     act_diag = menu.addAction("Diagnostic pairing FS ↔ BMs")
     menu.addSeparator()
-    act_export = menu.addAction("Exporter poches CSV")
-    act_clear = menu.addAction("Effacer poches")
+    act_export = menu.addAction("Export pockets CSV")
+    act_clear = menu.addAction("Clear pockets")
     chosen = menu.exec(QCursor.pos())
     x, y = float(event.xdata), float(event.ydata)
     if chosen == act_wiz:

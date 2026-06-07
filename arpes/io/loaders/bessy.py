@@ -42,9 +42,9 @@ def _read_ibw5_info(path: Path) -> _IBW5Info:
     with path.open("rb") as f:
         header = f.read(_IBW5_BIN_HEADER_SIZE + _IBW5_WAVE_HEADER_SIZE)
     if len(header) < _IBW5_BIN_HEADER_SIZE + _IBW5_WAVE_HEADER_SIZE:
-        raise ValueError(f"IBW trop court : {path.name}")
+        raise ValueError(f"IBW too short: {path.name}")
     if int.from_bytes(header[:2], "little") != 5:
-        raise ValueError(f"Seuls les IBW v5 sont supportés pour BESSY : {path.name}")
+        raise ValueError(f"Only IBW v5 files are supported for BESSY: {path.name}")
     wfm_size = struct.unpack_from("<I", header, 4)[0]
     note_size = struct.unpack_from("<I", header, 12)[0]
     wave0 = _IBW5_BIN_HEADER_SIZE
@@ -67,9 +67,9 @@ def _read_ibw5_info(path: Path) -> _IBW5Info:
     }
     dtype = dtype_by_type.get(wave_type)
     if dtype is None:
-        raise ValueError(f"Type IBW BESSY non supporté ({wave_type}) dans {path.name}")
+        raise ValueError(f"Unsupported BESSY IBW type ({wave_type}) in {path.name}")
     if not dims or int(np.prod(dims)) != npnts:
-        raise ValueError(f"Dimensions IBW incohérentes dans {path.name}: dims={dims}, npnts={npnts}")
+        raise ValueError(f"Inconsistent IBW dimensions in {path.name}: dims={dims}, npnts={npnts}")
     return _IBW5Info(
         dtype=dtype,
         dims=dims,
@@ -129,7 +129,7 @@ def _parse_ses_note(note: str) -> dict[str, Any]:
 def _load_ibw5_numeric(path: Path, info: _IBW5Info) -> np.ndarray:
     arr = np.fromfile(path, dtype=np.dtype(info.dtype), count=info.npnts, offset=info.data_offset)
     if arr.size != info.npnts:
-        raise ValueError(f"Lecture IBW incomplète dans {path.name}: {arr.size}/{info.npnts}")
+        raise ValueError(f"Incomplete IBW read in {path.name}: {arr.size}/{info.npnts}")
     return arr.reshape(info.dims, order="F")
 
 
@@ -141,10 +141,10 @@ def _is_bessy_ses_ibw(path: Path) -> bool:
         note = _read_ibw5_note(path, info).encode("latin1", errors="ignore")
     except (OSError, ValueError):
         return False
-    # `Instrument=R8000` est la marque non-ambiguë du R8000 BESSY (les exports
-    # testés Ba122 ont `Instrument=R8000-8ES202`). On exige cette signature en
-    # plus de `[SES]` pour éviter d'attraper les exports DA30 qui contiennent
-    # aussi `Energy Scale=Kinetic`.
+    # `Instrument=R8000` is the unambiguous marker for the BESSY R8000 (the
+    # tested Ba122 exports have `Instrument=R8000-8ES202`). Require this
+    # signature in addition to `[SES]` to avoid catching DA30 exports that also
+    # contain `Energy Scale=Kinetic`.
     return b"[SES]" in note and b"Instrument=R8000" in note
 
 
@@ -153,11 +153,11 @@ def load_bessy_ses_ibw(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
                        temperature: float | None = None, azi: float = 0.0,
                        pol: str = "", angle_offsets: dict | None = None,
                        bessy_energy_reference: str = "auto") -> ARPESData:
-    """Charge les exports Igor Binary Wave SES/R8000 de BESSY.
+    """Load BESSY SES/R8000 Igor Binary Wave exports.
 
-    Les fichiers testés contiennent des axes Igor `(E_kin, theta[, P])` et une
-    note `@[SES]`. L'énergie photon n'est pas fiable dans la note (`0` dans les
-    fichiers Ba122), donc `hv` doit être fourni par l'utilisateur/logbook.
+    The tested files contain Igor axes `(E_kin, theta[, P])` and a `@[SES]`
+    note. The photon energy is not reliable in the note (`0` in the Ba122
+    files), so `hv` must be provided by the user/logbook.
     """
     path = Path(path)
     info = _read_ibw5_info(path)
@@ -178,10 +178,10 @@ def load_bessy_ses_ibw(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
     n_e, n_theta = info.dims[0], info.dims[1]
     energy_raw = info.sf_b[0] + np.arange(n_e, dtype=float) * info.sf_a[0]
     theta = info.sf_b[1] + np.arange(n_theta, dtype=float) * info.sf_a[1]
-    # Détection de l'échelle énergie SES : Kinetic (cas standard) vs Binding.
-    # Sur Binding, l'axe est déjà référencé à EF côté SES, donc on ne soustrait
-    # rien et on inverse le signe pour respecter la convention E−EF (positif
-    # au-dessus d'EF). Pour kx il faut Ek réel, donc hν est requis.
+    # Detect the SES energy scale: Kinetic (standard case) vs Binding. On
+    # Binding, the axis is already referenced to EF on the SES side, so nothing
+    # is subtracted and the sign is flipped to follow the E−EF convention
+    # (positive above EF). kx needs the real Ek, so hν is required.
     energy_scale_raw = str(ses.get("Energy Scale") or ses.get("Energy Unit") or "Kinetic").strip()
     energy_scale = energy_scale_raw.lower()
     is_binding_axis = energy_scale.startswith("bind") or energy_scale in {"be", "e_b", "binding energy"}
@@ -198,42 +198,42 @@ def load_bessy_ses_ibw(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
     center_energy_from_fallback = center_energy is None
     if center_energy is None:
         center_energy = float(np.nanmean([energy_raw[0], energy_raw[-1]]))
-    # Sur les exports BESSY/SES R8000 testés (Ba122), Excitation/Monochromator
-    # Energy = 0 dans la note, donc hν doit venir du logbook ou être passé
-    # explicitement. Center Energy est en principe le centre de la fenêtre
-    # cinétique enregistrée — fiable comme proxy d'EF SEULEMENT si l'opérateur
-    # a effectivement centré la BM sur EF. Sinon (ex: BM à 30 eV de binding),
-    # Center Energy place EF à plusieurs eV de zéro et casse la calibration.
+    # In the tested BESSY/SES R8000 exports (Ba122), Excitation/Monochromator
+    # Energy = 0 in the note, so hν must come from the logbook or be passed
+    # explicitly. Center Energy is normally the center of the recorded kinetic
+    # window: reliable as an EF proxy ONLY if the operator actually centered
+    # the BM on EF. Otherwise (for example, a BM at 30 eV binding), Center
+    # Energy puts EF several eV away from zero and breaks calibration.
     ef_kin_from_hv = float(hv_val - work_func) if hv_val is not None else None
     loader_warnings: list[str] = []
-    # Mode Auto = Center Energy (le réglage analyseur reflète l'intention de
-    # l'expérimentateur). hν-φ reste un override explicite parce que sur les
-    # vieux fichiers BESSY (ex: Ba122) le logbook hν est souvent erroné, donc
-    # forcer hν-φ par défaut placerait EF au mauvais endroit.
+    # Auto mode = Center Energy (the analyzer setting reflects the
+    # experimenter's intent). hν-φ remains an explicit override because on old
+    # BESSY files (for example Ba122), the logbook hν is often wrong, so using
+    # hν-φ by default would place EF incorrectly.
     resolved_mode = mode
     if resolved_mode == "auto":
         resolved_mode = "ses_center_energy"
     if resolved_mode == "hv_minus_work_function":
         if ef_kin_from_hv is None:
             raise ValueError(
-                "Mode BESSY hν-φ demandé mais hν est absent/non valide. "
-                "Charge le logbook ou repasse en mode Auto."
+                "BESSY hν-φ mode was requested, but hν is missing/invalid. "
+                "Load the logbook or switch back to Auto mode."
             )
         ef_kin_nominal = float(ef_kin_from_hv)
         energy_reference = "hv_minus_work_function"
         hv_policy = "used_for_EF"
         loader_warnings.append(
-            "Mode hν-φ forcé : EF placé via logbook. Vérifier que hν du logbook est correct pour ce fichier."
+            "Forced hν-φ mode: EF placed from the logbook. Check that the logbook hν is correct for this file."
         )
     else:
         ef_kin_nominal = float(center_energy)
         energy_reference = "ses_center_energy"
         hv_policy = "stored_for_kz_not_used_for_EF"
     if is_binding_axis:
-        # Axe SES déjà référencé à EF en convention Binding (positif = sous EF).
-        # On convertit en E-EF (positif = au-dessus d'EF) par flip de signe ; on
-        # ne soustrait rien. Pour kx il faut Ek réel : on utilise hν-φ si dispo,
-        # sinon Center Energy comme proxy.
+        # SES axis already referenced to EF in Binding convention (positive =
+        # below EF). Convert to E-EF (positive = above EF) by flipping the sign;
+        # subtract nothing. kx needs real Ek: use hν-φ if available, otherwise
+        # Center Energy as a proxy.
         energy = -energy_raw + float(ef_offset)
         energy_reference = "ses_binding_axis"
         ef_kin_for_kx = float(ef_kin_from_hv) if ef_kin_from_hv is not None else float(center_energy)
@@ -245,11 +245,11 @@ def load_bessy_ses_ibw(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
         )
         kx = _cls_angle_to_k_pi_over_a(theta, ef_kin_for_kx, a_lattice, polar + theta0_deg)
         loader_warnings.append(
-            f"Échelle SES en Binding ({energy_scale_raw}) : axe converti en E-EF par flip de signe."
+            f"SES Binding scale ({energy_scale_raw}): axis converted to E-EF by sign flip."
         )
         if ef_kin_from_hv is None:
             loader_warnings.append(
-                "Binding axis sans hν : kx utilise Center Energy comme proxy pour Ek (imprécis)."
+                "Binding axis without hν: kx uses Center Energy as an Ek proxy (imprecise)."
             )
     else:
         energy = energy_raw - ef_kin_nominal + float(ef_offset)
@@ -263,16 +263,16 @@ def load_bessy_ses_ibw(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
     kx_axis_midpoint = float(0.5 * (np.nanmin(kx) + np.nanmax(kx))) if kx.size else np.nan
     kx_center_index = float(kx[len(kx) // 2]) if kx.size else np.nan
     if center_energy_from_fallback:
-        loader_warnings.append("Center Energy absent/invalide; E-EF estimé depuis le centre de l'axe énergie brut")
+        loader_warnings.append("Center Energy missing/invalid; E-EF estimated from the raw energy-axis center")
     if hv_val is None:
-        loader_warnings.append("hν absent dans le fichier/logbook; conservé comme inconnu pour kz/comparaison hv")
+        loader_warnings.append("hν missing in the file/logbook; kept as unknown for kz/hv comparison")
     if ignored_scan_polar:
         loader_warnings.append("P-Axis motor position matches the FS scan axis; ignored as static kx polar")
     center_minus_hv_phi = float(center_energy - ef_kin_from_hv) if ef_kin_from_hv is not None else None
     if ef_kin_from_hv is not None and abs(float(center_energy) - ef_kin_from_hv) > 1.0:
         loader_warnings.append(
-            f"hν-φ={ef_kin_from_hv:.3f} eV diffère de Center Energy={float(center_energy):.3f} eV; "
-            f"référence énergie utilisée: {energy_reference}"
+            f"hν-φ={ef_kin_from_hv:.3f} eV differs from Center Energy={float(center_energy):.3f} eV; "
+            f"energy reference used: {energy_reference}"
         )
     meta: dict[str, Any] = {
         "lab": "BESSY",
@@ -335,15 +335,23 @@ def load_bessy_ses_ibw(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
         p_scan_from_note = p_scan.size == fs_data.shape[0]
         if p_scan.size != fs_data.shape[0]:
             p_scan = info.sf_b[2] + np.arange(fs_data.shape[0], dtype=float) * info.sf_a[2]
-            loader_warnings.append("P-Axis scan absent/incomplet; axe ky reconstruit depuis l'échelle Igor")
+            loader_warnings.append("P-Axis scan missing/incomplete; ky axis rebuilt from the Igor scale")
         p_center = float(np.nanmean([np.nanmin(p_scan), np.nanmax(p_scan)]))
+        p_axis_offcenter = None
         if p_scan.size > 2:
             span = float(np.nanmax(p_scan) - np.nanmin(p_scan))
             midpoint = 0.5 * (float(np.nanmax(p_scan)) + float(np.nanmin(p_scan)))
             if span > 0 and abs(midpoint) > 0.25 * span:
                 loader_warnings.append(
-                    "P-Axis semble off-center; ky est recentré au milieu du scan, vérifier Γ/FS manuellement"
+                    "P-Axis appears off-center; ky is recentered on the scan midpoint, check Γ/FS manually"
                 )
+                # P4.5: structured flag -> the UI opens a confirmation dialog
+                # before accepting the recentering (io cannot import PyQt).
+                p_axis_offcenter = {
+                    "span_deg": span,
+                    "midpoint_deg": midpoint,
+                    "recentered_to_deg": p_center,
+                }
         ky_offset = p_center + tilt0_deg
         ky = _cls_angle_to_k_pi_over_a(p_scan, ef_kin_nominal, a_lattice, ky_offset)
         n_steps = int(fs_data.shape[0])
@@ -357,10 +365,11 @@ def load_bessy_ses_ibw(path, *, work_func: float = 0.0, ef_offset: float = 0.0,
             "fs_scan_axis_deg": scan_axis_summary(p_scan),
             "fs_ky_angle_center_deg": p_center,
             "fs_ky_angle_from_note": bool(p_scan_from_note),
+            "fs_p_axis_offcenter": p_axis_offcenter,
             "ky_conversion": "p_axis_scan_minus_scan_center_minus_tilt0",
         })
     else:
-        raise ValueError(f"IBW BESSY avec dimension non supportée {raw.shape} dans {path.name}")
+        raise ValueError(f"BESSY IBW with unsupported dimension {raw.shape} in {path.name}")
     meta.update({"n_steps": n_steps, "n_cycles": 1})
     _add_loader_diagnostics(
         meta,

@@ -1,7 +1,7 @@
-"""Tests des fonctions pures Γ / angles (`arpes_gamma`).
+"""Tests for pure Γ / angle functions (`arpes_gamma`).
 
-But : verrouiller signes et conventions de projection azimutale, ainsi que
-la formule k → angle. Toute régression sur ces invariants casse les fits CLS.
+Goal: pin signs and azimuthal projection conventions, as well as the k → angle
+formula. Any regression on these invariants breaks CLS fits.
 """
 
 from __future__ import annotations
@@ -38,18 +38,18 @@ class TestKToAngle(unittest.TestCase):
         self.assertIsNone(k_to_angle_offset_deg(0.0, hv=80.0, work_func=4.5))
 
     def test_invalid_ek_returns_none(self):
-        # hv < φ → ek <= 0
+        # hv < φ → ek <= 0.
         self.assertIsNone(k_to_angle_offset_deg(0.1, hv=4.0, work_func=4.5))
 
     def test_clip_when_arg_above_one(self):
-        # k arbitrairement grand → arcsin clippé à ±90°
+        # Arbitrarily large k → arcsin clipped to ±90°.
         ang = k_to_angle_offset_deg(1e6, hv=80.0, work_func=4.5, a_lattice=TEST_A)
         self.assertAlmostEqual(ang, 90.0, places=4)
         ang_neg = k_to_angle_offset_deg(-1e6, hv=80.0, work_func=4.5, a_lattice=TEST_A)
         self.assertAlmostEqual(ang_neg, -90.0, places=4)
 
     def test_round_trip_k_angle_k(self):
-        # k → angle → k doit redonner le même k (formule inverse)
+        # k → angle → k must recover the same k (inverse formula).
         hv, phi = 80.0, 4.5
         k0 = 0.05
         ang = k_to_angle_offset_deg(k0, hv=hv, work_func=phi, a_lattice=TEST_A)
@@ -89,7 +89,7 @@ class TestProjectGammaByAzi(unittest.TestCase):
         self.assertAlmostEqual(ky, 0.0)
 
     def test_warn_called_when_ky_significant_and_azi_missing(self):
-        ref = {"kx": 0.10, "ky": 0.05}  # ky non négligeable
+        ref = {"kx": 0.10, "ky": 0.05}  # non-negligible ky
         warns = []
         kx, ky = project_gamma_by_azi(
             ref, azi_target=None, on_warn=warns.append, warn_label="X",
@@ -106,7 +106,7 @@ class TestProjectGammaByAzi(unittest.TestCase):
         self.assertAlmostEqual(ky, 0.05, places=10)
 
     def test_90deg_rotation(self):
-        # azi cible = azi ref + 90 → (kx, ky) → (ky, -kx)
+        # target azi = ref azi + 90 → (kx, ky) → (ky, -kx).
         ref = {"kx": 0.10, "ky": 0.0, "azi": 0.0}
         kx, ky = project_gamma_by_azi(ref, azi_target=90.0)
         self.assertAlmostEqual(kx, 0.0, places=10)

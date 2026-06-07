@@ -1,8 +1,8 @@
-"""Lecture de logbooks ARPES — parsing pur, sans PyQt.
+"""Read ARPES logbooks with pure parsing, without PyQt.
 
-La sélection interactive de feuille/table/colonnes reste dans l'UI. Ce module
-contient uniquement les heuristiques de lecture, détection de header, mapping
-et propagation de contexte entre lignes.
+Interactive sheet/table/column selection stays in the UI. This module contains
+only read heuristics, header detection, mapping, and context propagation between
+rows.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ class LogbookReadResult:
 
 
 def read_delimited_logbook_raw(pd, path: Path):
-    """Lecture brute CSV/TSV pour anciens logbooks avec titre avant header."""
+    """Raw CSV/TSV read for older logbooks with a title before the header."""
     try:
         lines = Path(path).read_text(errors="replace").splitlines()
     except Exception:
@@ -60,7 +60,7 @@ def read_delimited_logbook_raw(pd, path: Path):
 
 
 def inherit_logbook_context(records: list[dict], mapping: dict[str, str]) -> list[dict]:
-    """Propage direction/polarisation/azi quand les cellules suivantes sont vides."""
+    """Propagate direction/polarization/azi when following cells are empty."""
     azi_col = mapping.get("azi", "")
     dir_col = mapping.get("direction", "")
     pol_col = mapping.get("polarization", "")
@@ -122,31 +122,31 @@ def excel_table_from_header(raw, row_idx: int):
     return df, mapping
 
 
-# Labels qui indiquent une cellule "Folder Name" (à gauche) dont la valeur
-# en cellule adjacente (à droite, sur même ligne) est le nom du sous-dossier.
-# Normalisé via `_norm_text` (lowercase + alphanumérique).
+# Labels that mark a "Folder Name" cell (on the left) whose adjacent cell (to
+# the right, on the same row) is the subfolder name.
+# Normalized through `_norm_text` (lowercase + alphanumeric).
 _FOLDER_NAME_LABELS = {
     "foldername", "folder", "dossier", "nomdossier", "subfolder",
     "nameoffolder", "foldernameroot", "datafolder",
 }
 
-# Hauteur de scan (lignes en haut de la sheet) pour chercher la cellule.
+# Scan height (rows at the top of the sheet) used to find the cell.
 _FOLDER_NAME_SCAN_ROWS = 15
 
 
 def find_folder_name_in_sheet(raw) -> str:
-    """Cherche la cellule "Folder Name" et retourne sa valeur adjacente.
+    """Find the "Folder Name" cell and return its adjacent value.
 
-    Robuste aux templates qui varient :
-    - Scan des ``_FOLDER_NAME_SCAN_ROWS`` premières lignes.
-    - Label cherché : "Folder Name" / "Folder" / "Dossier" / "Subfolder" / ...
-      (case-insensitive, espaces/ponctuation ignorés via ``_norm_text``).
-    - Valeur = cellule non-vide à droite du label sur la même ligne (saute
-      jusqu'à 3 colonnes vides).
-    - Retourne ``""`` si rien de pertinent.
+    Robust to varying templates:
+    - Scan the first ``_FOLDER_NAME_SCAN_ROWS`` rows.
+    - Searched label: "Folder Name" / "Folder" / "Dossier" / "Subfolder" / ...
+      (case-insensitive, spaces/punctuation ignored through ``_norm_text``).
+    - Value = non-empty cell to the right of the label on the same row (skips up
+      to 3 empty columns).
+    - Return ``""`` if nothing relevant is found.
 
     Args:
-        raw: ``pandas.DataFrame`` brut (header=None) de la sheet.
+        raw: raw ``pandas.DataFrame`` (header=None) for the sheet.
     """
     from arpes.io.logbook import _norm_text
     try:
@@ -161,12 +161,12 @@ def find_folder_name_in_sheet(raw) -> str:
         for col_idx, cell in enumerate(row):
             label = _norm_text(cell)
             if label and label in _FOLDER_NAME_LABELS:
-                # Valeur = première cellule non-vide à droite (jusqu'à 4 col)
+                # Value = first non-empty cell to the right (up to 4 columns).
                 for j in range(col_idx + 1, min(col_idx + 5, len(row))):
                     val = _cell_text(row[j])
                     if val:
                         return val
-                break  # label trouvé mais valeur vide : autre ligne potentielle
+                break  # label found but value empty: another row may contain it
     return ""
 
 
@@ -174,16 +174,16 @@ def match_folder_to_subfolder(
     folder_name: str,
     candidate_subfolders: list[str],
 ) -> str:
-    """Matche un nom de dossier déclaré (sheet) avec un sous-dossier session.
+    """Match a declared folder name (sheet) with a session subfolder.
 
-    Stratégies (ordre priorité) :
-    1. Match exact (case-sensitive) sur le nom du sous-dossier (basename).
-    2. Match insensible à la casse.
-    3. Match normalisé via ``_norm_text`` (alphanumérique seul).
-    4. Match basename du sous-dossier (rel = ``parent/BNA_S2`` → basename ``BNA_S2``).
-    5. Substring : nom déclaré contenu dans rel ou réciproque (normalisé).
+    Strategies (priority order):
+    1. Exact match (case-sensitive) on the subfolder name (basename).
+    2. Case-insensitive match.
+    3. Normalized match through ``_norm_text`` (alphanumeric only).
+    4. Subfolder basename match (rel = ``parent/BNA_S2`` → basename ``BNA_S2``).
+    5. Substring: declared name contained in rel or reciprocal (normalized).
 
-    Retourne le ``rel`` matché ou ``""``.
+    Return the matched ``rel`` or ``""``.
     """
     from arpes.io.logbook import _norm_text
     target_norm = _norm_text(folder_name)
@@ -209,7 +209,7 @@ def match_folder_to_subfolder(
         base = parts[-1] if parts else rel
         if _norm_text(base) == target_norm:
             return rel
-    # 5. substring (normalisé) — match prudent : ≥3 caractères, évite faux positifs
+    # 5. substring (normalized) - cautious match: >=3 chars, avoids false positives
     if len(target_norm) >= 3:
         for rel in candidate_subfolders:
             rel_norm = _norm_text(rel)
@@ -223,19 +223,18 @@ def scan_xlsx_for_scoped_logbooks(
     path,
     candidate_subfolders: list[str],
 ) -> list[dict]:
-    """Scanne toutes les sheets d'un xlsx → liste candidats scoped logbook.
+    """Scan every sheet in an xlsx file -> scoped-logbook candidates.
 
-    Pour chaque sheet :
-    - Lit les premières lignes.
-    - Cherche cellule "Folder Name" via ``find_folder_name_in_sheet``.
-    - Si trouvé, matche contre ``candidate_subfolders`` via
+    For each sheet:
+    - Read the first rows.
+    - Look for a "Folder Name" cell via ``find_folder_name_in_sheet``.
+    - If found, match against ``candidate_subfolders`` via
       ``match_folder_to_subfolder``.
-    - Vérifie que la sheet contient bien des colonnes attendues (file + hv)
-      via ``best_excel_table`` (sinon ignore : ce n'est pas une vraie sheet
-      de données).
+    - Check that the sheet contains the expected columns (file + hv) via
+      ``best_excel_table`` (otherwise ignore it: it is not a real data sheet).
 
-    Retourne liste de ``{"sheet", "folder_declared", "subfolder_rel",
-    "mapping", "df", "n_rows"}`` pour chaque sheet exploitable.
+    Return a list of ``{"sheet", "folder_declared", "subfolder_rel",
+    "mapping", "df", "n_rows"}`` for each usable sheet.
     """
     out: list[dict] = []
     try:
@@ -277,7 +276,7 @@ _TITLE_TOKENS = {"plan", "measurement", "for", "title", "page", "sheet", "data"}
 
 
 def _looks_like_title(column: str) -> bool:
-    """True si le nom de colonne ressemble à un titre (plusieurs mots, mots clés)."""
+    """True if the column name looks like a title (multiple words, keywords)."""
     if not column:
         return False
     words = [w.lower() for w in str(column).split() if w]
@@ -296,8 +295,8 @@ def best_excel_table(raw, candidates: list[int]):
         score += int(bool(mapping.get("direction"))) + int(bool(mapping.get("azi")))
         score += int(bool(mapping.get("polar"))) + int(bool(mapping.get("tilt")))
         score += min(len(df), 20) / 1000
-        # Pénalité si la colonne file détectée ressemble à un titre de section
-        # ("Measurement Plan for ..." etc) — souvent erreur de header row.
+        # Penalty if the detected file column looks like a section title
+        # ("Measurement Plan for ..." etc) - often a header-row error.
         if _looks_like_title(mapping.get("file", "")):
             score -= 3
         if score > best_score:
@@ -305,8 +304,8 @@ def best_excel_table(raw, candidates: list[int]):
             best_score = score
     if best is None or best_score < 6:
         return None
-    # Garde-fou supplémentaire : si la file/hv colonne ressemble à un titre,
-    # rejette pour laisser le table_selector demander à l'utilisateur.
+    # Extra guard: if the file/hv column looks like a title, reject it so the
+    # table_selector can ask the user.
     if _looks_like_title(best[1].get("file", "")) or _looks_like_title(best[1].get("hv", "")):
         return None
     return best[0], best[1]
@@ -324,15 +323,15 @@ def read_logbook(
     table_selector: Callable[[object, list[int]], tuple[object, dict[str, str]] | None] | None = None,
     mapping_selector: Callable[[list[str], dict[str, str]], dict[str, str]] | None = None,
 ) -> LogbookReadResult:
-    """Lit un logbook Excel/CSV/TSV et retourne records + mapping.
+    """Read an Excel/CSV/TSV logbook and return records + mapping.
 
-    Les callbacks optionnels permettent à l'UI de demander une feuille, une
-    ligne d'en-tête ou un mapping manuel quand l'heuristique ne suffit pas.
+    Optional callbacks let the UI request a sheet, a header row, or a manual
+    mapping when heuristics are not enough.
     """
     try:
         import pandas as pd
     except Exception as exc:
-        raise ImportError("pandas est nécessaire pour lire les logbooks Excel/CSV.") from exc
+        raise ImportError("pandas is required to read Excel/CSV logbooks.") from exc
 
     path = Path(path)
     suffix = path.suffix.lower()
@@ -345,27 +344,27 @@ def read_logbook(
         else:
             sheet_name = sheet_selector(book.sheet_names)
         if not sheet_name:
-            raise ValueError("Aucune feuille Excel sélectionnée.")
+            raise ValueError("No Excel sheet selected.")
         raw = pd.read_excel(path, sheet_name=sheet_name, header=None)
         if raw.dropna(how="all").empty:
-            raise ValueError("Le logbook ne contient aucune ligne exploitable.")
+            raise ValueError("The logbook contains no usable rows.")
         candidates = excel_header_candidates(raw)
         guessed = best_excel_table(raw, candidates)
         if guessed is None and table_selector is not None:
             guessed = table_selector(raw, candidates)
         if guessed is None:
-            raise ValueError("Aucune ligne d'en-tête sélectionnée pour le logbook.")
+            raise ValueError("No header row selected for the logbook.")
         df, mapping = guessed
     elif suffix == ".tsv":
         df = pd.read_csv(path, sep="\t")
         df = df.dropna(how="all")
         if df.empty:
-            raise ValueError("Le logbook ne contient aucune ligne exploitable.")
+            raise ValueError("The logbook contains no usable rows.")
         df.columns = [str(c).strip() for c in df.columns]
         mapping = _infer_logbook_mapping(list(df.columns), df=df)
     else:
-        # Auto-détection séparateur : essaie plusieurs et garde celui qui
-        # donne le plus de colonnes (≥2). Ordre : TAB, ;, ,, |.
+        # Separator auto-detection: try several and keep the one producing the
+        # most columns (>=2). Order: TAB, ;, ,, |.
         df = None
         best_ncols = 0
         for sep in ("\t", ";", ",", "|"):
@@ -386,7 +385,7 @@ def read_logbook(
                 df = pd.read_csv(path)
         df = df.dropna(how="all")
         if df.empty:
-            raise ValueError("Le logbook ne contient aucune ligne exploitable.")
+            raise ValueError("The logbook contains no usable rows.")
         df.columns = [str(c).strip() for c in df.columns]
         mapping = _infer_logbook_mapping(list(df.columns), df=df)
         if len(df.columns) <= 1 or not mapping.get("file") or not mapping.get("hv"):
@@ -403,7 +402,7 @@ def read_logbook(
         if mapping_selector is not None:
             mapping = mapping_selector(list(df.columns), mapping)
     if not mapping.get("file") or not mapping.get("hv"):
-        raise ValueError("Les colonnes fichier et hν sont obligatoires pour appliquer un logbook.")
+        raise ValueError("The file and hν columns are required to apply a logbook.")
 
     return LogbookReadResult(
         records=_records_from_df(pd, df, mapping),

@@ -8,7 +8,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from arpes.io.export_styles import PRESETS, apply_preset, savefig_with_preset
+from arpes.io.export_styles import (
+    LIGHT_BG_PRESETS,
+    PRESETS,
+    apply_preset,
+    figure_size_mm,
+    savefig_with_preset,
+)
 
 
 class TestExportStyles(unittest.TestCase):
@@ -33,6 +39,36 @@ class TestExportStyles(unittest.TestCase):
             self.assertGreater(path.stat().st_size, 1000)
             img = plt.imread(path)
             self.assertGreater(img.size, 0)
+        plt.close(fig)
+
+
+class TestP4ExportFeatures(unittest.TestCase):
+    def test_nature_science_presets_exist_and_vectorial(self):
+        for name in ("publication_nature", "publication_science"):
+            self.assertIn(name, PRESETS)
+            self.assertEqual(PRESETS[name]["savefig.format"], "pdf")
+            self.assertEqual(PRESETS[name]["font.size"], 7)
+            self.assertIn(name, LIGHT_BG_PRESETS)
+
+    def test_figure_size_mm_converts_to_inches(self):
+        w, h = figure_size_mm(89.0, 60.0)
+        self.assertAlmostEqual(w, 89.0 / 25.4)
+        self.assertAlmostEqual(h, 60.0 / 25.4)
+
+    def test_light_background_recolors_then_restores(self):
+        # P4.1: light-background export must not permanently modify the
+        # on-screen canvas (dark).
+        fig = plt.figure(facecolor="#2b2b2b")
+        ax = fig.add_subplot(111)
+        ax.set_facecolor("#1a1a1a")
+        ax.plot([0, 1], [0, 1])
+        with tempfile.TemporaryDirectory() as tmp:
+            savefig_with_preset(fig, str(Path(tmp) / "f.pdf"), "publication_nature",
+                                metadata={"Title": "x"})
+            self.assertTrue((Path(tmp) / "f.pdf").exists())
+        # Original facecolor restored (dark, R component < 0.3).
+        self.assertLess(fig.get_facecolor()[0], 0.3)
+        self.assertLess(ax.get_facecolor()[0], 0.3)
         plt.close(fig)
 
 

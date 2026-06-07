@@ -29,6 +29,14 @@ PAIR_COLORS = ["#ff8c00", "#00e5ff", "#7fff00", "#ff44cc"]
 
 
 class PlotController:
+    # P3.1: writes through to parent are allow-listed (fail-loud on typo).
+    # _kf_drag_lines is written by the mdc_edc_drawer helper.
+    _OWN_ATTRS = frozenset({"_parent"})
+    _PARENT_WRITES = frozenset({
+        "_data_disp", "_data_disp_ev", "_data_disp_kpar", "_disp_cache_key",
+        "_distortion_display_info", "_grid_display_info", "_kf_drag_lines",
+    })
+
     def __init__(self, parent):
         object.__setattr__(self, "_parent", parent)
 
@@ -36,13 +44,19 @@ class PlotController:
         return getattr(self._parent, name)
 
     def __setattr__(self, name, value):
-        if name == "_parent":
+        if name in self._OWN_ATTRS:
             object.__setattr__(self, name, value)
-        else:
+        elif name in self._PARENT_WRITES:
             setattr(self._parent, name, value)
+        else:
+            raise AttributeError(
+                f"{type(self).__name__} refuses to write '{name}': missing from "
+                "_PARENT_WRITES (typo?). Add it to _PARENT_WRITES "
+                "if the parent attribute is legitimate."
+            )
 
     def _on_scroll_zoom(self, event):
-        """Zoom molette centré sur la position du curseur dans un axe matplotlib."""
+        """Mouse-wheel zoom centered on the cursor position in a matplotlib axis."""
         ax = event.inaxes
         if ax is None or event.xdata is None or event.ydata is None:
             return
@@ -103,7 +117,7 @@ class PlotController:
             _axis_cache_signature(d["ev_arr"]),
         )
         if cache_key == self._disp_cache_key and self._data_disp is not None:
-            return  # rien n'a changé qui affecte l'affichage BM
+            return  # nothing changed that affects BM display
 
         display_cache = getattr(self, "_display_cache", None)
         if display_cache is not None and cache_key in display_cache:
@@ -169,8 +183,28 @@ class PlotController:
 
     def _map_color_kwargs(self, disp: np.ndarray, mode: str, *, roi_scale: bool = False) -> tuple[str, dict]:
         d = self._raw_data
-        ref = self._fit_roi_data(disp, d["kpar"], d["ev_arr"]) if roi_scale and d is not None else disp
-        return _plot_map_color_kwargs(disp, mode=mode, roi_ref=ref)
+        roi_bounds = self._fit_roi_bounds() if roi_scale and d is not None else None
+        cache_key = (
+            getattr(self._parent, "_disp_cache_key", None),
+            mode,
+            bool(roi_scale),
+            roi_bounds,
+            tuple(np.asarray(disp).shape),
+        )
+        cache = getattr(self._parent, "_color_kwargs_cache", None)
+        if cache is not None and cache_key in cache:
+            cmap, ckw = cache.pop(cache_key)
+            cache[cache_key] = (cmap, dict(ckw))
+            return cmap, dict(ckw)
+
+        ref = self._fit_roi_data(disp, d["kpar"], d["ev_arr"]) if roi_bounds is not None else disp
+        cmap, ckw = _plot_map_color_kwargs(disp, mode=mode, roi_ref=ref)
+        if cache is not None:
+            cache[cache_key] = (cmap, dict(ckw))
+            max_items = int(getattr(self._parent, "_color_kwargs_cache_max", 48) or 48)
+            while len(cache) > max_items:
+                cache.popitem(last=False)
+        return cmap, ckw
 
     def _draw_fit_roi_overlay(self, ax):
         _plot_draw_fit_roi_overlay(ax, self._fit_roi_bounds())
@@ -230,7 +264,21 @@ class PlotController:
             return
         self._bm_canvas.redraw()
 
+    def _update_ef_banner(self) -> None:
+        # P4.6: "EF not calibrated" banner if neither polynomial fit nor EF
+        # offset is set (offset still at historical default = never touched).
+        lbl = getattr(self._parent, "_lbl_ef_uncal", None)
+        if lbl is None:
+            return
+        from arpes.core.session import DEFAULT_EF_OFFSET_EV
+        entry = self._current_entry()
+        uncalibrated = bool(entry is not None) and not getattr(entry, "ef_correction", None) and (
+            abs(float(getattr(entry, "ef_offset", DEFAULT_EF_OFFSET_EV)) - DEFAULT_EF_OFFSET_EV) < 1e-9
+        )
+        lbl.setVisible(uncalibrated)
+
     def _draw_bm(self, *, overlays_only: bool = False):
+        self._update_ef_banner()
         if self._data_disp is None:
             return
         d    = self._raw_data
@@ -302,7 +350,7 @@ class PlotController:
         self._bm_canvas.redraw()
 
     def _draw_mdc_energy_map(self):
-        """Mini BM visible dans l'onglet MDC Fit pour choisir E,k sans revenir à BM."""
+        """Mini BM visible in the MDC Fit tab to choose E,k without returning to BM."""
         if not hasattr(self, "_mdc_map_canvas") or self._data_disp is None:
             return
         d = self._raw_data

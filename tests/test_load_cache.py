@@ -41,6 +41,7 @@ class _Params:
         self.sp_phi = _Spin(4.031)
         self.sp_ef = _Spin(0.052)
         self.sp_hv = _Spin(0.0)
+        self.sp_crystal_a = _Spin(3.5)  # cls_txt loads now require lattice a (guard)
         self.hv_source = ""
 
     def set_hv_value_with_source(self, value: float, source: str) -> None:
@@ -99,7 +100,7 @@ def _prepared(path: Path):
     )
 
 
-@unittest.skipUnless(HAS_LOAD_CONTROLLER, "LoadController/PyQt6 indisponible")
+@unittest.skipUnless(HAS_LOAD_CONTROLLER, "LoadController/PyQt6 unavailable")
 class TestLoadControllerCache(unittest.TestCase):
     def test_clear_disk_cache_removes_raw_and_cls_fs_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -412,7 +413,7 @@ class TestLoadControllerCache(unittest.TestCase):
 
                 self.assertEqual(len(calls), 1)
                 self.assertTrue(second_parent._last_load_cache_hit)
-                self.assertEqual(second_parent._last_load_cache_source, "disque")
+                self.assertEqual(second_parent._last_load_cache_source, "disk")
                 np.testing.assert_allclose(second.data["metadata"]["fs_data"], np.ones((2, 2, 3)))
         finally:
             load_mod.load_arpes_file = old_load

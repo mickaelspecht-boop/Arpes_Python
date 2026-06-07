@@ -54,7 +54,7 @@ def draw_mdc_edc(ctrl) -> None:
             )
             ax_mdc.plot(kpar, mdc_smooth, color="#aaa", lw=0.8, ls="-",
                         alpha=0.55,
-                        label=f"lissé-det (σ={params.sp_sfd.value():.1f})",
+                        label=f"smoothed-det (sigma={params.sp_sfd.value():.1f})",
                         zorder=2)
 
         sff = params.sp_sff.value()
@@ -64,12 +64,12 @@ def draw_mdc_edc(ctrl) -> None:
                                              sigma=max(0.5, sff))
             ax_mdc.plot(kpar, _mdc_fit_sm, color="#ffa040", lw=0.8, ls="-",
                         alpha=0.55, zorder=2,
-                        label=f"lissé-fit (σ={sff:.1f})")
+                        label=f"smoothed-fit (sigma={sff:.1f})")
 
         cx = params.sp_cx.value()
         xgr = params.sp_xg.value()
         ax_mdc.axvspan(cx - xgr, cx + xgr, alpha=0.08, color="cyan",
-                       zorder=0, label=f"Fenêtre Γ ±{xgr:.2f}")
+                       zorder=0, label=f"Gamma window +/-{xgr:.2f}")
         ax_mdc.axvline(cx, color="cyan", lw=0.6, ls=":", alpha=0.45, zorder=1)
 
         if not params.chk_k0a.isChecked():

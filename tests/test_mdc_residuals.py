@@ -110,7 +110,7 @@ class TestMdcResiduals(unittest.TestCase):
         )
 
         self.assertTrue(ok)
-        self.assertIn("Résidus MDC", residual_ax.get_title())
+        self.assertIn("MDC residuals", residual_ax.get_title())
         self.assertGreater(len(residual_ax.lines), 0)
 
 

@@ -49,7 +49,7 @@ def show_kink_result(p, kink: dict) -> None:
         parts.append(f"<b>λ</b>={lam:.3f}" + (f"±{lam_err:.3f}" if lam_err else ""))
     if vb is not None:
         parts.append(f"v_bare={vb:.3f} eV·Å")
-    p.kink_summary.setText(" — ".join(parts) or "λ non extractible.")
+    p.kink_summary.setText(" — ".join(parts) or "λ not extractable.")
     E = np.asarray(kink.get("E_exp") or [])
     re = np.asarray(kink.get("re_sigma") or [])
     im = kink.get("im_sigma")
@@ -65,7 +65,7 @@ def show_kink_result(p, kink: dict) -> None:
         ax_im.plot(E, np.asarray(im), "-o", ms=3, color="#60a5fa")
         ax_im.set_ylabel("Im Σ (eV)", color="#ddd")
     else:
-        ax_im.text(0.5, 0.5, "Γ_MDC absent → Im Σ N/A",
+        ax_im.text(0.5, 0.5, "Γ_MDC missing → Im Σ N/A",
                    ha="center", va="center", color="#aaa",
                    transform=ax_im.transAxes)
     ax_im.set_xlabel("E − E_F (eV)", color="#ddd")
@@ -112,14 +112,14 @@ def restore_all(p, ba: dict) -> None:
     if "tb" in ba:
         show_tb_result(p, ba["tb"])
     else:
-        p.tb_summary.setText("Aucun fit TB.")
+        p.tb_summary.setText("No TB fit.")
         p.tb_canvas.ax.clear()
         p.tb_canvas.redraw()
         p.tb_notes.clear()
     if "kink" in ba:
         show_kink_result(p, ba["kink"])
     else:
-        p.kink_summary.setText("Aucune analyse de kink.")
+        p.kink_summary.setText("No kink analysis.")
         for ax in p.kink_canvas.axes:
             ax.clear()
         p.kink_canvas.redraw()
@@ -127,7 +127,7 @@ def restore_all(p, ba: dict) -> None:
     if "gap" in ba:
         show_gap_result(p, ba["gap"])
     else:
-        p.gap_summary.setText("Aucun fit de gap.")
+        p.gap_summary.setText("No gap fit.")
         p.gap_canvas.ax.clear()
         p.gap_canvas.redraw()
         p.gap_notes.clear()

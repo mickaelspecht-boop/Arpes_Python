@@ -1,16 +1,16 @@
-"""Helpers communs aux loaders ARPES (Solaris/BESSY/CLS).
+"""Shared helpers for ARPES loaders (Solaris/BESSY/CLS).
 
-Contient :
-- modèles `ARPESData`, `LoaderSpec`, `ARPESDataValidationError` ;
-- registre `_LOADER_REGISTRY` + `register_loader`/`registered_loaders` ;
+Contains:
+- models `ARPESData`, `LoaderSpec`, `ARPESDataValidationError`;
+- registry `_LOADER_REGISTRY` + `register_loader`/`registered_loaders`;
 - validation `assert_arpes_data_valid` ;
-- helpers numériques (`_valid_positive_float`, `_valid_float`,
-  `_first_present`, `_loadtxt_float32`, `_transpose_to_axes`) ;
-- helpers métadonnées (`_add_loader_diagnostics`,
-  `_add_instrument_resolution_metadata`) ;
-- conversion d'angle commune `_cls_angle_to_k_pi_over_a`.
+- numeric helpers (`_valid_positive_float`, `_valid_float`,
+  `_first_present`, `_loadtxt_float32`, `_transpose_to_axes`);
+- metadata helpers (`_add_loader_diagnostics`,
+  `_add_instrument_resolution_metadata`);
+- shared angle conversion `_cls_angle_to_k_pi_over_a`.
 
-Voir `__init__.py` pour la convention interne ARPESData (E−EF en eV, etc.).
+See `__init__.py` for the internal ARPESData convention (E−EF in eV, etc.).
 """
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ import numpy as np
 
 
 SUPPORTED_SOLARIS_EXTENSIONS = {".ibw", ".pxt", ".zip"}
-_C_ARPES = 0.51233
+# ARPES constant: single source in physics/kpar_geometry (P2.1a). io/ may
+# import physics/ (not the reverse).
+from arpes.physics.kpar_geometry import C_ARPES as _C_ARPES
 
 
 @dataclass
@@ -56,7 +58,7 @@ class LoaderSpec:
 
 
 class ARPESDataValidationError(ValueError):
-    """Erreur levée quand un loader ne respecte pas la convention interne."""
+    """Error raised when a loader does not follow the internal convention."""
 
 
 _LOADER_REGISTRY: dict[str, LoaderSpec] = {}
@@ -64,21 +66,21 @@ _LOADER_REGISTRY: dict[str, LoaderSpec] = {}
 
 def register_loader(name: str, detector_fn: Callable[[Path], bool],
                     loader_fn: Callable[..., ARPESData], description: str = "") -> None:
-    """Enregistre un loader ARPES.
+    """Register an ARPES loader.
 
-    `detector_fn` doit être rapide et sans effet de bord. `loader_fn` doit
-    retourner un `ARPESData` conforme à la convention interne.
+    `detector_fn` must be fast and side-effect free. `loader_fn` must return
+    an `ARPESData` object that follows the internal convention.
     """
     key = str(name).strip()
     if not key:
-        raise ValueError("Nom de loader vide")
+        raise ValueError("Empty loader name")
     if key in _LOADER_REGISTRY:
-        raise ValueError(f"Loader déjà enregistré: {key}")
+        raise ValueError(f"Loader already registered: {key}")
     _LOADER_REGISTRY[key] = LoaderSpec(key, detector_fn, loader_fn, description)
 
 
 def registered_loaders() -> dict[str, LoaderSpec]:
-    """Retourne une copie du registre pour inspection/tests."""
+    """Return a registry copy for inspection/tests."""
     return dict(_LOADER_REGISTRY)
 
 
@@ -114,11 +116,11 @@ def _add_loader_diagnostics(meta: dict[str, Any], *, capability: str,
                             warnings_: list[str] | None = None,
                             geometry_confidence: str = "medium",
                             axis_sources: dict[str, str] | None = None) -> None:
-    """Ajoute un diagnostic explicite sur ce que le loader suppose.
+    """Add explicit diagnostics for the loader assumptions.
 
-    Ces champs ne changent pas la donnée, ils rendent visibles les conventions
-    automatiques pour éviter de confondre "chargé sans crash" et "validé
-    physiquement pour tout le labo".
+    These fields do not change the data; they expose automatic conventions so
+    "loaded without crashing" is not confused with "physically validated for
+    the whole beamline".
     """
     meta["loader_capability"] = capability
     meta["geometry_confidence"] = geometry_confidence
@@ -129,16 +131,16 @@ def _add_loader_diagnostics(meta: dict[str, Any], *, capability: str,
 
 
 def assert_arpes_data_valid(ds: ARPESData) -> ARPESData:
-    """Valide strictement la sortie d'un loader.
+    """Strictly validate a loader output.
 
-    Les incohérences de shape/axes lèvent `ARPESDataValidationError`. Les points
-    plausibles mais suspects sont stockés dans `metadata["validation_warnings"]`
-    et émis via `warnings.warn`.
+    Shape/axis inconsistencies raise `ARPESDataValidationError`. Plausible but
+    suspicious points are stored in `metadata["validation_warnings"]` and
+    emitted through `warnings.warn`.
     """
     errors: list[str] = []
     warnings_list: list[str] = []
     if not isinstance(ds, ARPESData):
-        raise ARPESDataValidationError(f"Objet retourné non ARPESData: {type(ds)!r}")
+        raise ARPESDataValidationError(f"Returned object is not ARPESData: {type(ds)!r}")
 
     fmt = str(ds.source_format or "unknown")
     path = ds.path if isinstance(ds.path, Path) else Path(ds.path) if ds.path else None
@@ -146,38 +148,38 @@ def assert_arpes_data_valid(ds: ARPESData) -> ARPESData:
     energy = np.asarray(ds.energy)
 
     if data.ndim != 2:
-        errors.append(_validation_issue(path, fmt, f"data doit être 2D `(n_k,n_E)`, reçu {data.shape}"))
+        errors.append(_validation_issue(path, fmt, f"data must be 2D `(n_k,n_E)`, got {data.shape}"))
     if energy.ndim != 1:
-        errors.append(_validation_issue(path, fmt, f"energy doit être 1D, reçu {energy.shape}"))
+        errors.append(_validation_issue(path, fmt, f"energy must be 1D, got {energy.shape}"))
     elif data.ndim == 2 and data.shape[1] != energy.size:
         errors.append(_validation_issue(
-            path, fmt, f"shape incohérente: data.shape[1]={data.shape[1]} mais len(energy)={energy.size}"
+            path, fmt, f"inconsistent shape: data.shape[1]={data.shape[1]} but len(energy)={energy.size}"
         ))
     if energy.ndim == 1 and not _is_monotonic_axis(energy):
-        errors.append(_validation_issue(path, fmt, "energy doit être monotone"))
+        errors.append(_validation_issue(path, fmt, "energy must be monotonic"))
 
     if ds.kx is None:
-        errors.append(_validation_issue(path, fmt, "kx/kpar manquant pour la band map"))
+        errors.append(_validation_issue(path, fmt, "kx/kpar missing for the band map"))
     else:
         kx = np.asarray(ds.kx)
         if kx.ndim != 1:
-            errors.append(_validation_issue(path, fmt, f"kx doit être 1D, reçu {kx.shape}"))
+            errors.append(_validation_issue(path, fmt, f"kx must be 1D, got {kx.shape}"))
         elif data.ndim == 2 and kx.size != data.shape[0]:
             errors.append(_validation_issue(
-                path, fmt, f"shape incohérente: len(kx)={kx.size} mais data.shape[0]={data.shape[0]}"
+                path, fmt, f"inconsistent shape: len(kx)={kx.size} but data.shape[0]={data.shape[0]}"
             ))
         if kx.ndim == 1 and not _is_monotonic_axis(kx):
-            errors.append(_validation_issue(path, fmt, "kx doit être monotone"))
+            errors.append(_validation_issue(path, fmt, "kx must be monotonic"))
 
     if ds.ky is not None:
         ky = np.asarray(ds.ky)
         if ky.ndim != 1:
-            errors.append(_validation_issue(path, fmt, f"ky doit être 1D, reçu {ky.shape}"))
+            errors.append(_validation_issue(path, fmt, f"ky must be 1D, got {ky.shape}"))
         elif not _is_monotonic_axis(ky):
-            errors.append(_validation_issue(path, fmt, "ky doit être monotone"))
+            errors.append(_validation_issue(path, fmt, "ky must be monotonic"))
 
     if not isinstance(ds.metadata, dict):
-        errors.append(_validation_issue(path, fmt, "metadata doit être un dict"))
+        errors.append(_validation_issue(path, fmt, "metadata must be a dict"))
     else:
         fs_data = ds.metadata.get("fs_data")
         if fs_data is not None:
@@ -186,25 +188,25 @@ def assert_arpes_data_valid(ds: ARPESData) -> ARPESData:
             fs_ky = np.asarray(ds.metadata.get("fs_ky", []))
             fs_energy = np.asarray(ds.metadata.get("fs_energy", energy))
             if fs.ndim != 3:
-                errors.append(_validation_issue(path, fmt, f"fs_data doit être 3D `(n_ky,n_kx,n_E)`, reçu {fs.shape}"))
+                errors.append(_validation_issue(path, fmt, f"fs_data must be 3D `(n_ky,n_kx,n_E)`, got {fs.shape}"))
             elif fs.shape != (fs_ky.size, fs_kx.size, fs_energy.size):
                 errors.append(_validation_issue(
                     path, fmt,
-                    "shape FS incohérente: "
+                    "inconsistent FS shape: "
                     f"fs_data={fs.shape}, len(fs_ky)={fs_ky.size}, len(fs_kx)={fs_kx.size}, len(fs_energy)={fs_energy.size}"
                 ))
         hv = ds.hv if ds.hv is not None else ds.metadata.get("hv")
         try:
             hvf = float(hv)
             if not np.isfinite(hvf) or hvf <= 0:
-                warnings_list.append("hν absent ou non positif")
+                warnings_list.append("hν missing or not positive")
         except (TypeError, ValueError):
-            warnings_list.append("hν absent ou non numérique")
+            warnings_list.append("hν missing or non-numeric")
 
     if data.size == 0:
-        errors.append(_validation_issue(path, fmt, "data vide"))
+        errors.append(_validation_issue(path, fmt, "empty data"))
     elif not np.any(np.isfinite(data)):
-        errors.append(_validation_issue(path, fmt, "data ne contient aucune valeur finie"))
+        errors.append(_validation_issue(path, fmt, "data contains no finite value"))
 
     if errors:
         raise ARPESDataValidationError("\n".join(errors))
@@ -223,7 +225,7 @@ def _require_erlab():
     try:
         import erlab.io  # type: ignore
     except Exception as exc:
-        raise ImportError("erlab n'est pas disponible. Active ton environnement peaks/conda.") from exc
+        raise ImportError("erlab is not available. Activate your peaks/conda environment.") from exc
     return erlab.io
 
 
@@ -320,7 +322,7 @@ def _add_instrument_resolution_metadata(
     energy_step: Any = None,
     angle_step: Any = None,
 ) -> None:
-    """Normalise les paramètres analyseur utiles à l'estimation de résolution."""
+    """Normalize analyzer parameters useful for resolution estimates."""
     src = source or meta
     if pass_energy is None:
         pass_energy = _first_present(src, (
@@ -356,7 +358,7 @@ def _add_instrument_resolution_metadata(
 
 
 def _cls_angle_to_k_pi_over_a(angle_deg, ef_kinetic: float, a_lattice: float, angular_offset_deg: float = 0.0):
-    """Conversion angle→k (en pi/a) commune CLS/BESSY/Solaris.
+    """Shared CLS/BESSY/Solaris angle→k conversion (in pi/a).
 
     Formule Scienta : k_par = C·√Ek·sin(θ−θ0).
     """
@@ -366,7 +368,7 @@ def _cls_angle_to_k_pi_over_a(angle_deg, ef_kinetic: float, a_lattice: float, an
 
 
 def detect_format(path: str | Path) -> str:
-    """Itère le registre et retourne le nom du premier loader qui détecte `path`."""
+    """Iterate over the registry and return the first loader name that detects `path`."""
     p = Path(path)
     for name, spec in _LOADER_REGISTRY.items():
         try:
@@ -378,10 +380,10 @@ def detect_format(path: str | Path) -> str:
 
 
 def detect_scan_kind(path: str | Path, format_hint: str | None = None) -> str:
-    """Détection légère du type de scan: `BM`, `FS` ou `unknown`.
+    """Lightweight scan type detection: `BM`, `FS`, or `unknown`.
 
-    Cette fonction est faite pour l'interface de navigation. Elle ne charge pas
-    les données ARPES complètes.
+    This function is intended for the navigation UI. It does not load the full
+    ARPES data.
     """
     p = Path(path)
     fmt = format_hint or detect_format(p)
@@ -413,12 +415,12 @@ def load_arpes(path, *, work_func: float, ef_offset: float = 0.0, a_lattice: flo
                temperature: float | None = None, azi: float = 0.0, pol: str = "",
                angle_offsets: dict | None = None,
                bessy_energy_reference: str = "auto") -> ARPESData:
-    """Dispatch principal : choisit le loader via le registre puis valide la sortie."""
+    """Main dispatch: choose the loader through the registry, then validate output."""
     fmt = format_hint or detect_format(path)
     spec = _LOADER_REGISTRY.get(fmt)
     if spec is None:
-        known = ", ".join(_LOADER_REGISTRY) or "aucun"
-        raise ValueError(f"Format non supporté pour {Path(path).name!r}: {fmt}. Formats: {known}.")
+        known = ", ".join(_LOADER_REGISTRY) or "none"
+        raise ValueError(f"Unsupported format for {Path(path).name!r}: {fmt}. Formats: {known}.")
     ds = spec.loader_fn(
         path,
         work_func=work_func,
@@ -441,7 +443,7 @@ def load_arpes_file(path: str, work_func: float, ef_offset: float,
                     pol: str = "",
                     angle_offsets: dict | None = None,
                     bessy_energy_reference: str = "auto") -> dict | None:
-    """Wrapper utilitaire renvoyant un dict legacy bandmap (None si erlab absent)."""
+    """Utility wrapper returning a legacy bandmap dict (None if erlab is missing)."""
     try:
         ds = load_arpes(path, work_func=work_func, ef_offset=ef_offset,
                         a_lattice=a_lattice, hv=hv,

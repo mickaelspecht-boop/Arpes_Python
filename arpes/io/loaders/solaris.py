@@ -31,8 +31,8 @@ def load_solaris_da30_bandmap(path, work_func: float, ef_offset: float = 0.0,
     hv = float(da.attrs.get("hv", np.nan))
     if not np.isfinite(hv) or hv <= 0:
         raise ValueError(
-            f"hv absent ou non valide dans {path.name} (lu={hv!r}). "
-            f"Vérifie le logbook ou saisis hν manuellement avant de recharger."
+            f"hv missing or invalid in {path.name} (read={hv!r}). "
+            f"Check the logbook or enter hν manually before reloading."
         )
     ef_kin = hv - work_func
     with warnings.catch_warnings():

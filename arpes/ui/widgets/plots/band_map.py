@@ -35,16 +35,16 @@ def estimate_gamma_bm_mdc(
         if data.shape == (len(ev), len(k)):
             data = data.T
     if data.shape != (len(k), len(ev)):
-        raise ValueError(f"Shape data invalide: {data.shape}, attendu ({len(k)}, {len(ev)})")
+        raise ValueError(f"Invalid data shape: {data.shape}, expected ({len(k)}, {len(ev)})")
 
     ev_lo, ev_hi = sorted(ev_range)
     k_lo, k_hi = sorted(k_range)
     e_idx = np.where((ev >= ev_lo) & (ev <= ev_hi))[0]
     k_mask = (k >= k_lo) & (k <= k_hi)
     if len(e_idx) == 0:
-        raise ValueError(f"Aucune energie dans ev_range={ev_range}")
+        raise ValueError(f"No energy point in ev_range={ev_range}")
     if k_mask.sum() < 20:
-        raise ValueError(f"Pas assez de points k dans k_range={k_range}")
+        raise ValueError(f"Not enough k points in k_range={k_range}")
 
     kk = k[k_mask]
     centers, pairs, scores = [], [], []

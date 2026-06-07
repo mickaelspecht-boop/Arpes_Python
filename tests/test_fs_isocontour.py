@@ -1,4 +1,4 @@
-"""Tests fs_isocontour : cylindre, ellipsoïde, multi-bandes, validation entrée."""
+"""Tests fs_isocontour: cylinder, ellipsoid, multi-band, input validation."""
 from __future__ import annotations
 
 import numpy as np
@@ -11,7 +11,7 @@ from arpes.theory.fs_isocontour import (
 )
 
 
-# ---- helpers : génération grilles synthétiques -----------------------------
+# ---- helpers: synthetic grid generation ------------------------------------
 
 
 def _make_axes(n=51, half=2.0):
@@ -20,18 +20,18 @@ def _make_axes(n=51, half=2.0):
 
 
 def _cylinder_band(kx, ky, kz, radius=1.0):
-    """E(k) = kx² + ky² − r². Iso=0 → cercle rayon r, indépendant kz."""
+    """E(k) = kx² + ky² − r². Iso=0 → circle of radius r, independent of kz."""
     KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing="ij")
     return KX**2 + KY**2 - radius**2
 
 
 def _ellipsoid_band(kx, ky, kz, a=1.5, b=1.0, c=0.8):
-    """E = (kx/a)² + (ky/b)² + (kz/c)² − 1. Iso=0 → ellipsoïde."""
+    """E = (kx/a)² + (ky/b)² + (kz/c)² − 1. Iso=0 → ellipsoid."""
     KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing="ij")
     return (KX/a)**2 + (KY/b)**2 + (KZ/c)**2 - 1.0
 
 
-# ---- cylindre --------------------------------------------------------------
+# ---- cylinder --------------------------------------------------------------
 
 
 class TestCylinder:
@@ -43,7 +43,7 @@ class TestCylinder:
         c = contours[0]
         assert isinstance(c, FsContour)
         assert c.band_index == 0
-        # Vérifier rayon moyen ≈ 1.0 (tolérance grille).
+        # Check mean radius ≈ 1.0 (grid tolerance).
         r = np.linalg.norm(c.points, axis=1)
         assert abs(r.mean() - 1.0) < 0.05
 
@@ -64,7 +64,7 @@ class TestCylinder:
         assert c.closed is True
 
 
-# ---- ellipsoïde ------------------------------------------------------------
+# ---- ellipsoid -------------------------------------------------------------
 
 
 class TestEllipsoid:
@@ -75,7 +75,7 @@ class TestEllipsoid:
         c = extract_fs_isocontour(band, kx, ky, kz, kz_value=0.0, ef=0.0)
         assert len(c) == 1
         pts = c[0].points
-        # max kx ≈ a, max ky ≈ b
+        # max kx ≈ a, max ky ≈ b.
         kx_max = float(np.max(np.abs(pts[:, 0])))
         ky_max = float(np.max(np.abs(pts[:, 1])))
         assert abs(kx_max - a) < 0.06
@@ -87,7 +87,7 @@ class TestEllipsoid:
         band = _ellipsoid_band(kx, ky, kz, a=a, b=b, c=c_ax)[None, ...]
         c0 = extract_fs_isocontour(band, kx, ky, kz, kz_value=0.0, ef=0.0)[0]
         c1 = extract_fs_isocontour(band, kx, ky, kz, kz_value=0.5, ef=0.0)[0]
-        # À kz=0.5, axes attendus a*sqrt(1-(0.5/0.8)²), b*idem
+        # At kz=0.5, expected axes a*sqrt(1-(0.5/0.8)²), b*same.
         shrink = np.sqrt(1.0 - (0.5/c_ax)**2)
         kx_max_0 = float(np.max(np.abs(c0.points[:, 0])))
         kx_max_1 = float(np.max(np.abs(c1.points[:, 0])))
@@ -98,12 +98,12 @@ class TestEllipsoid:
     def test_no_contour_above_kz_max(self):
         kx, ky, kz = _make_axes(n=81, half=2.0)
         band = _ellipsoid_band(kx, ky, kz, a=1.5, b=1.0, c=0.8)[None, ...]
-        # kz au-delà du c (clamp à kz_axis[-1]=1.0) → ellipsoïde vide si c<1
+        # kz beyond c (clamped to kz_axis[-1]=1.0) → empty ellipsoid if c<1.
         c = extract_fs_isocontour(band, kx, ky, kz, kz_value=1.0, ef=0.0)
         assert c == []
 
 
-# ---- multi-bandes ----------------------------------------------------------
+# ---- multi-band ------------------------------------------------------------
 
 
 class TestMultiBands:
@@ -143,14 +143,14 @@ class TestPlanesHelper:
         assert all(len(v) == 1 for v in result.values())
 
 
-# ---- validation entrée -----------------------------------------------------
+# ---- input validation ------------------------------------------------------
 
 
 class TestInputValidation:
     def test_wrong_ndim_raises(self):
         with pytest.raises(ValueError):
             extract_fs_isocontour(
-                np.zeros((10, 10)),  # 2D au lieu de 4D
+                np.zeros((10, 10)),  # 2D instead of 4D
                 np.arange(10), np.arange(10), np.arange(5),
                 kz_value=0.0,
             )
@@ -165,7 +165,7 @@ class TestInputValidation:
     def test_kz_clamp_below(self):
         kx, ky, kz = _make_axes()
         band = _cylinder_band(kx, ky, kz, radius=1.0)[None, ...]
-        # kz_value très bas → clamp au premier kz
+        # Very low kz_value → clamp to the first kz.
         c_lo = extract_fs_isocontour(band, kx, ky, kz, kz_value=-100.0)
         c_ref = extract_fs_isocontour(band, kx, ky, kz, kz_value=float(kz[0]))
         assert len(c_lo) == len(c_ref) == 1
@@ -173,7 +173,7 @@ class TestInputValidation:
     def test_min_points_filter(self):
         kx, ky, kz = _make_axes(n=21, half=1.5)
         band = _cylinder_band(kx, ky, kz, radius=0.05)[None, ...]
-        # Cercle minuscule → contour très court, filtré par min_points élevé
+        # Tiny circle → very short contour, filtered by high min_points.
         c = extract_fs_isocontour(
             band, kx, ky, kz, kz_value=0.0, ef=0.0, min_points=1000
         )

@@ -1,30 +1,30 @@
-"""Inférence de `scan_kind` depuis un dict metadata loader.
+"""Infer `scan_kind` from a loader metadata dict.
 
-A.1 — Fiabilité `scan_kind`. Source de vérité unique pour le type de scan
+A.1 - `scan_kind` reliability. Single source of truth for scan type
 (BM, FS, KZ, EDC, unknown). Pure, headless, testable.
 
-Convention :
-- "BM"   : band map 2D (cut angle vs énergie, polar fixe).
-- "FS"   : Fermi surface 3D (kx ky E volume) ou 2D (kx ky map).
-- "KZ"   : scan en énergie de photons (hv vs kpar).
-- "EDC"  : energy distribution curve 1D (rare).
-- "unknown" : impossible à déterminer.
+Convention:
+- "BM"   : 2D band map (cut angle vs energy, fixed polar).
+- "FS"   : 3D Fermi surface (kx ky E volume) or 2D (kx ky map).
+- "KZ"   : photon-energy scan (hv vs kpar).
+- "EDC"  : 1D energy distribution curve (rare).
+- "unknown" : impossible to determine.
 """
 from __future__ import annotations
 
 
 def infer_scan_kind(metadata: dict | None, *, data_ndim: int | None = None) -> str:
-    """Renvoie le scan_kind canonique d'un dict metadata loader.
+    """Return the canonical scan_kind from a loader metadata dict.
 
     Args:
-        metadata: dict `data["metadata"]` retourné par un loader (CLS, Bessy,
-            Solaris…). Peut contenir directement `scan_kind`, ou des clés qui
-            permettent de l'inférer (`fs_data`, `kz_scan`, etc.).
-        data_ndim: optionnel — dimension du tableau de données principal,
-            pour disambiguer 2D (BM) vs 3D (FS) quand metadata est mince.
+        metadata: dict `data["metadata"]` returned by a loader (CLS, Bessy,
+            Solaris...). May directly contain `scan_kind`, or keys that allow
+            it to be inferred (`fs_data`, `kz_scan`, etc.).
+        data_ndim: optional dimension of the main data array, used to
+            disambiguate 2D (BM) vs 3D (FS) when metadata is thin.
 
     Returns:
-        Un str ∈ {"BM", "FS", "KZ", "EDC", "unknown"}.
+        A str ∈ {"BM", "FS", "KZ", "EDC", "unknown"}.
     """
     meta = metadata or {}
     raw = str(meta.get("scan_kind") or "").strip()

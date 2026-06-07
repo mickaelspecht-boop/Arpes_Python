@@ -1,4 +1,4 @@
-"""Dialog d'analyse multi-fichier kF, m*, Gamma0."""
+"""Multi-file analysis dialog for kF, m*, and Gamma0."""
 from __future__ import annotations
 
 import numpy as np
@@ -25,7 +25,7 @@ class MultiFileAnalysisDialog(QDialog):
     def __init__(self, session: Session, parent=None):
         super().__init__(parent)
         self._session = session
-        self.setWindowTitle("Analyse multi-fichier")
+        self.setWindowTitle("Multi-file Analysis")
         self.resize(920, 680)
         self._build()
         self._populate_files()
@@ -35,13 +35,13 @@ class MultiFileAnalysisDialog(QDialog):
         top = QHBoxLayout()
         top.addWidget(QLabel("Direction"))
         self._txt_direction = QLineEdit()
-        self._txt_direction.setPlaceholderText("ex: Γ-M")
+        self._txt_direction.setPlaceholderText("e.g. Γ-M")
         top.addWidget(self._txt_direction, stretch=1)
         top.addWidget(QLabel("X"))
         self._cmb_x = QComboBox()
-        self._cmb_x.addItems(["T (K)", "hν", "polarisation"])
+        self._cmb_x.addItems(["T (K)", "hν", "polarization"])
         top.addWidget(self._cmb_x)
-        self._btn_plot = QPushButton("Tracer")
+        self._btn_plot = QPushButton("Plot")
         self._btn_plot.clicked.connect(self._plot)
         top.addWidget(self._btn_plot)
         root.addLayout(top)
@@ -64,7 +64,7 @@ class MultiFileAnalysisDialog(QDialog):
         self._slider.setEnabled(False)
         self._slider.valueChanged.connect(self._on_slider_changed)
         anim_row.addWidget(self._slider, stretch=1)
-        anim_row.addWidget(QLabel("vitesse (ms):"))
+        anim_row.addWidget(QLabel("speed (ms):"))
         self._cmb_speed = QComboBox()
         self._cmb_speed.addItems(["300", "600", "1000", "2000"])
         self._cmb_speed.setCurrentText("1000")
@@ -89,7 +89,7 @@ class MultiFileAnalysisDialog(QDialog):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if entry.fit_result else Qt.CheckState.Unchecked)
             if not entry.fit_result:
-                item.setToolTip("Ignoré: pas de fit_result.")
+                item.setToolTip("Ignored: no fit_result.")
             else:
                 item.setToolTip(f"T={entry.meta.temperature:g} K, hν={entry.meta.hv:g}, dir={entry.meta.direction}")
             self._list.addItem(item)
@@ -106,7 +106,7 @@ class MultiFileAnalysisDialog(QDialog):
         series = aggregate_session_entries(
             self._session,
             self._selected_names(),
-            x_axis=self._cmb_x.currentText(),
+            x_axis=self._x_axis_key(),
             direction_filter=self._txt_direction.text().strip(),
         )
         self._series = series
@@ -122,7 +122,7 @@ class MultiFileAnalysisDialog(QDialog):
         if self._btn_play.isChecked():
             self._btn_play.setChecked(False)
         self._lbl_status.setText(
-            f"{n} point(s), {series.skipped} ignoré(s). {series.warning}".strip()
+            f"{n} point(s), {series.skipped} ignored. {series.warning}".strip()
         )
 
     def _on_play_toggled(self, checked: bool) -> None:
@@ -171,7 +171,7 @@ class MultiFileAnalysisDialog(QDialog):
             except Exception:
                 pass
         self._lbl_status.setText(
-            f"Animation : point {idx + 1}/{len(self._series.points)} "
+            f"Animation: point {idx + 1}/{len(self._series.points)} "
             f"({self._cmb_x.currentText()} = {x:g})"
         )
         self._canvas.redraw()
@@ -202,8 +202,12 @@ class MultiFileAnalysisDialog(QDialog):
             for sp in ax.spines.values():
                 sp.set_edgecolor("#555")
         axes[-1].set_xlabel(self._cmb_x.currentText(), color="w")
-        if self._cmb_x.currentText() == "polarisation" and labels:
+        if self._x_axis_key() == "polarisation" and labels:
             axes[-1].set_xticks(x)
             axes[-1].set_xticklabels(labels, rotation=20, ha="right")
         self._canvas.fig.tight_layout(pad=0.6)
         self._canvas.redraw()
+
+    def _x_axis_key(self) -> str:
+        txt = self._cmb_x.currentText()
+        return "polarisation" if txt == "polarization" else txt

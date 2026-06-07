@@ -17,12 +17,12 @@ from arpes.physics.dft_slice import (
 )
 from arpes.physics.pocket import (
     characterize_pocket,
-    characterize_pocket_bootstrap,
     extract_fs_contour,
     simplify_closed_contour,
     smooth_closed_contour,
     smooth_fs_image,
 )
+from arpes.physics.pocket_bootstrap import characterize_pocket_bootstrap
 from arpes.physics.pocket_compare import compare_pocket_contours
 from arpes.physics.pocket_mdc_radial import characterize_pocket_mdc_radial
 from arpes.physics.pocket_quality import run_pocket_guards
@@ -32,6 +32,11 @@ from arpes.physics.pocket_quality import local_snr
 
 
 class PocketController:
+    # P3.1: writes through to parent are allow-listed (fail-loud on typo).
+    # Preview seeds are controller-private state (set via object.__setattr__).
+    _OWN_ATTRS = frozenset({"_parent", "_preview_seed_raw", "_preview_seed_plot"})
+    _PARENT_WRITES = frozenset()
+
     def __init__(self, parent):
         object.__setattr__(self, "_parent", parent)
         object.__setattr__(self, "_preview_seed_raw", None)
@@ -41,10 +46,16 @@ class PocketController:
         return getattr(self._parent, name)
 
     def __setattr__(self, name, value):
-        if name == "_parent":
+        if name in self._OWN_ATTRS:
             object.__setattr__(self, name, value)
-        else:
+        elif name in self._PARENT_WRITES:
             setattr(self._parent, name, value)
+        else:
+            raise AttributeError(
+                f"{type(self).__name__} refuses to write '{name}': missing from "
+                "_PARENT_WRITES (typo?). Add it to _PARENT_WRITES "
+                "if the parent attribute is legitimate."
+            )
 
     def _pocket_action(self, verb: str, payload: dict | None = None):
         payload = payload or {}
@@ -74,18 +85,18 @@ class PocketController:
             return self._load_dft(payload)
         if verb == "clear_dft":
             return self._clear_dft()
-        raise ValueError(f"pocket action inconnue: {verb}")
+        raise ValueError(f"unknown pocket action: {verb}")
 
     def _load_dft(self, payload: dict):
         entry = self._current_entry()
         if entry is None:
-            self._status("DFT : aucun fichier courant.")
+            self._status("DFT: no current file.")
             return None
         path = payload.get("path")
         if not path:
             path, _filter = QFileDialog.getOpenFileName(
                 self._parent,
-                "Charger grille DFT 3D (npz)",
+                "Load 3D DFT Grid (npz)",
                 str(getattr(self._session, "folder", "") or ""),
                 "DFT 3D (*.npz)",
             )
@@ -102,7 +113,7 @@ class PocketController:
         if hasattr(self._fs_controls, "set_dft_status"):
             self._fs_controls.set_dft_status(Path(path).name)
         self._status(
-            f"DFT chargé : {Path(path).name} | "
+            f"DFT loaded: {Path(path).name} | "
             f"a={grid.a_lattice:.3f} Å, grid={grid.energies.shape}."
         )
         return str(path)
@@ -115,7 +126,7 @@ class PocketController:
         self._session.save()
         if hasattr(self._fs_controls, "set_dft_status"):
             self._fs_controls.set_dft_status("")
-        self._status("DFT : grille oubliée.")
+        self._status("DFT: grid forgotten.")
         return None
 
     def _attach_dft_compare(self, pocket: dict, entry, params) -> None:
@@ -125,7 +136,7 @@ class PocketController:
         meta = (self._raw_data or {}).get("metadata", {}) or {}
         hv = meta.get("photon_energy") or meta.get("hv")
         if hv is None:
-            pocket["dft_compare_error"] = "DFT : pas de hν dans metadata."
+            pocket["dft_compare_error"] = "DFT: no hν in metadata."
             return
         try:
             grid = load_dft_grid_npz(path, a_lattice_fallback=float(params.a_lattice))
@@ -147,12 +158,12 @@ class PocketController:
             d["dft_path"] = path
             pocket["dft_compare"] = d
         except Exception as exc:
-            pocket["dft_compare_error"] = f"DFT : {exc}"
+            pocket["dft_compare_error"] = f"DFT: {exc}"
 
     def _run_wizard(self, payload: dict):
         """Open 3-step wizard, then run iso or MDC pipeline with chosen settings."""
         if self._raw_data is None or not self._current_is_fs():
-            self._status("Wizard poche : charge une carte FS d'abord.")
+            self._status("Pocket wizard: load an FS map first.")
             return None
         seed_plot = (float(payload["kx"]), float(payload["ky"]))
         params0 = self._fs_controls.params()
@@ -219,7 +230,7 @@ class PocketController:
 
     def _preview_start(self, payload: dict):
         if self._raw_data is None or not self._current_is_fs():
-            self._status("Aperçu poche : charge une carte FS d'abord.")
+            self._status("Pocket preview: load an FS map first.")
             return None
         try:
             params = self._fs_controls.params()
@@ -243,11 +254,11 @@ class PocketController:
             object.__setattr__(self, "_preview_seed_plot", seed_plot)
             self._draw_preview_at(level)
             self._status(
-                f"Aperçu poche : ajuste le slider Level (auto={level:.3f}). "
-                "Clic droit → Valider ou Annuler."
+                f"Pocket preview: adjust the Level slider (auto={level:.3f}). "
+                "Right-click → Validate or Cancel."
             )
         except Exception as exc:
-            self._status(f"Aperçu poche : {exc}")
+            self._status(f"Pocket preview: {exc}")
         return None
 
     def _preview_update(self, payload: dict):
@@ -257,7 +268,7 @@ class PocketController:
             level = float(payload.get("level", self._fs_controls.sp_pocket_level.value()))
             self._draw_preview_at(level)
         except Exception as exc:
-            self._status(f"Aperçu poche : {exc}")
+            self._status(f"Pocket preview: {exc}")
         return None
 
     def _preview_cancel(self):
@@ -265,7 +276,7 @@ class PocketController:
         object.__setattr__(self, "_preview_seed_plot", None)
         if hasattr(self._fs_canvas, "clear_pocket_preview"):
             self._fs_canvas.clear_pocket_preview()
-        self._status("Aperçu poche annulé.")
+        self._status("Pocket preview canceled.")
         return None
 
     def _preview_validate(self):
@@ -307,7 +318,7 @@ class PocketController:
 
     def _characterize_at(self, payload: dict):
         if self._raw_data is None or not self._current_is_fs():
-            self._status("Poche FS : charge une carte FS d'abord.")
+            self._status("FS pocket: load an FS map first.")
             return None
         if not hasattr(self, "_fs_controls"):
             return None
@@ -377,7 +388,7 @@ class PocketController:
             blocking = [g for g in guards if not g.ok]
             if blocking:
                 msgs = " | ".join(g.message for g in blocking if g.message)
-                self._status(f"Poche FS rejetée : {msgs}")
+                self._status(f"FS pocket rejected: {msgs}")
                 return None
             pocket["processing"] = {
                 "quality": settings.get("quality", "Standard"),
@@ -392,7 +403,7 @@ class PocketController:
             self._attach_dft_compare(pocket, entry, params)
             if float(pocket.get("area_pct_bz", 0.0) or 0.0) < settings["min_area_pct_bz"]:
                 self._status(
-                    f"Poche FS rejetée : aire {pocket['area_pct_bz']:.2f}% BZ "
+                    f"FS pocket rejected: area {pocket['area_pct_bz']:.2f}% BZ "
                     f"< min {settings['min_area_pct_bz']:.2f}%."
                 )
                 return None
@@ -406,12 +417,12 @@ class PocketController:
                 self._delete_pocket({"index": idx})
                 return None
             self._status(
-                f"Poche FS : {pocket['hs_label_nearest'] or '?'} "
+                f"FS pocket: {pocket['hs_label_nearest'] or '?'} "
                 f"{pocket['area_pct_bz']:.2f}% BZ, {pocket['topology']}."
             )
             return pocket
         except Exception as exc:
-            self._status(f"Poche FS : {exc}")
+            self._status(f"FS pocket: {exc}")
             return None
 
     def _show_pocket(self, payload: dict):
@@ -442,7 +453,7 @@ class PocketController:
         entry.fs_pockets = pockets
         self._session.save()
         self._draw_fs_tab()
-        self._status(f"Poche FS supprimée : {removed.get('hs_label_nearest') or idx + 1}.")
+        self._status(f"FS pocket deleted: {removed.get('hs_label_nearest') or idx + 1}.")
         return removed
 
     def _clear_pockets(self):
@@ -452,7 +463,7 @@ class PocketController:
         entry.fs_pockets = []
         self._session.save()
         self._draw_fs_tab()
-        self._status("Poches FS effacées pour ce fichier.")
+        self._status("FS pockets cleared for this file.")
 
     def _export_csv(self, payload: dict | None = None):
         payload = payload or {}
@@ -461,14 +472,14 @@ class PocketController:
             return None
         pockets = list(getattr(entry, "fs_pockets", []) or [])
         if not pockets:
-            self._status("Export poches FS : aucune poche.")
+            self._status("Export FS pockets: no pockets.")
             return None
         out_path = payload.get("path")
         if not out_path:
             default = self._default_export_path()
             out_path, _filter = QFileDialog.getSaveFileName(
                 self._parent,
-                "Exporter poches FS",
+                "Export FS Pockets",
                 str(default),
                 "CSV (*.csv)",
             )
@@ -481,7 +492,7 @@ class PocketController:
             writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
             writer.writeheader()
             writer.writerows(rows)
-        self._status(f"Poches FS exportées : {path}")
+        self._status(f"FS pockets exported: {path}")
         return path
 
     def _default_export_path(self) -> Path:
@@ -494,14 +505,18 @@ class PocketController:
     def _pocket_export_row(self, index: int, pocket: dict) -> dict:
         keys = [
             "centroid_kx", "centroid_ky", "area_inv_a2", "area_pct_bz",
-            "kF_mean", "kF_a", "kF_b", "ellipse_angle_deg",
+            "kF_mean", "kF_a", "kF_b", "kF_a_sigma", "kF_b_sigma",
+            "ellipse_angle_deg",
             "kF_gamma_x", "kF_gamma_m", "aspect_ratio", "eccentricity",
             "curvature_mean", "curvature_var", "n_carriers_2D",
+            "is_extrapolated", "fit_method", "arc_coverage_contig_deg",
             "topology", "topology_confidence", "topology_rays_used",
             "hs_label_nearest", "hs_distance", "level", "mp_label",
         ]
         row = {"index": index}
         row.update({k: pocket.get(k, "") for k in keys})
+        # P4.7: processing preset (Fine/Standard/Stable) tracked in export.
+        row["preset_quality"] = (pocket.get("processing") or {}).get("quality", "")
         return row
 
     def _mp_label_for(self, pocket: dict) -> str:
@@ -517,7 +532,7 @@ class PocketController:
         fs = np.asarray(fs, dtype=float)
         finite = fs[np.isfinite(fs)]
         if finite.size == 0:
-            raise ValueError("image FS vide.")
+            raise ValueError("empty FS image.")
         seed_i = self._nearest_value(fs, kx, ky, seed_raw)
         med = float(np.nanmedian(finite))
         lo = float(np.nanmin(finite))

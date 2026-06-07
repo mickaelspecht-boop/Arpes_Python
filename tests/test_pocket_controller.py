@@ -24,7 +24,7 @@ except Exception:
     UI_AVAILABLE = False
 
 
-@unittest.skipUnless(UI_AVAILABLE, "PyQt6 indisponible")
+@unittest.skipUnless(UI_AVAILABLE, "PyQt6 unavailable")
 class TestPocketController(unittest.TestCase):
     _qt_app = None
 
@@ -55,7 +55,9 @@ class TestPocketController(unittest.TestCase):
                 self.assertIsNotNone(pocket)
                 self.assertEqual(len(entry.fs_pockets), 1)
                 self.assertEqual(entry.fs_pockets[0]["topology"], "electron")
-                self.assertGreater(entry.fs_pockets[0]["area_pct_bz"], 1.0)
+                # Relaxed bound: reduced smoothing (guard σ·dk≤0.5·kF) → contour
+                # slightly tighter than with the old σ_x=4.0. Still a real pocket.
+                self.assertGreater(entry.fs_pockets[0]["area_pct_bz"], 0.5)
                 self.assertGreater(len(entry.fs_pockets[0]["contour"]), 10)
                 self.assertEqual(entry.fs_pockets[0]["processing"]["quality"], "Stable")
                 self.assertEqual(entry.fs_pockets[0]["processing"]["contour_window"], 13)
@@ -170,11 +172,50 @@ class TestPocketController(unittest.TestCase):
         )
 
 
+class _Spin:
+    def __init__(self, value: float = 0.0):
+        self._value = float(value)
+
+    def value(self) -> float:
+        return self._value
+
+    def setValue(self, value: float) -> None:
+        self._value = float(value)
+
+    def blockSignals(self, _blocked: bool) -> None:
+        return None
+
+
+class _Chk:
+    def __init__(self, checked: bool = False):
+        self._checked = bool(checked)
+
+    def setChecked(self, checked: bool) -> None:
+        self._checked = bool(checked)
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+
+class _FakeCanvas:
+    """No-op stand-in for FermiSurfaceCanvas used by the preview path."""
+
+    def draw_pocket_preview(self, *_a, **_k):
+        return None
+
+    def clear_pocket_preview(self, *_a, **_k):
+        return None
+
+    def draw_pockets(self, *_a, **_k):
+        return None
+
+
 class _Parent:
     def __init__(self, folder: Path):
         self._current_path = str(folder / "fs")
         self._session = Session(folder)
         self._raw_data = _raw_fs()
+        self._fs_canvas = _FakeCanvas()
         self._fs_controls = SimpleNamespace(params=lambda: FSParams(
             kx_center=0.0,
             ky_center=0.0,
@@ -184,13 +225,13 @@ class _Parent:
             bz_angle_deg=90.0,
         ), pocket_settings=lambda: {
             "quality": "Stable",
-            "smooth_sigma_y": 1.5,
-            "smooth_sigma_x": 4.0,
+            "smooth_sigma_y": 1.0,
+            "smooth_sigma_x": 1.5,  # σ·dk ≤ 0.5·kF (over-smoothing guard, pocket_quality)
             "contour_window": 13,
             "simplify_step": 0.025,
             "min_area_pct_bz": 0.2,
             "level": None,
-        })
+        }, sp_pocket_level=_Spin(0.0), chk_pocket_level_manual=_Chk(False))
         self.draws = 0
         self.statuses = []
 

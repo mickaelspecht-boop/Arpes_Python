@@ -2,10 +2,10 @@
 
 Free-electron final-state model :
     kz(hν, V0, W) = 0.5123 × sqrt(hν - W + V0)  [Å⁻¹]
-avec hν, V0, W en eV. W = travail de sortie analyseur (~4.5 eV typique).
-Constante 0.5123 = sqrt(2·m_e) / ħ exprimée pour donner 1/Å à partir d'eV.
+with hν, V0, W in eV. W = analyzer work function (~4.5 eV typical).
+Constant 0.5123 = sqrt(2·m_e) / ħ expressed to give 1/Å from eV.
 
-Aucun PyQt. Layering CLAUDE.md règle 2 respecté.
+No PyQt. CLAUDE.md layering rule 2 respected.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def kz_from_hv(hv_eV: float, v0_eV: float, work_function_eV: float = 4.5) -> flo
     inner = float(hv_eV) - float(work_function_eV) + float(v0_eV)
     if inner <= 0.0:
         raise ValueError(
-            f"kz_from_hv : (hv - W + V0) = {inner:.3f} eV ≤ 0 — impossible."
+            f"kz_from_hv: (hv - W + V0) = {inner:.3f} eV ≤ 0 — impossible."
         )
     return float(_KZ_CONST_1_PER_ANG_SQRT_EV * np.sqrt(inner))
 
@@ -33,7 +33,7 @@ class DFTSlice:
     kx: np.ndarray         # (n_kx,) 1/Å
     ky: np.ndarray         # (n_ky,) 1/Å
     energy_2d: np.ndarray  # (n_ky, n_kx) eV
-    kz_used: float         # 1/Å, où la slice a été interpolée
+    kz_used: float         # 1/Å, where the slice was interpolated
 
 
 def slice_grid_at_kz(
@@ -79,10 +79,10 @@ def isocontour_at_energy(
     e = float(energy_eV)
     finite = z[np.isfinite(z)]
     if finite.size == 0:
-        raise ValueError("DFT slice : aucune énergie finie.")
+        raise ValueError("DFT slice: no finite energy.")
     if e < float(np.nanmin(finite)) or e > float(np.nanmax(finite)):
         raise ValueError(
-            f"DFT slice : energy {e:.3f} eV hors plage "
+            f"DFT slice: energy {e:.3f} eV out of range "
             f"[{np.nanmin(finite):.3f}, {np.nanmax(finite):.3f}]."
         )
     work = np.where(np.isfinite(z), z, float(np.nanmin(finite)))
@@ -93,12 +93,12 @@ def isocontour_at_energy(
         if c.shape[0] >= 4 and np.linalg.norm(c[0] - c[-1]) <= 1e-8
     ]
     if not closed:
-        raise ValueError("DFT slice : aucun contour fermé à cette énergie.")
+        raise ValueError("DFT slice: no closed contour at this energy.")
     if seed_point_1_per_ang is not None:
         seed = tuple(map(float, seed_point_1_per_ang))
         containing = [c for c in closed if MplPath(c).contains_point(seed)]
         if not containing:
-            raise ValueError("DFT slice : aucun contour ne contient le seed.")
+            raise ValueError("DFT slice: no contour contains the seed.")
         closed = containing
 
     def _signed_area(c: np.ndarray) -> float:

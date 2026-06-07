@@ -20,20 +20,20 @@ def fit_fermi_edge(
     verbose=True,
 ):
     """
-    Fit la distribution Fermi-Dirac convoluee avec une Gaussienne
-    (resolution instrumentale) sur une EDC moyennee.
+    Fit the Fermi-Dirac distribution convolved with a Gaussian
+    (instrumental resolution) on an averaged EDC.
 
-    Modele :
-        I(E) = A × [FD(E; EF, kBT) ⊗ Gauss(σ_res)] + slope×E + bg
+    Model:
+        I(E) = A x [FD(E; EF, kBT) convolved with Gauss(sigma_res)] + slope*E + bg
 
-    Peut etre utilise sur :
-    - Une EDC d'un fichier gold (reference absolue) — meilleure precision
-    - Une EDC moyennee sur tous les angles du sample — auto-calibration
+    Can be used on:
+    - An EDC from a gold file (absolute reference), best precision
+    - An EDC averaged over all sample angles, auto-calibration
 
-    Parametres
+    Parameters
     ----------
     ev_arr : np.ndarray 1D
-        Axe energie.
+        Energy axis.
         - Si units='binding' : valeurs en eV relatif a EF nominal (0 = EF suppose)
           → EF retourné = offset residuel par rapport a 0
         - Si units='kinetic' : valeurs en eV cinetique
@@ -160,14 +160,14 @@ def fit_fermi_edge(
     residual = float(np.sqrt(np.mean((I_norm - I_fitted)**2)))
 
     if verbose:
-        print(f"{'OK' if success else 'ECHEC'} Fit EF   "
+        print(f"{'OK' if success else 'FAILED'} Fit EF   "
               f"EF = {EF_fit:+.4f} eV  ±{EF_err*1000:.1f} meV  "
               f"| FWHM_res = {fwhm_fit*1000:.0f} meV  "
               f"| T_eff = {T_eff:.0f} K  (T_nominal={temperature_K:.0f} K)  "
-              f"| résidu = {residual:.4f}")
+              f"| residual = {residual:.4f}")
         if units == 'binding' and abs(EF_fit) > 0.05:
-            print(f"  Attention: EF offset = {EF_fit*1000:+.0f} meV — l'axe energie est decale de cette valeur.")
-            print(f"    → Appliquer ev_arr = ev_arr - ({EF_fit:.4f}) pour corriger.")
+            print(f"  Warning: EF offset = {EF_fit*1000:+.0f} meV - the energy axis is shifted by this value.")
+            print(f"    -> Apply ev_arr = ev_arr - ({EF_fit:.4f}) to correct it.")
 
     # --- figure ---
     if ax is None:
@@ -191,14 +191,14 @@ def fit_fermi_edge(
     ax2 = ax.twinx()
     ax2.plot(e, I_norm - I_fitted, color='#888888', lw=0.7, alpha=0.6)
     ax2.axhline(0, color='gray', lw=0.5, ls='--')
-    ax2.set_ylabel('Résidu', color='gray', fontsize=8)
+    ax2.set_ylabel('Residual', color='gray', fontsize=8)
     ax2.tick_params(axis='y', colors='gray', labelsize=7)
     ax2.set_ylim(-0.4, 0.4)
 
-    ttl = title or ('EDC calibration EF' + (' [ECHEC]' if not success else ''))
+    ttl = title or ('EDC EF calibration' + (' [FAILED]' if not success else ''))
     ax.set_title(ttl, fontsize=10)
     ax.set_xlabel('E (eV)')
-    ax.set_ylabel('Intensite normalisee')
+    ax.set_ylabel(r'$I/I_{\max}$')
     ax.legend(fontsize=8, loc='center right')
     ax.set_xlim(fit_range)
 
@@ -206,7 +206,7 @@ def fit_fermi_edge(
     ax.text(0.02, 0.05,
             f"EF = {EF_fit:+.4f} eV  ±{EF_err*1000:.1f} meV\n"
             f"FWHM = {fwhm_fit*1000:.0f} meV   T_eff = {T_eff:.0f} K\n"
-            f"résidu rms = {residual:.4f}",
+            f"rms residual = {residual:.4f}",
             transform=ax.transAxes, fontsize=8,
             bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
 
@@ -291,20 +291,20 @@ def fit_fermi_edge_per_column(
     max_ef_err_ev=0.020,
     verbose=False,
 ):
-    """Fit du bord de Fermi colonne par colonne (k) puis lissage polynomial.
+    """Fit the Fermi edge column by column (k), then polynomial-smooth it.
 
     `data` : (n_k, n_E). `kpar` : (n_k,). `ev_arr` : (n_E,).
 
-    Retourne dict :
-        ef_per_col   : EF brut fitté par colonne (np.nan si échec)
-        ef_smooth    : EF lissé via polynôme degré `poly_deg`
-        poly_coefs   : coefficients du polynôme (np.polyfit, degré décroissant)
-        kpar         : axe k associé
-        mean_ef      : moyenne pondérée des EF retenus
-        mean_fwhm    : FWHM moyen retenu
-        rms          : écart-type des résidus colonne par colonne
-        n_valid      : nombre de colonnes avec fit valide
-        window       : (e_lo, e_hi) effectivement utilisée
+    Returns dict:
+        ef_per_col   : raw EF fitted by column (np.nan on failure)
+        ef_smooth    : EF smoothed with a polynomial of degree `poly_deg`
+        poly_coefs   : polynomial coefficients (np.polyfit, decreasing degree)
+        kpar         : associated k axis
+        mean_ef      : weighted average of retained EF values
+        mean_fwhm    : average retained FWHM
+        rms          : standard deviation of column-by-column residuals
+        n_valid      : number of columns with a valid fit
+        window       : (e_lo, e_hi) actually used
     """
     data  = np.asarray(data, dtype=float)
     kpar  = np.asarray(kpar, dtype=float)

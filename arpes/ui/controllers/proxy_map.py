@@ -118,6 +118,7 @@ PROXY_MAP = {
     "_apply_ef_reference_to_current": "_fit_runner_ctrl",
     "_refresh_helper_buttons": "_fit_runner_ctrl",
     "_copy_params": "_fit_runner_ctrl",
+    "_on_work_function_changed": "_load_ctrl",
     "_on_file_tags_changed": "_load_ctrl",
     # KzController
     "_open_kz_folder": "_kz_ctrl",

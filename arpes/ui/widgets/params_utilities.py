@@ -1,9 +1,8 @@
-"""Section 'Utilitaires' regroupée en sections collapsables indépendantes.
+"""Utilities section grouped into independent collapsible subsections.
 
-Trois sous-sections : Filtre grille, DFT/Théorie, Distorsion BM. Chaque
-section a un bouton-titre cliquable qui l'ouvre / la ferme. Aucune
-contrainte d'exclusivité (contrairement à QToolBox), donc on peut tout
-fermer ou tout ouvrir.
+Three subsections: grid filter, DFT/theory, BM distortion. Each section has a
+clickable title button that opens/closes it. There is no exclusivity constraint
+(unlike QToolBox), so all sections can be closed or open.
 """
 from __future__ import annotations
 
@@ -11,7 +10,7 @@ from PyQt6.QtWidgets import QPushButton, QVBoxLayout, QWidget
 
 
 class _CollapsibleSection(QWidget):
-    """En-tête cliquable + widget contenu repliable."""
+    """Clickable header plus collapsible content widget."""
 
     def __init__(
         self,
@@ -79,12 +78,12 @@ def build_utilities_section(panel, lay) -> None:
         cv.addWidget(sec)
         return sec
 
-    panel._sec_grid = _wrap(build_utils_section, "Filtre grille (FFT)",
+    panel._sec_grid = _wrap(build_utils_section, "Grid filter (FFT)",
                              open_default=False, summary="force 0.85")
-    panel._sec_theory = _wrap(build_theory_section, "DFT / Théorie",
+    panel._sec_theory = _wrap(build_theory_section, "DFT / Theory",
                                open_default=False, summary="off")
-    panel._sec_distortion = _wrap(build_bm_distortion_section, "Distorsion BM",
-                                   open_default=False, summary="désactivée")
+    panel._sec_distortion = _wrap(build_bm_distortion_section, "BM Distortion",
+                                   open_default=False, summary="disabled")
 
     lay.addWidget(panel._utilities_container)
     # alias rétrocompat avec ancien attribut (set_context lit _utilities_toolbox)

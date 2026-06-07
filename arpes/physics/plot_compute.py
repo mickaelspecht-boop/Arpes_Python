@@ -1,7 +1,7 @@
-"""Préparation des données de plot ARPES — sans PyQt.
+"""ARPES plot-data preparation without PyQt.
 
-Première tranche de l'Update L : extraire les calculs de données d'affichage
-BM sans déplacer les canvases Matplotlib ni les callbacks souris.
+First Update L slice: extract BM display-data calculations without moving the
+Matplotlib canvases or mouse callbacks.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ def apply_edcnorm(data: np.ndarray) -> np.ndarray:
 
 
 def compute_secdev(data: np.ndarray, kpar, ev_arr, sigma_k=2.0, sigma_e=2.0) -> np.ndarray:
-    """-d²I/dE² lissée."""
+    """Smoothed -d2I/dE2."""
     from scipy.ndimage import gaussian_filter
 
     d = gaussian_filter(data.astype(float), sigma=[sigma_k, sigma_e])
@@ -325,12 +325,11 @@ def draw_bandmap_axes(
             mesh.set_norm(None)
             mesh.set_clim(kw.get("vmin"), kw.get("vmax"))
     if needs_limit_reset:
-        # Recale les bornes sur l'étendue des données du fichier courant, PUIS
-        # coupe l'autoscale : sinon (a) un mesh réutilisé garde les anciennes
-        # bornes, (b) les overlays ajoutés ensuite (axhline EF, théorie DFT,
-        # halo Γ, kf…) peuvent dilater les axes. Garantit que charger un nouveau
-        # fichier remet le graphe au bon cadre, sans toucher un zoom en cours
-        # quand seuls des paramètres changent (reset_limits=False → bloc sauté).
+        # Reset bounds to the current file's data extent, then disable autoscale:
+        # otherwise (a) a reused mesh keeps old bounds, and (b) overlays added
+        # later (EF axhline, DFT theory, Gamma halo, kf...) can expand axes.
+        # This ensures loading a new file restores the correct frame without
+        # touching an active zoom when only parameters changed.
         kp = np.asarray(kpar, dtype=float)
         ee = np.asarray(ev, dtype=float)
         try:
@@ -487,8 +486,8 @@ def apply_ef_correction_to_dict(d: dict, cfg: dict) -> tuple[dict, dict]:
         # explicitement (utilisateur croyait avoir appliqué une correction).
         import warnings
         warnings.warn(
-            f"apply_ef_correction_to_dict: import indisponible ({exc}); "
-            f"correction EF SAUTÉE — données retournées brutes.",
+            f"apply_ef_correction_to_dict: import unavailable ({exc}); "
+            f"EF correction SKIPPED - returning raw data.",
             RuntimeWarning, stacklevel=2,
         )
         return d, {}

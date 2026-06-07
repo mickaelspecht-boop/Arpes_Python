@@ -1,11 +1,11 @@
-"""E2E workflow Γ : drift, idempotence, persistance, gardes.
+"""Γ E2E workflow: drift, idempotence, persistence, guards.
 
-Plan d'audit Phase 1 — fixe `GAMMA_AUDIT_PLAN.md`.
+Phase 1 audit plan — fixes `GAMMA_AUDIT_PLAN.md`.
 
-Deux familles :
-- Sans Qt : drift au reload (persistance meta_gamma_state), idempotence pure de
+Two families:
+- Without Qt: reload drift (meta_gamma_state persistence), pure idempotence of
   `apply_bm_gamma_axis_shift` + `_shift_fit_result_in_place`.
-- Avec Qt (skipées si PyQt6 absent) : gardes des handlers controller.
+- With Qt (skipped if PyQt6 is missing): controller handler guards.
 """
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ try:
 except Exception:
     QT_AVAILABLE = False
     # Re-import the pure helper for the no-Qt subset (defined in gamma_controller
-    # mais utilisable sans Qt si on stubbe). Pour rester simple en headless on
-    # le redéfinit ; le vrai test du remap se fait dans le bloc Qt.
+    # but usable without Qt when stubbed). To keep headless simple, redefine it;
+    # the real remap test is in the Qt block.
     def _shift_fit_result_in_place(fr, delta):
         if not fr or abs(delta) < 1e-12:
             return
@@ -49,23 +49,23 @@ except Exception:
 
 
 # --------------------------------------------------------------------------
-# Bloc A — sans Qt — bugs de persistance + drift au reload
+# Block A — without Qt — persistence bugs + reload drift
 # --------------------------------------------------------------------------
 
 class TestGammaMetaPersistRoundTrip(unittest.TestCase):
-    """Audit P1.1 : `meta.bm_gamma_axis_*` doit survivre save/load JSON.
+    """Audit P1.1: `meta.bm_gamma_axis_*` must survive JSON save/load.
 
-    Actuellement les flags vivent dans `raw_data["metadata"]` (transient) et
-    ne sont jamais sérialisés dans FileEntry → au reload, l'app croit l'axe
-    brut et ré-applique le shift → drift.
+    The flags currently live in `raw_data["metadata"]` (transient) and are never
+    serialized into FileEntry → on reload, the app thinks the axis is raw and
+    reapplies the shift → drift.
     """
 
     def test_meta_gamma_state_persists_in_file_entry(self):
         session = Session(Path("/tmp/audit_gamma_e2e"))
         entry = session.get_or_create("bm04")
 
-        # Simule ce qu'un shift d'axe doit déposer sur l'entry pour survivre
-        # un save/load. P1.1 ajoutera `entry.meta_gamma_state`.
+        # Simulates what an axis shift must store on the entry to survive
+        # save/load. P1.1 will add `entry.meta_gamma_state`.
         entry.meta_gamma_state = {
             "bm_gamma_axis_centered": True,
             "bm_gamma_axis_shift": 0.07,
@@ -80,19 +80,19 @@ class TestGammaMetaPersistRoundTrip(unittest.TestCase):
 
         restored = roundtrip.files["bm04"]
         state = getattr(restored, "meta_gamma_state", None)
-        self.assertIsInstance(state, dict, "FileEntry.meta_gamma_state perdu au reload")
+        self.assertIsInstance(state, dict, "FileEntry.meta_gamma_state lost on reload")
         self.assertTrue(state.get("bm_gamma_axis_centered"))
         self.assertAlmostEqual(state.get("bm_gamma_axis_shift"), 0.07)
 
 
 class TestNoDriftOnReload(unittest.TestCase):
-    """Audit P1.1 : reload après fit + Γ ne doit PAS re-décaler les kF.
+    """Audit P1.1: reload after fit + Γ must NOT re-shift kF.
 
-    Reproduit : kpar raw → shift Γ delta=0.1 → kF remappés une fois →
-    save/load → restore meta → ré-application stored gamma. Le delta calculé
-    doit valoir 0 (déjà appliqué d'après le state restauré), donc kF
-    inchangé. Sans persistance du `bm_gamma_axis_shift`, delta=0.1 sera
-    réappliqué → kF re-décalés.
+    Reproduces: raw kpar → Γ shift delta=0.1 → kF remapped once → save/load →
+    restore meta → re-apply stored gamma. The computed delta must be 0 (already
+    applied according to restored state), so kF is unchanged. Without
+    `bm_gamma_axis_shift` persistence, delta=0.1 would be reapplied → kF
+    re-shifted.
     """
 
     def _make_raw(self, kpar_raw, *, shift=0.0, centered=False):
@@ -115,50 +115,50 @@ class TestNoDriftOnReload(unittest.TestCase):
             "kF_plus": [[0.50, 0.55]],
             "gamma_corrige": [[0.0, 0.0]],
         }
-        # Initial: shift l'axe + remap kF
+        # Initial: shift the axis + remap kF.
         raw = self._make_raw(kpar_raw)
         applied = apply_bm_gamma_axis_shift(raw, delta_initial, ref={"source": "fs"})
         self.assertTrue(applied)
         _shift_fit_result_in_place(fit_result, delta_initial)
         self.assertAlmostEqual(fit_result["kF_minus"][0][0], -0.60)
 
-        # Save: meta state que l'app DOIT persister (P1.1)
+        # Save: meta state that the app MUST persist (P1.1).
         meta_state = {
             k: raw["metadata"][k]
             for k in raw["metadata"]
             if k.startswith("bm_gamma_") or k.startswith("fs_gamma_")
         }
 
-        # Reload : nouveau raw_data brut + restauration du meta state via
-        # le mécanisme P1.1 (restore_meta_gamma_state)
+        # Reload: new raw raw_data + meta state restoration through the P1.1
+        # mechanism (restore_meta_gamma_state).
         raw2 = self._make_raw(kpar_raw)
         raw2["metadata"].update(meta_state)
-        # Simulation de l'opération "appliquer le shift stocké"
-        # (post-fix : delta=0 puisque previous == new)
-        # On vérifie que apply ne re-shifte pas
+        # Simulation of the "apply stored shift" operation.
+        # (post-fix: delta=0 because previous == new)
+        # Verify that apply does not re-shift.
         kpar_before = raw2["kpar"].copy()
         ok = apply_bm_gamma_axis_shift(raw2, delta_initial, ref={"source": "fs"})
         np.testing.assert_allclose(
             raw2["kpar"], kpar_before,
-            err_msg="kpar a été re-décalé alors que le state était restauré"
+            err_msg="kpar was re-shifted even though state was restored"
         )
-        # Pas de delta supplémentaire à propager à fit_result
+        # No extra delta to propagate to fit_result.
         _shift_fit_result_in_place(fit_result, 0.0 if not ok else delta_initial)
         self.assertAlmostEqual(
             fit_result["kF_minus"][0][0], -0.60,
-            msg="fit_result re-décalé au reload : drift cumulatif"
+            msg="fit_result re-shifted on reload: cumulative drift"
         )
 
 
 # --------------------------------------------------------------------------
-# Bloc B — avec Qt — gardes idempotence sur les détecteurs
+# Block B — with Qt — detector idempotence guards
 # --------------------------------------------------------------------------
 
-@unittest.skipUnless(QT_AVAILABLE, "PyQt6 indisponible — bloc B skip")
+@unittest.skipUnless(QT_AVAILABLE, "PyQt6 unavailable — skipping block B")
 class TestGammaDetectorsGuard(unittest.TestCase):
     """Audit P1.2 : `_detect_fs_gamma` / `_estimate_gamma_bm` / `_on_fs_map_click`
-    doivent refuser si l'axe est déjà recentré ou si le loader a appliqué un
-    offset angulaire.
+    must refuse if the axis is already recentered or if the loader applied an
+    angular offset.
     """
 
     _qt_app = None
@@ -256,15 +256,15 @@ class TestGammaDetectorsGuard(unittest.TestCase):
 
         ctrl._detect_fs_gamma()
 
-        # Garde P1.2 : ne touche ni la réf ni le center
+        # P1.2 guard: touches neither the reference nor the center.
         self.assertEqual(parent._session.gamma_reference, ref_before,
-                         "réf Γ écrasée malgré axe déjà recentré")
+                         "Γ ref overwritten despite already recentered axis")
         self.assertEqual(parent._fs_controls.center, (0.0, 0.0),
-                         "centre FS muté malgré garde")
+                         "FS center mutated despite guard")
         joined = " ".join(parent.status_messages).lower()
         self.assertTrue(
-            "déjà appliqué" in joined or "axe recentré" in joined or "offset" in joined,
-            f"pas de warning explicite ; messages: {parent.status_messages}"
+            "already applied" in joined or "axis recentered" in joined or "offset" in joined,
+            f"no explicit warning; messages: {parent.status_messages}"
         )
 
     def test_detect_fs_gamma_refused_when_loader_offset_applied(self):
@@ -275,11 +275,11 @@ class TestGammaDetectorsGuard(unittest.TestCase):
         ctrl._detect_fs_gamma()
 
         self.assertEqual(parent._session.gamma_reference, ref_before,
-                         "réf Γ écrasée malgré loader-offset actif")
+                         "Γ ref overwritten despite active loader offset")
         joined = " ".join(parent.status_messages).lower()
         self.assertTrue(
-            "déjà appliqué" in joined or "loader" in joined or "offset" in joined,
-            f"pas de warning loader ; messages: {parent.status_messages}"
+            "already applied" in joined or "loader" in joined or "offset" in joined,
+            f"no loader warning; messages: {parent.status_messages}"
         )
 
     def test_on_fs_map_click_refused_when_axis_centered(self):
@@ -292,13 +292,13 @@ class TestGammaDetectorsGuard(unittest.TestCase):
         ctrl._on_fs_map_click(event)
 
         self.assertEqual(parent._session.gamma_reference, ref_before,
-                         "click pick a muté la réf malgré axe centré")
+                         "click pick mutated the ref despite centered axis")
 
 
-@unittest.skipUnless(QT_AVAILABLE, "PyQt6 indisponible — bloc C skip")
+@unittest.skipUnless(QT_AVAILABLE, "PyQt6 unavailable — skipping block C")
 class TestForgetGamma(unittest.TestCase):
-    """Audit P2.bis : `_forget_gamma` doit inverser le shift d'axe et clear
-    tous les flags, permettant de re-détecter Γ après une garde.
+    """Audit P2.bis: `_forget_gamma` must reverse the axis shift and clear all
+    flags, allowing Γ to be re-detected after a guard.
     """
 
     _qt_app = None
@@ -327,7 +327,7 @@ class TestForgetGamma(unittest.TestCase):
 
         class Parent:
             def __init__(self):
-                # kpar déjà shifté de 0.3 (post auto-Γ-BM)
+                # kpar already shifted by 0.3 (post auto-Γ-BM)
                 self._raw_data = {
                     "path": "/tmp/bm04",
                     "hv": 60.0,
@@ -353,7 +353,7 @@ class TestForgetGamma(unittest.TestCase):
                     e.fs_center_kx = 0.3
                     e.fs_center_ky = 0.0
                     e.fit_params.center_init = 0.0
-                    # fit_result déjà shifté
+                    # fit_result already shifted
                     e.fit_result = {"kF_minus": [[-0.8]], "kF_plus": [[0.2]], "gamma_corrige": [[-0.3]]}
                     e._test_initialized = True
                 return e
@@ -371,19 +371,19 @@ class TestForgetGamma(unittest.TestCase):
 
         ctrl._forget_gamma()
 
-        # kpar restauré
+        # kpar restored.
         np.testing.assert_allclose(parent._raw_data["kpar"], [-1.0, 0.0, 1.0])
-        # session vide
+        # Empty session.
         self.assertEqual(parent._session.gamma_reference, {})
         self.assertEqual(parent._session.angle_offsets, {})
-        # entry vide
+        # Empty entry.
         e = parent._current_entry()
         self.assertEqual(e.meta_gamma_state, {})
         self.assertIsNone(e.fs_center_kx)
-        # fit_result remappé (delta -0.3 → kF += 0.3)
+        # fit_result remapped (delta -0.3 → kF += 0.3).
         self.assertAlmostEqual(e.fit_result["kF_minus"][0][0], -0.5, places=10)
         self.assertAlmostEqual(e.fit_result["kF_plus"][0][0], 0.5, places=10)
-        # meta flags effacés
+        # Meta flags cleared.
         self.assertFalse(parent._raw_data["metadata"].get("bm_gamma_axis_centered"))
 
 

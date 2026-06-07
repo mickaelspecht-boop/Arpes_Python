@@ -1,21 +1,21 @@
-# Raccourcis
+# Shortcuts
 
 ## Navigation
 
-- Fleche gauche : fichier precedent dans le navigateur.
-- Fleche droite : fichier suivant dans le navigateur.
-- Double-clic fichier : charger le fichier.
-- Double-clic groupe : ouvrir ou reduire le groupe.
+- Left arrow: previous file in the browser.
+- Right arrow: next file in the browser.
+- Double-click file: load the file.
+- Double-click group: expand or collapse the group.
 
-## Carte et fit
+## Map and Fit
 
-- Clic gauche sur la carte : selection MDC/EDC a l'energie et au k cliques.
-- Clic droit sur un point kF : ajouter ou modifier une annotation.
-- Selection de points kF : supprimer les points selectionnes depuis les controles fit.
-- Ctrl+Z : annuler la derniere suppression de points kF.
-- Ctrl+Y : retablir la suppression annulee.
+- Left-click on the map: select MDC/EDC at the clicked energy and k.
+- Right-click a kF point: add or edit an annotation.
+- kF point selection: delete selected points from the fit controls.
+- Ctrl+Z: undo the last kF point deletion.
+- Ctrl+Y: redo the undone deletion.
 
 ## Organisation
 
-- Champ Tags : etiquettes libres du fichier courant, separees par virgules.
-- Filtre tag : limite l'affichage du navigateur aux fichiers qui portent le tag.
+- Tags field: free labels for the current file, separated by commas.
+- Tag filter: limit browser display to files carrying the tag.

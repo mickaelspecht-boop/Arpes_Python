@@ -145,7 +145,7 @@ def debug_mdc_fit(
         success = True
     except Exception as exc:
         if verbose:
-            print(f"[debug_mdc_fit] ECHEC du fit a E={energy_actual:.4f} eV : {exc}")
+            print(f"[debug_mdc_fit] fit failed at E={energy_actual:.4f} eV: {exc}")
 
     # --- figure ---
     if ax is None:
@@ -206,12 +206,12 @@ def debug_mdc_fit(
         status = 'OK' if success else 'FAIL'
         ttl = f'E = {energy_actual:+.3f} eV  [{status}]'
     ax.set_title(ttl, fontsize=9)
-    ax.set_xlabel('k (π/a)', fontsize=8)
-    ax.set_ylabel('I norm.', fontsize=8)
+    ax.set_xlabel(r'$k$ (π/a)', fontsize=8)
+    ax.set_ylabel(r'$I/I_{\max}$', fontsize=8)
     ax.tick_params(labelsize=7)
     ax.set_xlim(float(kpar[0]), float(kpar[-1]))
 
-    # Annotation compacte (remplace la légende dans le panel)
+    # Compact annotation (replaces the legend in the panel).
     if success:
         gamma_txt = []
         for g in gamma_out:
@@ -371,7 +371,7 @@ def plot_mdc_waterfall_with_fit(
                        label=f'kF- pair{i+1}', zorder=5)
         ax_map.scatter(kF_p, e_fit, s=6, color=colors_plus[i % 3],
                        label=f'kF+ pair{i+1}', zorder=5)
-    ax_map.set_xlabel('k (π/a)'); ax_map.set_ylabel('E - EF (eV)')
+    ax_map.set_xlabel(r'$k$ (π/a)'); ax_map.set_ylabel(r'$E - E_F$ (eV)')
     ax_map.legend(fontsize=8); ax_map.set_title('Carte 2D + kF fits')
 
     # --- Waterfall ---
@@ -440,7 +440,7 @@ def plot_mdc_waterfall_with_fit(
     ax_wf.set_ylabel('MDC offset')
     ax_wf.set_title('Waterfall MDCs + positions kF')
     ax_wf.set_xlim(float(kpar[0]), float(kpar[-1]))
-    ax_res.set_xlabel('k (π/a)')
+    ax_res.set_xlabel(r'$k$ (π/a)')
     ax_res.set_ylabel('residu')
     ax_res.set_title(
         'Residus MDC' if not np.isfinite(residual_rms)

@@ -8,7 +8,7 @@ import numpy as np
 
 
 def angle_offsets_hash(angle_offsets: dict | None) -> str:
-    """Hash stable des offsets angulaires."""
+    """Stable hash of angular offsets."""
     payload = {} if not angle_offsets else {
         k: round(float(v), 6) if isinstance(v, (int, float, np.floating)) else str(v)
         for k, v in angle_offsets.items()
@@ -18,7 +18,7 @@ def angle_offsets_hash(angle_offsets: dict | None) -> str:
 
 
 def gamma_shift_signature(meta: dict | None) -> dict:
-    """Snapshot du shift gamma au moment de la calibration."""
+    """Snapshot of the gamma shift at calibration time."""
     if not meta:
         return {}
     return {
@@ -29,7 +29,7 @@ def gamma_shift_signature(meta: dict | None) -> dict:
 
 
 def calib_key_for_meta(meta: dict | None) -> tuple:
-    """Clé de calibration partagée par mode lentille / E_pass / hν."""
+    """Calibration key shared by lens mode / E_pass / hν."""
     if not meta:
         return ("?", "?", "?")
     lens = str(meta.get("lens_mode") or "?")
@@ -41,23 +41,23 @@ def calib_key_for_meta(meta: dict | None) -> tuple:
 
 
 def is_fs_data(meta: dict | None) -> bool:
-    """True si meta porte un volume FS."""
+    """True if meta carries an FS volume."""
     return bool(meta and meta.get("fs_data") is not None)
 
 
 def get_cfg_summary(cfg: dict | None, *, is_active) -> str:
-    """Résumé court pour status bar / label UI."""
+    """Short summary for status bar / UI label."""
     if not is_active(cfg):
-        return "Distorsion BM : désactivée"
+        return "BM distortion: disabled"
     bits: list[str] = []
     trap = cfg.get("trapezoid") or {}
     para = cfg.get("parabola") or {}
     if trap.get("enabled"):
         sl = float(trap.get("slope_left", 0.0) or 0.0)
         sr = float(trap.get("slope_right", 0.0) or 0.0)
-        bits.append(f"trapèze L={sl:+.3f} R={sr:+.3f}")
+        bits.append(f"trapezoid L={sl:+.3f} R={sr:+.3f}")
     if para.get("enabled"):
         a = float(para.get("a", 0.0) or 0.0)
         k0 = float(para.get("k0", 0.0) or 0.0)
-        bits.append(f"parabole a={a:+.3f} k0={k0:+.3f}")
-    return "Distorsion BM active : " + " | ".join(bits)
+        bits.append(f"parabola a={a:+.3f} k0={k0:+.3f}")
+    return "BM distortion active: " + " | ".join(bits)

@@ -1,4 +1,4 @@
-"""Tests : projection points HS cristal → repère détecteur + fold kz."""
+"""Tests: crystal HS point projection → detector frame + kz folding."""
 from __future__ import annotations
 
 import numpy as np
@@ -40,7 +40,7 @@ class TestFoldKz:
         assert r2["n_zone"] == 1
 
     def test_large_kz_zone_index(self):
-        # Cas Bi2Se3-like : c=28.6, hv=120 → kz~5.8
+        # Bi2Se3-like case: c=28.6, hv=120 → kz~5.8.
         res = fold_kz_to_1bz(5.8, 28.6)
         assert res["n_zone"] >= 1
         assert 0.0 <= res["kz_reduced_pi_over_c"] <= 1.0
@@ -66,14 +66,14 @@ class TestBzLatticePlane:
         assert "Γ" in labels
         assert "X" in labels
         assert "M" in labels
-        # Le label Z ne doit PAS apparaître dans le plan Γ.
+        # The Z label must NOT appear in the Γ plane.
         assert "Z" not in labels
 
     def test_tetragonal_z_plane_labels(self):
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")
         _, pts, _ = bz_points_for_lattice_plane(lat, plane="Z")
         labels = {lab for _, _, lab, _ in pts}
-        # Plan Z : centre=Z, milieux d'arête=R, coins=A.
+        # Z plane: center=Z, edge midpoints=R, corners=A.
         assert "Z" in labels
         assert "R" in labels
         assert "A" in labels
@@ -108,7 +108,7 @@ class TestProjectHsPoints:
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")
         proj, _ = project_hs_points(lat, plane="Gamma", phi_c_deg=0.0)
         gammas = [p for p in proj if p.label == "Γ"]
-        assert gammas, "Γ doit être projeté"
+        assert gammas, "Γ must be projected"
         g = gammas[0]
         assert abs(g.kx) < 1e-9 and abs(g.ky) < 1e-9
 
@@ -123,12 +123,12 @@ class TestProjectHsPoints:
     def test_rotation_90_swaps_x_axes_square(self):
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")
         proj, _ = project_hs_points(lat, plane="Gamma", phi_c_deg=90.0)
-        # Convention R(+90°) cohérente avec project_gamma_by_azi :
+        # R(+90°) convention consistent with project_gamma_by_azi:
         # R = [[cos, sin],[-sin, cos]] ; un point initial (1, 0) → (0, -1).
         xs = [p for p in proj if p.label == "X"]
-        # Au moins un X devrait tomber sur axe ky désormais.
+        # At least one X should now fall on the ky axis.
         on_ky_axis = [p for p in xs if abs(p.kx) < 1e-9 and abs(abs(p.ky) - 1.0) < 1e-9]
-        assert on_ky_axis, f"X attendu sur axe ky après 90°, got {[(p.kx, p.ky) for p in xs]}"
+        assert on_ky_axis, f"X expected on ky axis after 90°, got {[(p.kx, p.ky) for p in xs]}"
 
     def test_azi_diff_equivalent_to_phi_c(self):
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")
@@ -143,7 +143,7 @@ class TestProjectHsPoints:
     def test_polygon_closed_after_rotation(self):
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")
         _, poly = project_hs_points(lat, plane="Gamma", phi_c_deg=37.0)
-        # Premier == dernier (polygone fermé).
+        # First == last (closed polygon).
         assert np.allclose(poly[0], poly[-1])
 
 
@@ -153,7 +153,7 @@ class TestProjectHsPoints:
 class TestFitPhiC:
     def test_recovers_zero_rotation(self):
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")
-        # X attendu à (1, 0), M à (1, 1) avec phi_c=0, Γ=0.
+        # X expected at (1, 0), M at (1, 1) with phi_c=0, Γ=0.
         res = fit_phi_c_from_clicks(
             lat, plane="Gamma",
             clicks_kx_ky=[(1.0, 0.0), (1.0, 1.0)],
@@ -166,7 +166,7 @@ class TestFitPhiC:
 
     def test_recovers_45_rotation(self):
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")
-        # Après rotation 45° : X initial (1,0) → R·(1,0) avec
+        # After 45° rotation: initial X (1,0) → R·(1,0) with
         # R=[[cos,sin],[-sin,cos]] = (cos45, -sin45) = (0.707, -0.707).
         c45 = float(np.cos(np.radians(45.0)))
         s45 = float(np.sin(np.radians(45.0)))
@@ -176,7 +176,7 @@ class TestFitPhiC:
             clicks_kx_ky=clicks,
             expected_labels=["X", "M"],
         )
-        # Tetragonal : ambiguïté mod 90°. Vérifier au moins un candidat ≈ 45°.
+        # Tetragonal: ambiguity modulo 90°. Check at least one candidate ≈ 45°.
         modulo = sorted(res["phi_c_deg"] % 90.0 for _ in range(1))
         assert any(abs((res["phi_c_deg"] - 45.0) % 90.0) < 0.3
                    or abs((res["phi_c_deg"] - 45.0) % 90.0 - 90.0) < 0.3
@@ -188,7 +188,7 @@ class TestFitPhiC:
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")
         res = fit_phi_c_from_clicks(
             lat, plane="Gamma",
-            clicks_kx_ky=[(1.3, 0.2), (1.3, 1.2)],  # X et M décalés Γ=(0.3, 0.2)
+            clicks_kx_ky=[(1.3, 0.2), (1.3, 1.2)],  # X and M shifted by Γ=(0.3, 0.2)
             expected_labels=["X", "M"],
         )
         assert abs(res["gamma_kx"] - 0.3) < 0.02
@@ -201,7 +201,7 @@ class TestFitPhiC:
             clicks_kx_ky=[(1.0, 0.0)],
             expected_labels=["X"],
         )
-        assert len(res["candidates"]) == 4  # tétragonal : phi mod 90°
+        assert len(res["candidates"]) == 4  # tetragonal: phi mod 90°
 
     def test_label_mismatch_raises(self):
         lat = Lattice3D(a=3.96, b=3.96, c=11.6, bravais="tetragonal")

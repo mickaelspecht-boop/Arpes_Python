@@ -1,9 +1,9 @@
-"""Section Fit MDC + Plage analyse + Waterfall + Boutons + Outils Γ.
+"""MDC Fit section + Analysis range + Waterfall + Buttons + Γ tools.
 
-Builder externe pour les contrôles fit cachés sur l'onglet BM. Les sous-groupes
-"Initiaux", "Contraintes", "Détection / scan" et "Résolution" sont des
-QGroupBox checkable (collapsibles). L'état est persisté via le signal
-`fit_section_toggled` du panneau parent.
+External builder for the fit controls shown on the BM tab. The sub-groups
+"Initials", "Constraints", "Detection / scan" and "Resolution" are
+collapsible button-sections. State is persisted via the `fit_section_toggled`
+signal of the parent panel.
 """
 from __future__ import annotations
 
@@ -24,29 +24,29 @@ from PyQt6.QtWidgets import (
 from arpes.ui.widgets._qt_helpers import compact_button, dspin, hsep, ispin
 
 
-# Presets matériau : applique un set de paramètres "détection / scan / largeur".
-# "Custom" = aucune modification. La sélection est persistée dans la session.
+# Material presets: apply a detection/scan/width parameter set.
+# "Custom" = no modification. Selection is persisted in the session.
 MATERIAL_PRESETS: dict[str, dict | None] = {
     "Custom": None,
-    "Métal léger": {
+    "Light metal": {
         "smooth_fit": 1.5, "smooth_detect": 2.0,
         "gamma_init": 0.05, "gamma_max": 0.20,
         "min_amplitude": 0.05, "max_jump": 0.15,
         "width_mode": "symmetric",
     },
-    "Métal lourd": {
+    "Heavy metal": {
         "smooth_fit": 2.5, "smooth_detect": 3.5,
         "gamma_init": 0.12, "gamma_max": 0.40,
         "min_amplitude": 0.05, "max_jump": 0.25,
         "width_mode": "symmetric",
     },
-    "SC dopé": {
+    "Doped SC": {
         "smooth_fit": 2.0, "smooth_detect": 3.0,
         "gamma_init": 0.08, "gamma_max": 0.30,
         "min_amplitude": 0.02, "max_jump": 0.20,
         "width_mode": "independent",
     },
-    "Bruité (lissage++)": {
+    "Noisy (heavy smoothing)": {
         "smooth_fit": 4.0, "smooth_detect": 5.0,
         "gamma_init": 0.10, "gamma_max": 0.30,
         "min_amplitude": 0.08, "max_jump": 0.25,
@@ -135,7 +135,7 @@ def _build_zones_strip(panel, _fcl) -> None:
 
 
 def _build_roi_group(panel, _fcl) -> None:
-    grp_r = QGroupBox("Plage d'analyse")
+    grp_r = QGroupBox("Analysis range")
     fl2 = QFormLayout(grp_r)
     panel.sp_evs = dspin(-0.90, -5.0, 1.0, 0.05)
     panel.sp_eve = dspin(-0.005, -5.0, 1.0, 0.005)
@@ -143,15 +143,15 @@ def _build_roi_group(panel, _fcl) -> None:
     panel.sp_kmax = dspin(0.80, -5.0, 5.0, 0.05)
     for w in (panel.sp_evs, panel.sp_eve, panel.sp_kmin, panel.sp_kmax):
         w.valueChanged.connect(panel.params_changed)
-    panel.btn_fit_roi = compact_button(QPushButton("Sélectionner sur carte"), max_width=180)
+    panel.btn_fit_roi = compact_button(QPushButton("Select on map"), max_width=180)
     panel.btn_fit_roi.setCheckable(True)
     panel.btn_fit_roi.setToolTip(
-        "Active une sélection rectangulaire par cliquer-glisser sur la carte BM/MDC Fit.\n"
-        "La zone choisie remplit k_min/k_max et ev_start/ev_end."
+        "Enables click-drag rectangular selection on the BM/MDC Fit map.\n"
+        "The selected area fills k_min/k_max and ev_start/ev_end."
     )
     panel.btn_fit_roi.toggled.connect(panel.fit_roi_requested)
-    btn_fit_roi_reset = compact_button(QPushButton("Pleine BM"), max_width=120)
-    btn_fit_roi_reset.setToolTip("Remet la plage d'analyse sur toute la carte chargée.")
+    btn_fit_roi_reset = compact_button(QPushButton("Full BM"), max_width=120)
+    btn_fit_roi_reset.setToolTip("Resets the analysis range to the full loaded map.")
     btn_fit_roi_reset.clicked.connect(panel.fit_roi_reset_requested)
     roi_row = QWidget()
     roi_lay = QHBoxLayout(roi_row)
@@ -176,8 +176,8 @@ def _build_preset_combo(panel, _fcl) -> None:
     panel.cmb_fit_preset = QComboBox()
     panel.cmb_fit_preset.addItems(list(MATERIAL_PRESETS.keys()))
     panel.cmb_fit_preset.setToolTip(
-        "Applique un set de paramètres (lissage, γ, ampl., saut, symétrie).\n"
-        "Custom : aucune modification. Le choix est sauvegardé dans la session."
+        "Applies a parameter set (smoothing, γ, amplitude, jump, symmetry).\n"
+        "Custom: no changes. The choice is saved in the session."
     )
     panel.cmb_fit_preset.currentTextChanged.connect(panel._on_preset_chosen)
     h.addWidget(panel.cmb_fit_preset, 1)
@@ -186,30 +186,30 @@ def _build_preset_combo(panel, _fcl) -> None:
 
 def _build_init_section(panel, _fcl) -> None:
     from arpes.ui.widgets.params import ClickablePairLabel
-    grp, fl = _make_collapsible(panel, "Initiaux paire", "init")
+    grp, fl = _make_collapsible(panel, "Pair initials", "init")
     panel.sp_np = ispin(1, 1, 8)
-    panel.sp_np.setToolTip("Nombre de paires de Lorentziennes (= nombre de bandes croisées).")
+    panel.sp_np.setToolTip("Number of Lorentzian pairs (= number of crossed bands).")
     panel.sp_np.valueChanged.connect(panel._on_n_pairs_changed)
     panel._pair_lbl = ClickablePairLabel()
     panel._pair_lbl.pair_changed.connect(panel._on_pair_changed)
     panel.sp_kfi = dspin(0.30, 0.0, 3.0, 0.01)
     panel.sp_kfi.setToolTip(
-        "Position initiale kF (π/a) pour cette paire, comptée depuis centre Γ.\n"
-        "Voir les lignes tiret-point colorées dans le graphique MDC."
+        "Initial kF position (π/a) for this pair, counted from the Γ center.\n"
+        "See the colored dash-dot lines in the MDC plot."
     )
     panel.sp_gi = dspin(0.08, 0.01, 0.5, 0.01)
     panel.sp_gi.setToolTip(
-        "Demi-largeur initiale de la Lorentzienne (π/a).\n"
-        "Valeur de départ pour l'optimiseur. Voir les courbes colorées dans le graphique MDC."
+        "Initial Lorentzian half-width (π/a).\n"
+        "Starting value for the optimizer. See the colored curves in the MDC plot."
     )
     panel.sp_gm = dspin(0.30, 0.05, 1.0, 0.05)
     panel.sp_gm.setToolTip(
-        "Demi-largeur maximale autorisée (π/a) — contrainte de l'optimiseur scipy.\n"
-        "Voir les zones colorées translucides autour des pics dans le graphique MDC."
+        "Maximum allowed half-width (π/a) - scipy optimizer constraint.\n"
+        "See the translucent colored areas around peaks in the MDC plot."
     )
     for w in (panel.sp_kfi, panel.sp_gi, panel.sp_gm):
         w.valueChanged.connect(panel._on_pair_param_changed)
-    fl.addRow("Nb paires:", panel.sp_np)
+    fl.addRow("Pair count:", panel.sp_np)
     fl.addRow(panel._pair_lbl)
     fl.addRow("kF init (π/a):", panel.sp_kfi)
     fl.addRow("γ init (π/a):", panel.sp_gi)
@@ -219,44 +219,44 @@ def _build_init_section(panel, _fcl) -> None:
 
 def _build_constraint_section(panel, _fcl) -> None:
     grp, fl = _make_collapsible(
-        panel, "Avancé - contraintes optimiseur", "constraints", open_default=False
+        panel, "Advanced - optimizer constraints", "constraints", open_default=False
     )
     panel.sp_xg = dspin(0.10, 0.0, 0.5, 0.01)
     panel.sp_xg.setToolTip(
-        "Demi-largeur de la zone de contrainte autour du centre Γ (π/a).\n"
-        "L'optimiseur limite xg dans [centre − xg_range, centre + xg_range].\n"
-        "Voir le rectangle cyan dans le graphique MDC."
+        "Half-width of the constraint zone around the Γ center (π/a).\n"
+        "The optimizer limits xg to [center - xg_range, center + xg_range].\n"
+        "See the cyan rectangle in the MDC plot."
     )
     panel.sp_cx = dspin(0.0, -1.0, 1.0, 0.01)
     panel.sp_cx.setToolTip(
-        "Centre de symétrie des paires (position Γ, en π/a).\n"
-        "Halo cyan tireté sur la carte BM en temps réel pendant l'édition.\n"
-        "Utiliser 'Auto Γ BM' ou 'Γ FS → BM' pour le calculer automatiquement."
+        "Pair symmetry center (Γ position, in π/a).\n"
+        "Dashed cyan halo on the BM map in real time while editing.\n"
+        "Use 'Auto Γ BM' or 'Γ FS → BM' to compute it automatically."
     )
     panel.sp_k0m = dspin(0.0, 0.0, 2.0, 0.05)
     panel.sp_k0m.setToolTip(
-        "Distance maximale autorisée de kF par rapport à Γ (π/a).\n"
-        "Voir les lignes magenta dans le graphique MDC si actif."
+        "Maximum allowed kF distance from Γ (π/a).\n"
+        "See the magenta lines in the MDC plot when active."
     )
     panel.chk_k0a = QCheckBox("auto")
     panel.chk_k0a.setChecked(True)
-    panel.chk_k0a.setToolTip("Si coché, pas de limite sur kF. Décocher pour activer kF max.")
+    panel.chk_k0a.setToolTip("If checked, no kF limit. Uncheck to enable kF max.")
     panel.sp_k0m.setEnabled(False)
     panel.chk_k0a.stateChanged.connect(
         lambda: panel.sp_k0m.setEnabled(not panel.chk_k0a.isChecked())
     )
     panel.cmb_wm = QComboBox()
     # Valeur = nom backend canonique. Label = explication physique.
-    panel.cmb_wm.addItem("Symétrique (γL = γR)", "symmetric")
-    panel.cmb_wm.addItem("Indépendant (γL ≠ γR)", "independent")
-    panel.cmb_wm.addItem("γ partagé toutes paires", "global")
+    panel.cmb_wm.addItem("Symmetric (γL = γR)", "symmetric")
+    panel.cmb_wm.addItem("Independent (γL ≠ γR)", "independent")
+    panel.cmb_wm.addItem("Shared γ across pairs", "global")
     panel.cmb_wm.setFixedWidth(220)
     panel.cmb_wm.setToolTip(
-        "Symétrique  : γL = γR pour chaque paire (asymétrie d'amplitude OK).\n"
-        "Indépendant : γL ≠ γR par paire (asymétrie de largeur ; mobilité\n"
-        "              dépendante de la direction, parcours libre moyen).\n"
-        "γ partagé   : une seule γ pour toutes les paires (rare ; à utiliser\n"
-        "              uniquement si les bandes ont vraiment la même largeur)."
+        "Symmetric: γL = γR for each pair (amplitude asymmetry OK).\n"
+        "Independent: γL ≠ γR per pair (width asymmetry; direction-dependent\n"
+        "             mobility, mean free path).\n"
+        "Shared γ: one γ for all pairs (rare; use only when the bands truly\n"
+        "          have the same width)."
     )
     for w in (panel.sp_xg, panel.sp_cx, panel.sp_k0m):
         w.valueChanged.connect(panel.fit_only_changed)
@@ -269,92 +269,92 @@ def _build_constraint_section(panel, _fcl) -> None:
     k0l.setContentsMargins(0, 0, 0, 0)
     k0l.addWidget(panel.sp_k0m)
     k0l.addWidget(panel.chk_k0a)
-    fl.addRow("Fenêtre Γ (π/a):", panel.sp_xg)
-    fl.addRow("Centre Γ (π/a):", panel.sp_cx)
+    fl.addRow("Γ window (π/a):", panel.sp_xg)
+    fl.addRow("Γ center (π/a):", panel.sp_cx)
     fl.addRow("kF max (π/a):", k0w)
-    fl.addRow("Symétrie paire:", panel.cmb_wm)
+    fl.addRow("Pair symmetry:", panel.cmb_wm)
     panel.cmb_lineshape = QComboBox()
-    panel.cmb_lineshape.addItem("Lorentzien", "lorentzian")
+    panel.cmb_lineshape.addItem("Lorentzian", "lorentzian")
     panel.cmb_lineshape.addItem("Pseudo-Voigt (η_global)", "voigt")
     panel.cmb_lineshape.setFixedWidth(180)
     panel.cmb_lineshape.setToolTip(
-        "Profil de raie utilisé pour le fit des MDC.\n"
-        "Lorentzien : intrinsèque (durée de vie ; défaut).\n"
-        "Pseudo-Voigt : (1-η)·L + η·G — résolution instrumentale\n"
-        "absorbée par η_global ∈ [0,1] fitté. Plus rigoureux pour bandes\n"
-        "corrélées. Stocke η par slice dans fit_result.eta."
+        "Line shape used for MDC fitting.\n"
+        "Lorentzian: intrinsic (lifetime; default).\n"
+        "Pseudo-Voigt: (1-η)·L + η·G - instrumental resolution\n"
+        "absorbed by fitted η_global ∈ [0,1]. More rigorous for correlated\n"
+        "bands. Stores η per slice in fit_result.eta."
     )
     panel.cmb_lineshape.currentIndexChanged.connect(panel.fit_only_changed)
-    fl.addRow("Profil:", panel.cmb_lineshape)
+    fl.addRow("Profile:", panel.cmb_lineshape)
     _fcl.addWidget(grp)
 
 
 def _build_detect_section(panel, _fcl) -> None:
     grp, fl = _make_collapsible(
-        panel, "Avancé - détection / scan", "detect", open_default=False
+        panel, "Advanced - detection / scan", "detect", open_default=False
     )
     panel.sp_sff = dspin(2.0, 0.0, 10.0, 0.5, dec=1)
     panel.sp_sff.setToolTip(
-        "Sigma du lissage gaussien appliqué à la MDC avant l'optimisation scipy.\n"
-        "Augmenter pour données bruitées. Voir la courbe orange dans le graphique MDC."
+        "Gaussian smoothing sigma applied to the MDC before scipy optimization.\n"
+        "Increase for noisy data. See the orange curve in the MDC plot."
     )
     panel.sp_sfd = dspin(3.0, 0.0, 10.0, 0.5, dec=1)
     panel.sp_sfd.setToolTip(
-        "Sigma du lissage gaussien utilisé pour détecter les pics initiaux.\n"
-        "Voir la courbe grise dans le graphique MDC."
+        "Gaussian smoothing sigma used to detect initial peaks.\n"
+        "See the gray curve in the MDC plot."
     )
     panel.sp_ma = dspin(0.01, 0.0, 1.0, 0.01)
     panel.sp_ma.setToolTip(
-        "Amplitude minimale relative d'un pic pour être accepté (0–1).\n"
-        "Rejette les pics dont l'amplitude est < ampl_min × max(MDC)."
+        "Minimum relative peak amplitude for acceptance (0-1).\n"
+        "Rejects peaks whose amplitude is < ampl_min × max(MDC)."
     )
     panel.sp_mj = dspin(0.20, 0.0, 1.0, 0.05)
     panel.sp_mj.setToolTip(
-        "Saut maximal autorisé entre positions kF consécutives (π/a).\n"
-        "Contrôle la continuité de la dispersion lors du fit complet."
+        "Maximum allowed jump between consecutive kF positions (π/a).\n"
+        "Controls dispersion continuity during the full fit."
     )
     panel.sp_chi2_threshold = dspin(5.0, 0.1, 1_000.0, 0.5, dec=1)
     panel.sp_chi2_threshold.setToolTip(
-        "Seuil chi2_red pour marquer les slices de fit douteuses en orange.\n"
-        "N'agit que sur l'affichage si le fit_result contient chi2_red."
+        "chi2_red threshold for marking questionable fit slices in orange.\n"
+        "Only affects display when fit_result contains chi2_red."
     )
     panel.cmb_sd = QComboBox()
     panel.cmb_sd.addItems(["up", "down"])
     panel.cmb_sd.setFixedWidth(80)
     panel.cmb_sd.setToolTip(
-        "up : parcourt la BM de ev_start (bas) vers ev_end (proche EF).\n"
-        "down : sens inverse."
+        "up: scans the BM from ev_start (bottom) to ev_end (near EF).\n"
+        "down: reverse direction."
     )
     for w in (panel.sp_sff, panel.sp_sfd, panel.sp_ma, panel.sp_mj, panel.sp_chi2_threshold):
         w.valueChanged.connect(panel.fit_only_changed)
     panel.cmb_sd.currentIndexChanged.connect(panel.fit_only_changed)
-    fl.addRow("Lissage fit σ:", panel.sp_sff)
-    fl.addRow("Lissage détect σ:", panel.sp_sfd)
-    fl.addRow("Ampl. min:", panel.sp_ma)
-    fl.addRow("Saut max (π/a):", panel.sp_mj)
-    fl.addRow("Seuil chi2_red:", panel.sp_chi2_threshold)
-    fl.addRow("Sens scan:", panel.cmb_sd)
+    fl.addRow("Fit smoothing σ:", panel.sp_sff)
+    fl.addRow("Detect smoothing σ:", panel.sp_sfd)
+    fl.addRow("Min. ampl.:", panel.sp_ma)
+    fl.addRow("Max jump (π/a):", panel.sp_mj)
+    fl.addRow("chi2_red threshold:", panel.sp_chi2_threshold)
+    fl.addRow("Scan direction:", panel.cmb_sd)
     _fcl.addWidget(grp)
 
 
 def _build_resolution_section(panel, _fcl) -> None:
     grp, fl = _make_collapsible(
-        panel, "Avancé - résolution instrumentale", "resolution", open_default=False
+        panel, "Advanced - instrumental resolution", "resolution", open_default=False
     )
     panel.sp_dE_meV = dspin(15.0, 1.0, 200.0, 1.0, dec=1)
     panel.sp_dE_meV.setToolTip(
-        "FWHM énergie instrumentale estimée ou saisie manuellement (meV).\n"
-        "Utilisée pour calculer Γ corrigé après fit MDC."
+        "Estimated or manually entered instrumental energy FWHM (meV).\n"
+        "Used to compute corrected Γ after MDC fitting."
     )
     panel.sp_dk_inv_a = dspin(0.005, 0.001, 0.1, 0.001, dec=4)
     panel.sp_dk_inv_a.setToolTip(
-        "FWHM k instrumentale en π/a, estimée depuis angle_step si disponible.\n"
-        "Utilisée pour calculer Γ corrigé après fit MDC."
+        "Instrumental k FWHM in π/a, estimated from angle_step when available.\n"
+        "Used to compute corrected Γ after MDC fitting."
     )
     panel.lbl_dE_src = QLabel("—")
     panel.lbl_dk_src = QLabel("—")
     for lbl in (panel.lbl_dE_src, panel.lbl_dk_src):
-        lbl.setToolTip("Provenance résolution : Estimée, Manuelle ou Défaut")
+        lbl.setToolTip("Resolution provenance: Estimated, Manual, or Default")
     panel.sp_dE_meV.valueChanged.connect(panel._mark_resolution_manual_if_user_edit)
     panel.sp_dk_inv_a.valueChanged.connect(panel._mark_resolution_manual_if_user_edit)
     panel.sp_dE_meV.valueChanged.connect(panel.fit_only_changed)
@@ -379,17 +379,17 @@ def _build_waterfall_group(panel, _fcl) -> None:
     fl_wf = QFormLayout(panel._waterfall_controls_widget)
     panel.sp_wf_n = ispin(24, 10, 80)
     panel.sp_wf_n.setToolTip(
-        "Nombre cible de MDCs affichées dans le waterfall.\n"
-        "Moins de courbes = plus de relief et moins de surcharge."
+        "Target number of MDCs displayed in the waterfall.\n"
+        "Fewer curves = more relief and less clutter."
     )
     panel.sp_wf_relief = dspin(1.8, 0.5, 4.0, 0.1, dec=1)
     panel.sp_wf_relief.setToolTip(
-        "Amplitude visuelle des MDCs dans le waterfall.\n"
-        "Augmenter pour mieux voir les pics ; trop haut crée du chevauchement."
+        "Visual amplitude of MDCs in the waterfall.\n"
+        "Increase to see peaks better; too high creates overlap."
     )
     panel.sp_wf_n.valueChanged.connect(panel.fit_only_changed)
     panel.sp_wf_relief.valueChanged.connect(panel.fit_only_changed)
-    fl_wf.addRow("Courbes:", panel.sp_wf_n)
+    fl_wf.addRow("Curves:", panel.sp_wf_n)
     fl_wf.addRow("Relief:", panel.sp_wf_relief)
     panel._waterfall_controls_widget.setVisible(False)
     _fcl.addWidget(panel._waterfall_controls_widget)
@@ -397,12 +397,12 @@ def _build_waterfall_group(panel, _fcl) -> None:
 
 def _build_slice_inspector_section(panel, _fcl) -> None:
     grp, fl = _make_collapsible(
-        panel, "Inspecteur slice", "slice_inspector", open_default=False
+        panel, "Slice inspector", "slice_inspector", open_default=False
     )
-    panel.chk_fit_slice_inspector = QCheckBox("Overlay graphe")
+    panel.chk_fit_slice_inspector = QCheckBox("Plot overlay")
     panel.chk_fit_slice_inspector.setChecked(False)
     panel.chk_fit_slice_inspector.setToolTip(
-        "Affiche le résumé des paramètres directement sur le graphe MDC."
+        "Displays the parameter summary directly on the MDC plot."
     )
     panel.chk_fit_slice_inspector.stateChanged.connect(panel.fit_only_changed)
     panel.lbl_fit_slice_logic = QLabel("")
@@ -413,7 +413,7 @@ def _build_slice_inspector_section(panel, _fcl) -> None:
         "border-radius:3px;padding:5px;font-family:monospace;font-size:10px;"
     )
     panel.lbl_fit_slice_logic.setToolTip(
-        "Résumé live des paramètres actifs sur la slice MDC ouverte."
+        "Live summary of active parameters on the open MDC slice."
     )
     fl.addRow(panel.chk_fit_slice_inspector)
     fl.addRow(panel.lbl_fit_slice_logic)
@@ -422,7 +422,7 @@ def _build_slice_inspector_section(panel, _fcl) -> None:
 
 def _build_fit_buttons(panel, _fcl) -> None:
     _fcl.addWidget(hsep())
-    actions_grp = QGroupBox("Actions fit")
+    actions_grp = QGroupBox("Fit actions")
     actions_lay_root = QVBoxLayout(actions_grp)
     actions_lay_root.setContentsMargins(6, 6, 6, 6)
     actions_lay_root.setSpacing(4)
@@ -432,18 +432,18 @@ def _build_fit_buttons(panel, _fcl) -> None:
     primary_lay.setContentsMargins(0, 0, 0, 0)
     primary_lay.setSpacing(4)
 
-    btn_g = compact_button(QPushButton("Fit slice (E courante)  [Ctrl+G]"), max_width=260)
+    btn_g = compact_button(QPushButton("Fit slice (current E)  [Ctrl+G]"), max_width=260)
     btn_g.setStyleSheet("background:#1a6b3a;color:white;font-weight:bold;padding:6px;")
     btn_g.setToolTip(
-        "Fit MDC à l'énergie courante (E sélectionnée) avec les paramètres actuels.\n"
-        "Sert à calibrer les initiaux avant un fit complet."
+        "Fits the MDC at the current energy (selected E) with the current parameters.\n"
+        "Used to calibrate initials before a full fit."
     )
     btn_g.clicked.connect(panel.guess_requested)
     primary_lay.addWidget(btn_g)
 
-    btn_f = compact_button(QPushButton("Fit complet  [Ctrl+F]"), max_width=220)
+    btn_f = compact_button(QPushButton("Full fit  [Ctrl+F]"), max_width=220)
     btn_f.setStyleSheet("background:#2a6099;color:white;font-weight:bold;padding:6px;")
-    btn_f.setToolTip("Lance le fit MDC complet sur la plage d'analyse courante.")
+    btn_f.setToolTip("Runs the full MDC fit on the current analysis range.")
     btn_f.clicked.connect(panel.full_fit_requested)
     primary_lay.addWidget(btn_f)
     primary_lay.addStretch(1)
@@ -454,12 +454,12 @@ def _build_fit_buttons(panel, _fcl) -> None:
     gamma_lay.setContentsMargins(0, 0, 0, 0)
     gamma_lay.setSpacing(4)
     btn_gamma = compact_button(QPushButton("Auto Γ BM"), max_width=160)
-    btn_gamma.setToolTip("Estime le centre Γ par la médiane des milieux de paires MDC.")
+    btn_gamma.setToolTip("Estimates the Γ center from the median of MDC pair midpoints.")
     btn_gamma.clicked.connect(panel.gamma_bm_requested)
     gamma_lay.addWidget(btn_gamma)
 
     btn_ref = compact_button(QPushButton("Γ FS → BM"), max_width=160)
-    btn_ref.setToolTip("Applique le Γ de référence mesuré sur une FS à la BM courante.")
+    btn_ref.setToolTip("Applies the reference Γ measured on an FS to the current BM.")
     btn_ref.clicked.connect(panel.gamma_ref_requested)
     gamma_lay.addWidget(btn_ref)
     gamma_lay.addStretch(1)
@@ -470,17 +470,17 @@ def _build_fit_buttons(panel, _fcl) -> None:
     advanced_lay.setContentsMargins(0, 0, 0, 0)
     advanced_lay.setSpacing(4)
     advanced_actions = _ButtonCollapsible(
-        "Actions et affichage avancés", advanced_content, open_default=False
+        "Advanced actions and display", advanced_content, open_default=False
     )
 
-    panel.chk_smooth_kf = QCheckBox("Lisser kF(E) (σ slices)")
+    panel.chk_smooth_kf = QCheckBox("Smooth kF(E) (σ slices)")
     panel.chk_smooth_kf.setToolTip(
-        "Lissage gaussien de kF(E) sur fenêtre énergétique (σ slices).\n"
-        "Réduit le jitter slice-à-slice sans biaiser la dispersion.\n"
-        "Appliqué à l'affichage uniquement (fit_result inchangé)."
+        "Gaussian smoothing of kF(E) over an energy window (σ slices).\n"
+        "Reduces slice-to-slice jitter without biasing the dispersion.\n"
+        "Applied to display only (fit_result unchanged)."
     )
     panel.sp_smooth_kf_sigma = dspin(1.5, 0.0, 10.0, 0.5, dec=2)
-    panel.sp_smooth_kf_sigma.setToolTip("σ en nombre de slices E (typique 1-3).")
+    panel.sp_smooth_kf_sigma.setToolTip("σ as a number of E slices (typical 1-3).")
     _sk_row = QWidget()
     _sk_lay = QHBoxLayout(_sk_row)
     _sk_lay.setContentsMargins(0, 0, 0, 0)
@@ -494,23 +494,23 @@ def _build_fit_buttons(panel, _fcl) -> None:
     panel.chk_live_slice_fit = QCheckBox("Fit slice auto")
     panel.chk_live_slice_fit.setChecked(False)
     panel.chk_live_slice_fit.setToolTip(
-        "Relance automatiquement le vrai fit de la slice après modification.\n"
-        "Désactivé par défaut pour garder l'interface réactive ; le bouton\n"
-        "Fit slice lance toujours le diagnostic complet à la demande."
+        "Automatically reruns the real slice fit after edits.\n"
+        "Disabled by default to keep the interface responsive; the\n"
+        "Fit slice button always runs the full diagnostic on demand."
     )
     advanced_lay.addWidget(panel.chk_live_slice_fit)
 
-    panel.chk_use_ensemble = QCheckBox("Ensemble fit (perturbe initiaux × N)")
+    panel.chk_use_ensemble = QCheckBox("Ensemble fit (jitter initials × N)")
     panel.chk_use_ensemble.setToolTip(
-        "1 paire = 1 bande. Ensemble = refit N fois en perturbant kF_init\n"
-        "et γ_init (±jitter%) puis médiane robuste (MAD-filtré).\n"
-        "Donne σ statistique fiable. Plus lent (× N)."
+        "1 pair = 1 band. Ensemble = refit N times while jittering kF_init\n"
+        "and γ_init (±jitter%), then robust median (MAD-filtered).\n"
+        "Gives reliable statistical σ. Slower (× N)."
     )
     panel.sp_ensemble_n = ispin(30, 5, 200)
-    panel.sp_ensemble_n.setToolTip("Nombre de runs (5..200).")
+    panel.sp_ensemble_n.setToolTip("Number of runs (5..200).")
     panel.sp_ensemble_jitter = dspin(0.10, 0.0, 0.5, 0.01, dec=3)
     panel.sp_ensemble_jitter.setToolTip(
-        "Amplitude relative du jitter sur kF_init et γ_init (0.10 = ±10 %)."
+        "Relative jitter amplitude on kF_init and γ_init (0.10 = ±10%)."
     )
     _ens_row = QWidget()
     _ens_lay = QHBoxLayout(_ens_row)
@@ -527,23 +527,23 @@ def _build_fit_buttons(panel, _fcl) -> None:
         "background:#7c3aed;color:white;font-weight:bold;padding:6px;"
     )
     panel.btn_fit_ensemble.setToolTip(
-        "Lance N fit complets avec initiaux jitterés, agrège médiane/MAD.\n"
-        "Écrit kF/Γ médians + σ statistiques dans fit_result.ensemble."
+        "Runs N full fits with jittered initials, aggregates median/MAD.\n"
+        "Writes median kF/Γ + statistical σ into fit_result.ensemble."
     )
     panel.btn_fit_ensemble.clicked.connect(panel.fit_ensemble_requested)
     advanced_lay.addWidget(panel.btn_fit_ensemble)
     panel.btn_im_sigma = compact_button(QPushButton("Im Σ(E)"), max_width=140)
     panel.btn_im_sigma.setToolTip(
-        "Calcule Im Σ(E) = (vF/2)·Γ(E) avec la largeur corrigée du fit.\n"
-        "Nécessite un fit complet et un paramètre de maille a > 0."
+        "Computes Im Σ(E) = (vF/2)·Γ(E) from the corrected fit width.\n"
+        "Requires a full fit and a lattice parameter a > 0."
     )
     panel.btn_im_sigma.clicked.connect(panel.im_self_energy_requested)
     advanced_lay.addWidget(panel.btn_im_sigma)
-    btn_batch = compact_button(QPushButton("Batch fit dossier"), max_width=200)
+    btn_batch = compact_button(QPushButton("Batch fit folder"), max_width=200)
     btn_batch.setToolTip(
-        "Lance Fit complet sur tous les fichiers du dossier qui n'ont pas\n"
-        "encore de fit_result. Utilise les paramètres MDC actuels.\n"
-        "Boîte de progression annulable."
+        "Runs Full fit on every folder file that does not yet have\n"
+        "a fit_result. Uses the current MDC parameters.\n"
+        "Cancellable progress dialog."
     )
     btn_batch.clicked.connect(panel.batch_fit_requested)
     advanced_lay.addWidget(btn_batch)
@@ -551,17 +551,17 @@ def _build_fit_buttons(panel, _fcl) -> None:
     actions_row = QWidget()
     actions_lay = QHBoxLayout(actions_row)
     actions_lay.setContentsMargins(0, 0, 0, 0)
-    btn_cl = compact_button(QPushButton("Effacer kF"), max_width=120)
+    btn_cl = compact_button(QPushButton("Clear kF"), max_width=120)
     btn_cl.setToolTip(
-        "Supprime les points kF sélectionnés sur le graphe MDC Fit.\n"
-        "Action réversible avec « Annuler suppression » ou Ctrl+Z."
+        "Removes selected kF points from the MDC Fit plot.\n"
+        "Reversible with 'Undo deletion' or Ctrl+Z."
     )
     btn_cl.clicked.connect(panel.clear_kf_requested)
-    panel.btn_fit_undo = compact_button(QPushButton("↶ Annuler suppression"), max_width=180)
+    panel.btn_fit_undo = compact_button(QPushButton("↶ Undo deletion"), max_width=180)
     panel.btn_fit_undo.setEnabled(False)
     panel.btn_fit_undo.setToolTip(
-        "Restaure les points de fit retirés par la dernière suppression "
-        "(touche Suppr/Backspace après sélection)."
+        "Restores fit points removed by the last deletion "
+        "(Delete/Backspace after selection)."
     )
     panel.btn_fit_undo.clicked.connect(panel.fit_undo_requested)
     actions_lay.addWidget(btn_cl)

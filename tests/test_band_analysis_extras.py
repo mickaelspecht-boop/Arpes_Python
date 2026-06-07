@@ -24,7 +24,7 @@ try:
 except ImportError:
     _HAS_QT = False
 
-requires_qt = pytest.mark.skipif(not _HAS_QT, reason="PyQt6 absent")
+requires_qt = pytest.mark.skipif(not _HAS_QT, reason="PyQt6 missing")
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +33,7 @@ requires_qt = pytest.mark.skipif(not _HAS_QT, reason="PyQt6 absent")
 class TestSummaryRender:
     def test_no_fit_returns_placeholder_only(self):
         html = render_summary_html({}, has_fit=False, n_points=0, n_pairs=0)
-        assert "Aucun fit MDC" in html
+        assert "No MDC fit" in html
         assert "table" in html
 
     def test_with_tb_kink_gap_contains_all_metrics(self):
@@ -55,13 +55,13 @@ class TestSummaryRender:
         assert "0.550" in html
         assert "12.50" in html
         assert "0.420" in html  # k_F formatted to 3 decimals
-        assert "Cohérence" in html  # cross-validation when both tb m* and λ
+        assert "Consistency" in html  # cross-validation when both tb m* and lambda
         assert "m*/m" in html
 
     def test_warning_inline_on_negative_lambda(self):
         ba = {"kink": {"lambda": -0.2}}
         html = render_summary_html(ba, has_fit=True, n_points=5, n_pairs=1)
-        assert "non physique" in html
+        assert "unphysical" in html
 
     def test_warnings_consolidated_at_bottom(self):
         ba = {
@@ -85,11 +85,11 @@ class TestCrossValidation:
 
     def test_consistent_within_30pct_no_flag(self):
         block = cross_validation_block({"m_eff_over_me": 1.5}, {"lambda": 0.5})
-        assert "écart" not in block
+        assert "discrepancy" not in block
 
     def test_inconsistent_over_30pct_flags(self):
         block = cross_validation_block({"m_eff_over_me": 3.0}, {"lambda": 0.5})
-        assert "écart" in block
+        assert "discrepancy" in block
 
 
 # ---------------------------------------------------------------------------

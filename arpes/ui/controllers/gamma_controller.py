@@ -18,6 +18,7 @@ from arpes.physics.gamma import (
 )
 from arpes.physics.gamma_resolver import ResolvedGamma, resolve as _gamma_resolve
 from arpes.ui.controllers import gamma_lifecycle as _gamma_life
+from arpes.core.fit_result_store import restore_fit_result
 
 
 _GAMMA_META_KEYS = (
@@ -34,17 +35,17 @@ def _snapshot_meta_gamma(meta: dict | None) -> dict:
 
 
 def _is_axis_locked(meta: dict | None) -> tuple[bool, str]:
-    """Renvoie (locked, raison_user) si l'axe Γ est déjà déterminé.
+    """Return (locked, user_reason) if the Γ axis is already determined.
 
-    Une fois locked, les détecteurs Γ (auto BM / auto FS / pick manuel) doivent
-    refuser de re-écrire la référence pour éviter drift cumulé / double-shift.
+    Once locked, Γ detectors (auto BM / auto FS / manual pick) must refuse to
+    rewrite the reference to avoid cumulative drift / double-shift.
     """
     if not meta:
         return False, ""
     if meta.get("angle_offsets_applied"):
-        return True, "Γ déjà appliqué par offset angulaire loader. Utilise « Oublier Γ » (menu Γ ou _forget_gamma) pour réinitialiser."
+        return True, "Γ already applied by loader angular offset. Use 'Forget Γ' (Γ menu or _forget_gamma) to reset."
     if meta.get("bm_gamma_axis_centered") or meta.get("fs_gamma_axis_centered"):
-        return True, "Γ déjà appliqué (axe recentré). Utilise « Oublier Γ » (menu Γ ou _forget_gamma) pour réinitialiser."
+        return True, "Γ already applied (axis recentered). Use 'Forget Γ' (Γ menu or _forget_gamma) to reset."
     return False, ""
 
 
@@ -69,6 +70,11 @@ def _shift_fit_result_in_place(fr: dict | None, delta: float) -> None:
 
 
 class GammaController:
+    # P3.1: writes through to parent are allow-listed (fail-loud on typo).
+    # _sel_k is written by the gamma_lifecycle helper.
+    _OWN_ATTRS = frozenset({"_parent"})
+    _PARENT_WRITES = frozenset({"_fs_pick_center_active", "_sel_k"})
+
     def __init__(self, parent):
         object.__setattr__(self, "_parent", parent)
 
@@ -76,10 +82,16 @@ class GammaController:
         return getattr(self._parent, name)
 
     def __setattr__(self, name, value):
-        if name == "_parent":
+        if name in self._OWN_ATTRS:
             object.__setattr__(self, name, value)
-        else:
+        elif name in self._PARENT_WRITES:
             setattr(self._parent, name, value)
+        else:
+            raise AttributeError(
+                f"{type(self).__name__} refuses to write '{name}': missing from "
+                "_PARENT_WRITES (typo?). Add it to _PARENT_WRITES if the parent "
+                "attribute is legitimate."
+            )
 
     def _work_func(self) -> float:
         fallback = float(getattr(self._session, "work_func", 0.0) or 0.0)
@@ -128,7 +140,7 @@ class GammaController:
         self._session.save()
 
     def _k_to_angle_offset_deg(self, k_pi_a: float, *, hv: float | None = None) -> float | None:
-        """Convertit un decalage k (pi/a) en offset angulaire CLS (wrapper UI)."""
+        """Convert a k offset (pi/a) to a CLS angular offset (UI wrapper)."""
         try:
             hv_val = float(hv if hv is not None else self._params.sp_hv.value())
             work_func = self._work_func()
@@ -167,7 +179,7 @@ class GammaController:
         *,
         warn_label: str = "Γ",
     ) -> tuple[float, float]:
-        """Projette le Γ de référence dans le repère du fichier courant (wrapper UI)."""
+        """Project the reference Γ into the current file frame (UI wrapper)."""
         return _gamma_project_by_azi(
             ref, azi_target,
             on_warn=self._status,
@@ -187,7 +199,7 @@ class GammaController:
         if active:
             if self._tabs.currentIndex() != 3:
                 self._tabs.setCurrentIndex(3)
-            self._status("Centrage manuel Γ : clique sur le centre à viser dans la carte FS.")
+            self._status("Manual Γ centering: click the target center in the FS map.")
 
     def _sync_current_fs_gamma_to_bm_center(self, kx: float) -> None:
         """Keep BM fit center aligned when Γ is picked/detected on current FS."""
@@ -215,7 +227,7 @@ class GammaController:
             return
         if self._raw_data is None or not self._current_is_fs():
             self._set_fs_center_pick_mode(False)
-            QMessageBox.warning(self._parent, "Centrage manuel Γ", "Charge d'abord une FS.")
+            QMessageBox.warning(self._parent, "Manual Γ centering", "Load an FS first.")
             return
         if FSControlPanel is None or not hasattr(self, "_fs_controls"):
             return
@@ -233,15 +245,15 @@ class GammaController:
         ky = float(params.ky_center + event.ydata)
         self._fs_controls.set_center(kx, ky)
         self._store_fs_center_reference(kx, ky, source="fs_manual")
-        # P2.bis : single-setter — recompose la décision à partir de la nouvelle
-        # ref et applique (shift axe + sp_cx + center_init + save) en une fois.
+        # P2.bis: single-setter, rebuild the decision from the new ref and
+        # apply it (axis shift + sp_cx + center_init + save) in one pass.
         self.apply_resolved_gamma(self._resolve_gamma_for_current(), save_entry=True)
         self._set_fs_center_pick_mode(False)
         self._draw_fs_tab()
-        msg = f"Gamma FS manuel : kx={kx:+.4f}, ky={ky:+.4f} π/a"
+        msg = f"Manual Gamma FS: kx={kx:+.4f}, ky={ky:+.4f} π/a"
         self._status(msg)
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done(f"Gamma FS manuel mémorisé ({kx:+.4f}, {ky:+.4f})")
+            self._params.mark_action_done(f"Manual Gamma FS stored ({kx:+.4f}, {ky:+.4f})")
         try:
             self._fs_controls.lbl_info.setText(msg)
         except Exception:
@@ -260,7 +272,7 @@ class GammaController:
             res = self._fs_canvas.detect_gamma(self._raw_data, params)
             self._fs_controls.set_center(res["kx"], res["ky"])
             self._store_fs_center_reference(res["kx"], res["ky"], source="fs_auto")
-            # P2.bis : single-setter (cf _on_fs_map_click).
+            # P2.bis: single-setter (see _on_fs_map_click).
             self.apply_resolved_gamma(self._resolve_gamma_for_current(), save_entry=True)
             self._draw_fs_tab()
             score = res.get("symmetry_score")
@@ -278,25 +290,25 @@ class GammaController:
                 delta_txt = f", Δkx={delta_f:+.3f}" if np.isfinite(delta_f) else ""
             except (TypeError, ValueError):
                 pass
-            msg = (f"Gamma FS détecté : kx={res['kx']:+.4f}, ky={res['ky']:+.4f} π/a "
-                   f"| {len(res.get('gamma_kx_list', []))} coupes kx, "
-                   f"{len(res.get('gamma_ky_list', []))} coupes ky"
-                   f" | qualité={quality}{score_txt}{delta_txt}")
+            msg = (f"Gamma FS detected: kx={res['kx']:+.4f}, ky={res['ky']:+.4f} π/a "
+                   f"| {len(res.get('gamma_kx_list', []))} kx cuts, "
+                   f"{len(res.get('gamma_ky_list', []))} ky cuts"
+                   f" | quality={quality}{score_txt}{delta_txt}")
             self._status(msg)
             if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done(f"Gamma FS détecté ({res['kx']:+.4f}, {res['ky']:+.4f})")
+                self._params.mark_action_done(f"Gamma FS detected ({res['kx']:+.4f}, {res['ky']:+.4f})")
             try:
                 self._fs_controls.lbl_info.setText(msg)
             except Exception:
                 pass
         except Exception as exc:
-            QMessageBox.warning(self._parent, "Détection Gamma", str(exc))
+            QMessageBox.warning(self._parent, "Gamma detection", str(exc))
 
     def _stored_gamma_reference(self) -> dict:
         return _gamma_stored_reference(self._session.gamma_reference)
 
     def _gamma_reference_to_bm_center(self, ref: dict) -> tuple[float, float]:
-        """Wrapper UI : délègue à `arpes_gamma.gamma_reference_to_bm_center`."""
+        """UI wrapper: delegate to `arpes_gamma.gamma_reference_to_bm_center`."""
         if self._raw_data is None:
             return np.nan, 0.0
         meta = self._raw_data.get("metadata", {}) or {}
@@ -361,11 +373,11 @@ class GammaController:
         entry.meta_gamma_state = _snapshot_meta_gamma(meta)
 
     def _restore_gamma_meta_from_entry(self) -> None:
-        """P1.1 — restaure les flags meta gamma depuis entry vers raw_data.
+        """P1.1: restore gamma meta flags from the entry into raw_data.
 
-        Appelé par load_controller juste avant `_apply_stored_gamma_to_current_file`
-        pour éviter le drift au reload (le code applicateur voit `previous_shift`
-        cohérent et n'applique aucun delta supplémentaire).
+        Called by load_controller just before `_apply_stored_gamma_to_current_file`
+        to avoid reload drift (the applier sees a coherent `previous_shift` and
+        does not apply any additional delta).
         """
         entry = self._current_entry()
         if entry is None or self._raw_data is None:
@@ -395,9 +407,8 @@ class GammaController:
         try:
             self._session.save()
         except Exception as exc:
-            entry.fit_result = backup_fit
-            entry.fit_zones = backup_zones
-            self._status(f"Attention: sauvegarde après remap Γ échouée : {exc} — état restauré")
+            restore_fit_result(entry, fit_result=backup_fit, fit_zones=backup_zones)
+            self._status(f"Warning: save after Γ remap failed: {exc} - state restored")
 
     # ---------------------------------------------------------------
     # P2 — chemin resolver/single-setter
@@ -488,7 +499,7 @@ class GammaController:
             try:
                 self._session.save()
             except Exception as exc:
-                self._status(f"Attention: sauvegarde Γ échouée : {exc}")
+                self._status(f"Warning: Γ save failed: {exc}")
 
         # 6. Feedback
         if resolved.reason:
@@ -508,9 +519,9 @@ class GammaController:
         _gamma_life.forget(self, _GAMMA_META_KEYS)
 
     def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
-        """Auto-apply Γ stocké sur le fichier courant (chemin load / switch).
+        """Auto-apply stored Gamma on the current file (load/switch path).
 
-        P2 : délègue intégralement au resolver + single-setter.
+        P2: fully delegates to the resolver plus single setter.
         """
         if self._raw_data is None:
             return
@@ -526,7 +537,7 @@ class GammaController:
         try:
             import arpes.ui.widgets.plots as ap
         except Exception:
-            self._status("Attention: arpes_plots non chargé")
+            self._status("Warning: arpes_plots not loaded")
             return
         data, kpar, ev = self._get_work_data()
         if data is None:
@@ -545,8 +556,8 @@ class GammaController:
             if not np.isfinite(gamma):
                 QMessageBox.warning(
                     self, "Auto Γ BM",
-                    "Impossible d'estimer Γ : pas assez de paires MDC valides. "
-                    "Ajuste la plage d'énergie, k_min/k_max ou centre_init."
+                    "Could not estimate Γ: not enough valid MDC pairs. "
+                    "Adjust the energy range, k_min/k_max, or center_init."
                 )
                 return
             entry_now = self._current_entry()
@@ -579,12 +590,12 @@ class GammaController:
                 f"n={res['n']}  MAD={res['mad']:.4f}"
             )
             if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done(f"Auto Γ BM appliqué ({gamma:+.4f} π/a)")
+                self._params.mark_action_done(f"Auto Γ BM applied ({gamma:+.4f} π/a)")
             self._draw_current_view()
-            self._status(f"Γ BM estimé : {gamma:+.4f} π/a  n={res['n']}  MAD={res['mad']:.4f}")
+            self._status(f"Γ BM estimated: {gamma:+.4f} π/a  n={res['n']}  MAD={res['mad']:.4f}")
         except Exception as exc:
             QMessageBox.warning(self._parent, "Auto Γ BM", str(exc))
-            self._status(f"Attention: Auto Γ BM : {exc}")
+            self._status(f"Warning: Auto Γ BM: {exc}")
 
     def _apply_gamma_reference_to_bm(self):
         """Bouton « Γ FS → BM ».
@@ -596,28 +607,28 @@ class GammaController:
         if not ref:
             QMessageBox.warning(
                 self._parent, "Γ FS → BM",
-                "Aucun Γ de référence. Va sur l'onglet FS et clique d'abord sur Détecter Γ FS.",
+                "No Γ reference. Go to the FS tab and click Detect Γ FS first.",
             )
             return
         if self._raw_data is None:
             return
         resolved = self._resolve_gamma_for_current()
         if resolved.mode == "none":
-            QMessageBox.warning(self._parent, "Γ FS → BM", "La référence Γ stockée est invalide.")
+            QMessageBox.warning(self._parent, "Γ FS → BM", "The stored Γ reference is invalid.")
             return
         self.apply_resolved_gamma(resolved, save_entry=True)
         mode_msg = (
-            "offset angulaire loader" if resolved.mode == "loader_baked"
-            else ("axe k recentré" if abs(resolved.axis_shift_delta) > 1e-12
-                  else "axe déjà à jour")
+            "loader angular offset" if resolved.mode == "loader_baked"
+            else ("k axis recentered" if abs(resolved.axis_shift_delta) > 1e-12
+                  else "axis already up to date")
         )
         if hasattr(self._params, "lbl_res"):
             self._params.lbl_res.setText(
-                f"Γ FS→BM appliqué\n"
+                f"Γ FS→BM applied\n"
                 f"target={resolved.axis_shift_target:+.4f} π/a\n"
                 f"{mode_msg}"
             )
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done(f"Γ FS appliqué à la BM ({resolved.axis_shift_target:+.4f} π/a)")
+            self._params.mark_action_done(f"Γ FS applied to BM ({resolved.axis_shift_target:+.4f} π/a)")
         self._update_display_data()
         self._draw_current_view()

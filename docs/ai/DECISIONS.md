@@ -9,6 +9,14 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-06 — Traduction app FR→EN terminée (Codex)
+Tout l'app en anglais (code/UI/commentaires/docstrings/help in-app). Listes
+mots-clés de matching logbook **gardées bilingues** (`logbook*.py` : clés FR+EN
+type `["energie","ev"]`, `"polarisation"`, `"dossier"` = clés de matching, pas
+du texte UI). 189 fichiers, suite 816 OK / 9 skip sous `peaks`.
+**Pourquoi** : app destinée à publication anglophone multi-labo ; les clés
+logbook restent FR car les vrais logbooks sont en français.
+
 ## 2026-06-06 — Refonte système docs AI
 Racine encombrée de `*_PLAN.md`/`*_TODO.txt` (un par feature, jamais nettoyés) +
 historique 44KB. Adopté « 4 fichiers chauds + archive froide » : `CLAUDE.md`

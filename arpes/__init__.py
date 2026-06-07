@@ -1,24 +1,24 @@
-"""Package ARPES Explorer — refonte modulaire.
+"""ARPES Explorer package — modular refactor.
 
-Architecture (issue de la refonte α→μ) :
+Architecture (from the alpha-to-mu refactor):
 
     arpes/
-      core/         dataclasses session, modèles persistents
+      core/         session dataclasses, persistent models
       io/           loaders (Solaris/BESSY/CLS), logbook, export
-        loaders/    common + un module par backend
-      physics/      logique pure (numpy/scipy) :
-                      gamma, FS, norm, résolution,
-                      géométrie CLS, calibration EF, fit, display
+        loaders/    common + one module per backend
+      physics/      pure logic (numpy/scipy):
+                      gamma, FS, norm, resolution,
+                      CLS geometry, EF calibration, fit, display
       ui/
         app.py      ArpesExplorer (QMainWindow, orchestration)
-        builders/   construction Qt (panels.py, menus.py)
-        controllers/ controllers extraits (load, plot, gamma,
+        builders/   Qt construction (panels.py, menus.py)
+        controllers/ extracted controllers (load, plot, gamma,
                       norm, fs, browser, logbook)
         widgets/
-          plots/    fonctions plotting (split par catégorie)
+          plots/    plotting functions (split by category)
 
-Entry-point CLI : `python3 arpes_explorer.py` (shim racine
-re-exportant `arpes.app.main`). Module `arpes.app` est canonique.
+CLI entry point: `python3 arpes_explorer.py` (root shim re-exporting
+`arpes.app.main`). Module `arpes.app` is canonical.
 
-Convention loaders : voir `arpes/io/loaders/__init__.py`.
+Loader convention: see `arpes/io/loaders/__init__.py`.
 """

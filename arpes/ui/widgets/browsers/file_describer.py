@@ -9,24 +9,24 @@ from PyQt6.QtWidgets import QListWidgetItem
 
 def describe_item(panel, item: QListWidgetItem | None) -> str:
     if item is None:
-        return "Sélectionne un fichier à charger"
+        return "Select a file to load"
     group = item.data(Qt.ItemDataRole.UserRole + 2)
     if group is not None:
-        return "Dossier de groupe : double-clic ou Charger pour ouvrir/réduire"
+        return "Group folder: double-click or Load to expand/collapse"
     path_txt = item.data(Qt.ItemDataRole.UserRole)
     if not path_txt:
-        return "Sélectionne un fichier à charger"
+        return "Select a file to load"
     p = Path(path_txt)
     key = item.data(Qt.ItemDataRole.UserRole + 1) or panel._session.key_for_path(p)
     status = panel._file_status(key)
     entry = panel._session.files.get(key)
-    loader = panel._loader_label_for_path(p, key) or "inconnu"
+    loader = panel._loader_label_for_path(p, key) or "unknown"
     kind = "FS" if panel._fs_suffix_for_path(p) else "BM"
     try:
         rel = str(p.relative_to(panel._folder)) if panel._folder else str(p)
     except Exception:
         rel = str(p)
-    bits = [f"{p.name}", rel, f"{kind} {loader}", f"état: {status}"]
+    bits = [f"{p.name}", rel, f"{kind} {loader}", f"state: {status}"]
     hv, hv_src = panel._meta_value_for_path(p, "hv")
     temp, temp_src = panel._meta_value_for_path(p, "temperature")
     pol, pol_src = panel._meta_value_for_path(p, "polarization")
@@ -52,10 +52,10 @@ def describe_item(panel, item: QListWidgetItem | None) -> str:
     if geom:
         sources = sorted({s for s in (azi_src, p_src, t_src) if s})
         src_txt = f" ({'+'.join(sources)})" if sources else ""
-        bits.append("géom: " + ", ".join(geom) + src_txt)
+        bits.append("geom: " + ", ".join(geom) + src_txt)
     if entry is not None:
         if entry.fit_result:
-            bits.append("fit enregistré")
+            bits.append("fit saved")
         tags = panel._tags_for_path(p, key)
         if tags:
             bits.append("tags: " + ", ".join(tags))

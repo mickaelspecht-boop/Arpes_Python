@@ -9,7 +9,7 @@ import os
 from .models import TheoryBandData, bandstructure_to_theory_data
 
 
-# Mapping crystal_system MP → bravais utilisé par physics/bz.Lattice3D.
+# Mapping from MP crystal_system to the Bravais label used by physics/bz.Lattice3D.
 _CRYSTAL_SYSTEM_TO_BRAVAIS: dict[str, str] = {
     "cubic": "cubic",
     "tetragonal": "tetragonal",
@@ -38,14 +38,13 @@ def load_materials_project_band_data(
 ) -> TheoryBandData:
     """Fetch and cache a Materials Project band structure as overlay data.
 
-    ``with_projections`` (opt-in) : tente de récupérer les projections
-    orbitales et d'en déduire le caractère par bande. Cache SÉPARÉ
-    (suffixe ``_proj``) pour ne jamais polluer/écraser le cache legacy
-    sans projections.
+    ``with_projections`` (opt-in): try to fetch orbital projections and infer
+    per-band character. Uses a SEPARATE cache (``_proj`` suffix) so the legacy
+    cache without projections is never polluted or overwritten.
     """
     mpid = str(material_id or "").strip()
     if not mpid:
-        raise ValueError("Materials Project ID vide.")
+        raise ValueError("Empty Materials Project ID.")
     cache_path = _cache_path(cache_dir, mpid, path_type,
                              with_projections=with_projections)
     cached: TheoryBandData | None = None
@@ -58,7 +57,7 @@ def load_materials_project_band_data(
         from mp_api.client import MPRester
     except Exception as exc:
         raise MaterialsProjectUnavailable(
-            "mp-api indisponible. Installer mp-api et définir MP_API_KEY."
+            "mp-api unavailable. Install mp-api and define MP_API_KEY."
         ) from exc
 
     api_key = api_key or os.environ.get("MP_API_KEY") or None
@@ -70,7 +69,7 @@ def load_materials_project_band_data(
     except Exception as exc:
         if cached is not None:
             return cached
-        raise RuntimeError(f"Import Materials Project échoué pour {mpid}: {exc}") from exc
+        raise RuntimeError(f"Materials Project import failed for {mpid}: {exc}") from exc
 
     data = bandstructure_to_theory_data(
         bs,
@@ -92,20 +91,20 @@ def search_by_formula(
     api_key: str | None = None,
     max_results: int = 25,
 ) -> list[dict]:
-    """Recherche les candidats Materials Project par formule chimique.
+    """Search Materials Project candidates by chemical formula.
 
-    Retourne une liste de dicts {material_id, formula_pretty, crystal_system,
-    spacegroup_symbol, energy_above_hull, is_stable}. Utilisé par le dialog
-    MP search pour proposer un MPID quand l'utilisateur tape une formule.
+    Return a list of dicts {material_id, formula_pretty, crystal_system,
+    spacegroup_symbol, energy_above_hull, is_stable}. Used by the MP search
+    dialog to propose an MPID when the user enters a formula.
     """
     formula = str(formula or "").strip()
     if not formula:
-        raise ValueError("Formule chimique vide.")
+        raise ValueError("Empty chemical formula.")
     try:
         from mp_api.client import MPRester
     except Exception as exc:
         raise MaterialsProjectUnavailable(
-            "mp-api indisponible. Installer mp-api et définir MP_API_KEY."
+            "mp-api unavailable. Install mp-api and define MP_API_KEY."
         ) from exc
 
     api_key = api_key or os.environ.get("MP_API_KEY") or None
@@ -114,7 +113,7 @@ def search_by_formula(
         with MPRester(api_key) as mpr:
             docs = mpr.materials.summary.search(formula=formula, fields=fields)
     except Exception as exc:
-        raise RuntimeError(f"Recherche Materials Project échouée pour '{formula}': {exc}") from exc
+        raise RuntimeError(f"Materials Project search failed for '{formula}': {exc}") from exc
 
     out: list[dict] = []
     for d in docs[: int(max_results)]:
@@ -139,26 +138,26 @@ def load_lattice(
     force_refresh: bool = False,
     timeout_s: float = DEFAULT_MP_TIMEOUT_S,
 ):
-    """Charge les paramètres de maille d'un matériau Materials Project.
+    """Load lattice parameters for a Materials Project material.
 
-    Retourne ``physics.bz.Lattice3D`` (importé tardivement pour éviter cycle).
+    Return ``physics.bz.Lattice3D`` (imported lazily to avoid a cycle).
 
-    - Cache disque JSON : ``<cache_dir>/<mpid>_lattice.json`` (réutilise
-      `cache_dir` par défaut ``.arpes_theory_cache``).
-    - Timeout dur (``ThreadPoolExecutor`` + ``future.result(timeout)``) :
-      par défaut 10 s. Si MP timeout → fallback cache disque ; sinon raise
+    - JSON disk cache: ``<cache_dir>/<mpid>_lattice.json`` (reuses
+      default `cache_dir` ``.arpes_theory_cache``).
+    - Hard timeout (``ThreadPoolExecutor`` + ``future.result(timeout)``):
+      10 s by default. If MP times out, fall back to disk cache; otherwise raise
       ``MaterialsProjectUnavailable``.
-    - Mapping crystal_system MP → bravais Lattice3D (cf. table).
+    - Mapping from MP crystal_system to Lattice3D bravais (see table).
 
     Raises:
-        ValueError: si ``material_id`` est vide.
-        MaterialsProjectUnavailable: si mp-api absent / timeout / cache vide.
+        ValueError: if ``material_id`` is empty.
+        MaterialsProjectUnavailable: if mp-api is absent, timed out, or cache is empty.
     """
-    from ..physics.bz import Lattice3D  # import tardif (évite cycle physics↔theory)
+    from ..physics.bz import Lattice3D  # lazy import avoids a physics<->theory cycle
 
     mpid = str(material_id or "").strip()
     if not mpid:
-        raise ValueError("Materials Project ID vide.")
+        raise ValueError("Empty Materials Project ID.")
 
     cache_path = _lattice_cache_path(cache_dir, mpid)
     cached_dict: dict | None = None
@@ -166,7 +165,7 @@ def load_lattice(
         try:
             cached_dict = json.loads(cache_path.read_text())
         except Exception:
-            cached_dict = None  # cache illisible, retombera sur MP
+            cached_dict = None  # unreadable cache, fall back to MP
         if cached_dict is not None and not force_refresh:
             return _lattice_from_dict(cached_dict, Lattice3D)
 
@@ -176,7 +175,7 @@ def load_lattice(
         if cached_dict is not None:
             return _lattice_from_dict(cached_dict, Lattice3D)
         raise MaterialsProjectUnavailable(
-            "mp-api indisponible. Installer mp-api et définir MP_API_KEY."
+            "mp-api unavailable. Install mp-api and define MP_API_KEY."
         ) from exc
 
     api_key_resolved = api_key or os.environ.get("MP_API_KEY") or None
@@ -195,13 +194,13 @@ def load_lattice(
         if cached_dict is not None:
             return _lattice_from_dict(cached_dict, Lattice3D)
         raise MaterialsProjectUnavailable(
-            f"Materials Project : délai dépassé ({timeout_s:.0f} s) pour {mpid}."
+            f"Materials Project: timeout exceeded ({timeout_s:.0f} s) for {mpid}."
         ) from exc
     except Exception as exc:
         if cached_dict is not None:
             return _lattice_from_dict(cached_dict, Lattice3D)
         raise MaterialsProjectUnavailable(
-            f"Materials Project échec pour {mpid} : {exc}"
+            f"Materials Project failed for {mpid}: {exc}"
         ) from exc
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -223,7 +222,7 @@ def _get_structure(mpr, material_id: str):
         return materials.get_structure_by_material_id(material_id)
     docs = mpr.materials.summary.search(material_ids=[material_id], fields=["structure"])
     if not docs:
-        raise MaterialsProjectUnavailable(f"Aucune structure pour {material_id}.")
+        raise MaterialsProjectUnavailable(f"No structure for {material_id}.")
     return docs[0].structure
 
 
@@ -315,7 +314,7 @@ def _get_formula(mpr, material_id: str) -> str:
 
 
 def _get_crystal_system(mpr, material_id: str) -> str:
-    """Système cristallin MP (ex 'Tetragonal'). "" si indispo/offline."""
+    """MP crystal system (for example 'Tetragonal'). Empty string if unavailable/offline."""
     try:
         docs = mpr.materials.summary.search(
             material_ids=[material_id],

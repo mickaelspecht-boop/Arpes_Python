@@ -1,14 +1,14 @@
-"""Iso-contours de surface de Fermi à kz fixé depuis grille DFT 3D.
+"""Fermi-surface iso-contours at fixed kz from a 3D DFT grid.
 
-Entrée : grille uniforme ``E_n(kx, ky, kz)`` (n_bands, n_kx, n_ky, n_kz).
-Sortie : pour chaque bande, liste de contours fermés (ou ouverts) dans le plan
-détecteur (kx, ky), sélectionnés à l'iso-niveau ``E = EF``.
+Input: uniform grid ``E_n(kx, ky, kz)`` (n_bands, n_kx, n_ky, n_kz).
+Output: for each band, list of closed (or open) contours in the detector
+plane (kx, ky), selected at the ``E = EF`` iso-level.
 
-Backend : ``contourpy`` (dép. matplotlib) en priorité ; fallback
-``matplotlib.contour`` via figure Agg fermée immédiatement (pas d'affichage).
+Backend: prefer ``contourpy`` (matplotlib dependency); fallback to
+``matplotlib.contour`` through an Agg figure closed immediately (no display).
 
-Module pur — aucun PyQt. Pas de pymatgen requis ici (l'entrée est numérique
-brute ; le caller fait la conversion BS DFT → grille 3D).
+Pure module: no PyQt. pymatgen is not required here (input is raw numeric data;
+the caller performs the DFT BS -> 3D grid conversion).
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import numpy as np
 @dataclass(frozen=True)
 class FsContour:
     band_index: int
-    points: np.ndarray  # shape (M, 2), colonnes (kx, ky)
+    points: np.ndarray  # shape (M, 2), columns (kx, ky)
     closed: bool
 
 
@@ -29,13 +29,13 @@ def _interp_band_to_kz(
     kz_axis: np.ndarray,
     kz_value: float,
 ) -> np.ndarray:
-    """Interpole linéairement E(kx, ky, kz) à kz=kz_value → array 2D (n_kx, n_ky).
+    """Linearly interpolate E(kx, ky, kz) at kz=kz_value -> 2D array (n_kx, n_ky).
 
-    En dehors de la plage kz : clamp aux bornes (extrapolation plate).
+    Outside the kz range: clamp to bounds (flat extrapolation).
     """
     kz_axis = np.asarray(kz_axis, dtype=float)
     if kz_axis.ndim != 1 or kz_axis.size < 2:
-        raise ValueError("kz_axis doit être 1D avec ≥2 points")
+        raise ValueError("kz_axis must be 1D with at least 2 points")
     if band_3d.ndim != 3 or band_3d.shape[2] != kz_axis.size:
         raise ValueError(
             f"band_3d shape {band_3d.shape} incompatible kz_axis ({kz_axis.size})"
@@ -59,17 +59,17 @@ def _contour_lines(
     energy_2d: np.ndarray,
     level: float,
 ) -> list[np.ndarray]:
-    """Extrait lignes iso `level` d'un champ 2D. Utilise contourpy si dispo."""
+    """Extract iso-lines at `level` from a 2D field. Use contourpy if available."""
     try:
         import contourpy
         gen = contourpy.contour_generator(
-            x=kx_axis, y=ky_axis, z=energy_2d.T,  # contourpy attend (ny, nx)
+            x=kx_axis, y=ky_axis, z=energy_2d.T,  # contourpy expects (ny, nx)
         )
         return [np.asarray(line, dtype=float) for line in gen.lines(float(level))]
     except Exception:
         pass
 
-    # Fallback matplotlib (force Agg, ferme la figure immédiatement).
+    # matplotlib fallback (force Agg, close the figure immediately).
     try:
         import matplotlib
         matplotlib.use("Agg", force=False)
@@ -84,7 +84,7 @@ def _contour_lines(
         return segs
     except Exception as exc:
         raise RuntimeError(
-            "fs_isocontour: ni contourpy ni matplotlib disponibles."
+            "fs_isocontour: neither contourpy nor matplotlib is available."
         ) from exc
 
 
@@ -105,25 +105,25 @@ def extract_fs_isocontour(
     band_indices: list[int] | None = None,
     min_points: int = 6,
 ) -> list[FsContour]:
-    """Iso-contours E=ef dans le plan kz=kz_value pour grille DFT 3D.
+    """E=ef iso-contours in the kz=kz_value plane for a 3D DFT grid.
 
-    - ``bands_3d`` : shape (n_bands, n_kx, n_ky, n_kz). Energies E - EF si déjà
-      référencé (alors ``ef=0``).
-    - ``band_indices`` : sous-ensemble à traiter ; None = toutes.
-    - ``min_points`` : ignore contours trop courts (< min_points).
+    - ``bands_3d``: shape (n_bands, n_kx, n_ky, n_kz). Energies are E - EF if
+      already referenced (then ``ef=0``).
+    - ``band_indices``: subset to process; None = all.
+    - ``min_points``: ignore contours that are too short (< min_points).
 
-    Retourne liste ``FsContour(band_index, points, closed)``.
+    Return a list of ``FsContour(band_index, points, closed)``.
     """
     bands_3d = np.asarray(bands_3d, dtype=float)
     if bands_3d.ndim != 4:
-        raise ValueError(f"bands_3d doit être 4D, got ndim={bands_3d.ndim}")
+        raise ValueError(f"bands_3d must be 4D, got ndim={bands_3d.ndim}")
     n_b, n_kx, n_ky, n_kz = bands_3d.shape
     kx = np.asarray(kx_axis, dtype=float)
     ky = np.asarray(ky_axis, dtype=float)
     kz = np.asarray(kz_axis, dtype=float)
     if kx.size != n_kx or ky.size != n_ky or kz.size != n_kz:
         raise ValueError(
-            f"axes incompatibles : ({kx.size},{ky.size},{kz.size}) "
+            f"incompatible axes: ({kx.size},{ky.size},{kz.size}) "
             f"vs bands {(n_kx, n_ky, n_kz)}"
         )
     indices = list(range(n_b)) if band_indices is None else [int(i) for i in band_indices]
@@ -156,7 +156,7 @@ def isocontour_at_planes(
     kz_values: list[float],
     ef: float = 0.0,
 ) -> dict[float, list[FsContour]]:
-    """Helper : iso-contours à plusieurs valeurs kz (ex Γ-plane + Z-plane)."""
+    """Helper: iso-contours at multiple kz values (for example Γ-plane + Z-plane)."""
     return {
         float(kz): extract_fs_isocontour(
             bands_3d, kx_axis, ky_axis, kz_axis, kz_value=float(kz), ef=ef

@@ -1,4 +1,4 @@
-"""Tests headless du resolver Γ (P2)."""
+"""Headless tests for the Γ resolver (P2)."""
 from __future__ import annotations
 
 import unittest
@@ -91,7 +91,7 @@ class TestResolveBm(unittest.TestCase):
         r = resolve(raw, ref, work_func=4.5, entry_azi=0.0)
         self.assertEqual(r.mode, "axis_shifted")
         self.assertAlmostEqual(r.axis_shift_delta, 0.0,
-                               msg="delta != 0 alors que axe déjà à jour")
+                               msg="delta != 0 even though the axis is already up to date")
 
 
 class TestResolveFs(unittest.TestCase):
@@ -117,13 +117,13 @@ class TestResolveFs(unittest.TestCase):
         }
         r = resolve(raw, ref, work_func=4.5, entry_azi=90.0)
         self.assertEqual(r.mode, "axis_shifted")
-        # rotation 90° : kx_ref → ky, ky_ref(0) → -kx (proche de 0)
+        # 90° rotation: kx_ref → ky, ky_ref(0) → -kx (near 0).
         self.assertAlmostEqual(r.fs_marker_kx, 0.0, places=10)
         self.assertAlmostEqual(r.fs_marker_ky, -0.30, places=10)
 
 
 class TestIdempotence(unittest.TestCase):
-    """Invariant clé P2 : resolve∘apply∘resolve == resolve (delta=0 second tour)."""
+    """Key P2 invariant: resolve∘apply∘resolve == resolve (delta=0 on second pass)."""
 
     def test_bm_apply_then_resolve_gives_delta_zero(self):
         raw = _raw_bm()
@@ -133,10 +133,10 @@ class TestIdempotence(unittest.TestCase):
         }
         r1 = resolve(raw, ref, work_func=4.5, entry_azi=0.0)
         self.assertNotEqual(r1.axis_shift_delta, 0.0)
-        # apply : shift l'axe avec le delta
+        # Apply: shift the axis with the delta.
         ok = apply_bm_gamma_axis_shift(raw, r1.axis_shift_target, ref=ref)
         self.assertTrue(ok)
-        # resolve à nouveau : delta doit être 0
+        # Resolve again: delta must be 0.
         r2 = resolve(raw, ref, work_func=4.5, entry_azi=0.0)
         self.assertEqual(r2.mode, r1.mode)
         self.assertAlmostEqual(r2.axis_shift_delta, 0.0,

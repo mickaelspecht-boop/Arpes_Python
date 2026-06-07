@@ -8,7 +8,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PyQt6.QtWidgets import QApplication
-    from arpes import app as arpes_app
     from arpes.core.session import FileEntry, FileMeta, Session
     from arpes.io.logbook import _format_direction_label, _infer_logbook_mapping
     from arpes.ui.widgets.browsers import FileBrowserPanel
@@ -119,9 +118,10 @@ class TestArpesExplorerLogbookHelpers(unittest.TestCase):
                     return "BM"
                 return "unknown"
 
-            with mock.patch.object(arpes_app, "detect_format", fake_detect_format), \
-                 mock.patch.object(arpes_app, "detect_scan_kind", fake_detect_scan_kind), \
-                 mock.patch.object(_files_mod, "detect_format", fake_detect_format), \
+            # P3.6: arpes.app n'expose plus detect_format/detect_scan_kind
+            # (dead imports removed); the real detection lives in
+            # browsers/files.py, seul patch utile.
+            with mock.patch.object(_files_mod, "detect_format", fake_detect_format), \
                  mock.patch.object(_files_mod, "detect_scan_kind", fake_detect_scan_kind):
                 panel = FileBrowserPanel(session)
                 panel.set_folder(root)
@@ -139,7 +139,7 @@ class TestArpesExplorerLogbookHelpers(unittest.TestCase):
                 self.assertEqual(panel._group_key_for_path(bessy), "BM")
                 self.assertEqual(panel._group_key_for_path(solaris), "FS")
 
-                panel._group_fields = ["Labo"]
+                panel._group_fields = ["Lab"]
                 self.assertEqual(panel._group_key_for_path(bm), "CLS")
                 self.assertEqual(panel._group_key_for_path(bessy), "BESSY")
                 self.assertEqual(panel._group_key_for_path(solaris), "Solaris")
@@ -148,11 +148,11 @@ class TestArpesExplorerLogbookHelpers(unittest.TestCase):
                 self.assertEqual(panel._group_key_for_path(bm), "hν 60.0 eV (session)")
                 self.assertEqual(panel._group_key_for_path(bessy), "hν 47.0 eV (logbook)")
 
-                panel._group_fields = ["Chemin"]
+                panel._group_fields = ["Path"]
                 self.assertEqual(panel._group_key_for_path(bm), "Γ-M (session)")
                 self.assertEqual(panel._group_key_for_path(bessy), "Γ (logbook)")
 
-                panel._group_fields = ["hν", "Température", "Polarisation"]
+                panel._group_fields = ["hν", "Temperature", "Polarization"]
                 self.assertEqual(
                     panel._group_key_for_path(bm),
                     "hν 60.0 eV (session) / T 18.0 K (session) / Pol LH (session)",

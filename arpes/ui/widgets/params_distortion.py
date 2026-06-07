@@ -27,12 +27,8 @@ from PyQt6.QtWidgets import (
 from arpes.ui.widgets._qt_helpers import compact_button, dspin
 
 
-_HELP_TRAPEZE = (
-    "<b>Trapèze θ</b> : redresse les bords inclinés de la BM."
-)
-_HELP_PARABOLE = (
-    "<b>Parabole E</b> : aplatit la courbure instrumentale des iso-énergies."
-)
+_HELP_TRAPEZE = "<b>Trapezoid θ</b>: straightens tilted BM edges."
+_HELP_PARABOLE = "<b>Parabola E</b>: flattens instrumental iso-energy curvature."
 
 
 def _help_label(text: str) -> QLabel:
@@ -51,11 +47,11 @@ def _hline() -> QFrame:
 
 
 def build_bm_distortion_section(panel, lay) -> None:
-    panel._distortion_widget = QGroupBox("Distorsion BM")
+    panel._distortion_widget = QGroupBox("BM Distortion")
     panel._distortion_widget.setToolTip(
-        "Correction géométrique des distorsions détecteur Scienta.\n"
-        "À appliquer si l'image brute paraît trapézoïdale (bords inclinés)\n"
-        "ou si les iso-EF apparaissent courbées."
+        "Geometric correction for Scienta detector distortions.\n"
+        "Apply if the raw image looks trapezoidal (tilted edges)\n"
+        "or if iso-EF lines appear curved."
     )
     outer = QVBoxLayout(panel._distortion_widget)
     outer.setSpacing(6)
@@ -63,24 +59,24 @@ def build_bm_distortion_section(panel, lay) -> None:
     # ── bloc trapèze ────────────────────────────────────────────────────────
     outer.addWidget(_help_label(_HELP_TRAPEZE))
     trap_row1 = QHBoxLayout()
-    panel.chk_distortion_trap = QCheckBox("Activer trapèze")
-    panel.chk_distortion_trap.setToolTip("Active la correction trapézoïdale en kpar.")
+    panel.chk_distortion_trap = QCheckBox("Enable trapezoid")
+    panel.chk_distortion_trap.setToolTip("Enables trapezoidal correction in kpar.")
     trap_row1.addWidget(panel.chk_distortion_trap)
     trap_row1.addStretch()
     outer.addLayout(trap_row1)
 
     mode_row = QHBoxLayout()
-    panel.rb_distortion_trap_sym = QRadioButton("Symétrique")
+    panel.rb_distortion_trap_sym = QRadioButton("Symmetric")
     panel.rb_distortion_trap_sym.setChecked(True)
     panel.rb_distortion_trap_sym.setToolTip(
-        "slope_R = +slope_L : trapèze qui s'élargit/rétrécit (artefact lentille)."
+        "slope_R = +slope_L: trapezoid that widens/narrows (lens artifact)."
     )
-    panel.rb_distortion_trap_anti = QRadioButton("Antisymétrique")
+    panel.rb_distortion_trap_anti = QRadioButton("Antisymmetric")
     panel.rb_distortion_trap_anti.setToolTip(
-        "slope_R = -slope_L : parallélogramme (cisaillement, désalignement détecteur)."
+        "slope_R = -slope_L: parallelogram (shear, detector misalignment)."
     )
-    panel.rb_distortion_trap_free = QRadioButton("Libre")
-    panel.rb_distortion_trap_free.setToolTip("Bords gauche/droit indépendants.")
+    panel.rb_distortion_trap_free = QRadioButton("Free")
+    panel.rb_distortion_trap_free.setToolTip("Independent left/right edges.")
     panel._rb_distortion_trap_group = QButtonGroup(panel._distortion_widget)
     panel._rb_distortion_trap_group.setExclusive(True)
     for rb in (panel.rb_distortion_trap_sym, panel.rb_distortion_trap_anti,
@@ -97,18 +93,18 @@ def build_bm_distortion_section(panel, lay) -> None:
     fl_trap.setVerticalSpacing(3)
     panel.sp_distortion_slope_l = dspin(0.0, -1.0, 1.0, 0.005, dec=4)
     panel.sp_distortion_slope_l.setToolTip(
-        "Pente du bord gauche en Δkpar(π/a) par eV.\n"
-        "Positif = bord gauche s'écarte vers la gauche quand E augmente."
+        "Left-edge slope in delta kpar(pi/a) per eV.\n"
+        "Positive = left edge moves left as E increases."
     )
     panel.sp_distortion_slope_r = dspin(0.0, -1.0, 1.0, 0.005, dec=4)
-    panel.sp_distortion_slope_r.setToolTip("Pente du bord droit en Δkpar/ΔeV.")
+    panel.sp_distortion_slope_r.setToolTip("Right-edge slope in delta kpar/delta eV.")
     panel.sp_distortion_pivot = dspin(0.0, -10.0, 10.0, 0.01, dec=3)
     panel.sp_distortion_pivot.setToolTip(
-        "Énergie pivot (eV) où le redressement vaut zéro.\n"
-        "Par défaut : milieu de la fenêtre énergie."
+        "Pivot energy (eV) where straightening is zero.\n"
+        "Default: middle of the energy window."
     )
-    fl_trap.addRow("Pente gauche (Δk/eV):", panel.sp_distortion_slope_l)
-    fl_trap.addRow("Pente droite (Δk/eV):", panel.sp_distortion_slope_r)
+    fl_trap.addRow("Left slope (Δk/eV):", panel.sp_distortion_slope_l)
+    fl_trap.addRow("Right slope (Δk/eV):", panel.sp_distortion_slope_r)
     fl_trap.addRow("Pivot E (eV):", panel.sp_distortion_pivot)
     outer.addLayout(fl_trap)
 
@@ -155,9 +151,9 @@ def build_bm_distortion_section(panel, lay) -> None:
 
     # ── bloc parabole ───────────────────────────────────────────────────────
     outer.addWidget(_help_label(_HELP_PARABOLE))
-    panel.chk_distortion_para = QCheckBox("Activer parabole")
+    panel.chk_distortion_para = QCheckBox("Enable parabola")
     panel.chk_distortion_para.setToolTip(
-        "Active le warp parabolique de l'axe E (non-isochromaticity)."
+        "Enables parabolic warping of the E axis (non-isochromaticity)."
     )
     outer.addWidget(panel.chk_distortion_para)
     fl_para = QFormLayout()
@@ -165,43 +161,43 @@ def build_bm_distortion_section(panel, lay) -> None:
     fl_para.setVerticalSpacing(3)
     panel.sp_distortion_a = dspin(0.0, -2.0, 2.0, 0.001, dec=4)
     panel.sp_distortion_a.setToolTip(
-        "Coefficient a (eV/(π/a)²) : E_corr = E + a·(kpar − k0)².\n"
-        "Positif si l'iso-EF est concave vers le bas (centre plus haut en énergie)."
+        "Coefficient a (eV/(π/a)^2): E_corr = E + a*(kpar - k0)^2.\n"
+        "Positive if the iso-EF is concave downward (center higher in energy)."
     )
     panel.sp_distortion_k0 = dspin(0.0, -5.0, 5.0, 0.01, dec=3)
-    panel.sp_distortion_k0.setToolTip("Position k0 (π/a) du sommet de la parabole.")
+    panel.sp_distortion_k0.setToolTip("k0 position (π/a) of the parabola apex.")
     for w in (panel.chk_distortion_para, panel.sp_distortion_a, panel.sp_distortion_k0):
         if hasattr(w, "valueChanged"):
             w.valueChanged.connect(panel.distortion_preview_changed)
         else:
             w.toggled.connect(panel.distortion_preview_changed)
-    fl_para.addRow("Courbure a (eV·(π/a)⁻²):", panel.sp_distortion_a)
-    fl_para.addRow("Sommet k0 (π/a):", panel.sp_distortion_k0)
+    fl_para.addRow("Curvature a (eV·(π/a)⁻²):", panel.sp_distortion_a)
+    fl_para.addRow("Apex k0 (π/a):", panel.sp_distortion_k0)
     outer.addLayout(fl_para)
 
     outer.addWidget(_hline())
 
     # ── option recadrage ────────────────────────────────────────────────────
-    panel.chk_distortion_crop = QCheckBox("Recadrer strictement sur le signal (k//)")
+    panel.chk_distortion_crop = QCheckBox("Strictly crop to signal (k//)")
     panel.chk_distortion_crop.setChecked(True)
     panel.chk_distortion_crop.setToolTip(
-        "Après warp, supprime les colonnes/lignes complètement NaN aux bords\n"
-        "(zones extérieures au signal). Ajuste les axes pour ne garder que la\n"
-        "région utile en kpar."
+        "After warping, removes fully NaN edge columns/rows\n"
+        "(regions outside the signal). Adjusts axes to keep only the\n"
+        "useful kpar region."
     )
     outer.addWidget(panel.chk_distortion_crop)
 
     outer.addWidget(_hline())
 
     # ── propagation au volume FS (opt-in, OFF par défaut) ───────────────────
-    panel.chk_distortion_fs_propagate = QCheckBox("Propager au volume FS")
+    panel.chk_distortion_fs_propagate = QCheckBox("Propagate to FS volume")
     panel.chk_distortion_fs_propagate.setChecked(False)
     panel.chk_distortion_fs_propagate.setToolTip(
-        "Applique la même correction (trapèze uniquement) à toutes les BM\n"
-        "du volume FS, puis recalcule la carte kx/ky à E_F.\n"
-        "Coûteux : O(N_ky × N_kx × N_e). Désactivé tant que la distorsion\n"
-        "n'est pas calibrée. Refusé si drift ky/⟨BM⟩ > 15 % (calib non\n"
-        "représentative hors centre)."
+        "Applies the same correction (trapezoid only) to every BM\n"
+        "in the FS volume, then recomputes the kx/ky map at E_F.\n"
+        "Expensive: O(N_ky x N_kx x N_e). Disabled until distortion\n"
+        "is calibrated. Refused if ky/<BM> drift > 15% (calibration not\n"
+        "representative away from the center)."
     )
     panel.chk_distortion_fs_propagate.toggled.connect(
         lambda _on: panel.propagate_distortion_fs_toggled.emit()
@@ -209,25 +205,25 @@ def build_bm_distortion_section(panel, lay) -> None:
     outer.addWidget(panel.chk_distortion_fs_propagate)
 
     # ── boutons d'action ────────────────────────────────────────────────────
-    btn_apply = compact_button(QPushButton("Appliquer"))
-    btn_apply.setToolTip("Sauve les paramètres et recalcule l'affichage BM.")
+    btn_apply = compact_button(QPushButton("Apply"))
+    btn_apply.setToolTip("Saves the parameters and recomputes the BM display.")
     btn_apply.clicked.connect(panel.distortion_apply_requested)
-    btn_auto = compact_button(QPushButton("Auto-détecter"))
+    btn_auto = compact_button(QPushButton("Auto-detect"))
     btn_auto.setToolTip(
-        "Estime automatiquement les paramètres :\n"
-        "- pentes : enveloppe d'intensité (percentile 80) + fit linéaire\n"
-        "- a, k0 : polyfit deg 2 sur l'argmax par ligne d'énergie\n"
-        "Refusé si n_kpar < 16 ou dispersion < 10 meV."
+        "Automatically estimates parameters:\n"
+        "- slopes: intensity envelope (80th percentile) + linear fit\n"
+        "- a, k0: degree-2 polyfit on the argmax per energy row\n"
+        "Refused if n_kpar < 16 or dispersion < 10 meV."
     )
     btn_auto.clicked.connect(panel.distortion_auto_requested)
-    btn_reset = compact_button(QPushButton("Réinitialiser"))
+    btn_reset = compact_button(QPushButton("Reset"))
     btn_reset.setToolTip(
-        "Désactive la correction pour ce fichier (toggle off réversible bit-exact)."
+        "Disables correction for this file (bit-exact reversible toggle off)."
     )
     btn_reset.clicked.connect(panel.distortion_reset_requested)
-    btn_calib = compact_button(QPushButton("Importer calib"))
+    btn_calib = compact_button(QPushButton("Import calib"))
     btn_calib.setToolTip(
-        "Importe la calibration partagée pour cette géométrie analyseur\n"
+        "Imports the shared calibration for this analyzer geometry\n"
         "(lens_mode, pass_energy, hν) depuis ~/.config/arpes/distortion_calib.json."
     )
     btn_calib.clicked.connect(panel.distortion_import_calib_requested)
@@ -246,7 +242,7 @@ def build_bm_distortion_section(panel, lay) -> None:
         btn_lay.setColumnStretch(c, 1)
     outer.addWidget(btn_grid)
 
-    panel.lbl_distortion = QLabel("Distorsion BM : désactivée.")
+    panel.lbl_distortion = QLabel("BM distortion: disabled.")
     panel.lbl_distortion.setWordWrap(True)
     panel.lbl_distortion.setStyleSheet("color:#aaa; font-size:10px;")
     outer.addWidget(panel.lbl_distortion)

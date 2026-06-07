@@ -19,7 +19,7 @@ except Exception:
     UI_AVAILABLE = False
 
 
-@unittest.skipUnless(UI_AVAILABLE, "PyQt6 / Qt offscreen indisponible")
+@unittest.skipUnless(UI_AVAILABLE, "PyQt6 / Qt offscreen unavailable")
 class TestFileTagsBrowser(unittest.TestCase):
     _qt_app = None
 

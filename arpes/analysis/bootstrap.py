@@ -35,6 +35,25 @@ class BootstrapBranchResult(BranchResult):
     n_iter: int = 0
 
 
+def _block_length(n: int) -> int:
+    """Longueur de bloc 3–5 slices selon n (moving-block bootstrap)."""
+    return int(min(5, max(3, math.ceil(n / 3.0))))
+
+
+def _moving_block_indices(rng: np.random.Generator, n: int, block_len: int) -> np.ndarray:
+    """Indices d'un rééchantillon moving-block de taille ~n.
+
+    Tire des blocs CONTIGUS de ``block_len`` slices : préserve la
+    corrélation entre slices voisines en E (le rééchantillonnage iid
+    point-à-point la casse → σ sous-estimée). cf P2.2.
+    """
+    block_len = int(max(1, min(block_len, n)))
+    n_blocks = int(math.ceil(n / block_len))
+    starts = rng.integers(0, n - block_len + 1, size=n_blocks)
+    idx = np.concatenate([np.arange(s, s + block_len) for s in starts])
+    return idx[:n]
+
+
 def bootstrap_branch_result(
     fit_result: dict,
     *,
@@ -59,10 +78,11 @@ def bootstrap_branch_result(
 
     rng = np.random.default_rng(seed)
     n = len(k_w)
+    block_len = _block_length(n)
     kF_samples = []
     vF_samples = []
     for _ in range(int(n_iter)):
-        idx = rng.integers(0, n, size=n)
+        idx = _moving_block_indices(rng, n, block_len)
         fit = weighted_linear_fit(k_w[idx], e_w[idx], sigma=sk_w[idx])
         if (fit.n_points < 3 or not math.isfinite(fit.slope)
                 or abs(fit.slope) < 1e-9):

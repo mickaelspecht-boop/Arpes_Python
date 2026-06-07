@@ -1,7 +1,7 @@
 """Tests A.4 — PairingController (pin / auto-pin / active FS).
 
-Headless : PairingController est un mince wrapper sans Qt direct, on peut
-l'instancier avec un parent stub minimaliste.
+Headless: PairingController is a thin wrapper with no direct Qt dependency, so
+it can be instantiated with a minimal parent stub.
 """
 from __future__ import annotations
 
@@ -27,12 +27,17 @@ def _bm(*, hv=60.0, azi=0.0, polar=0.0, pol="LH", parent=None) -> FileEntry:
     return e
 
 
-def _fs(*, hv=60.0, azi=0.0, pol="LH") -> FileEntry:
-    return FileEntry(meta=FileMeta(hv=hv, azi=azi, polarization=pol, scan_kind="FS"))
+def _fs(*, hv=60.0, azi=0.0, pol="LH", crystal_a=3.96) -> FileEntry:
+    # Explicit crystal_a: since P1.1 the default lattice is "unknown" (0), so a
+    # BM↔FS overlay requires a provided lattice (otherwise a_lattice=0 → no cut).
+    return FileEntry(meta=FileMeta(
+        hv=hv, azi=azi, polarization=pol, scan_kind="FS",
+        crystal_a_angstrom=crystal_a,
+    ))
 
 
 class _StubParent:
-    """Stub minimaliste pour PairingController (pas de Qt)."""
+    """Minimal stub for PairingController (no Qt)."""
     def __init__(self, session: Session, current_path: str | None = None):
         self._session = session
         self._current_path = current_path
@@ -51,14 +56,14 @@ class TestPairingController(unittest.TestCase):
 
         ctrl._pin_fs_path("/d/fs1.txt")
         self.assertEqual(parent._pinned_fs_path, "fs1.txt")
-        self.assertTrue(any("FS contexte" in m for m in parent._status_msgs))
+        self.assertTrue(any("Context FS pinned" in m for m in parent._status_msgs))
 
         ctrl._unpin_fs_path()
         self.assertIsNone(parent._pinned_fs_path)
 
     def test_active_fs_returns_current_when_fs(self):
         s = _make_session({"/d/fs1.txt": _fs()})
-        # Stub key_for_path simple : retourne le path lui-même
+        # Simple key_for_path stub: returns the path itself.
         s.key_for_path = lambda p: p
         parent = _StubParent(s, current_path="/d/fs1.txt")
         ctrl = PairingController(parent)
@@ -111,7 +116,7 @@ class TestPairingController(unittest.TestCase):
         ctrl = PairingController(parent)
 
         chosen = ctrl._auto_pin_fs_for_current_bm()
-        # Manual override gagne malgré incompatibilité auto
+        # Manual override wins despite automatic incompatibility.
         self.assertEqual(chosen, "/d/fs_pinned.txt")
 
     def test_auto_pin_returns_none_when_current_is_fs(self):
@@ -125,7 +130,7 @@ class TestPairingController(unittest.TestCase):
         s = _make_session({
             "/d/fs1.txt": _fs(),
             "/d/bm_a.txt": _bm(),
-            "/d/bm_b.txt": _bm(azi=10.0),  # exclu (azi)
+            "/d/bm_b.txt": _bm(azi=10.0),  # excluded (azi)
         })
         s.key_for_path = lambda p: p
         parent = _StubParent(s, current_path="/d/fs1.txt")
@@ -136,13 +141,13 @@ class TestPairingController(unittest.TestCase):
 
 
 class TestCollectBmCuts(unittest.TestCase):
-    """B.2 — agrégation des projections BM dans le repère FS."""
+    """B.2 — aggregation of BM projections in the FS frame."""
 
     def test_collect_returns_cuts_for_bound_bms(self):
         s = _make_session({
             "/d/fs1.txt": _fs(hv=60.0, azi=0.0),
             "/d/bm_a.txt": _bm(hv=60.0, azi=0.0),
-            "/d/bm_far.txt": _bm(hv=120.0, azi=30.0),  # exclu
+            "/d/bm_far.txt": _bm(hv=120.0, azi=30.0),  # excluded
         })
         s.key_for_path = lambda p: p
         parent = _StubParent(s, current_path="/d/fs1.txt")

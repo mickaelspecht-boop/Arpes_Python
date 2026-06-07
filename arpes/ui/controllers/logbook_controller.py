@@ -1,9 +1,9 @@
-"""Controller UI pour ingestion logbook (CSV/TSV/Excel).
+"""UI controller for logbook ingestion (CSV/TSV/Excel).
 
-Sort `arpes_explorer.ArpesExplorer._read_logbook` et ses dialogs (sheet/table/
-mapping) de la God class. La logique de parsing pure reste dans
-`arpes.io.logbook` / `arpes.io.logbook_io` ; ce contrôleur gère uniquement la
-couche Qt (fichier de dialog, sélection feuille/header, persistance session).
+Moves `arpes_explorer.ArpesExplorer._read_logbook` and its dialogs
+(sheet/table/mapping) out of the God class. Pure parsing logic stays in
+`arpes.io.logbook` / `arpes.io.logbook_io`; this controller handles only the Qt
+layer (file dialog, sheet/header selection, session persistence).
 """
 from __future__ import annotations
 
@@ -58,9 +58,9 @@ class LogbookIngestController:
     # ---------------------------------------------------------------- dialogs
     # ----------------------------------------------------- subfolder helpers
     def _session_subfolders(self) -> list[str]:
-        """Sous-dossiers (relatifs) de la session contenant au moins un fichier.
+        """Relative session subfolders containing at least one file.
 
-        Récursif, ignore les répertoires cachés et `.arpes_cache`.
+        Recursive, ignores hidden directories and `.arpes_cache`.
         """
         root = self._session.folder
         if root is None or not root.exists():
@@ -81,15 +81,15 @@ class LogbookIngestController:
         return out
 
     def _pick_subfolders_dialog(self, rels: list[str], logbook_name: str) -> list[str]:
-        """Liste à cases des sous-dossiers ; pré-coche ceux qui matchent le nom."""
+        """Checklist of subfolders; pre-check those matching the name."""
         from arpes.io.logbook import _norm_text
         dlg = QDialog(self._parent)
-        dlg.setWindowTitle("Sous-dossiers visés par ce logbook")
+        dlg.setWindowTitle("Subfolders targeted by this logbook")
         lay = QVBoxLayout(dlg)
         lbl = QLabel(
-            f"Logbook : <b>{logbook_name}</b><br>"
-            "Coche les sous-dossiers auxquels l'appliquer (les fichiers hors de "
-            "ces dossiers ne seront pas touchés)."
+            f"Logbook: <b>{logbook_name}</b><br>"
+            "Check the subfolders to apply it to (files outside these "
+            "folders will not be changed)."
         )
         lbl.setWordWrap(True)
         lay.addWidget(lbl)
@@ -122,20 +122,20 @@ class LogbookIngestController:
         logbooks distincts (ex: CA041 et CA046) dans la même session.
         """
         if self._session.folder is None:
-            QMessageBox.warning(self._parent, "Logbook scopé",
-                                "Ouvre d'abord un dossier de session.")
+            QMessageBox.warning(self._parent, "Scoped logbook",
+                                "Open a session folder first.")
             return
         start = str(self._session.folder)
         path, _ = QFileDialog.getOpenFileName(
-            self._parent, "Fichier logbook à attacher", start,
-            "Tous les fichiers (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)")
+            self._parent, "Logbook file to attach", start,
+            "All files (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)")
         if not path:
             return
         rels = self._session_subfolders()
         if not rels:
-            QMessageBox.warning(self._parent, "Logbook scopé",
-                                "Aucun sous-dossier détecté dans la session.\n"
-                                "Utilise 'Charger logbook (global)' à la place.")
+            QMessageBox.warning(self._parent, "Scoped logbook",
+                                "No subfolder detected in the session.\n"
+                                "Use 'Load logbook (global)' instead.")
             return
         chosen = self._pick_subfolders_dialog(rels, Path(path).name)
         if not chosen:
@@ -143,8 +143,8 @@ class LogbookIngestController:
         try:
             records, mapping, sheet_name = self.read(Path(path))
         except Exception as exc:
-            QMessageBox.warning(self._parent, "Logbook scopé", str(exc))
-            self._status(f"Attention: Logbook scopé : {exc}")
+            QMessageBox.warning(self._parent, "Scoped logbook", str(exc))
+            self._status(f"Warning: scoped logbook: {exc}")
             return
         # vire les anciens records de ces scopes, puis ré-ajoute une copie taguée
         keep = [r for r in self._session.logbook_records
@@ -163,12 +163,12 @@ class LogbookIngestController:
         self._session.logbook_records = keep + added
         self._session.save()
         scope_txt = ", ".join(chosen)
-        self._status(f"Logbook scopé '{Path(path).name}' → {scope_txt} | {len(records)} lignes ×{len(chosen)}")
+        self._status(f"Scoped logbook '{Path(path).name}' → {scope_txt} | {len(records)} rows ×{len(chosen)}")
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done(f"logbook scopé → {len(chosen)} sous-dossier(s)")
+            self._params.mark_action_done(f"scoped logbook → {len(chosen)} subfolder(s)")
         QMessageBox.information(
-            self._parent, "Logbook scopé chargé",
-            f"Fichier : {Path(path).name}\nSous-dossiers : {scope_txt}\n{len(records)} lignes chacun."
+            self._parent, "Scoped logbook loaded",
+            f"File: {Path(path).name}\nSubfolders: {scope_txt}\n{len(records)} rows each."
         )
         if self._parent._current_path:
             self.apply_to_controls(self._parent._current_path)
@@ -179,7 +179,7 @@ class LogbookIngestController:
         """Scanne toutes les sheets d'un xlsx, auto-attache par Folder Name.
 
         Robuste aux variations de template :
-        - Cherche cellule "Folder Name" / "Folder" / "Dossier" / variations
+        - Search for "Folder Name" / "Folder" / localized folder-label variations
           dans les 15 premières lignes de chaque sheet (case-insensitive).
         - Matche contre sous-dossiers session : exact, case-insensitive,
           normalisé (alphanumérique seul), basename, substring (≥3 char).
@@ -191,38 +191,38 @@ class LogbookIngestController:
             import pandas as pd
         except ImportError:
             QMessageBox.warning(self._parent, "Auto-scope logbook",
-                                "pandas requis pour scanner les xlsx.")
+                                "pandas is required to scan xlsx files.")
             return
         if self._session.folder is None:
             QMessageBox.warning(self._parent, "Auto-scope logbook",
-                                "Ouvre d'abord un dossier de session.")
+                                "Open a session folder first.")
             return
         start = str(self._session.folder)
         path, _ = QFileDialog.getOpenFileName(
-            self._parent, "Fichier xlsx à scanner", start,
+            self._parent, "xlsx file to scan", start,
             "Excel (*.xlsx *.xls *.xlsm)")
         if not path:
             return
         rels = self._session_subfolders()
         if not rels:
             QMessageBox.warning(self._parent, "Auto-scope logbook",
-                                "Aucun sous-dossier détecté dans la session.")
+                                "No subfolder detected in the session.")
             return
         try:
             results = scan_xlsx_for_scoped_logbooks(pd, path, rels)
         except Exception as exc:
             QMessageBox.warning(self._parent, "Auto-scope logbook",
-                                f"Scan échoué : {exc}")
-            self._status(f"✗ Auto-scope : {exc}")
+                                f"Scan failed: {exc}")
+            self._status(f"✗ Auto-scope: {exc}")
             return
         if not results:
             QMessageBox.information(
                 self._parent, "Auto-scope logbook",
-                "Aucune sheet exploitable trouvée :\n"
-                "- Pas de cellule « Folder Name » dans les sheets, ou\n"
-                "- Le nom déclaré ne correspond à aucun sous-dossier session, ou\n"
-                "- Sheets sans colonnes file+hv détectables.\n\n"
-                f"Sous-dossiers session : {', '.join(rels[:10])}"
+                "No usable sheet found:\n"
+                "- No \"Folder Name\" cell in the sheets, or\n"
+                "- The declared name does not match any session subfolder, or\n"
+                "- Sheets have no detectable file+hv columns.\n\n"
+                f"Session subfolders: {', '.join(rels[:10])}"
             )
             return
 
@@ -242,7 +242,7 @@ class LogbookIngestController:
                     sheet_override=sheet,
                 )
             except Exception as exc:
-                self._status(f"✗ Auto-scope : {sheet} → {exc}")
+                self._status(f"✗ Auto-scope: {sheet} → {exc}")
                 continue
             # vire anciens records de ce scope
             self._session.logbook_records = [
@@ -260,27 +260,27 @@ class LogbookIngestController:
             }
         self._session.save()
         attached_txt = ", ".join(f"{e['sheet']}→{e['subfolder_rel']}" for e in chosen)
-        self._status(f"✓ Auto-scope : {len(chosen)} sheets attachées ({attached_txt})")
+        self._status(f"✓ Auto-scope: {len(chosen)} sheets attached ({attached_txt})")
         if self._parent._current_path:
             self.apply_to_controls(self._parent._current_path)
         self._browser.refresh()
 
     def _confirm_auto_scoped_dialog(self, results: list[dict]) -> list[dict]:
-        """Dialog : preview matches sheet→sous-dossier, user coche ceux à attacher."""
+        """Dialog previewing sheet-to-subfolder matches for user selection."""
         dlg = QDialog(self._parent)
-        dlg.setWindowTitle("Auto-attacher scopés — confirmation")
+        dlg.setWindowTitle("Auto-attach scoped logbooks - confirmation")
         lay = QVBoxLayout(dlg)
         lbl = QLabel(
-            f"<b>{len(results)} match(es) détectés</b><br>"
-            "Décoche ceux à ignorer. Les anciens scopés sur ces sous-dossiers "
-            "seront <b>remplacés</b>."
+            f"<b>{len(results)} match(es) detected</b><br>"
+            "Uncheck the ones to ignore. Existing scoped logbooks on these "
+            "subfolders will be <b>replaced</b>."
         )
         lbl.setWordWrap(True)
         lay.addWidget(lbl)
         lst = QListWidget()
         for r in results:
             txt = (f"{r['sheet']:25s} → {r['subfolder_rel']}  "
-                   f"(folder déclaré: {r['folder_declared']}, {r['n_rows']} lignes)")
+                   f"(declared folder: {r['folder_declared']}, {r['n_rows']} rows)")
             it = QListWidgetItem(txt)
             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             it.setCheckState(Qt.CheckState.Checked)
@@ -301,11 +301,11 @@ class LogbookIngestController:
             if lst.item(i).checkState() == Qt.CheckState.Checked
         ]
 
-    # --------------------------------------------------------- detach / état
+    # --------------------------------------------------------- detach / state
     def attached_logbooks(self) -> list[tuple[str, str, str]]:
-        """Retourne [(scope_label, filename, key)] pour menu/affichage.
+        """Return [(scope_label, filename, key)] for menu/display.
 
-        key = "" pour le global, sinon le rel du sous-dossier.
+        key = "" for the global logbook, otherwise the subfolder rel path.
         """
         out: list[tuple[str, str, str]] = []
         if self._session.logbook_path:
@@ -315,7 +315,7 @@ class LogbookIngestController:
         return out
 
     def detach_logbook(self, key: str) -> None:
-        """Détache le logbook global (key='') ou scopé (key=rel)."""
+        """Detach the global logbook (key='') or a scoped one (key=rel)."""
         if key == "":
             self._session.logbook_path = ""
             self._session.logbook_sheet = ""
@@ -330,9 +330,9 @@ class LogbookIngestController:
                 r for r in self._session.logbook_records
                 if not (isinstance(r, dict) and r.get("_subfolder_rel") == key)
             ]
-            label = f"scopé '{key}'"
+            label = f"scoped '{key}'"
         self._session.save()
-        self._status(f"Logbook {label} détaché.")
+        self._status(f"Logbook {label} detached.")
         self._browser.refresh()
 
     def open_dialog(self) -> None:
@@ -340,7 +340,7 @@ class LogbookIngestController:
         start = str(self._session.folder or Path.home())
         path, _ = QFileDialog.getOpenFileName(
             self._parent, "Logbook ARPES", start,
-            "Tous les fichiers (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)")
+            "All files (*);;Logbook (*.xlsx *.xls *.xlsm *.csv *.tsv *.txt)")
         if not path:
             return
         try:
@@ -354,19 +354,19 @@ class LogbookIngestController:
             self._session.save()
             used = ", ".join(f"{k}={v or '—'}" for k, v in mapping.items())
             sheet_txt = f" [{sheet_name}]" if sheet_name else ""
-            self._status(f"Logbook chargé : {Path(path).name}{sheet_txt} | {len(records)} lignes | {used}")
+            self._status(f"Logbook loaded: {Path(path).name}{sheet_txt} | {len(records)} rows | {used}")
             if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done(f"logbook chargé ({len(records)} lignes)")
+                self._params.mark_action_done(f"logbook loaded ({len(records)} rows)")
             QMessageBox.information(
-                self._parent, "Logbook chargé",
-                f"{Path(path).name}{sheet_txt}\n{len(records)} lignes lues.\n\nColonnes détectées :\n{used}"
+                self._parent, "Logbook loaded",
+                f"{Path(path).name}{sheet_txt}\n{len(records)} rows read.\n\nDetected columns:\n{used}"
             )
             if self._parent._current_path:
                 self.apply_to_controls(self._parent._current_path)
             self._browser.refresh()
         except Exception as exc:
             QMessageBox.warning(self._parent, "Logbook", str(exc))
-            self._status(f"Attention: Logbook : {exc}")
+            self._status(f"Warning: Logbook: {exc}")
 
     def read(
         self,
@@ -396,9 +396,9 @@ class LogbookIngestController:
         if len(sheet_names) == 1:
             return sheet_names[0]
         dlg = QDialog(self._parent)
-        dlg.setWindowTitle("Feuille du logbook")
+        dlg.setWindowTitle("Logbook sheet")
         lay = QVBoxLayout(dlg)
-        label = QLabel("Choisis la feuille qui correspond au compound / dataset.")
+        label = QLabel("Choose the sheet that matches the compound / dataset.")
         label.setWordWrap(True)
         lay.addWidget(label)
         cmb = QComboBox()
@@ -449,11 +449,11 @@ class LogbookIngestController:
 
         scored = sorted(candidates, key=score_row, reverse=True)
         dlg = QDialog(self._parent)
-        dlg.setWindowTitle("Ligne d'en-tête du logbook")
+        dlg.setWindowTitle("Logbook header row")
         lay = QVBoxLayout(dlg)
         label = QLabel(
-            "Choisis la ligne qui contient les vrais noms de colonnes "
-            "(triées par pertinence — la meilleure devinée est en haut)."
+            "Choose the row that contains the real column names "
+            "(sorted by relevance - the best guess is at the top)."
         )
         label.setWordWrap(True)
         lay.addWidget(label)
@@ -463,7 +463,7 @@ class LogbookIngestController:
             preview = " | ".join(v for v in values if v)
             score = score_row(row_idx)
             tag = "✓" if score >= 6 else ("?" if score >= 3 else "✗")
-            cmb.addItem(f"{tag} Ligne {row_idx + 1}: {preview[:140]}", row_idx)
+            cmb.addItem(f"{tag} Row {row_idx + 1}: {preview[:140]}", row_idx)
         lay.addWidget(cmb)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dlg.accept)
@@ -475,14 +475,14 @@ class LogbookIngestController:
 
     def _choose_logbook_mapping(self, columns: list[str], mapping: dict[str, str]) -> dict[str, str]:
         dlg = QDialog(self._parent)
-        dlg.setWindowTitle("Colonnes du logbook")
+        dlg.setWindowTitle("Logbook columns")
         lay = QFormLayout(dlg)
         combos: dict[str, QComboBox] = {}
         labels = {
-            "file": "Fichier / scan:",
+            "file": "File / scan:",
             "hv": "hν:",
-            "temperature": "Température:",
-            "polarization": "Polarisation:",
+            "temperature": "Temperature:",
+            "polarization": "Polarization:",
             "direction": "Direction / chemin:",
             "azi": "Azimut:",
             "polar": "Polar / theta manip:",

@@ -3,11 +3,11 @@ from __future__ import annotations
 
 
 def overlay_bz_crystal(canvas, p, raw_data) -> None:
-    """Overlay polygone BZ cristal + labels HS depuis lattice MP.
+    """Overlay the crystal BZ polygon and HS labels from the MP lattice.
 
-    Lit ``raw_data["metadata"]["fs_lattice"]`` (dict cache MP) si présent.
-    Sans lattice MP, ne dessine rien : un polygone heuristique serait
-    physiquement trompeur pour la caractérisation des poches.
+    Reads ``raw_data["metadata"]["fs_lattice"]`` (MP cache dict) if present.
+    Without an MP lattice, draws nothing: a heuristic polygon would be
+    physically misleading for pocket characterization.
     """
     from arpes.physics.bz import Lattice3D
     from arpes.physics.bz_overlay import project_hs_points
@@ -16,8 +16,8 @@ def overlay_bz_crystal(canvas, p, raw_data) -> None:
     lat_dict = meta.get("fs_lattice") or {}
     if not lat_dict:
         msg = (
-            "Pas de lattice MP : récupère la symétrie MP avant "
-            "d'afficher la BZ cristal."
+            "No MP lattice: fetch MP symmetry before "
+            "displaying the crystal BZ."
         )
         canvas.ax.text(
             0.02, 0.02, msg,

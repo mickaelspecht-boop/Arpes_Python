@@ -9,6 +9,10 @@ from arpes.physics.kz import kz_from_hv_kpar, fold_kz_to_1bz
 
 
 class FSController:
+    # P3.1: writes through to parent are allow-listed (fail-loud on typo).
+    _OWN_ATTRS = frozenset({"_parent"})
+    _PARENT_WRITES = frozenset({"_fs_distortion_cache"})
+
     def __init__(self, parent):
         object.__setattr__(self, "_parent", parent)
 
@@ -16,10 +20,16 @@ class FSController:
         return getattr(self._parent, name)
 
     def __setattr__(self, name, value):
-        if name == "_parent":
+        if name in self._OWN_ATTRS:
             object.__setattr__(self, name, value)
-        else:
+        elif name in self._PARENT_WRITES:
             setattr(self._parent, name, value)
+        else:
+            raise AttributeError(
+                f"{type(self).__name__} refuses to write '{name}': missing from "
+                "_PARENT_WRITES (typo?). Add it to _PARENT_WRITES "
+                "if the parent attribute is legitimate."
+            )
 
     def _work_func(self) -> float:
         return work_function_for_entry(
@@ -36,8 +46,42 @@ class FSController:
         return meta.get("fs_data") is not None
 
     def _on_fs_params_changed(self):
+        if self._sync_lattice_a_from_fs_controls():
+            return
         self._save_current_fs_center()
         self._draw_fs_tab()
+
+    def _sync_lattice_a_from_fs_controls(self) -> bool:
+        if not hasattr(self, "_fs_controls") or not self._current_path:
+            return False
+        try:
+            a = float(self._fs_controls.sp_a.value())
+        except Exception:
+            return False
+        if a <= 0:
+            return False
+        entry = self._current_entry()
+        if entry is None:
+            return False
+        old = float(getattr(entry.meta, "crystal_a_angstrom", 0.0) or 0.0)
+        if abs(old - a) <= 1e-9:
+            return False
+        entry.meta.crystal_a_angstrom = a
+        sp_crystal_a = getattr(self._params, "sp_crystal_a", None)
+        if sp_crystal_a is not None and abs(float(sp_crystal_a.value()) - a) > 1e-9:
+            sp_crystal_a.blockSignals(True)
+            sp_crystal_a.setValue(a)
+            sp_crystal_a.blockSignals(False)
+        try:
+            self._session.save()
+        except Exception:
+            pass
+        self._status(f"Crystal parameter a = {a:.4f} Å saved.")
+        if getattr(self, "_raw_data", None) is not None:
+            self._status("Parameter a changed: recalculating k axes without cache.")
+            self._load_ctrl.load(self._current_path, force_reload=True)
+            return True
+        return False
 
     def _schedule_fs_redraw(self, _=None):
         timer = getattr(self._parent, "_fs_redraw_timer", None)
@@ -54,7 +98,7 @@ class FSController:
         if dialog.exec():
             self._fs_controls.apply_bz_preset(dialog.selected_key)
             self._draw_fs_tab()
-            self._status(f"ZDB appliquée : {dialog.selected_key}")
+            self._status(f"ZDB applied: {dialog.selected_key}")
 
     def _save_current_fs_center(self):
         if self._raw_data is None or not self._current_path or not self._current_is_fs():
@@ -77,7 +121,7 @@ class FSController:
             return
         if not hasattr(self, "_fs_controls") or FSControlPanel is None:
             return
-        # Injecte lattice MP de l'entry dans metadata avant draw (canvas le lit).
+        # Inject the entry's MP lattice into metadata before draw (canvas reads it).
         self._inject_fs_lattice_into_raw()
         # GF redteam : applique distortion BM au volume FS si opt-in actif.
         propagated = self._apply_distortion_to_fs_volume_if_enabled()
@@ -100,9 +144,9 @@ class FSController:
         except Exception:
             pass
         self._update_fs_kz_label()
-        # Badge orange visible si propagation FS active.
+        # Orange badge visible if FS propagation is active.
         self._draw_fs_distortion_badge(propagated)
-        # B.4 — overlay BM cuts si toggle actif (after main draw).
+        # B.4: overlay BM cuts if toggle is active (after main draw).
         cuts_collected: list = []
         if getattr(self, "_show_bm_cuts", False) and self._current_is_fs():
             try:
@@ -112,8 +156,8 @@ class FSController:
                 }) or []
                 self._fs_canvas.draw_bm_cuts(cuts_collected)
             except Exception as exc:
-                self._status(f"Attention: BM cuts overlay : {exc}")
-        # A.5 — refresh liste « BMs reliées » (toujours, indépendant du toggle).
+                self._status(f"Warning: BM cuts overlay: {exc}")
+        # A.5: refresh "linked BMs" list (always, independent of toggle).
         if hasattr(self, "_fs_linked_bms"):
             try:
                 cuts_for_list = cuts_collected or (
@@ -151,7 +195,7 @@ class FSController:
                 if mp_id:
                     self._fs_controls.ed_mp_id.setText(mp_id)
         if not mp_id:
-            self._status("✗ MP : saisir mp-xxxx ou charger un fichier avec mp_id dans le logbook.")
+            self._status("✗ MP: enter mp-xxxx or load a file with mp_id in the logbook.")
             return
         cache_dir = None
         try:
@@ -162,10 +206,10 @@ class FSController:
         try:
             lat = load_lattice(mp_id, cache_dir=cache_dir)
         except MaterialsProjectUnavailable as exc:
-            self._status(f"✗ MP : {exc}")
+            self._status(f"✗ MP: {exc}")
             return
         except Exception as exc:
-            self._status(f"✗ MP : échec {exc}")
+            self._status(f"✗ MP: failed {exc}")
             return
         lat_dict = {
             "a": lat.a, "b": lat.b, "c": lat.c,
@@ -181,7 +225,7 @@ class FSController:
                 self._session.save()
             except Exception:
                 pass
-        # GF3 redteam : avertir si lattice ARPES (FSParams.a) ≠ lattice MP > 2%
+        # GF3 redteam: warn if ARPES lattice (FSParams.a) differs from MP lattice by >2%.
         try:
             a_ui = float(self._fs_controls.sp_a.value())
             rel = abs(a_ui - lat.a) / max(lat.a, 1e-6)
@@ -189,16 +233,16 @@ class FSController:
                 if entry is not None:
                     entry.fs_bz_crystal_force_override = False
                 self._status(
-                    f"⚠ BZ MP désactivée tant que non forcée : a ARPES "
-                    f"({a_ui:.3f}) ≠ a MP ({lat.a:.3f}), écart {100*rel:.1f}%."
+                    f"⚠ MP BZ disabled until forced: ARPES a "
+                    f"({a_ui:.3f}) ≠ MP a ({lat.a:.3f}), difference {100*rel:.1f}%."
                 )
             else:
                 self._status(
-                    f"✓ Symétrie MP récupérée : {lat.bravais}, "
+                    f"✓ MP symmetry fetched: {lat.bravais}, "
                     f"a={lat.a:.3f} Å, c={lat.c:.3f} Å ({lat.space_group or 'sg ?'})"
                 )
         except Exception:
-            self._status(f"✓ Symétrie MP récupérée pour {mp_id}.")
+            self._status(f"✓ MP symmetry fetched for {mp_id}.")
         self._draw_fs_tab()
 
     def _save_current_bz_crystal_settings(self):
@@ -246,21 +290,21 @@ class FSController:
         from PyQt6.QtWidgets import QMessageBox
 
         box = QMessageBox(self._parent)
-        box.setWindowTitle("Cohérence BZ MP")
+        box.setWindowTitle("MP BZ Consistency")
         box.setText(
-            f"Refuser overlay BZ MP : a ARPES = {a_ui:.3f} Å, "
-            f"a MP = {a_mp:.3f} Å, écart = {100*rel:.1f}% (> 2%).\n\n"
-            "Forcer seulement si les unités k sont volontairement calibrées "
-            "avec un autre paramètre de maille."
+            f"Refusing MP BZ overlay: ARPES a = {a_ui:.3f} Å, "
+            f"MP a = {a_mp:.3f} Å, difference = {100*rel:.1f}% (> 2%).\n\n"
+            "Force only if the k units were intentionally calibrated "
+            "with another lattice parameter."
         )
-        force_btn = box.addButton("Forcer override", QMessageBox.ButtonRole.AcceptRole)
-        disable_btn = box.addButton("Désactiver", QMessageBox.ButtonRole.RejectRole)
+        force_btn = box.addButton("Force Override", QMessageBox.ButtonRole.AcceptRole)
+        disable_btn = box.addButton("Disable", QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(disable_btn)
         box.exec()
         if box.clickedButton() == force_btn:
             entry.fs_bz_crystal_force_override = True
             self._session.save()
-            self._status(f"⚠ BZ MP forcée malgré écart a ARPES/MP {100*rel:.1f}%.")
+            self._status(f"⚠ MP BZ forced despite ARPES/MP a difference {100*rel:.1f}%.")
             self._warn_crystal_symmetry_mismatch(p, lat)
             return True
 
@@ -269,7 +313,7 @@ class FSController:
         entry.fs_hs_crystal_visible = False
         entry.fs_bz_crystal_force_override = False
         self._session.save()
-        self._status(f"BZ MP désactivée : écart a ARPES/MP {100*rel:.1f}% (> 2%).")
+        self._status(f"MP BZ disabled: ARPES/MP a difference {100*rel:.1f}% (> 2%).")
         return False
 
     def _set_bz_crystal_checks(self, checked: bool) -> None:
@@ -292,17 +336,17 @@ class FSController:
         shape = str(getattr(params, "bz_shape", "") or "").lower()
         if "hex" in bravais and shape in {"square", "rectangle", "centered_rect"}:
             self._status(
-                "⚠ BZ MP : bravais hexagonal, mais preset FS C4/rectangulaire. "
-                "Vérifie le mp_id ou la symétrie visible."
+                "⚠ MP BZ: hexagonal Bravais, but FS preset is C4/rectangular. "
+                "Check the mp_id or visible symmetry."
             )
         elif any(k in bravais for k in ("tetra", "ortho", "cubic")) and shape == "hexagon":
             self._status(
-                "⚠ BZ MP : bravais C4/orthogonal, mais preset FS hexagonal. "
-                "Vérifie le mp_id ou la symétrie visible."
+                "⚠ MP BZ: C4/orthogonal Bravais, but FS preset is hexagonal. "
+                "Check the mp_id or visible symmetry."
             )
 
     def _inject_fs_lattice_into_raw(self):
-        """Pousse fs_lattice (depuis FileEntry) dans raw_data.metadata."""
+        """Push fs_lattice (from FileEntry) into raw_data.metadata."""
         if self._raw_data is None:
             return
         entry = self._current_entry()
@@ -316,7 +360,7 @@ class FSController:
         self._raw_data["metadata"] = meta
 
     def _update_fs_kz_label(self):
-        """Met à jour label kz dans le panel FS (GF5 redteam : repliement 1BZ)."""
+        """Update the kz label in the FS panel (GF5 redteam: 1BZ folding)."""
         if not hasattr(self, "_fs_controls"):
             return
         lbl = getattr(self._fs_controls, "lbl_kz", None)
@@ -327,7 +371,7 @@ class FSController:
         except Exception:
             hv = None
         if not hv or hv <= 0:
-            lbl.setText("kz : —  |  hν inconnu  |  cristal : "
+            lbl.setText("kz: —  |  unknown hν  |  crystal: "
                         + self._lattice_summary())
             return
         try:
@@ -344,19 +388,19 @@ class FSController:
             c = float(lat_dict.get("c", 0.0) or 0.0)
             if c > 0:
                 folded = fold_kz_to_1bz(kz_val, c)
-                bord = " ⚠ proche bord" if folded["near_boundary"] else ""
+                bord = " ⚠ near boundary" if folded["near_boundary"] else ""
                 lbl.setText(
                     f"kz = {folded['kz_reduced_pi_over_c']:.3f} π/c  "
-                    f"| plan : {folded['plane']}  (zone n={folded['n_zone']}){bord}  "
-                    f"| cristal : {self._lattice_summary()}"
+                    f"| plane: {folded['plane']}  (zone n={folded['n_zone']}){bord}  "
+                    f"| crystal: {self._lattice_summary()}"
                 )
             else:
                 lbl.setText(
-                    f"kz = {kz_val:.3f} Å⁻¹  |  c inconnu (récup MP)  "
-                    f"|  cristal : {self._lattice_summary()}"
+                    f"kz = {kz_val:.3f} Å⁻¹  |  unknown c (fetch MP)  "
+                    f"|  crystal: {self._lattice_summary()}"
                 )
         except Exception as exc:
-            lbl.setText(f"kz : erreur ({exc})")
+            lbl.setText(f"kz: error ({exc})")
 
     # ------------------------------------------------------------------
     #  Propagation distortion BM → volume FS (opt-in)
@@ -384,7 +428,7 @@ class FSController:
             except Exception:
                 pass
         self._sync_distortion_fs_toggles(enabled)
-        # Invalide cache local pour forcer recalcul
+        # Invalidate local cache to force recalculation.
         self._fs_distortion_cache_invalidate()
         self._draw_fs_tab()
 
@@ -393,14 +437,14 @@ class FSController:
             self._fs_distortion_cache.clear()
 
     def _apply_distortion_to_fs_volume_if_enabled(self) -> bool:
-        """Si opt-in actif + cfg distortion valide : swap fs_data → corrigé.
+        """If opt-in active + valid distortion cfg: swap fs_data → corrected.
 
-        Retourne ``True`` si propagation effective (pour badge).
+        Returns ``True`` if propagation was effectively applied (for badge).
 
-        Garde-fous :
-        - Refus silencieux si pas FS (fs_data absent).
-        - Refus + warning si calib_key BM ≠ FS (calib_key_for_meta).
-        - Refus + warning si drift_ratio > 15% (calculé dans
+        Guards:
+        - Silent refusal if not FS (fs_data absent).
+        - Refusal + warning if BM calib_key ≠ FS (calib_key_for_meta).
+        - Refusal + warning if drift_ratio > 15% (computed in
           apply_distortion_to_fs_volume).
         """
         from arpes.physics.distortion import (
@@ -424,13 +468,13 @@ class FSController:
         if not is_distortion_active(cfg):
             self._restore_fs_data_original()
             self._status(
-                "⚠ Distortion FS : aucune calibration BM active pour cette FS "
-                "(calibrer une BM de même géométrie puis activer ici)."
+                "⚠ FS distortion: no active BM calibration for this FS "
+                "(calibrate a BM with the same geometry, then enable here)."
             )
             self._disable_fs_distortion_after_failure(entry)
             return False
 
-        # Sauve original si pas déjà fait (clé séparée pour restore propre).
+        # Save original if not already done (separate key for clean restore).
         if "fs_data_orig" not in meta:
             meta["fs_data_orig"] = meta["fs_data"]
 
@@ -439,7 +483,7 @@ class FSController:
         ev = np.asarray(meta.get("fs_energy"), dtype=float)
         fs_orig = np.asarray(meta["fs_data_orig"])
 
-        # Cache LRU 1 entrée par signature.
+        # 1-entry LRU cache per signature.
         if not hasattr(self, "_fs_distortion_cache"):
             self._fs_distortion_cache = {}
         from arpes.physics.distortion import cache_signature
@@ -456,12 +500,12 @@ class FSController:
                 fs_orig, kx, ky, ev, cfg, bm_checksum=bm_chk,
             )
         except ValueError as exc:
-            self._status(f"⚠ Distortion FS : {exc}")
+            self._status(f"⚠ FS distortion: {exc}")
             self._restore_fs_data_original()
             self._disable_fs_distortion_after_failure(entry)
             return False
         except Exception as exc:
-            self._status(f"✗ Distortion FS : échec {exc}")
+            self._status(f"✗ FS distortion: failed {exc}")
             self._restore_fs_data_original()
             self._disable_fs_distortion_after_failure(entry)
             return False
@@ -471,13 +515,13 @@ class FSController:
             self._disable_fs_distortion_after_failure(entry)
             return False
 
-        # Cache LRU 1 entrée (clear avant insert)
+        # 1-entry LRU cache (clear before insert).
         self._fs_distortion_cache.clear()
         self._fs_distortion_cache[sig] = corrected
         meta["fs_data"] = corrected
         self._raw_data["metadata"] = meta
         self._status(
-            f"✓ Distortion BM propagée au volume FS "
+            f"✓ BM distortion propagated to FS volume "
             f"(n_slices={info.get('n_slices', 0)}, "
             f"drift={info.get('drift_ratio', 0.0):.3f})"
         )
@@ -492,11 +536,11 @@ class FSController:
         self._sync_distortion_fs_toggles(False)
 
     def _distortion_cfg_for_current_fs(self, entry, meta: dict) -> dict:
-        """Retourne la config distortion à utiliser pour FS.
+        """Return the distortion config to use for FS.
 
-        Priorité :
-        1. config stockée directement sur l'entrée FS ;
-        2. calibration partagée `(lens_mode, pass_energy, hv)` créée depuis une BM.
+        Priority:
+        1. config stored directly on the FS entry;
+        2. shared calibration `(lens_mode, pass_energy, hv)` created from a BM.
         """
         from arpes.physics.distortion import calib_key_for_meta, is_distortion_active
         from arpes.ui.controllers.distortion_controller import _load_calib_store
@@ -540,14 +584,14 @@ class FSController:
             self._raw_data["metadata"] = meta
 
     def _draw_fs_distortion_badge(self, active: bool):
-        """Badge orange coin haut-droit canvas FS quand propagation active."""
+        """Orange badge in the top-right FS canvas corner when propagation is active."""
         if not hasattr(self, "_fs_canvas"):
             return
         if not active:
             return
         try:
             txt = self._fs_canvas.ax.text(
-                0.98, 0.98, "FS distordue (BM-calib)",
+                0.98, 0.98, "FS distorted (BM-calib)",
                 transform=self._fs_canvas.ax.transAxes,
                 ha="right", va="top",
                 color="white", fontsize=9, fontweight="bold",
@@ -561,7 +605,7 @@ class FSController:
             pass
 
     def _restore_fs_crystal_settings_from_entry(self, entry):
-        """Sync widgets BZ-crystal depuis FileEntry (au chargement de fichier)."""
+        """Sync BZ-crystal widgets from FileEntry (on file load)."""
         if not hasattr(self, "_fs_controls") or entry is None:
             return
         c = self._fs_controls
@@ -583,12 +627,12 @@ class FSController:
         finally:
             for w in widgets:
                 w.blockSignals(False)
-        # Sync chk propagation distortion (panel distortion vit dans _params).
+        # Sync distortion propagation checkbox (distortion panel lives in _params).
         if hasattr(self, "_params") and hasattr(self._params, "chk_distortion_fs_propagate"):
             self._sync_distortion_fs_toggles(
                 bool(getattr(entry, "propagate_distortion_to_fs", False))
             )
-        # Invalide cache distortion FS (changement de fichier)
+        # Invalidate FS distortion cache (file changed).
         self._fs_distortion_cache_invalidate()
 
     def _sync_distortion_fs_toggles(self, enabled: bool) -> None:
@@ -607,10 +651,10 @@ class FSController:
     def _lattice_summary(self) -> str:
         entry = self._current_entry()
         if entry is None:
-            return "non chargé"
+            return "not loaded"
         lat = getattr(entry, "fs_lattice", None) or {}
         if not lat:
-            return "non chargé"
+            return "not loaded"
         return (f"{lat.get('bravais', '?')} "
                 f"a={float(lat.get('a', 0)):.2f} Å "
                 f"c={float(lat.get('c', 0)):.2f} Å")

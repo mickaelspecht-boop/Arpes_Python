@@ -1,13 +1,13 @@
 """MDC-radial kF extraction (publication-grade).
 
-Pour chaque direction angulaire depuis un centre estimé, extraire la MDC
-le long du rayon, ajuster un Lorentzien et retourner le rayon de Fermi
-``kF(θ)`` avec incertitude tirée de la matrice de covariance du fit.
+For each angular direction from an estimated center, extract the MDC along the
+radius, fit a Lorentzian, and return the Fermi radius ``kF(theta)`` with
+uncertainty from the fit covariance matrix.
 
-Référence : Damascelli, Hussain, Shen, RMP 75 (2003) — kF = max de
-A(k, ω=EF) → fit MDC à EF, pas iso-intensité.
+Reference: Damascelli, Hussain, Shen, RMP 75 (2003): kF = max of A(k, omega=EF),
+so fit the MDC at EF, not an iso-intensity contour.
 
-Aucun PyQt. Pure numpy/scipy.
+No PyQt. Pure numpy/scipy.
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def sample_radial_mdc(
     NaN où la sonde sort de la grille.
     """
     if r_max <= 0 or n_points < 4:
-        raise ValueError("sample_radial_mdc : r_max>0 et n_points>=4 requis.")
+        raise ValueError("sample_radial_mdc: r_max>0 and n_points>=4 required.")
     theta = np.radians(float(theta_deg))
     radii = np.linspace(0.0, float(r_max), int(n_points))
     cx, cy = float(center[0]), float(center[1])
@@ -169,7 +169,7 @@ def characterize_pocket_mdc_radial(
     x = np.asarray(kx, dtype=float); y = np.asarray(ky, dtype=float)
     z = np.asarray(image, dtype=float)
     if z.ndim != 2 or z.shape != (y.size, x.size):
-        raise ValueError("image FS doit être 2D avec shape (ky, kx).")
+        raise ValueError("FS image must be 2D with shape (ky, kx).")
     if r_max is None or r_max <= 0:
         rx = min(x[-1] - float(seed_point[0]), float(seed_point[0]) - x[0])
         ry = min(y[-1] - float(seed_point[1]), float(seed_point[1]) - y[0])
@@ -202,8 +202,8 @@ def characterize_pocket_mdc_radial(
                     center[1] + r.kF * np.sin(th)))
     if len(pts) < 2:
         raise ValueError(
-            f"MDC-radial : seulement {len(pts)} directions valides ; "
-            "augmente n_directions ou baisse r2_min."
+            f"MDC-radial: only {len(pts)} valid directions; "
+            "increase n_directions or lower r2_min."
         )
     arr = np.asarray(pts, dtype=float)
     arr = np.vstack([arr, arr[0]])

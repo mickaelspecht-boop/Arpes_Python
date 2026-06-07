@@ -1,4 +1,4 @@
-"""Helpers Qt partagés (spinboxes pré-configurés, séparateurs, palette pairs)."""
+"""Shared Qt helpers (preconfigured spinboxes, separators, pair palette)."""
 from __future__ import annotations
 
 from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QPushButton, QSizePolicy, QSpinBox
@@ -27,7 +27,7 @@ def hsep() -> QFrame:
 
 
 def compact_button(button: QPushButton, max_width: int = 220) -> QPushButton:
-    """Garde un bouton lisible sans l'étirer sur toute la largeur du panneau."""
+    """Keep a button readable without stretching it across the full panel width."""
     button.setMaximumWidth(max_width)
     button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
     return button

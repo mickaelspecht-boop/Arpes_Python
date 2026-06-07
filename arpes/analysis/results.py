@@ -1,19 +1,20 @@
-"""Extraction de résultats physiques + incertitudes depuis un fit MDC.
+"""Extraction of physical results and uncertainties from an MDC fit.
 
-Tous les calculs partent du dict ``fit_result`` produit par mdc_fit. Les
-incertitudes statistiques par slice (sigma_kF_*, sigma_gamma) sont propagées
-via régression linéaire pondérée pour les grandeurs globales (kF à E_F, vF,
+All calculations start from the ``fit_result`` dict produced by mdc_fit. The
+per-slice statistical uncertainties (sigma_kF_*, sigma_gamma) are propagated
+through weighted linear regression for the global quantities (kF at E_F, vF,
 m*, Γ_FL).
 
 Conventions
 -----------
-* ``kF`` est exprimé en π/a (axe k de la BM). La conversion vers Å⁻¹ se fait
-  hors de ce module via le paramètre du cristal ``a`` si voulu.
-* ``vF`` est exprimé en eV·(π/a) — dérivée dE/dk dans le repère natif. Pour
-  obtenir ℏvF en eV·Å, multiplier par ``a/π``.
-* ``m_star`` rapporté en unités de masse de l'électron via la formule
-  ``m*/m_e = ℏ² · kF / vF`` après conversion d'unités. La conversion utilise
-  la constante ``HBAR2_OVER_ME = 7.6199682e-2 eV·Å²``.
+* ``kF`` is expressed in π/a (BM k axis). Conversion to Å⁻¹ is done outside
+  this module through the crystal parameter ``a`` if needed.
+* ``vF`` is expressed in eV·(π/a), the dE/dk derivative in the native frame.
+  To obtain ℏvF in eV·Å, multiply by ``a/π``.
+* ``m_star`` is reported in electron-mass units through
+  ``m*/m_e = ℏ² · kF / vF`` after unit conversion. The conversion uses the
+  constant ``HBAR2_OVER_ME = 7.6199682 eV·Å²`` (= ℏ²/m_e; ref ℏ²/2m_e
+  = 3.80998 eV·Å²).
 """
 from __future__ import annotations
 
@@ -23,7 +24,16 @@ import math
 
 import numpy as np
 
-HBAR2_OVER_ME_eV_A2 = 7.6199682e-2  # ℏ² / m_e en eV·Å²
+from arpes.physics.dispersion_fit import (
+    CURVATURE_MAX,
+    MIN_DISP_POINTS,
+    curvature_ratio,
+    linear_dispersion_fit,
+)
+
+# ℏ²/m_e in eV·Å² (ℏ²/2m_e = 3.80998 eV·Å²). Fixed bug: previously 7.62e-2
+# (100× too small) -> exported m* was underestimated by 100×. Consistent with physics/fit.py.
+HBAR2_OVER_ME_eV_A2 = 7.6199682
 
 
 @dataclass(frozen=True)
@@ -37,7 +47,7 @@ class LinearFit:
 
 @dataclass(frozen=True)
 class BranchResult:
-    """Résultats par branche kF (kF_minus ou kF_plus) d'une paire donnée."""
+    """Results per kF branch (kF_minus or kF_plus) for a given pair."""
     branch: str = ""
     pair_index: int = 0
     kF_at_EF: float = float("nan")
@@ -50,11 +60,13 @@ class BranchResult:
     luttinger_density_sigma: float = float("nan")
     luttinger_units: str = ""
     n_points_used: int = 0
+    linear_ok: bool = True
+    refused_reason: str = ""
 
 
 @dataclass(frozen=True)
 class GammaFermiLiquid:
-    """Fit Γ(E) = Γ₀ + a·E² (Fermi liquid) sur une paire."""
+    """Fit Γ(E) = Γ₀ + a·E² (Fermi liquid) for one pair."""
     pair_index: int = 0
     gamma_zero: float = float("nan")
     gamma_zero_sigma: float = float("nan")
@@ -92,10 +104,10 @@ def weighted_linear_fit(
     y: np.ndarray,
     sigma: np.ndarray | None = None,
 ) -> LinearFit:
-    """Régression linéaire ``y = slope·x + intercept`` avec σ statistiques.
+    """Linear regression ``y = slope·x + intercept`` with statistical σ.
 
-    Renvoie pente, ordonnée et leurs écart-types via la matrice de covariance
-    standard. Skip NaN. Sigma=None → pondération uniforme.
+    Returns slope, intercept, and their standard deviations from the standard
+    covariance matrix. Skips NaN. Sigma=None -> uniform weighting.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -153,36 +165,67 @@ def extract_branch_result(
     e_window: float = 0.10,
     crystal_a_angstrom: float = 0.0,
 ) -> BranchResult:
-    """kF₀, vF, m*, n_Luttinger pour ``(branch, pair_index)``.
+    """kF₀, vF, m*, n_Luttinger for ``(branch, pair_index)``.
 
-    Sélectionne les slices |E| ≤ ``e_window`` autour de E_F=0, ajuste
-    ``E = α + β·k`` (régression pondérée par σ_k). On a vF = β et
-    kF = -α/β. Propagation linéaire pour σ_kF, σ_vF, σ_m*.
+    Selects slices with |E| ≤ ``e_window`` around E_F=0 and fits
+    ``E = α + β·k`` (weighted regression by σ_k). Then vF = β and kF = -α/β.
+    Uses linear propagation for σ_kF, σ_vF, σ_m*.
     """
     e, k, sk = _branch_arrays(fit_result, branch, pair_index)
     valid = np.isfinite(k) & np.isfinite(e) & (np.abs(e) <= float(e_window))
     e_w, k_w = e[valid], k[valid]
     sk_w = sk[valid] if sk.size else None
-    if int(valid.sum()) < 3:
-        return BranchResult(branch=branch, pair_index=pair_index, n_points_used=int(valid.sum()))
+    n_valid = int(valid.sum())
+    # P2.2: ≥5 points required (quadratic gate + ODR is meaningless below this threshold).
+    if n_valid < MIN_DISP_POINTS:
+        return BranchResult(
+            branch=branch, pair_index=pair_index, n_points_used=n_valid,
+            linear_ok=False,
+            refused_reason=f"too few points ({n_valid} < {MIN_DISP_POINTS})",
+        )
 
-    # Régresse E = alpha + beta * k. β = dE/dk = vF (eV·π/a).
-    # σ_k joue le rôle d'incertitude horizontale ; on l'utilise comme poids
-    # 1/σ² approximatif (régression orthogonale serait plus rigoureuse).
-    fit = weighted_linear_fit(k_w, e_w, sigma=sk_w)
-    if fit.n_points < 3 or not math.isfinite(fit.slope) or abs(fit.slope) < 1e-9:
-        return BranchResult(branch=branch, pair_index=pair_index, n_points_used=fit.n_points)
+    # P2.2: linearity gate: quadratic curvature relative to the slope.
+    # kF=−α/β only makes sense if E(k) is linear near E_F (otherwise a kink or
+    # Fermi cutoff contaminates the extrapolation).
+    curv = curvature_ratio(k_w, e_w)
+    if not math.isfinite(curv) or curv > CURVATURE_MAX:
+        return BranchResult(
+            branch=branch, pair_index=pair_index, n_points_used=n_valid,
+            linear_ok=False,
+            refused_reason=f"nonlinear band (curvature {curv:.2f} > {CURVATURE_MAX})",
+        )
 
-    alpha = fit.intercept
-    beta = fit.slope
-    sigma_alpha = fit.intercept_sigma
-    sigma_beta = fit.slope_sigma
-    kF = -alpha / beta
-    sigma_kF = math.sqrt(
-        (sigma_alpha / beta) ** 2 + (alpha * sigma_beta / (beta ** 2)) ** 2
+    # P2.2: orthogonal regression (scipy.odr), weighted by real σ_k when
+    # available: both E and k carry noise, so vertical OLS underestimates β.
+    # Weighted OLS fallback (polyfit cov) without σ_k. Returns β=dE/dk=vF
+    # (eV·π/a) and the 2×2 covariance (α↔β correlation kept for σ_kF/σ_m*).
+    sk_use = (
+        sk_w if (sk_w is not None and np.all(np.isfinite(sk_w)) and np.all(sk_w > 0))
+        else None
     )
+    fit = linear_dispersion_fit(k_w, e_w, sk_use)
+    if not fit["ok"]:
+        return BranchResult(
+            branch=branch, pair_index=pair_index, n_points_used=n_valid,
+            linear_ok=False, refused_reason="regression did not converge / degenerate",
+        )
 
-    # vF en eV·(π/a). m*/m_e calculé seulement si crystal_a_angstrom > 0.
+    beta = float(fit["slope"])        # vF in eV·(π/a)
+    alpha = float(fit["intercept"])
+    cov = fit["cov"]
+    var_b = float(cov[0, 0])
+    var_a = float(cov[1, 1])
+    cov_ab = float(cov[0, 1])
+    sigma_beta = math.sqrt(max(var_b, 0.0))
+    kF = -alpha / beta
+    # σ_kF with full covariance: ∂kF/∂α=−1/β, ∂kF/∂β=α/β².
+    dkF_da = -1.0 / beta
+    dkF_db = alpha / (beta * beta)
+    var_kF = (dkF_da ** 2 * var_a + dkF_db ** 2 * var_b
+              + 2.0 * dkF_da * dkF_db * cov_ab)
+    sigma_kF = math.sqrt(max(var_kF, 0.0))
+
+    # vF in eV·(π/a). m*/m_e is computed only if crystal_a_angstrom > 0.
     vF = beta
     sigma_vF = sigma_beta
     m_star_ratio = float("nan")
@@ -191,26 +234,30 @@ def extract_branch_result(
     sigma_luttinger = float("nan")
 
     if crystal_a_angstrom > 0:
-        # kF en Å⁻¹ : kF_A = kF * π / a
+        # kF in Å⁻¹: kF_A = kF * π / a
         kF_A = kF * math.pi / crystal_a_angstrom
         sigma_kF_A = sigma_kF * math.pi / crystal_a_angstrom
-        # vF en eV·Å : vF_A = vF * a / π
+        # vF in eV·Å: vF_A = vF * a / π
         vF_A = vF * crystal_a_angstrom / math.pi
         sigma_vF_A = sigma_vF * crystal_a_angstrom / math.pi
         # m*/m_e = ℏ² kF / (m_e · ℏvF) = (ℏ²/m_e) · kF / (ℏvF)
-        # Avec vF en eV·Å, ℏvF est implicite (unités atomiques). On utilise :
+        # With vF in eV·Å, ℏvF is implicit (atomic units). Use:
         #   m*/m_e ≈ HBAR2_OVER_ME_eV_A2 · kF / vF_eV_A
-        # (kF en Å⁻¹, vF en eV·Å → ratio sans dimension)
+        # (kF in Å⁻¹, vF in eV·Å -> dimensionless ratio)
         m_star_ratio = HBAR2_OVER_ME_eV_A2 * abs(kF_A) / abs(vF_A) if abs(vF_A) > 0 else float("nan")
-        if math.isfinite(m_star_ratio):
-            rel = math.sqrt((sigma_kF_A / kF_A) ** 2 + (sigma_vF_A / vF_A) ** 2)
-            sigma_m_star = m_star_ratio * rel
-        # Densité Luttinger 2D avec dégénérescence spin.
+        if math.isfinite(m_star_ratio) and alpha != 0.0:
+            # m* ∝ |α|/β² -> σ_m* via full covariance (α,β correlated in the
+            # same fit; assuming independence underestimates σ).
+            rel_var = (var_a / (alpha * alpha)
+                       + 4.0 * var_b / (beta * beta)
+                       - 4.0 * cov_ab / (alpha * beta))
+            sigma_m_star = m_star_ratio * math.sqrt(max(rel_var, 0.0))
+        # 2D Luttinger density with spin degeneracy.
         luttinger = 2.0 * kF_A ** 2 / (2.0 * math.pi)
         sigma_luttinger = 2.0 * abs(2.0 * kF_A * sigma_kF_A) / (2.0 * math.pi)
         luttinger_units = "A^-2"
     else:
-        # Densité Luttinger en unités réduites avec dégénérescence spin.
+        # Luttinger density in reduced units with spin degeneracy.
         luttinger = 2.0 * (kF ** 2) / (2.0 * math.pi)
         sigma_luttinger = 2.0 * abs(2.0 * kF * sigma_kF) / (2.0 * math.pi)
         luttinger_units = "(pi/a)^2"
@@ -227,7 +274,9 @@ def extract_branch_result(
         luttinger_density_pi_a2=float(luttinger),
         luttinger_density_sigma=float(sigma_luttinger),
         luttinger_units=luttinger_units,
-        n_points_used=int(fit.n_points),
+        n_points_used=n_valid,
+        linear_ok=True,
+        refused_reason="",
     )
 
 
@@ -237,10 +286,10 @@ def fit_gamma_fermi_liquid(
     pair_index: int,
     e_window: float = 0.30,
 ) -> GammaFermiLiquid:
-    """Fit Γ(E) = Γ₀ + a·E² par régression pondérée sur σ_gamma.
+    """Fit Γ(E) = Γ₀ + a·E² by weighted regression on σ_gamma.
 
-    Utilise ``gamma_corrige`` si dispo (résolution déconvoluée), sinon
-    ``gamma`` brut.
+    Uses ``gamma_corrige`` if available (deconvolved resolution), otherwise raw
+    ``gamma``.
     """
     e = np.asarray(fit_result.get("e_fitted", []), dtype=float)
     g_arrays = fit_result.get("gamma_corrige") or fit_result.get("gamma") or []
@@ -277,10 +326,10 @@ def compute_asymmetry(
     e_window: float = 0.10,
     significance_sigma: float = 2.0,
 ) -> AsymmetryCheck:
-    """Compare ``kF_plus`` vs ``|kF_minus|`` près de E_F.
+    """Compare ``kF_plus`` vs ``|kF_minus|`` near E_F.
 
-    Renvoie ``delta_kF = kF_plus - |kF_minus|`` ± σ et un booléen
-    ``is_symmetric`` vrai si ``|delta| ≤ significance_sigma · σ``.
+    Returns ``delta_kF = kF_plus - |kF_minus|`` ± σ and a boolean
+    ``is_symmetric`` true if ``|delta| ≤ significance_sigma · σ``.
     """
     bm = extract_branch_result(fit_result, branch="kF_minus", pair_index=pair_index, e_window=e_window)
     bp = extract_branch_result(fit_result, branch="kF_plus", pair_index=pair_index, e_window=e_window)
@@ -304,7 +353,7 @@ def compute_results(
     e_window_gamma: float = 0.30,
     crystal_a_angstrom: float = 0.0,
 ) -> ResultsBundle:
-    """Calcule tous les résultats physiques + incertitudes depuis un fit."""
+    """Compute all physical results and uncertainties from a fit."""
     if not fit_result:
         return ResultsBundle()
     n_pairs = int(fit_result.get("n_pairs", 0) or 0)

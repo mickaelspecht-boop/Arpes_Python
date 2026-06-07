@@ -21,7 +21,7 @@ def load_local_band_data(path: str | Path) -> TheoryBandData:
         return load_vasprun(path)
     if suffix in {".dat", ".txt"}:
         return load_qe_bands(path)
-    raise ValueError(f"Format DFT local non supporte: {suffix or path.name}")
+    raise ValueError(f"Unsupported local DFT format: {suffix or path.name}")
 
 
 def load_vasprun(path: str | Path) -> TheoryBandData:
@@ -30,12 +30,12 @@ def load_vasprun(path: str | Path) -> TheoryBandData:
     try:
         from pymatgen.io.vasp.outputs import Vasprun
     except Exception as exc:  # pragma: no cover - depends on optional install
-        raise RuntimeError("Import VASP indisponible: pymatgen est requis.") from exc
+        raise RuntimeError("VASP import unavailable: pymatgen is required.") from exc
 
     try:
         bandstructure = Vasprun(str(path), parse_projected_eigen=False).get_band_structure(line_mode=True)
     except Exception as exc:
-        raise ValueError(f"Lecture vasprun.xml impossible: {exc}") from exc
+        raise ValueError(f"Cannot read vasprun.xml: {exc}") from exc
     return bandstructure_to_theory_data(
         bandstructure,
         material_id=f"local:{path.stem}",
@@ -61,10 +61,10 @@ def load_qe_bands(path: str | Path) -> TheoryBandData:
         except ValueError:
             continue
     if not rows:
-        raise ValueError("Fichier QE vide ou sans lignes numeriques.")
+        raise ValueError("QE file is empty or has no numeric rows.")
     width = len(rows[0])
     if width < 2 or any(len(row) != width for row in rows):
-        raise ValueError("Table QE invalide: lignes de tailles incompatibles.")
+        raise ValueError("Invalid QE table: incompatible row widths.")
 
     arr = np.asarray(rows, dtype=float)
     if width >= 5 and _looks_like_fractional_kpoints(arr[:, :3]):
@@ -74,7 +74,7 @@ def load_qe_bands(path: str | Path) -> TheoryBandData:
         k_distance = arr[:, 0]
         energies = arr[:, 1:]
     if energies.shape[1] == 0:
-        raise ValueError("Table QE invalide: aucune bande detectee.")
+        raise ValueError("Invalid QE table: no band detected.")
     return TheoryBandData(
         source="local_qe",
         material_id=f"local:{path.stem}",
@@ -92,7 +92,7 @@ def load_yaml_bands(path: str | Path) -> TheoryBandData:
     efermi = _as_float(data.get("efermi", 0.0), "efermi")
     bands = np.asarray(data.get("bands"), dtype=float)
     if bands.ndim != 2 or bands.shape[0] == 0 or bands.shape[1] == 0:
-        raise ValueError("Schema DFT local invalide: 'bands' doit etre une matrice band x kpoint.")
+        raise ValueError("Invalid local DFT schema: 'bands' must be a band x k-point matrix.")
     k_distance = _k_axis_from_mapping(data, bands.shape[1])
     labels = _labels_from_mapping(data.get("labels"), k_distance)
     return TheoryBandData(
@@ -119,11 +119,11 @@ def _read_mapping(path: Path) -> dict[str, Any]:
             try:
                 data = ast.literal_eval(text)
             except Exception as exc:
-                raise RuntimeError("Lecture YAML impossible: installer PyYAML ou fournir du JSON.") from exc
+                raise RuntimeError("Cannot read YAML: install PyYAML or provide JSON.") from exc
         else:
             data = yaml.safe_load(text)
     if not isinstance(data, dict):
-        raise ValueError("Schema DFT local invalide: racine attendue = mapping.")
+        raise ValueError("Invalid local DFT schema: root must be a mapping.")
     return data
 
 
@@ -133,14 +133,14 @@ def _k_axis_from_mapping(data: dict[str, Any], n_k: int) -> np.ndarray:
     elif "kpoints" in data:
         kpoints = np.asarray(data["kpoints"], dtype=float)
         if kpoints.ndim != 2:
-            raise ValueError("Schema DFT local invalide: 'kpoints' doit etre une matrice.")
+            raise ValueError("Invalid local DFT schema: 'kpoints' must be a matrix.")
         k_distance = _cumulative_distance(kpoints)
     else:
         k_distance = np.linspace(0.0, 1.0, n_k)
     if k_distance.size != n_k:
-        raise ValueError("Schema DFT local invalide: longueur k incompatible avec les bandes.")
+        raise ValueError("Invalid local DFT schema: k-axis length is incompatible with bands.")
     if not np.all(np.isfinite(k_distance)):
-        raise ValueError("Schema DFT local invalide: axe k non fini.")
+        raise ValueError("Invalid local DFT schema: k axis is not finite.")
     return k_distance.astype(float)
 
 
@@ -153,10 +153,10 @@ def _labels_from_mapping(raw: Any, k_distance: np.ndarray) -> list[dict[str, Any
     elif isinstance(raw, list):
         iterator = raw
     else:
-        raise ValueError("Schema DFT local invalide: 'labels' doit etre un mapping ou une liste.")
+        raise ValueError("Invalid local DFT schema: 'labels' must be a mapping or a list.")
     for item in iterator:
         if not isinstance(item, dict):
-            raise ValueError("Schema DFT local invalide: label non structure.")
+            raise ValueError("Invalid local DFT schema: label is not structured.")
         label = _clean_label(item.get("label", ""))
         if not label:
             continue
@@ -164,7 +164,7 @@ def _labels_from_mapping(raw: Any, k_distance: np.ndarray) -> list[dict[str, Any
         if "index" in item and "k" not in item and "position" not in item:
             idx = int(pos)
             if idx < 0 or idx >= k_distance.size:
-                raise ValueError(f"Label {label}: index hors axe k.")
+                raise ValueError(f"Label {label}: index outside k axis.")
             pos = float(k_distance[idx])
         labels.append({"label": label, "k": _as_float(pos, f"label {label}")})
     labels.sort(key=lambda item: float(item["k"]))
@@ -191,9 +191,9 @@ def _as_float(value: Any, field: str) -> float:
     try:
         out = float(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"Champ DFT local non numerique: {field}") from exc
+        raise ValueError(f"Non-numeric local DFT field: {field}") from exc
     if not np.isfinite(out):
-        raise ValueError(f"Champ DFT local non fini: {field}")
+        raise ValueError(f"Non-finite local DFT field: {field}")
     return out
 
 

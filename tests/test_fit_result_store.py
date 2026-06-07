@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from arpes.core.fit_result_store import clear_fit_result, set_fit_result
+from arpes.core.fit_result_store import (
+    clear_fit_result,
+    restore_fit_result,
+    set_fit_result,
+)
 
 
 def _entry(active=None, zones=None):
@@ -52,3 +56,21 @@ class TestSetFitResult:
         assert e.fit_result is None
         assert z1["fit_result"] is None
         assert z2["fit_result"] is None
+
+
+class TestRestoreFitResult:
+    def test_restores_legacy_slot_and_zones(self):
+        # P3.3 — complete rollback of a snapshot after failed save().
+        e = _entry(active="a", zones=[{"id": "a", "fit_result": {"e": 9}}])
+        e.fit_result = {"e": 9}
+        backup_fr = {"e": 1}
+        backup_zones = [{"id": "a", "fit_result": {"e": 1}}]
+        restore_fit_result(e, fit_result=backup_fr, fit_zones=backup_zones)
+        assert e.fit_result == {"e": 1}
+        assert e.fit_zones == [{"id": "a", "fit_result": {"e": 1}}]
+
+    def test_none_zones_gives_empty_list(self):
+        e = _entry(zones=[{"id": "a", "fit_result": {"e": 1}}])
+        restore_fit_result(e, fit_result=None, fit_zones=None)
+        assert e.fit_result is None
+        assert e.fit_zones == []

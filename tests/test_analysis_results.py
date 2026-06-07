@@ -1,4 +1,4 @@
-"""Tests pour arpes.analysis.results : extraction kF/vF/m* + propagation σ."""
+"""Tests for arpes.analysis.results: kF/vF/m* extraction + σ propagation."""
 from __future__ import annotations
 
 import math
@@ -20,7 +20,7 @@ from arpes.analysis.results import (
 
 
 def _synthetic_fit_result(*, slope=2.0, intercept=-0.5, sigma_k=0.003, n=25, seed=0):
-    """Génère un fit_result synthétique : E = intercept + slope·k → kF=-intercept/slope."""
+    """Generates a synthetic fit_result: E = intercept + slope·k → kF=-intercept/slope."""
     rng = np.random.default_rng(seed)
     e = np.linspace(-0.20, 0.05, n)
     k_clean = (e - intercept) / slope
@@ -46,7 +46,7 @@ class TestWeightedLinearFit:
         y = 3.0 * x + 2.0 + 0.05 * rng.standard_normal(50)
         fit = weighted_linear_fit(x, y, sigma=np.full(50, 0.05))
         assert math.isfinite(fit.slope)
-        # Tolérance ≥ 3·σ_pente attendu (~0.025 pour ce dataset)
+        # Tolerance ≥ 3·expected σ_slope (~0.025 for this dataset).
         assert abs(fit.slope - 3.0) < 0.10
         assert abs(fit.intercept - 2.0) < 0.10
         assert fit.n_points == 50
@@ -76,7 +76,7 @@ class TestExtractBranchResult:
         br = extract_branch_result(fr, branch="kF_plus", pair_index=0,
                                    e_window=0.10)
         assert abs(br.kF_at_EF - 0.25) < 0.02
-        # vF tolérance ≥ 3σ : avec σ_k=0.003, slope ~ 2 ± 0.2
+        # vF tolerance ≥ 3σ: with σ_k=0.003, slope ~ 2 ± 0.2.
         assert abs(br.vF_eV_pi_a - 2.0) < 0.5
         assert br.kF_at_EF_sigma > 0
         assert br.vF_sigma > 0
@@ -89,7 +89,7 @@ class TestExtractBranchResult:
         kF_A = 0.25 * math.pi / 4.143
         vF_A = 2.0 * 4.143 / math.pi
         m_expected = HBAR2_OVER_ME_eV_A2 * kF_A / vF_A
-        # 15 % tolérance pour propagation kF·vF avec slope bruité
+        # 15% tolerance for kF·vF propagation with noisy slope.
         assert abs(br.m_star_over_me - m_expected) < 0.15 * m_expected
         assert br.luttinger_density_pi_a2 > 0
         assert br.luttinger_units == "A^-2"
@@ -98,7 +98,7 @@ class TestExtractBranchResult:
 
     def test_too_few_points_returns_empty(self):
         fr = _synthetic_fit_result(n=5)
-        # window trop étroite → peu de points
+        # Window too narrow → few points.
         br = extract_branch_result(fr, branch="kF_plus", pair_index=0,
                                    e_window=0.001)
         assert br.n_points_used < 3
@@ -142,7 +142,7 @@ class TestComputeResults:
     def test_full_bundle(self):
         fr = _synthetic_fit_result()
         bundle = compute_results(fr, crystal_a_angstrom=4.143)
-        assert len(bundle.branches) == 2  # 1 paire × 2 branches
+        assert len(bundle.branches) == 2  # 1 pair × 2 branches
         assert len(bundle.gamma_fl) == 1
         assert len(bundle.asymmetry) == 1
         assert bundle.crystal_a_angstrom == 4.143

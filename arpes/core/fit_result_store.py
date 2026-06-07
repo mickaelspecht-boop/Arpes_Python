@@ -40,3 +40,14 @@ def clear_fit_result(entry: Any) -> None:
     entry.fit_result = None
     for z in getattr(entry, "fit_zones", None) or []:
         z["fit_result"] = None
+
+
+def restore_fit_result(entry: Any, *, fit_result: dict | None, fit_zones: list | None) -> None:
+    """Restore a full snapshot (legacy slot + per-zone) after a failed save.
+
+    Bypasses the active-zone mirroring of ``set_fit_result``: the caller holds
+    a coherent backup of BOTH ``entry.fit_result`` and the whole
+    ``entry.fit_zones`` list and wants to roll both back verbatim.
+    """
+    entry.fit_result = fit_result
+    entry.fit_zones = list(fit_zones) if fit_zones is not None else []

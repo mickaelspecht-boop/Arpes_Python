@@ -176,9 +176,9 @@ def detect_gamma_from_fs_map(kx, ky, fs, params) -> FSGammaDetection:
     kx_arr = np.asarray(kx, dtype=float)
     ky_arr = np.asarray(ky, dtype=float)
     if img.shape != (ky_arr.size, kx_arr.size):
-        raise ValueError("Carte FS incompatible avec axes kx/ky.")
+        raise ValueError("FS map is incompatible with kx/ky axes.")
     if kx_arr.size < 5 or ky_arr.size < 5:
-        raise ValueError("Détection Γ FS impossible sans grille kx/ky suffisante.")
+        raise ValueError("Cannot detect FS Γ without a sufficient kx/ky grid.")
     if kx_arr[0] > kx_arr[-1]:
         kx_arr = kx_arr[::-1]
         img = img[:, ::-1]
@@ -205,7 +205,7 @@ def detect_gamma_from_fs_map(kx, ky, fs, params) -> FSGammaDetection:
     gx0 = float(np.nanmedian(kx_centers)) if kx_centers else float(params.kx_center)
     gy0 = float(np.nanmedian(ky_centers)) if ky_centers else float(params.ky_center)
     if not (np.isfinite(gx0) and np.isfinite(gy0)):
-        raise ValueError("Pas assez de signal fini pour détecter Γ FS.")
+        raise ValueError("Not enough finite signal to detect FS Γ.")
 
     dx = float(np.nanmedian(np.abs(np.diff(kx_arr)))) if kx_arr.size > 1 else 0.02
     dy = float(np.nanmedian(np.abs(np.diff(ky_arr)))) if ky_arr.size > 1 else 0.02
@@ -229,7 +229,7 @@ def detect_gamma_from_fs_map(kx, ky, fs, params) -> FSGammaDetection:
     score, gx, gy, fraction = best
     if not np.isfinite(score):
         if len(kx_centers) < 3 or len(ky_centers) < 3:
-            raise ValueError("Pas assez de paires symétriques détectées sur la FS.")
+            raise ValueError("Not enough symmetric pairs detected on the FS.")
         gx, gy, score, fraction = gx0, gy0, float("nan"), 0.0
 
     mad_kx = float(1.4826 * np.nanmedian(np.abs(np.asarray(kx_centers) - gx))) if kx_centers else float("nan")

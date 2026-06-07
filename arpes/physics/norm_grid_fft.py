@@ -35,10 +35,10 @@ def remove_grid_artifact_fft2_mask(
     mask_radius: int = 2,
     strength: float = 1.0,
 ) -> tuple[np.ndarray, dict]:
-    """Corrige une grille via masque automatique de la magnitude FFT 2D."""
+    """Correct a grid artifact via automatic 2D FFT magnitude masking."""
     arr = np.asarray(data_2d, dtype=float)
     if arr.ndim != 2:
-        raise ValueError(f"Correction grille FFT 2D: données 2D attendues, shape={arr.shape}")
+        raise ValueError(f"2D FFT grid correction: expected 2D data, shape={arr.shape}")
     if min(arr.shape) < 4:
         return arr.copy(), {"method": "fft2mask", "removed_peak_count": 0}
 

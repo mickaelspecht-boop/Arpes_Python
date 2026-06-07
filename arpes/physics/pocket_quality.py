@@ -1,11 +1,11 @@
 """Physical guard-rails for pocket characterization.
 
-Three checks, motivés par la review physicien :
-- local SNR autour du seed (rejet si bruit > 33 % du signal)
-- contour touche le bord de la FS map (kF non défini sur bord)
-- smoothing σ trop grand vs taille de la poche (on lisse la poche elle-même)
+Three checks, motivated by the physicist review:
+- local SNR around the seed (reject if noise > 33% of signal)
+- contour touches the FS map border (kF undefined on border)
+- smoothing σ too large vs pocket size (smooths the pocket itself)
 
-Aucun PyQt. Pure numpy.
+No PyQt. Pure numpy.
 """
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ import numpy as np
 
 @dataclass(frozen=True)
 class QualityCheck:
-    ok: bool                # False => bloquant
+    ok: bool                # False => blocking
     code: str               # "snr_low", "border", "smooth_excess", "ok"
-    message: str            # texte court à afficher à l'user
+    message: str            # short text to show to the user
     metric: float = float("nan")
 
 
@@ -29,10 +29,10 @@ def local_snr(
     seed_point: tuple[float, float],
     radius: float,
 ) -> float:
-    """Ratio median / std des pixels dans le disque de rayon ``radius``
-    autour de ``seed_point`` (coordonnées du même repère que kx/ky).
+    """Median / std ratio of pixels in the disk with radius ``radius`` around
+    ``seed_point`` (coordinates in the same frame as kx/ky).
 
-    Renvoie NaN si moins de 8 pixels finis dans la zone.
+    Returns NaN if fewer than 8 finite pixels are in the zone.
     """
     x = np.asarray(kx, dtype=float)
     y = np.asarray(ky, dtype=float)
@@ -57,7 +57,7 @@ def contour_touches_border(
     ky: np.ndarray,
     tol_pixels: int = 2,
 ) -> bool:
-    """True si un point du contour est à moins de ``tol_pixels`` du bord."""
+    """True if a contour point is within ``tol_pixels`` of the border."""
     c = np.asarray(contour, dtype=float)
     if c.ndim != 2 or c.shape[1] != 2 or c.shape[0] == 0:
         return False
@@ -78,7 +78,7 @@ def contour_touches_border(
 def smoothing_warning(sigma_pixels: tuple[float, float],
                       pixel_size: tuple[float, float],
                       kf_mean: float) -> QualityCheck:
-    """Warning si max(σ_y·dy, σ_x·dx) > 0.5·kF_mean : on lisse la poche."""
+    """Warn if max(σ_y·dy, σ_x·dx) > 0.5·kF_mean: the pocket is being smoothed."""
     sy, sx = float(sigma_pixels[0]), float(sigma_pixels[1])
     dy, dx = float(pixel_size[0]), float(pixel_size[1])
     sigma_k = max(sy * abs(dy), sx * abs(dx))
@@ -91,7 +91,7 @@ def smoothing_warning(sigma_pixels: tuple[float, float],
             code="smooth_excess",
             message=(
                 f"σ_smooth·dk = {sigma_k:.3f} π/a > 0.5·kF ({kf_mean:.3f}) — "
-                "la poche est lissée par le filtre, kF biaisé."
+                "the pocket is smoothed by the filter, kF biased."
             ),
             metric=ratio,
         )
@@ -107,9 +107,9 @@ def run_pocket_guards(
     contour: np.ndarray,
     sigma_pixels: tuple[float, float],
     kf_mean: float,
-    snr_min: float = 3.0,
+    snr_min: float = 5.0,
     snr_radius_factor: float = 2.0,
-    border_tol_pixels: int = 2,
+    border_tol_pixels: int | None = None,
 ) -> list[QualityCheck]:
     """Run all guards and return per-check results.
 
@@ -120,17 +120,20 @@ def run_pocket_guards(
     dx = float(kx[1] - kx[0]) if kx.size >= 2 else 0.0
     dy = float(ky[1] - ky[0]) if ky.size >= 2 else 0.0
     pixel = max(abs(dx), abs(dy))
+    # P4.5: adaptive border tolerance — 2 px or 2% of the smallest dimension.
+    if border_tol_pixels is None:
+        border_tol_pixels = max(2, int(0.02 * min(int(kx.size), int(ky.size))))
     snr = local_snr(image, kx, ky, seed_point, radius=float(snr_radius_factor) * pixel)
     if not np.isfinite(snr):
         results.append(QualityCheck(
             ok=False, code="snr_low",
-            message="SNR local non calculable (zone seed trop petite).",
+            message="Local SNR cannot be computed (seed zone too small).",
             metric=float(snr),
         ))
     elif snr < float(snr_min):
         results.append(QualityCheck(
             ok=False, code="snr_low",
-            message=f"SNR local = {snr:.2f} < {snr_min:.1f}. Bruit trop fort autour du seed.",
+            message=f"Local SNR = {snr:.2f} < {snr_min:.1f}. Noise too strong around seed.",
             metric=float(snr),
         ))
     else:
@@ -140,7 +143,7 @@ def run_pocket_guards(
     if contour_touches_border(contour, kx, ky, tol_pixels=border_tol_pixels):
         results.append(QualityCheck(
             ok=False, code="border",
-            message="Contour touche le bord de la FS map : kF non défini, élargis le scan.",
+            message="Contour touches the FS map border: kF undefined, widen the scan.",
         ))
     else:
         results.append(QualityCheck(ok=True, code="border_ok", message=""))

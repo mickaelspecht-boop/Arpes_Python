@@ -1,4 +1,4 @@
-"""Notes session — éditeur markdown persistant dans .arpes_session.json."""
+"""Session notes: persistent markdown editor stored in .arpes_session.json."""
 from __future__ import annotations
 
 from PyQt6.QtCore import QTimer, pyqtSignal
@@ -17,10 +17,10 @@ from arpes.core.session import Session
 
 
 class NotesPanel(QWidget):
-    """Éditeur de notes markdown couplé à `Session.session_notes`.
+    """Markdown notes editor bound to `Session.session_notes`.
 
-    Le texte est sauvegardé automatiquement 800 ms après la dernière frappe.
-    Un onglet "Aperçu" affiche le rendu QTextBrowser.setMarkdown.
+    Text is autosaved 800 ms after the last keystroke.
+    A "Preview" tab displays the QTextBrowser.setMarkdown rendering.
     """
 
     notes_changed = pyqtSignal(str)
@@ -39,9 +39,9 @@ class NotesPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(6, 6, 6, 6)
         header = QHBoxLayout()
-        header.addWidget(QLabel("Notes de session (markdown — persisté dans .arpes_session.json)"))
+        header.addWidget(QLabel("Session notes (markdown - persisted in .arpes_session.json)"))
         header.addStretch(1)
-        self._btn_clear = QPushButton("Effacer")
+        self._btn_clear = QPushButton("Clear")
         self._btn_clear.clicked.connect(self._on_clear)
         header.addWidget(self._btn_clear)
         lay.addLayout(header)
@@ -50,16 +50,16 @@ class NotesPanel(QWidget):
         self._editor = QTextEdit()
         self._editor.setAcceptRichText(False)
         self._editor.setPlaceholderText(
-            "Ajoute ici les notes d'expérience : matériau, conditions, observations, "
-            "TODO, références bibliographie...\n\n"
-            "Format markdown : # titre, ## sous-titre, **gras**, `code`, - liste."
+            "Add experiment notes here: material, conditions, observations, "
+            "TODOs, bibliography references...\n\n"
+            "Markdown format: # title, ## subtitle, **bold**, `code`, - list."
         )
         self._editor.setStyleSheet(
             "QTextEdit { background:#1f1f1f; color:#ddd; "
             "font-family:monospace; font-size:12px; padding:8px; }"
         )
         self._editor.textChanged.connect(self._on_text_changed)
-        self._tabs.addTab(self._editor, "Éditer")
+        self._tabs.addTab(self._editor, "Edit")
 
         self._viewer = QTextBrowser()
         self._viewer.setOpenExternalLinks(True)
@@ -67,7 +67,7 @@ class NotesPanel(QWidget):
             "QTextBrowser { background:#1f1f1f; color:#ddd; font-size:13px; padding:10px; }"
             "h1 { color:#f8fafc; } h2 { color:#c7d2fe; } code { color:#fbbf24; }"
         )
-        self._tabs.addTab(self._viewer, "Aperçu")
+        self._tabs.addTab(self._viewer, "Preview")
         self._tabs.currentChanged.connect(self._on_tab_changed)
         lay.addWidget(self._tabs, stretch=1)
 

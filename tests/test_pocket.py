@@ -8,7 +8,6 @@ import numpy as np
 from arpes.physics.pocket import (
     assign_hs_label,
     characterize_pocket,
-    characterize_pocket_bootstrap,
     extract_fs_contour,
     fit_pocket_ellipse,
     kf_along_direction,
@@ -20,6 +19,7 @@ from arpes.physics.pocket import (
     smooth_closed_contour,
     smooth_fs_image,
 )
+from arpes.physics.pocket_bootstrap import characterize_pocket_bootstrap
 
 
 def _axes(n: int = 161):
@@ -160,7 +160,7 @@ class TestPocketGeometry(unittest.TestCase):
         self.assertTrue(math.isnan(distance))
 
     def test_assign_label_with_grouped_dict_picks_nearest_copy(self):
-        # Square BZ : 4 X copies, 1 Γ. Pocket à (1.05, 0.02) → nearest X (1, 0), pas Γ.
+        # Square BZ: 4 X copies, 1 Γ. Pocket at (1.05, 0.02) → nearest X (1, 0), not Γ.
         hs = {
             "Γ": [(0.0, 0.0)],
             "X": [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)],
@@ -169,7 +169,7 @@ class TestPocketGeometry(unittest.TestCase):
         label, dist = assign_hs_label((1.05, 0.02), hs)
         self.assertEqual(label, "X")
         self.assertLess(dist, 0.1)
-        # Pocket à (-1.0, 1.05) → nearest M(-1, 1)
+        # Pocket at (-1.0, 1.05) → nearest M(-1, 1).
         label, dist = assign_hs_label((-1.0, 1.05), hs)
         self.assertEqual(label, "M")
         self.assertLess(dist, 0.1)

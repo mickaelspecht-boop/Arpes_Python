@@ -34,19 +34,19 @@ def validate_picker_data(data: TheoryBandData | dict[str, Any]) -> str:
     """Return an error message if ``data`` cannot be plotted by the picker."""
     data = TheoryBandData.from_dict(data) if isinstance(data, dict) else data
     if not data.k_distance:
-        return "DFT invalide: axe k vide."
+        return "Invalid DFT: empty k axis."
     if not data.bands:
-        return "DFT invalide: aucune bande."
+        return "Invalid DFT: no band."
     k = np.asarray(data.k_distance, dtype=float)
     if k.ndim != 1 or not np.isfinite(k).all():
-        return "DFT invalide: axe k non fini."
+        return "Invalid DFT: non-finite k axis."
     bands = np.asarray(data.bands, dtype=float)
     if bands.ndim != 2:
-        return "DFT invalide: bands doit etre une matrice 2D."
+        return "Invalid DFT: bands must be a 2D matrix."
     if bands.shape[1] != k.size:
         return (
-            "DFT invalide: bands shape "
-            f"{tuple(bands.shape)} incompatible avec k_distance len={k.size}."
+            "Invalid DFT: bands shape "
+            f"{tuple(bands.shape)} is incompatible with k_distance len={k.size}."
         )
     return ""
 

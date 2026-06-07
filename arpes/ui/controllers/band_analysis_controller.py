@@ -8,7 +8,7 @@ Reads:
 Writes:
 - entry.band_analysis = {"tb": {...}, "kink": {...}, "gap": {...}}
 
-Surface signals back to UI via parent._band_panel.show_*() methods.
+Surfaces signals back to UI via parent._band_panel.show_*() methods.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from arpes.physics import tb_fit, kink_analysis, gap_extraction
 
 
 class BandAnalysisController:
-    """Orchestrate TB fit / kink / gap pipelines on current entry."""
+    """Orchestrates TB fit / kink / gap pipelines on the current entry."""
 
     def __init__(self, parent):
         self._parent = parent
@@ -114,7 +114,7 @@ class BandAnalysisController:
     def _guard_fit_result(self):
         entry = self._current_entry()
         if entry is None:
-            self._warn("Aucun fichier sélectionné.")
+            self._warn("No file selected.")
             return None, None
         # Multi-zone: if the user has selected a zone in the strip combo
         # different from active_zone_id, sync it before running so band
@@ -122,7 +122,7 @@ class BandAnalysisController:
         self._sync_active_zone_with_strip(entry)
         fr = getattr(entry, "fit_result", None)
         if not fr:
-            self._warn("Lance d'abord un fit MDC sur le fichier courant.")
+            self._warn("Run an MDC fit on the current file first.")
             return None, None
         return entry, fr
 
@@ -145,14 +145,14 @@ class BandAnalysisController:
     def _warn(self, msg: str):
         try:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self._parent, "Analyse de bandes", msg)
+            QMessageBox.warning(self._parent, "Band analysis", msg)
         except Exception:
             print(f"[band_analysis] {msg}")
 
     def _info(self, msg: str):
         try:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(self._parent, "Analyse de bandes", msg)
+            QMessageBox.information(self._parent, "Band analysis", msg)
         except Exception:
             print(f"[band_analysis] {msg}")
 
@@ -174,7 +174,7 @@ class BandAnalysisController:
         pair = int(opts.get("pair", 0))
         E, k, _g = self._extract_dispersion(fr, crystal_a, branch, pair)
         if len(E) < 3:
-            self._warn(f"Branche {branch}/pair {pair} : <3 points utilisables.")
+            self._warn(f"Branch {branch}/pair {pair}: fewer than 3 usable points.")
             return
         try:
             lt = opts.get("lattice_type", "chain")
@@ -189,7 +189,7 @@ class BandAnalysisController:
                     b=opts.get("b"),
                 )
         except Exception as exc:
-            self._warn(f"Échec fit TB : {exc}\n{traceback.format_exc()}")
+            self._warn(f"TB fit failed: {exc}\n{traceback.format_exc()}")
             return
         ba = self._ensure_band_analysis(entry)
         ba["tb"] = {
@@ -230,7 +230,7 @@ class BandAnalysisController:
             int(opts.get("pair", 0))
         )
         if len(E) < 8:
-            self._warn("Kink: <8 points dans la dispersion.")
+            self._warn("Kink: fewer than 8 points in the dispersion.")
             return
         try:
             res = kink_analysis.run_kink_analysis(
@@ -245,7 +245,7 @@ class BandAnalysisController:
                 lambda_window_eV=float(opts.get("lambda_window", 0.05)),
             )
         except Exception as exc:
-            self._warn(f"Échec kink : {exc}")
+            self._warn(f"Kink analysis failed: {exc}")
             return
         ba = self._ensure_band_analysis(entry)
         ba["kink"] = {
@@ -298,14 +298,14 @@ class BandAnalysisController:
             int(opts.get("pair", 0))
         )
         if len(E_disp) == 0:
-            self._warn("Pas de dispersion → impossible de localiser k_F.")
+            self._warn("No dispersion — cannot locate k_F.")
             return
         # k_F at E closest to E_F=0
         idx_F = int(np.argmin(np.abs(E_disp - float(opts.get("E_F", 0.0)))))
         k_F = float(k_disp[idx_F])
         edc = self._extract_edc_at_kf(k_F)
         if edc is None:
-            self._warn("Impossible d'extraire l'EDC à k_F (raw_data manquant ou incohérent).")
+            self._warn("Cannot extract EDC at k_F (raw_data missing or inconsistent).")
             return
         E_axis, I_edc = edc
         try:
@@ -314,18 +314,20 @@ class BandAnalysisController:
                 E_F=float(opts.get("E_F", 0.0)),
                 omega_max_meV=float(opts.get("omega_max_meV", 30.0)),
             )
+            # P2.5 — EDC ARPES symétrisé → fonction spectrale Norman (1998),
+            # pas la DOS Dynes (tunnel). Dynes reste dispo pour comparaison STS.
             if int(opts.get("n_gaps", 1)) == 2:
-                res = gap_extraction.fit_dynes_two_gap(
+                res = gap_extraction.fit_norman_two_gap(
                     omega, sym,
                     resolution_meV=float(opts.get("resolution_meV", 0.0)),
                 )
             else:
-                res = gap_extraction.fit_dynes_single(
+                res = gap_extraction.fit_norman_single(
                     omega, sym,
                     resolution_meV=float(opts.get("resolution_meV", 0.0)),
                 )
         except Exception as exc:
-            self._warn(f"Échec fit gap : {exc}")
+            self._warn(f"Gap fit failed: {exc}")
             return
         ba = self._ensure_band_analysis(entry)
         ba["gap"] = {
@@ -436,16 +438,16 @@ class BandAnalysisController:
         """Write all metrics from entry.band_analysis to a user-chosen CSV."""
         entry = self._current_entry()
         if entry is None:
-            self._warn("Aucun fichier sélectionné.")
+            self._warn("No file selected.")
             return
         ba = getattr(entry, "band_analysis", None) or {}
         if not ba:
-            self._warn("Aucune analyse à exporter. Lance TB / Kink / Gap d'abord.")
+            self._warn("No analysis to export. Run TB / Kink / Gap first.")
             return
         try:
             from PyQt6.QtWidgets import QFileDialog
             path, _ = QFileDialog.getSaveFileName(
-                self._parent, "Export analyse bande", "", "CSV (*.csv)",
+                self._parent, "Export band analysis", "", "CSV (*.csv)",
             )
         except Exception:
             path = ""
@@ -458,9 +460,9 @@ class BandAnalysisController:
             import csv
             with open(path, "w", newline="", encoding="utf-8") as f:
                 csv.writer(f).writerows(rows)
-            self._info(f"Export OK : {path}")
+            self._info(f"Export OK: {path}")
         except Exception as exc:
-            self._warn(f"Échec export CSV : {exc}")
+            self._warn(f"CSV export failed: {exc}")
 
     # ------------------------------------------------------------------
     # Auto-fill defaults from current context

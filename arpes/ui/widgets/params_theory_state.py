@@ -90,25 +90,25 @@ def _theory_status_text(overlay: dict, data: dict, config: dict) -> str:
     warning = overlay.get("warning") or ""
     mpid = data.get("material_id") or ""
     if not mpid:
-        return "Guide visuel uniquement."
+        return "Visual guide only."
     source = str(data.get("source") or "")
-    prefix = "DFT MP" if source == "materials_project" else "DFT locale"
+    prefix = "MP DFT" if source == "materials_project" else "Local DFT"
     efermi = data.get("efermi")
     try:
-        ef_txt = f" | DFT E_F={float(efermi):.3f} eV (déjà soustrait)"
+        ef_txt = f" | DFT E_F={float(efermi):.3f} eV (already subtracted)"
     except (TypeError, ValueError):
         ef_txt = ""
-    txt = f"{prefix} {mpid}.{ef_txt} Guide visuel, alignement manuel requis."
+    txt = f"{prefix} {mpid}.{ef_txt} Visual guide; manual alignment required."
     cs = str(data.get("crystal_system") or "")
     if source == "materials_project":
         cs_txt = f" {cs}" if cs else ""
         txt += (
-            f"\nChemin = ZB BULK 3D{cs_txt} (Setyawan : Γ,X,P,N,Z…). "
-            "L'overlay FS utilise la ZB SURFACE 2D (Γ,X,M,Y,S) : "
-            "noms différents normaux (3D bulk ≠ 2D surface)."
+            f"\nPath = 3D BULK BZ{cs_txt} (Setyawan: Γ,X,P,N,Z...). "
+            "The FS overlay uses the 2D SURFACE BZ (Γ,X,M,Y,S): "
+            "different names are normal (3D bulk != 2D surface)."
         )
     if warning:
-        txt += f" Attention: {warning}"
+        txt += f" Warning: {warning}"
     comparison = overlay.get("comparison") or []
     if comparison:
         best = comparison[0]
@@ -132,7 +132,7 @@ def on_theory_band_table_toggled(_panel, _item) -> None:
 
 
 def on_theory_bands_text_edited(panel) -> None:
-    """Champ texte legacy édité à la main."""
+    """Legacy text field edited manually."""
     panel._schedule_theory_overlay_changed()
 
 

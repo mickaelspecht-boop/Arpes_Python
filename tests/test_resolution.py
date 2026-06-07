@@ -28,7 +28,7 @@ class TestResolutionEstimation(unittest.TestCase):
 
     def test_zero_resolution_keeps_raw_gamma(self):
         if _resolution_correct_gamma is None:
-            self.skipTest("scipy indisponible")
+            self.skipTest("scipy unavailable")
         gamma = [0.04, 0.05, 0.06]
         gmin, gcorr = _resolution_correct_gamma(
             [-0.2, -0.1, 0.0], [0.3, 0.25, 0.2], gamma,
@@ -40,7 +40,7 @@ class TestResolutionEstimation(unittest.TestCase):
 
     def test_large_dk_marks_resolution_limited(self):
         if _resolution_correct_gamma is None:
-            self.skipTest("scipy indisponible")
+            self.skipTest("scipy unavailable")
         _, gcorr = _resolution_correct_gamma(
             [-0.2, -0.1, 0.0], [0.3, 0.25, 0.2], [0.04, 0.04, 0.04],
             dE_eV=0.0, dk_inv_a=0.08,

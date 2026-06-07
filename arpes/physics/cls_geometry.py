@@ -1,9 +1,9 @@
-"""Géométrie CLS — lecture rapide P/T/azi sans charger les données.
+"""CLS geometry: quick P/T/azi read without loading data.
 
-Extrait de `arpes_explorer.py`. PyQt-free, testable sans UI.
+Extracted from `arpes_explorer.py`. PyQt-free, testable without UI.
 
-Le CLS écrit ses positions de manipulateur dans un fichier `*_param.txt`
-adjacent au cube de données ; chaque ligne JSON expose ``d.<MOTOR>.position``.
+CLS writes its manipulator positions in a `*_param.txt` file adjacent to the
+data cube; each JSON line exposes ``d.<MOTOR>.position``.
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ _MOTOR_KEYS = (("P", "polar"), ("T", "tilt"))
 
 
 def manipulator_from_param(path: str | Path) -> dict:
-    """Lit P/T depuis le `*_param.txt` adjacent au fichier ou dans le dossier.
+    """Read P/T from the `*_param.txt` adjacent to the file or in the folder.
 
-    Retourne ``{}`` si aucun fichier param trouvable ou exploitable.
+    Returns ``{}`` if no parameter file can be found or used.
     """
     p = Path(path)
     if p.is_file():
@@ -57,16 +57,16 @@ def geometry_for_path(
     logbook_mapping: dict | None = None,
     cell_float=None,
 ) -> dict:
-    """Retourne la meilleure géométrie CLS connue pour ``path``.
+    """Return the best known CLS geometry for ``path``.
 
-    Priorité (du plus fiable au plus douteux) :
-      1. ``_param.txt`` pour P/T (positions motorisées réelles) ;
-      2. champs de l'entrée de session (``entry_meta``) pour P/T/azi/hv ;
-      3. ligne de logbook (``logbook_record`` + ``logbook_mapping``) en
-         remplissage des champs encore manquants — surtout utile pour ``azi``.
+    Priority (from most reliable to most doubtful):
+      1. ``_param.txt`` for P/T (actual motorized positions);
+      2. session entry fields (``entry_meta``) for P/T/azi/hv;
+      3. logbook row (``logbook_record`` + ``logbook_mapping``) to fill fields
+         still missing, especially useful for ``azi``.
 
-    ``cell_float`` est injecté pour parser les cellules logbook (typiquement
-    ``arpes_logbook._cell_float``). Si absent, le fallback logbook est ignoré.
+    ``cell_float`` is injected to parse logbook cells (typically
+    ``arpes_logbook._cell_float``). If absent, the logbook fallback is ignored.
     """
     geom = manipulator_from_param(path)
 

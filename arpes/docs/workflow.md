@@ -1,21 +1,21 @@
 # Workflow
 
-## 1. Charger les donnees
+## 1. Load Data
 
-Ouvrir un dossier depuis le navigateur de gauche, puis charger un fichier par double-clic ou avec le bouton de chargement. Les fichiers deja charges ou fittes gardent leur etat dans la session du dossier.
+Open a folder from the left browser, then load a file by double-clicking or with the load button. Files that were already loaded or fitted keep their state in the folder session.
 
-## 2. Calibrer l'energie
+## 2. Calibrate Energy
 
-Verifier l'offset EF avant les fits. Pour une reference Au, utiliser la calibration EF auto, enregistrer la reference, puis l'appliquer aux autres fichiers de la serie.
+Check the EF offset before fitting. For an Au reference, use automatic EF calibration, save the reference, then apply it to the other files in the series.
 
-## 3. Preparer le fit MDC
+## 3. Prepare the MDC Fit
 
-Choisir la plage d'analyse en energie et en k, ajuster le nombre de paires et lancer d'abord une estimation. Inspecter les pics dans l'onglet MDC Fit avant le fit complet.
+Choose the analysis window in energy and k, adjust the number of pairs, and run an estimate first. Inspect the peaks in the MDC Fit tab before the full fit.
 
-## 4. Controler les resultats
+## 4. Check Results
 
-Utiliser les residus MDC, le chi2 reduit et les overlays kF pour reperer les tranches instables. Les points peuvent etre supprimes, annules, retablis et annotes.
+Use MDC residuals, reduced chi2, and kF overlays to spot unstable slices. Points can be deleted, undone, redone, and annotated.
 
 ## 5. Comparer
 
-Les resultats peuvent etre exportes, agreges entre fichiers, compares a une DFT importee et inspectes avec Re Sigma lorsque le recouvrement DFT/fit est suffisant.
+Results can be exported, aggregated across files, compared with imported DFT, and inspected with Re Sigma when DFT/fit overlap is sufficient.

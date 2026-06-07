@@ -14,6 +14,18 @@ import contourpy
 import numpy as np
 from matplotlib.path import Path as MplPath
 
+from arpes.physics.ellipse_conic import (
+    ARC_FULL_DEG,
+    ARC_REFUSE_DEG,
+    PocketFitRefusedError,
+    conic_axis_sigma,
+    contiguous_coverage_deg,
+    fit_ellipse_conic,
+)
+
+# P2.4 — seuil topologie relevé 0.25→0.50 (un score |s|<0.5 reste "unclear").
+_TOPOLOGY_CONFIDENCE_MIN = 0.50
+
 try:
     from scipy.ndimage import gaussian_filter
 except Exception:  # pragma: no cover - scipy is present in the app env
@@ -49,6 +61,13 @@ class PocketProperties:
     analysis_mode: str = "unknown"
     mdc_valid_directions: int = 0
     mdc_total_directions: int = 0
+    # P2.4 — poches ouvertes (arc partiel ajusté par conique algébrique).
+    is_extrapolated: bool = False        # axes/aire extrapolés au-delà du visible
+    ellipse_fit_valid: bool = True       # False si fit conique dégénéré (axes NaN)
+    arc_coverage_deg: float = 360.0      # span angulaire contigu mesuré
+    kF_a_sigma: float = float("nan")     # σ grand demi-axe (bootstrap arc + modèle)
+    kF_b_sigma: float = float("nan")     # σ petit demi-axe
+    fit_method: str = "pca"              # "conic" | "pca" | "shoelace"
 
     def asdict(self) -> dict:
         """Return a JSON-ready representation for session persistence."""
@@ -60,19 +79,19 @@ def _as_axes(kx, ky, image) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     y = np.asarray(ky, dtype=float)
     z = np.asarray(image, dtype=float)
     if z.ndim != 2:
-        raise ValueError("image FS doit être 2D.")
+        raise ValueError("FS image must be 2D.")
     if x.ndim != 1 or y.ndim != 1:
-        raise ValueError("kx et ky doivent être des axes 1D.")
+        raise ValueError("kx and ky must be 1D axes.")
     if z.shape != (y.size, x.size):
         raise ValueError(
-            f"shape image {z.shape} incompatible avec ky/kx {(y.size, x.size)}."
+            f"image shape {z.shape} incompatible with ky/kx {(y.size, x.size)}."
         )
     if x.size < 2 or y.size < 2:
-        raise ValueError("axes kx/ky trop courts.")
+        raise ValueError("kx/ky axes too short.")
     if not (np.all(np.diff(x) > 0) and np.all(np.diff(y) > 0)):
-        raise ValueError("kx et ky doivent être strictement croissants.")
+        raise ValueError("kx and ky must be strictly increasing.")
     if not np.isfinite(z).any():
-        raise ValueError("image FS sans valeurs finies.")
+        raise ValueError("FS image contains no finite values.")
     return x, y, z
 
 
@@ -152,7 +171,7 @@ def extract_fs_contour(
     lvl = float(level)
     finite = z[np.isfinite(z)]
     if not np.isfinite(lvl) or lvl < float(np.nanmin(finite)) or lvl > float(np.nanmax(finite)):
-        raise ValueError("level hors plage intensité FS.")
+        raise ValueError("level is outside the FS intensity range.")
     z_work = np.where(np.isfinite(z), z, float(np.nanmin(finite)))
     gen = contourpy.contour_generator(x=x, y=y, z=z_work, name="serial")
     contours = [_close_contour(c) for c in gen.lines(lvl)]
@@ -161,13 +180,13 @@ def extract_fs_contour(
         if c.shape[0] >= 4 and np.linalg.norm(c[0] - c[-1]) <= 1e-8
     ]
     if not contours:
-        raise ValueError("aucun contour fermé trouvé à ce niveau.")
+        raise ValueError("no closed contour found at this level.")
 
     if seed_point is not None:
         seed = tuple(map(float, seed_point))
         containing = [c for c in contours if MplPath(c).contains_point(seed)]
         if not containing:
-            raise ValueError("aucun contour fermé ne contient le seed_point.")
+            raise ValueError("no closed contour contains the seed_point.")
         contours = containing
 
     return max(contours, key=lambda c: abs(pocket_area(c)))
@@ -344,13 +363,18 @@ def pocket_topology(
     score = float(np.mean(votes))
     confidence = abs(score)
     rays_used = len(votes)
-    if confidence < 0.25:
+    if confidence < _TOPOLOGY_CONFIDENCE_MIN:
         return "unclear", confidence, rays_used
     return ("electron" if score > 0 else "hole"), confidence, rays_used
 
 
-def fit_pocket_ellipse(contour: np.ndarray) -> tuple[float, float, float]:
-    """Fit an ellipse approximation by PCA: ``(major, minor, angle_deg)``."""
+def _fit_pocket_ellipse_pca(contour: np.ndarray) -> tuple[float, float, float]:
+    """Approximation PCA héritée : ``(major, minor, angle_deg)``.
+
+    Repli quand le fit conique échoue sur un contour FERMÉ. Biaisé (axes =
+    écarts-types ×√2, pas l'extension réelle) et invalide sur arc ouvert →
+    ne pas utiliser pour une poche extrapolée.
+    """
     c = _close_contour(contour)[:-1]
     if c.shape[0] < 4:
         return 0.0, 0.0, 0.0
@@ -364,6 +388,19 @@ def fit_pocket_ellipse(contour: np.ndarray) -> tuple[float, float, float]:
     angle = np.degrees(np.arctan2(vecs[1, 0], vecs[0, 0]))
     angle = (angle + 90.0) % 180.0 - 90.0
     return float(axes[0]), float(axes[1]), float(angle)
+
+
+def fit_pocket_ellipse(contour: np.ndarray) -> tuple[float, float, float]:
+    """``(major, minor, angle_deg)`` par conique algébrique, repli PCA.
+
+    Conserve la signature historique (3-uplet). Pour le σ et le flag
+    extrapolé, voir ``_properties_from_contour`` qui appelle directement
+    ``fit_ellipse_conic``.
+    """
+    geo = fit_ellipse_conic(contour)
+    if geo.get("ok"):
+        return float(geo["a"]), float(geo["b"]), float(geo["angle_deg"])
+    return _fit_pocket_ellipse_pca(contour)
 
 
 def assign_hs_label(
@@ -436,35 +473,88 @@ def _properties_from_contour(
     mdc_valid_directions: int = 0,
     mdc_total_directions: int = 0,
 ) -> PocketProperties:
-    """Compute pocket metrics once a physical contour has been selected."""
-    contour = _close_contour(np.asarray(contour, dtype=float))
-    center = _centroid(contour)
-    area = abs(pocket_area(contour))
+    """Compute pocket metrics once a physical contour has been selected.
+
+    P2.4 — si la poche déborde du scan (arc partiel), l'ellipse est ajustée
+    par conique algébrique sur l'arc visible : axes/aire EXTRAPOLÉS et
+    marqués (``is_extrapolated``). Refus (``PocketFitRefusedError``) si le
+    span contigu < ``ARC_REFUSE_DEG`` (axe non vu non contraint).
+    """
+    raw = np.asarray(contour, dtype=float)
+    closed = _close_contour(raw)
+    center = _centroid(closed)
+    center_t = (float(center[0]), float(center[1]))
     bz = np.asarray(bz_polygon, dtype=float)
     if bz.ndim != 2 or bz.shape[1] != 2 or bz.shape[0] < 3:
-        raise ValueError("bz_polygon doit contenir au moins 3 points (kx, ky).")
+        raise ValueError("bz_polygon must contain at least 3 points (kx, ky).")
     bz_area = abs(pocket_area(bz))
     if bz_area <= 0.0:
-        raise ValueError("bz_polygon a une aire nulle.")
+        raise ValueError("bz_polygon has zero area.")
+
+    # Ellipse : conique algébrique sur l'arc BRUT (pas de fermeture forcée).
+    # La couverture est mesurée autour du CENTRE de l'ellipse ajustée, pas du
+    # centroïde de l'arc (biaisé pour un arc court → fausse couverture).
+    geo = fit_ellipse_conic(raw)
+    if geo.get("ok"):
+        cov_center = (float(geo["cx"]), float(geo["cy"]))
+    else:
+        cov_center = center_t
+    coverage = contiguous_coverage_deg(raw, cov_center)
+    if coverage < ARC_REFUSE_DEG:
+        raise PocketFitRefusedError(
+            f"visible arc {coverage:.0f}° < {ARC_REFUSE_DEG:.0f}°: pocket too "
+            "open to extrapolate kF/area; widen the scan."
+        )
+    extrapolated = coverage < ARC_FULL_DEG
+    gap_frac = float(max(0.0, min(1.0, (360.0 - coverage) / 360.0)))
+
+    if geo.get("ok"):
+        kf_a, kf_b, angle = float(geo["a"]), float(geo["b"]), float(geo["angle_deg"])
+        fit_method = "conic"
+        ellipse_valid = True
+        sa, sb = conic_axis_sigma(raw)
+        # Élargit σ par l'erreur de MODÈLE sur la portion non vue
+        # (le scatter du fit seul la sous-estime — arpes-physicist).
+        kf_a_sigma = float(np.hypot(sa if np.isfinite(sa) else 0.0, gap_frac * kf_a))
+        kf_b_sigma = float(np.hypot(sb if np.isfinite(sb) else 0.0, gap_frac * kf_b))
+    elif extrapolated:
+        # Arc ouvert + conique dégénérée → pas de repli PCA (invalide sur arc).
+        raise PocketFitRefusedError(
+            f"conic fit refused on {coverage:.0f}° arc ({geo.get('reason', '')})."
+        )
+    else:
+        kf_a, kf_b, angle = _fit_pocket_ellipse_pca(closed)
+        fit_method = "pca"
+        ellipse_valid = bool(kf_a > 0)
+        kf_a_sigma = kf_b_sigma = float("nan")
+
+    # Aire : ellipse conique extrapolée (π·a·b) si arc ouvert, sinon shoelace.
+    if extrapolated and fit_method == "conic":
+        area = float(np.pi * kf_a * kf_b)
+    else:
+        area = abs(pocket_area(closed))
     area_pct = float(100.0 * area / bz_area) if bz_area > 0 else float("nan")
-    radii = np.linalg.norm(_close_contour(contour)[:-1] - center, axis=1)
+
+    radii = np.linalg.norm(_close_contour(closed)[:-1] - center, axis=1)
     kf_mean = float(np.nanmean(radii)) if radii.size else 0.0
-    kf_a, kf_b, angle = fit_pocket_ellipse(contour)
-    topology, confidence, rays_used = pocket_topology(image, kx, ky, contour)
-    hs_label, hs_dist = assign_hs_label((float(center[0]), float(center[1])), hs_points)
-    center_t = (float(center[0]), float(center[1]))
-    kf_gx = kf_along_direction(contour, center_t, hs_dir_x_deg, hs_dir_tol_deg)
-    kf_gm = kf_along_direction(contour, center_t, hs_dir_m_deg, hs_dir_tol_deg)
+    topology, confidence, rays_used = pocket_topology(image, kx, ky, closed)
+    hs_label, hs_dist = assign_hs_label(center_t, hs_points)
+    kf_gx = kf_along_direction(closed, center_t, hs_dir_x_deg, hs_dir_tol_deg)
+    kf_gm = kf_along_direction(closed, center_t, hs_dir_m_deg, hs_dir_tol_deg)
     if kf_a > 0 and kf_b >= 0:
         ratio = max(kf_a, kf_b) / max(min(kf_a, kf_b), 1e-12)
         ecc = float(np.sqrt(max(0.0, 1.0 - (min(kf_a, kf_b) / max(kf_a, kf_b)) ** 2)))
     else:
         ratio = float("nan")
         ecc = float("nan")
-    curv_mean, curv_var = pocket_curvature(contour)
-    n_carriers = luttinger_count(area, bz_area, n_bands=n_bands, spin=spin)
-    if topology == "hole" and np.isfinite(n_carriers):
-        n_carriers = -abs(n_carriers)
+    curv_mean, curv_var = pocket_curvature(closed)
+    # Luttinger exige l'aire ENCLOSE : NaN si extrapolé (arpes-physicist).
+    if extrapolated:
+        n_carriers = float("nan")
+    else:
+        n_carriers = luttinger_count(area, bz_area, n_bands=n_bands, spin=spin)
+        if topology == "hole" and np.isfinite(n_carriers):
+            n_carriers = -abs(n_carriers)
     return PocketProperties(
         centroid_kx=float(center[0]),
         centroid_ky=float(center[1]),
@@ -489,6 +579,12 @@ def _properties_from_contour(
         analysis_mode=str(analysis_mode),
         mdc_valid_directions=int(mdc_valid_directions),
         mdc_total_directions=int(mdc_total_directions),
+        is_extrapolated=bool(extrapolated),
+        ellipse_fit_valid=bool(ellipse_valid),
+        arc_coverage_deg=float(coverage),
+        kF_a_sigma=float(kf_a_sigma),
+        kF_b_sigma=float(kf_b_sigma),
+        fit_method=str(fit_method),
     )
 
 
@@ -548,8 +644,12 @@ def characterize_pocket(
             dx = float(np.nanmedian(np.diff(np.asarray(kx, dtype=float))))
             dy = float(np.nanmedian(np.diff(np.asarray(ky, dtype=float))))
             if props.kF_mean <= 3.0 * max(abs(dx), abs(dy)):
-                raise ValueError("MDC-radial : rayon trop proche du pas de grille.")
+                raise ValueError("MDC-radial: radius too close to the grid step.")
             return props
+        except PocketFitRefusedError:
+            # Refus métier (poche trop ouverte) : NE PAS retomber sur l'aperçu
+            # iso-contour qui referme de force → propager au caller.
+            raise
         except Exception:
             pass
 
@@ -568,118 +668,3 @@ def characterize_pocket(
         hs_dir_tol_deg=hs_dir_tol_deg,
         analysis_mode="isocontour_preview" if publication else "isocontour_preview",
     )
-
-
-_SCALAR_FIELDS = (
-    "centroid_kx", "centroid_ky", "area_inv_a2", "area_pct_bz",
-    "kF_mean", "kF_a", "kF_b", "ellipse_angle_deg",
-    "topology_confidence", "hs_distance",
-    "kF_gamma_x", "kF_gamma_m", "aspect_ratio", "eccentricity",
-    "curvature_mean", "curvature_var", "n_carriers_2D",
-)
-
-
-@dataclass(frozen=True)
-class PocketBootstrap:
-    central: PocketProperties
-    std: dict[str, float] = field(default_factory=dict)
-    n_valid: int = 0
-    n_total: int = 0
-
-    def asdict(self) -> dict:
-        out = self.central.asdict()
-        out["uncertainty"] = dict(self.std)
-        out["n_bootstrap_valid"] = int(self.n_valid)
-        out["n_bootstrap_total"] = int(self.n_total)
-        return out
-
-
-def characterize_pocket_bootstrap(
-    image,
-    kx,
-    ky,
-    *,
-    seed_point: tuple[float, float],
-    level: float,
-    bz_polygon,
-    hs_points: HsPointMap,
-    smooth_sigma: tuple[float, float] = (1.0, 3.0),
-    n_bootstrap: int = 20,
-    level_rel_jitter: float = 0.10,
-    smooth_rel_jitter: float = 0.25,
-    rng=None,
-    **characterize_kwargs,
-) -> PocketBootstrap:
-    """Repeat ``characterize_pocket`` with jittered level and smoothing.
-
-    Each iteration draws ``level' = level × (1 + U[-r, r])`` and
-    ``σ' = σ × (1 + U[-s, s])`` independently per axis. Returns the median
-    pocket as ``central`` and per-scalar standard deviation as ``std``.
-    Categorical fields (``topology``, ``hs_label_nearest``) take the mode.
-    Iterations that fail (level out of range, no closed contour) are skipped.
-    """
-    rng = np.random.default_rng() if rng is None else rng
-    n_total = int(max(1, n_bootstrap))
-    lvl_r = float(max(0.0, level_rel_jitter))
-    sm_r = float(max(0.0, smooth_rel_jitter))
-    sigma_y0, sigma_x0 = float(smooth_sigma[0]), float(smooth_sigma[1])
-    runs: list[PocketProperties] = []
-    for _ in range(n_total):
-        l_jit = float(level) * (1.0 + rng.uniform(-lvl_r, lvl_r))
-        sy = max(0.0, sigma_y0 * (1.0 + rng.uniform(-sm_r, sm_r)))
-        sx = max(0.0, sigma_x0 * (1.0 + rng.uniform(-sm_r, sm_r)))
-        try:
-            smoothed = smooth_fs_image(image, sigma=(sy, sx))
-            props = characterize_pocket(
-                smoothed, kx, ky,
-                seed_point=seed_point,
-                level=l_jit,
-                bz_polygon=bz_polygon,
-                hs_points=hs_points,
-                **characterize_kwargs,
-            )
-        except (ValueError, RuntimeError):
-            continue
-        runs.append(props)
-    if not runs:
-        empty = characterize_pocket(
-            smooth_fs_image(image, sigma=(sigma_y0, sigma_x0)), kx, ky,
-            seed_point=seed_point, level=float(level),
-            bz_polygon=bz_polygon, hs_points=hs_points,
-            **characterize_kwargs,
-        )
-        return PocketBootstrap(central=empty, std={}, n_valid=0, n_total=n_total)
-
-    medians: dict[str, float] = {}
-    stds: dict[str, float] = {}
-    for f in _SCALAR_FIELDS:
-        vals = np.array([getattr(p, f) for p in runs], dtype=float)
-        finite = vals[np.isfinite(vals)]
-        medians[f] = float(np.nanmedian(finite)) if finite.size else float("nan")
-        stds[f] = float(np.nanstd(finite, ddof=1)) if finite.size > 1 else 0.0
-    topology_mode = Counter(p.topology for p in runs).most_common(1)[0][0]
-    hs_mode = Counter(p.hs_label_nearest for p in runs).most_common(1)[0][0]
-    rays_med = int(np.median([p.topology_rays_used for p in runs]))
-    central = PocketProperties(
-        centroid_kx=medians["centroid_kx"],
-        centroid_ky=medians["centroid_ky"],
-        area_inv_a2=medians["area_inv_a2"],
-        area_pct_bz=medians["area_pct_bz"],
-        kF_mean=medians["kF_mean"],
-        kF_a=medians["kF_a"],
-        kF_b=medians["kF_b"],
-        ellipse_angle_deg=medians["ellipse_angle_deg"],
-        topology=topology_mode,
-        topology_confidence=medians["topology_confidence"],
-        hs_label_nearest=hs_mode,
-        hs_distance=medians["hs_distance"],
-        kF_gamma_x=medians["kF_gamma_x"],
-        kF_gamma_m=medians["kF_gamma_m"],
-        aspect_ratio=medians["aspect_ratio"],
-        eccentricity=medians["eccentricity"],
-        curvature_mean=medians["curvature_mean"],
-        curvature_var=medians["curvature_var"],
-        n_carriers_2D=medians["n_carriers_2D"],
-        topology_rays_used=rays_med,
-    )
-    return PocketBootstrap(central=central, std=stds, n_valid=len(runs), n_total=n_total)

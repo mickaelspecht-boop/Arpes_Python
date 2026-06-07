@@ -8,7 +8,7 @@ from .models import TheoryBandData, TheoryOverlayConfig, select_bands_for_view
 
 
 def _band_color(idx: int):
-    """Couleur stable par index de bande (tab20, cyclique)."""
+    """Stable color by band index (cyclic tab20)."""
     import matplotlib as _mpl
 
     return _mpl.colormaps["tab20"](int(idx) % 20)
@@ -72,14 +72,14 @@ def draw_theory_overlay(ax, overlay: dict[str, Any] | None) -> int:
 
 
 def _draw_band_legend(ax, drawn_idx: list[int], chars: list[str]) -> None:
-    """Légende compacte : pastille couleur + b{idx} + caractère."""
+    """Compact legend: color swatch + b{idx} + character."""
     from matplotlib.lines import Line2D
 
     if not drawn_idx:
         return
     handles = []
     labels = []
-    for idx in drawn_idx[:14]:  # garde-fou anti-débordement
+    for idx in drawn_idx[:14]:  # overflow guard
         ch = chars[idx] if 0 <= idx < len(chars) else ""
         labels.append(f"b{idx}" + (f"·{ch}" if ch else ""))
         handles.append(Line2D([0], [0], color=_band_color(idx), lw=2))
@@ -87,7 +87,7 @@ def _draw_band_legend(ax, drawn_idx: list[int], chars: list[str]) -> None:
         handles, labels, loc="upper left", fontsize=6, ncol=1,
         framealpha=0.70, facecolor="#111827", edgecolor="#64748b",
         labelcolor="#f8fafc", handlelength=1.2, borderpad=0.3,
-        labelspacing=0.25, title="bandes DFT",
+        labelspacing=0.25, title="DFT bands",
     )
     if leg is not None and leg.get_title() is not None:
         leg.get_title().set_color("#f8fafc")
@@ -97,12 +97,12 @@ def _draw_band_legend(ax, drawn_idx: list[int], chars: list[str]) -> None:
 
 def _overlay_label(data: TheoryBandData, config: TheoryOverlayConfig, best: dict[str, Any] | None = None) -> str:
     segment = f" | {config.segment}" if config.segment else ""
-    source_label = "DFT MP" if data.source == "materials_project" else "DFT locale"
+    source_label = "DFT MP" if data.source == "materials_project" else "local DFT"
     label = (
         f"{source_label} {data.material_id}{segment} | "
         f"mu={effective_mu_shift(config):+.2f} eV Z={effective_z_scale(config):.2f} "
         f"dk={config.k_shift:+.2f}"
     )
     if best:
-        label += f"\nmeilleur score: bande {best.get('band_index')} rms={float(best.get('rms_e', 0.0))*1000:.0f} meV"
+        label += f"\nbest score: band {best.get('band_index')} rms={float(best.get('rms_e', 0.0))*1000:.0f} meV"
     return label

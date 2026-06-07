@@ -26,24 +26,24 @@ class SessionDiffDialog(QDialog):
     """Compare deux fichiers de session sauvegardes."""
 
     HEADERS = [
-        "Fichier", "Paire/Branche", "Statut", "Delta kF", "Delta vF",
+        "File", "Pair/Branch", "Status", "Delta kF", "Delta vF",
         "Delta m*", "A kF±sigma", "B kF±sigma", "A vF±sigma", "B vF±sigma",
     ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Comparer sessions")
+        self.setWindowTitle("Compare sessions")
         self.resize(980, 560)
         self._path_a: Path | None = None
         self._path_b: Path | None = None
 
         root = QVBoxLayout(self)
         row = QHBoxLayout()
-        self._lbl_a = QLabel("Session A : aucune")
-        self._lbl_b = QLabel("Session B : aucune")
+        self._lbl_a = QLabel("Session A: none")
+        self._lbl_b = QLabel("Session B: none")
         btn_a = QPushButton("Session A...")
         btn_b = QPushButton("Session B...")
-        btn_load = QPushButton("Charger")
+        btn_load = QPushButton("Load")
         btn_a.clicked.connect(lambda: self._choose_path("A"))
         btn_b.clicked.connect(lambda: self._choose_path("B"))
         btn_load.clicked.connect(self.load_diff)
@@ -65,7 +65,7 @@ class SessionDiffDialog(QDialog):
 
     def _choose_path(self, which: str) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, f"Choisir session {which}", str(Path.home()), SESSION_FILTER,
+            self, f"Choose session {which}", str(Path.home()), SESSION_FILTER,
         )
         if not path:
             return
@@ -81,14 +81,14 @@ class SessionDiffDialog(QDialog):
 
     def load_diff(self) -> None:
         if self._path_a is None or self._path_b is None:
-            QMessageBox.warning(self, "Comparer sessions", "Choisir les sessions A et B.")
+            QMessageBox.warning(self, "Compare sessions", "Choose sessions A and B.")
             return
         try:
             payload_a = json.loads(self._path_a.read_text())
             payload_b = json.loads(self._path_b.read_text())
             rows = compare_session_payloads(payload_a, payload_b)
         except (OSError, json.JSONDecodeError, ValueError) as exc:
-            QMessageBox.critical(self, "Comparer sessions", f"Lecture impossible : {exc}")
+            QMessageBox.critical(self, "Compare sessions", f"Unable to read file: {exc}")
             return
         self._populate(rows)
         self._warning.setText(_crystal_warning(payload_a, payload_b))
@@ -148,4 +148,4 @@ def _crystal_warning(payload_a: dict, payload_b: dict) -> str:
             changed.append(name)
     if not changed:
         return ""
-    return f"Attention : crystal_a different pour {len(changed)} fichier(s), chaque session utilise sa valeur."
+    return f"Warning: crystal_a differs for {len(changed)} file(s); each session uses its own value."

@@ -1,8 +1,8 @@
-"""Liste persistante des sessions ouvertes/sauvegardées récemment.
+"""Persistent list of recently opened/saved sessions.
 
-Stocke `~/.arpes/recent_sessions.json` (max ``MAX_RECENT`` entrées). Les
-entrées pointant vers un fichier inexistant sont filtrées au listing mais
-conservées tant que l'utilisateur ne les retire pas explicitement.
+Stores `~/.arpes/recent_sessions.json` (max ``MAX_RECENT`` entries). Entries
+pointing to a nonexistent file are filtered when listed but kept until the user
+explicitly removes them.
 """
 from __future__ import annotations
 

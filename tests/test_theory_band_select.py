@@ -1,4 +1,4 @@
-"""Tests P1-P3 : sélection / caractère bandes DFT + rétrocompat schéma."""
+"""Tests P1-P3: DFT band selection / character + schema backward compatibility."""
 import numpy as np
 import pytest
 
@@ -31,7 +31,7 @@ class TestComputeBandMeta:
         assert meta[2]["e_max"] == pytest.approx(2.0)
 
     def test_window_widens_crossing(self):
-        bands = [[0.5, 0.8]]  # ne touche pas 0 sans fenêtre
+        bands = [[0.5, 0.8]]  # does not touch 0 without a window
         assert compute_band_meta(bands)[0]["crosses_ef"] is False
         assert compute_band_meta(bands, ef_window=1.0)[0]["crosses_ef"] is True
 
@@ -74,8 +74,8 @@ class TestAggregateProjectionCharacter:
     def test_ndarray_dominant_channel(self):
         # (n_band=2, n_k=3, n_orb=4, n_ion=2)
         arr = np.zeros((2, 3, 4, 2))
-        arr[0, :, 2, 1] = 1.0  # bande0 -> orb d, ion1
-        arr[1, :, 0, 0] = 1.0  # bande1 -> orb s, ion0
+        arr[0, :, 2, 1] = 1.0  # band0 -> orb d, ion1
+        arr[1, :, 0, 0] = 1.0  # band1 -> orb s, ion0
         out = aggregate_projection_character(arr, ["Ti", "O"])
         assert out[0] == "O-d"
         assert out[1] == "Ti-s"
@@ -124,7 +124,7 @@ class TestRealMpBranches:
         {"name": "\\Gamma-X", "start": 0, "end": 2},
         {"name": "X-M", "start": 3, "end": 5},
         {"name": "M-\\Gamma", "start": 6, "end": 8},
-        {"name": "\\Gamma-X", "start": 9, "end": 11},  # repasse
+        {"name": "\\Gamma-X", "start": 9, "end": 11},  # passes again
     ]
 
     def test_display_names_disambiguate(self):
@@ -133,7 +133,7 @@ class TestRealMpBranches:
         ]
 
     def test_available_segments_only_real_path(self):
-        # branches présentes → on ne propose QUE le chemin réel
+        # Branches present → propose ONLY the real path.
         segs = available_segments([{"label": "Γ", "k": 0.0}], self.BR)
         assert segs == ["Γ-X", "X-M", "M-Γ", "Γ-X (2)"]
 
@@ -148,7 +148,7 @@ class TestRealMpBranches:
 
     def test_segment_mask_uses_branch_indices(self):
         n = 12
-        bands = [[float(i) - 6 for i in range(n)]]  # rampe -6..5
+        bands = [[float(i) - 6 for i in range(n)]]  # ramp -6..5
         data = TheoryBandData(
             source="materials_project", material_id="mp-x",
             k_distance=[float(i) for i in range(n)],
@@ -160,7 +160,7 @@ class TestRealMpBranches:
                                        ylim=(-99, 99))
         _idx, _k, band = curves[0]
         finite = np.where(np.isfinite(band))[0]
-        # X-M = indices 3..5 uniquement
+        # X-M = indices 3..5 only.
         assert finite.min() == 3 and finite.max() == 5
 
     def test_second_occurrence_distinct_window(self):
@@ -204,7 +204,7 @@ class TestBranchLocalK:
         _i, k, band = select_bands_for_view(
             data, cfg, xlim=(-9, 9), ylim=(-9, 9))[0]
         kk = np.asarray(k)
-        # Γ (extrémité finale start..end) doit être ramené à k=0
+        # Γ (final end of start..end) must be brought back to k=0.
         assert kk[5] == pytest.approx(0.0)
         assert kk[0] == pytest.approx(1.0)
 
@@ -222,11 +222,11 @@ class TestBranchLocalK:
 
 class TestPhysicalKAlignment:
     def test_abs_distance_converted_a_over_pi(self):
-        # branche Γ-X, distances absolues Å⁻¹ = 0,0.5,1.0,1.5 ; a=4.0
+        # Γ-X branch, absolute distances Å⁻¹ = 0,0.5,1.0,1.5; a=4.0.
         n = 4
         data = TheoryBandData(
             source="materials_project", material_id="mp-x",
-            k_distance=[-1.0, -0.33, 0.33, 1.0],  # normalisé (ignoré)
+            k_distance=[-1.0, -0.33, 0.33, 1.0],  # normalized (ignored)
             k_distance_abs=[0.0, 0.5, 1.0, 1.5],
             bands=[[1.0] * n],
             branches=[{"name": "\\Gamma-X", "start": 0, "end": 3}],
@@ -279,7 +279,7 @@ class TestSchemaRetrocompat:
         d = TheoryBandData.from_dict(legacy)
         assert d.band_meta == []
         assert d.band_character == []
-        assert d.schema_version == 1  # cache ancien
+        assert d.schema_version == 1  # old cache
 
     def test_roundtrip_preserves_new_fields(self):
         d = TheoryBandData(
@@ -324,6 +324,6 @@ class TestSchemaRetrocompat:
         assert c.color_by_band is True
         assert c.path_convention == "mp_bulk"
         c2 = TheoryOverlayConfig.from_dict({"ef_window": -3.0})
-        assert c2.ef_window == 0.0  # clampé >=0
+        assert c2.ef_window == 0.0  # clamped >=0
         c3 = TheoryOverlayConfig.from_dict({"path_convention": "arpes_pnictides"})
         assert c3.to_dict()["path_convention"] == "arpes_pnictides"

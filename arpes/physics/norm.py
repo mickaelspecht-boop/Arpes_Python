@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Normalisations communes pour cartes ARPES.
+"""Shared normalizations for ARPES maps.
 
-Les loaders doivent rester responsables des unités/axes. Les normalisations
-d'intensité vivent ici pour que Solaris et CLS utilisent exactement les mêmes
-règles côté affichage/analyse.
+Loaders must remain responsible for units/axes. Intensity normalizations live
+here so Solaris and CLS use exactly the same display/analysis rules.
 """
 from __future__ import annotations
 
@@ -14,7 +13,7 @@ import numpy as np
 
 try:
     from scipy.ndimage import gaussian_filter1d
-except Exception:  # pragma: no cover - scipy est une dépendance normale de l'app
+except Exception:  # pragma: no cover - scipy is a normal app dependency
     gaussian_filter1d = None
 
 
@@ -35,12 +34,12 @@ _PROFILE_FACTOR_MAX = 2.0
 
 
 def _safe_profile(profile: np.ndarray, min_valid: int) -> np.ndarray | None:
-    """Profil de flux normalisé à sa médiane, avec clamp anti-artefact.
+    """Flux profile normalized to its median, with anti-artifact clamping.
 
-    Les facteurs sont bornés à [_PROFILE_FACTOR_MIN, _PROFILE_FACTOR_MAX] pour
-    éviter qu'une colonne/slice presque vide dans la fenêtre de référence
-    produise une correction extrême (par ex. CLS aux angles limites où le
-    détecteur ne reçoit plus rien : sans clamp on amplifie le bruit ×100+).
+    Factors are bounded to [_PROFILE_FACTOR_MIN, _PROFILE_FACTOR_MAX] to avoid
+    a nearly empty column/slice in the reference window producing an extreme
+    correction (for example CLS at angular limits where the detector receives
+    almost nothing: without clamping, noise is amplified by 100×+).
     """
     p = np.asarray(profile, dtype=float)
     finite = np.isfinite(p) & (np.abs(p) > 1e-12)
@@ -60,21 +59,21 @@ def normalize_bandmap_flux_profile(
     energy: np.ndarray,
     ref_range: tuple[float, float] = (-0.60, -0.20),
 ) -> tuple[np.ndarray, str]:
-    """Normalise une BM `(nk, nE)` par son profil de flux selon k.
+    """Normalize a BM `(nk, nE)` by its flux profile along k.
 
-    La fenêtre de référence doit être sous EF et assez large pour mesurer le
-    fond de flux sans dépendre trop fortement des détails près de EF.
+    The reference window must be below EF and wide enough to measure the flux
+    background without depending too strongly on details near EF.
     """
     arr = np.asarray(data, dtype=float)
     if arr.ndim != 2 or arr.shape[-1] != len(energy) or arr.shape[0] <= 1:
-        return arr, "sans norm flux"
+        return arr, "without flux norm"
     mask, (ref_lo, ref_hi) = _finite_ref_mask(np.asarray(energy, dtype=float), ref_range)
     if mask.sum() == 0:
-        return arr, "norm flux ref vide"
+        return arr, "empty flux norm ref"
     profile = np.nanmean(arr[:, mask], axis=1)
     safe = _safe_profile(profile, min_valid=arr.shape[0] // 4)
     if safe is None:
-        return arr, "norm flux profil invalide"
+        return arr, "invalid flux norm profile"
     return arr / safe[:, None], f"norm flux k [{ref_lo:.2f},{ref_hi:.2f}] eV"
 
 
@@ -85,44 +84,44 @@ def normalize_bandmap_above_ef(
     smooth_k_sigma: float = 3.0,
     ef_calibrated: bool = False,
 ) -> tuple[np.ndarray, str]:
-    """Normalise une BM `(nk, nE)` par un profil intégré au-dessus d'EF.
+    """Normalize a BM `(nk, nE)` by a profile integrated above EF.
 
-    Hypothèse : l'axe `energy` est calibré tel que `E = 0` correspond à EF.
-    On intègre `data` sur la fenêtre `[EF + ev_above_min, EF + ev_above_max]`
-    pour estimer le fond instrumental + flux par colonne k, puis on divise.
+    Assumption: the `energy` axis is calibrated so `E = 0` corresponds to EF.
+    `data` is integrated over `[EF + ev_above_min, EF + ev_above_max]` to
+    estimate the instrumental background + flux per k column, then divided.
 
-    Préserve `|M|²(k)` (contrairement à la normalisation par profil sous-EF).
+    Preserves `|M|²(k)` (unlike normalization by a below-EF profile).
 
-    Si `ef_calibrated=False`, émet un warning : la fenêtre au-dessus d'EF
-    n'a de sens physique que si EF a été préalablement calibré.
+    If `ef_calibrated=False`, emits a warning: the above-EF window is
+    physically meaningful only if EF has already been calibrated.
     """
     arr = np.asarray(data, dtype=float)
     if arr.ndim != 2 or arr.shape[-1] != len(energy) or arr.shape[0] <= 1:
-        return arr, "sans norm above-EF"
+        return arr, "without above-EF norm"
 
     ev = np.asarray(energy, dtype=float)
     finite_ev = ev[np.isfinite(ev)]
     if finite_ev.size == 0:
-        return arr, "norm above-EF axe énergie vide"
+        return arr, "above-EF norm empty energy axis"
 
     if not ef_calibrated:
         warnings.warn(
-            "normalize_bandmap_above_ef: EF n'a pas été calibré (ef_calibrated=False). "
-            "La fenêtre au-dessus d'EF risque de mordre dans les états occupés "
-            "et la correction sera fausse. Calibrer EF avant d'appliquer cette norm.",
+            "normalize_bandmap_above_ef: EF has not been calibrated (ef_calibrated=False). "
+            "The above-EF window may cut into occupied states and the correction "
+            "will be wrong. Calibrate EF before applying this normalization.",
             RuntimeWarning,
             stacklevel=2,
         )
 
     if float(np.nanmax(finite_ev)) < float(ev_above_range[0]):
         return arr, (
-            f"norm above-EF impossible: axe énergie max={np.nanmax(finite_ev):.3f} eV "
-            f"< borne basse {ev_above_range[0]:.3f} eV"
+            f"above-EF norm impossible: energy axis max={np.nanmax(finite_ev):.3f} eV "
+            f"< lower bound {ev_above_range[0]:.3f} eV"
         )
 
     mask, (ref_lo, ref_hi) = _finite_ref_mask(ev, ev_above_range)
     if mask.sum() < 2:
-        return arr, "norm above-EF fenêtre trop étroite"
+        return arr, "above-EF norm window too narrow"
 
     profile = np.nanmean(arr[:, mask], axis=1)
 
@@ -131,11 +130,11 @@ def normalize_bandmap_above_ef(
 
     safe = _safe_profile(profile, min_valid=arr.shape[0] // 4)
     if safe is None:
-        return arr, "norm above-EF profil invalide"
+        return arr, "invalid above-EF norm profile"
 
     label = f"norm above-EF [{ref_lo:.2f},{ref_hi:.2f}] eV (σk={smooth_k_sigma:.0f}px)"
     if not ef_calibrated:
-        label += " [EF non calibré]"
+        label += " [EF not calibrated]"
     return arr / safe[:, None], label
 
 
@@ -146,18 +145,18 @@ def normalize_fs_flux_profiles(
     normalize_y: bool = True,
     normalize_x: bool = True,
 ) -> tuple[np.ndarray, str]:
-    """Normalise un volume FS `(ny, nx, nE)` par profils de flux y puis x.
+    """Normalize an FS volume `(ny, nx, nE)` by y then x flux profiles.
 
-    Le même traitement est volontairement appliqué quel que soit le loader.
-    `y` corrige les variations slice à slice, `x` corrige un profil détecteur
-    restant le long de theta/kx.
+    The same treatment is deliberately applied regardless of loader. `y`
+    corrects slice-to-slice variations; `x` corrects a remaining detector
+    profile along theta/kx.
     """
     arr = np.asarray(fs_data, dtype=float)
     if arr.ndim != 3 or arr.shape[-1] != len(energy):
-        return arr, "sans norm flux"
+        return arr, "without flux norm"
     mask, (ref_lo, ref_hi) = _finite_ref_mask(np.asarray(energy, dtype=float), ref_range)
     if mask.sum() == 0:
-        return arr, "norm flux ref vide"
+        return arr, "empty flux norm ref"
 
     out = arr.copy()
     notes: list[str] = []
@@ -175,7 +174,7 @@ def normalize_fs_flux_profiles(
             notes.append("x")
 
     if not notes:
-        return arr, "norm flux profil invalide"
+        return arr, "invalid flux norm profile"
     axes = "+".join(notes)
     return out, f"norm flux {axes} [{ref_lo:.2f},{ref_hi:.2f}] eV"
 
@@ -187,13 +186,13 @@ def fs_flux_profile_factors(
     normalize_y: bool = True,
     normalize_x: bool = True,
 ) -> tuple[np.ndarray | None, np.ndarray | None, str]:
-    """Retourne les facteurs de normalisation FS sans copier le volume 3D."""
+    """Return FS normalization factors without copying the 3D volume."""
     arr = np.asarray(fs_data, dtype=float)
     if arr.ndim != 3 or arr.shape[-1] != len(energy):
-        return None, None, "sans norm flux"
+        return None, None, "without flux norm"
     mask, (ref_lo, ref_hi) = _finite_ref_mask(np.asarray(energy, dtype=float), ref_range)
     if mask.sum() == 0:
-        return None, None, "norm flux ref vide"
+        return None, None, "empty flux norm ref"
 
     safe_y = None
     safe_x = None
@@ -213,7 +212,7 @@ def fs_flux_profile_factors(
             notes.append("x")
 
     if not notes:
-        return None, None, "norm flux profil invalide"
+        return None, None, "invalid flux norm profile"
     axes = "+".join(notes)
     return safe_y, safe_x, f"norm flux {axes} [{ref_lo:.2f},{ref_hi:.2f}] eV"
 
@@ -223,7 +222,7 @@ def apply_fs_flux_factors_to_map(
     safe_y: np.ndarray | None,
     safe_x: np.ndarray | None,
 ) -> np.ndarray:
-    """Applique les facteurs `(ny,)` et `(nx,)` à une carte FS 2D."""
+    """Apply `(ny,)` and `(nx,)` factors to a 2D FS map."""
     out = np.asarray(fs_map, dtype=float)
     if safe_y is not None:
         out = out / safe_y[:, None]
@@ -263,17 +262,17 @@ def _remove_grid_artifact_2d(
     fft2_peak_sensitivity: float = 8.0,
     fft2_plane: str = "detector",
 ) -> tuple[np.ndarray, dict]:
-    """Corrige un artefact périodique le long de l'axe 0 d'une matrice 2D."""
+    """Correct a periodic artifact along axis 0 of a 2D matrix."""
     arr = np.asarray(data_2d, dtype=float)
     if arr.ndim != 2:
-        raise ValueError(f"Correction grille: données 2D attendues, shape={arr.shape}")
+        raise ValueError(f"Grid correction: expected 2D data, shape={arr.shape}")
     n_axis = arr.shape[0]
     if n_axis < 4 or arr.shape[1] == 0:
         return arr.copy(), {"method": "none", "grid_freq": None, "grid_period_px": None}
 
     method = (method or "profile").lower()
     if method not in {"profile", "fft", "fft2mask"}:
-        raise ValueError("Correction grille: méthode attendue 'profile', 'fft' ou 'fft2mask'.")
+        raise ValueError("Grid correction: expected method 'profile', 'fft', or 'fft2mask'.")
     if grid_freq is not None and float(grid_freq) <= 0:
         grid_freq = None
     if grid_period_px is not None and float(grid_period_px) <= 0:
@@ -385,7 +384,7 @@ def _remove_grid_artifact_2d(
             filt[lo:hi + 1] = 0.0
 
     out = np.empty_like(arr_filled)
-    # Traitement par blocs pour éviter un gros tableau complexe sur les fast maps.
+    # Block processing to avoid a large complex array on fast maps.
     block_cols = max(256, min(4096, arr_filled.shape[1]))
     for start in range(0, arr_filled.shape[1], block_cols):
         stop = min(start + block_cols, arr_filled.shape[1])
@@ -422,11 +421,11 @@ def remove_grid_artifact(
     fft2_peak_sensitivity: float = 8.0,
     fft2_plane: str = "detector",
 ) -> tuple[np.ndarray, dict]:
-    """Supprime l'effet grille Solaris/DA30 le long d'un axe détecteur.
+    """Remove the Solaris/DA30 grid effect along a detector axis.
 
-    Pour une FS Solaris, l'usage historique V5/V6 corrigeait l'axe `beta`
-    avant la conversion k-space. Dans l'interface on applique le même principe
-    au volume déjà standardisé en corrigeant l'axe FS lent `(ny, nx, nE)`.
+    For a Solaris FS, historical V5/V6 usage corrected the `beta` axis before
+    k-space conversion. In the interface, the same principle is applied to the
+    already standardized volume by correcting the slow FS axis `(ny, nx, nE)`.
     """
     arr = np.asarray(data, dtype=float)
     if arr.ndim < 2:
@@ -448,9 +447,9 @@ def remove_grid_artifact(
             infos = []
             plane = (fft2_plane or "detector").lower()
             if plane in {"detector", "kx_energy", "theta_energy"}:
-                # FS standardisée: (beta/ky, theta/kx, E). La grille du
-                # détecteur vit sur les images theta-E, donc on corrige chaque
-                # slice beta séparément, comme FFT_gridrem3D dans Igor.
+                # Standardized FS: (beta/ky, theta/kx, E). The detector grid
+                # lives on theta-E images, so correct each beta slice
+                # separately, like FFT_gridrem3D in Igor.
                 for i in range(arr.shape[0]):
                     clean[i, :, :], info_i = _remove_grid_artifact_fft2_mask(
                         arr[i, :, :],
@@ -475,7 +474,7 @@ def remove_grid_artifact(
                 slice_axis = 2
                 corrected_plane = "map_kx_ky"
             else:
-                raise ValueError("fft2_plane attendu: 'detector' ou 'map'.")
+                raise ValueError("expected fft2_plane: 'detector' or 'map'.")
             removed = int(sum(int(info.get("removed_peak_count", 0)) for info in infos))
             active = [info for info in infos if int(info.get("removed_peak_count", 0)) > 0]
             deltas = [float(info.get("rms_delta_percent", 0.0) or 0.0) for info in infos]
@@ -495,7 +494,7 @@ def remove_grid_artifact(
                 "shape": tuple(arr.shape),
             }
             return clean, info
-        raise ValueError("Correction grille FFT 2D disponible seulement pour données 2D ou volumes FS (ny, nx, E).")
+        raise ValueError("2D FFT grid correction is available only for 2D data or FS volumes (ny, nx, E).")
     axis = int(axis) % arr.ndim
     moved = np.moveaxis(arr, axis, 0)
     flat = moved.reshape(moved.shape[0], -1)

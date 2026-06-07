@@ -1,4 +1,4 @@
-"""Tests auto-detection scoped logbooks via Folder Name (robuste templates)."""
+"""Tests auto-detection of scoped logbooks via Folder Name (robust templates)."""
 from __future__ import annotations
 
 import pytest
@@ -45,7 +45,7 @@ class TestFindFolderName:
         raw = _df([
             ["Folder-Name :", "S3"],
         ])
-        # "folder-name :" normalisé → "foldername" → match
+        # "folder-name :" normalized → "foldername" → match
         assert find_folder_name_in_sheet(raw) == "S3"
 
     def test_value_skips_empty_columns(self):
@@ -66,16 +66,16 @@ class TestFindFolderName:
             ["Folder Name"],
             ["Clive Status", "Good"],
         ])
-        # Label trouvé mais pas de valeur → "" (deuxième ligne ne réessaie pas
-        # car label déjà rencontré et value=None ; tolérance acceptée).
-        assert find_folder_name_in_sheet(raw) in ("", "Good")  # accepté l'un OU l'autre
+        # Label found but no value → "" (second line is not retried because
+        # the label was already seen with value=None; accepted tolerance).
+        assert find_folder_name_in_sheet(raw) in ("", "Good")  # either is accepted
 
     def test_empty_sheet(self):
         raw = _df([])
         assert find_folder_name_in_sheet(raw) == ""
 
     def test_scan_limited_to_first_rows(self):
-        # Folder Name au-delà de _FOLDER_NAME_SCAN_ROWS doit être ignoré
+        # Folder Name beyond _FOLDER_NAME_SCAN_ROWS must be ignored.
         rows = [["junk"]] * 20 + [["Folder Name", "TooLate"]]
         raw = _df(rows)
         assert find_folder_name_in_sheet(raw) == ""
@@ -92,18 +92,18 @@ class TestMatchFolder:
         assert match_folder_to_subfolder("bna_s2", ["BNA_S1", "BNA_S2"]) == "BNA_S2"
 
     def test_normalized(self):
-        # "BNA-S2" normalisé "bnas2" ; "BNA_S2" normalisé "bnas2"
+        # "BNA-S2" normalized to "bnas2"; "BNA_S2" normalized to "bnas2".
         assert match_folder_to_subfolder("BNA-S2", ["BNA_S1", "BNA_S2"]) == "BNA_S2"
 
     def test_basename_match(self):
-        # Sous-dossier imbriqué : rel = "data/BNA_S2"
+        # Nested subfolder: rel = "data/BNA_S2".
         assert match_folder_to_subfolder("BNA_S2", ["data/BNA_S1", "data/BNA_S2"]) == "data/BNA_S2"
 
     def test_substring(self):
         # Folder declared = "S2", subfolder = "BNA_S2" → match substring (S2 in BNAS2)
-        # Mais "s2" très court (2 chars) < 3 → pas pris
+        # But very short "s2" (2 chars) < 3 → not selected.
         assert match_folder_to_subfolder("S2", ["BNA_S2"]) == ""
-        # 3 chars+ accepté
+        # 3+ chars accepted.
         assert match_folder_to_subfolder("BNA", ["BNA_S2", "OTHER"]) == "BNA_S2"
 
     def test_no_match(self):

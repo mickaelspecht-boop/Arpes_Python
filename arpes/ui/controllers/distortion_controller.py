@@ -4,7 +4,7 @@ Pipeline pur dans `arpes/physics/distortion.py`. Ce controller :
 - lit/écrit `entry.bm_distortion`
 - recompose la config depuis le panneau (`panel.bm_distortion_params`)
 - déclenche `_update_display_data` + `_draw_current_view`
-- garde-fous redteam (FS data, hash angle_offsets, calib EF en cours)
+- redteam guardrails (FS data, angle_offsets hash, active EF calibration)
 - store calibrations partagées dans `~/.config/arpes/distortion_calib.json`
   (clé `(lens_mode, pass_energy, hv)`).
 """
@@ -59,6 +59,11 @@ def _calib_key_str(meta: dict | None) -> str:
 
 
 class DistortionController:
+    # P3.1: writes through to parent are now allow-listed (fail-loud on typo).
+    # Reads stay forwarded (a typo'd read already raises via the parent).
+    _OWN_ATTRS = frozenset({"_parent"})
+    _PARENT_WRITES = frozenset()
+
     def __init__(self, parent):
         object.__setattr__(self, "_parent", parent)
 
@@ -66,10 +71,16 @@ class DistortionController:
         return getattr(self._parent, name)
 
     def __setattr__(self, name, value):
-        if name == "_parent":
+        if name in self._OWN_ATTRS:
             object.__setattr__(self, name, value)
-        else:
+        elif name in self._PARENT_WRITES:
             setattr(self._parent, name, value)
+        else:
+            raise AttributeError(
+                f"{type(self).__name__} refuses to write '{name}': missing from "
+                "_PARENT_WRITES (typo?). Add it to _PARENT_WRITES "
+                "if the parent attribute is legitimate."
+            )
 
     # ── helpers ──────────────────────────────────────────────────────────────
     def _ef_calib_in_progress(self) -> bool:
@@ -87,24 +98,24 @@ class DistortionController:
     # ── apply / reset ───────────────────────────────────────────────────────
     def _apply_bm_distortion(self):
         if self._raw_data is None or not self._current_path:
-            QMessageBox.warning(self._parent, "Distorsion BM",
-                                "Charge d'abord une BM.")
+            QMessageBox.warning(self._parent, "BM distortion",
+                                "Load a band map first.")
             return
         meta = self._current_meta()
         data = np.asarray(self._raw_data.get("data"), dtype=float)
         if data.ndim != 2:
-            QMessageBox.warning(self._parent, "Distorsion BM",
-                                "Correction disponible seulement sur une BM 2D.")
+            QMessageBox.warning(self._parent, "BM distortion",
+                                "Correction is only available on a 2D band map.")
             return
         if self._ef_calib_in_progress():
-            QMessageBox.warning(self._parent, "Distorsion BM",
-                                "Calibration EF en cours — ferme le dialog d'abord.")
+            QMessageBox.warning(self._parent, "BM distortion",
+                                "EF calibration in progress — close the dialog first.")
             return
 
         cfg = self._params.bm_distortion_params()
         if not is_distortion_active(cfg):
-            QMessageBox.warning(self._parent, "Distorsion BM",
-                                "Aucune correction active (pentes et a = 0).")
+            QMessageBox.warning(self._parent, "BM distortion",
+                                "No active correction (slopes and a = 0).")
             return
 
         cfg["angle_offsets_hash"] = angle_offsets_hash(self._session.angle_offsets)
@@ -136,10 +147,10 @@ class DistortionController:
             self._params.lbl_distortion.setText(msg)
             self._status(msg)
             if hasattr(self._params, "mark_action_done"):
-                self._params.mark_action_done("distorsion BM appliquée")
+                self._params.mark_action_done("BM distortion applied")
         except Exception as exc:
-            QMessageBox.warning(self._parent, "Distorsion BM", str(exc))
-            self._status(f"Attention: distorsion BM : {exc}")
+            QMessageBox.warning(self._parent, "BM distortion", str(exc))
+            self._status(f"Warning: BM distortion: {exc}")
 
     def _reset_bm_distortion(self):
         if not self._current_path:
@@ -152,14 +163,14 @@ class DistortionController:
         self._parent._distortion_preview_visible = False
         self._update_display_data()
         self._draw_current_view()
-        self._params.lbl_distortion.setText("Distorsion BM : désactivée pour ce fichier.")
-        self._status("Distorsion BM désactivée pour ce fichier.")
+        self._params.lbl_distortion.setText("BM distortion: disabled for this file.")
+        self._status("BM distortion disabled for this file.")
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done("distorsion BM désactivée")
+            self._params.mark_action_done("BM distortion disabled")
 
-    # ── live preview overlay ────────────────────────────────────────────────
+    # -- live preview overlay ------------------------------------------------
     def _on_distortion_preview_changed(self):
-        """Active l'overlay pointillé sur la BM (caché à nouveau après Apply)."""
+        """Enable the dotted BM overlay (hidden again after Apply)."""
         if self._raw_data is None:
             return
         cfg = self._params.bm_distortion_params()
@@ -177,7 +188,7 @@ class DistortionController:
         self._redraw_distortion_preview()
 
     def _redraw_distortion_preview(self):
-        """Rafraîchit uniquement l'overlay BM visible, sans redessiner MDC/FS."""
+        """Refresh only the visible BM overlay, without redrawing MDC/FS."""
         tabs = getattr(self._parent, "_tabs", None)
         if tabs is not None and tabs.currentIndex() != 0:
             return
@@ -262,12 +273,12 @@ class DistortionController:
     # ── auto-detect ──────────────────────────────────────────────────────────
     def _auto_bm_distortion(self):
         if self._raw_data is None:
-            QMessageBox.warning(self._parent, "Distorsion BM auto", "Charge d'abord une BM.")
+            QMessageBox.warning(self._parent, "BM distortion auto", "Load a band map first.")
             return
         meta = self._current_meta()
         if np.asarray(self._raw_data.get("data"), dtype=float).ndim != 2:
-            QMessageBox.warning(self._parent, "Distorsion BM auto",
-                                "Auto-detect disponible seulement sur une BM 2D.")
+            QMessageBox.warning(self._parent, "BM distortion auto",
+                                "Auto-detect is only available on a 2D band map.")
             return
         data = np.asarray(self._raw_data["data"], dtype=float)
         kpar = np.asarray(self._raw_data["kpar"], dtype=float)
@@ -275,9 +286,9 @@ class DistortionController:
         trap = auto_detect_trapezoid(data, kpar, ev)
         para = auto_detect_parabola(data, kpar, ev)
         if trap is None and para is None:
-            QMessageBox.information(self._parent, "Distorsion BM auto",
-                                    "Dispersion insuffisante ou n_kpar < 16 — auto refusé. "
-                                    "Saisis manuellement les pentes / a, k0.")
+            QMessageBox.information(self._parent, "BM distortion auto",
+                                    "Insufficient dispersion or n_kpar < 16 — auto-detect refused. "
+                                    "Enter the slopes / a, k0 manually.")
             return
         cfg = self._params.bm_distortion_params()
         if trap is not None:
@@ -302,9 +313,9 @@ class DistortionController:
         if para:
             bits.append(f"parabole a={para['a']:+.3f} k0={para['k0']:+.3f} "
                         f"(n={para['n_points']})")
-        self._status("Distorsion auto détectée : " + " | ".join(bits))
+        self._status("Auto-detected distortion: " + " | ".join(bits))
         if hasattr(self._params, "mark_action_done"):
-            self._params.mark_action_done("auto-detect distorsion")
+            self._params.mark_action_done("auto-detect distortion")
 
     # ── calib partagée ──────────────────────────────────────────────────────
     def _save_to_calib_store(self, cfg: dict, meta: dict) -> None:
@@ -333,10 +344,13 @@ class DistortionController:
         return store.get(_calib_key_str(meta))
 
     def _apply_calib_for_current_if_any(self) -> None:
-        """Au load d'un fichier, propose d'appliquer la calib partagée si
-        l'entrée locale n'a pas de distorsion mais la clé `(lens, Ep, hv)`
-        a une calibration enregistrée. Émet un statusbar info, ne mute pas
-        sans demande explicite (évite double-application silencieuse)."""
+        """On file load, offer to apply a shared calibration if available.
+
+        This applies when the local entry has no distortion but the
+        `(lens, Ep, hv)` key has a stored calibration. It emits statusbar info
+        and does not mutate without an explicit request, avoiding silent double
+        application.
+        """
         if self._raw_data is None:
             return
         meta = self._current_meta()
@@ -350,17 +364,17 @@ class DistortionController:
             return
         if hasattr(self._params, "lbl_distortion"):
             self._params.lbl_distortion.setText(
-                f"Calibration disponible (lens={meta.get('lens_mode','?')}, "
-                f"hν={meta.get('hv')}). Clic 'Appliquer' pour la charger."
+                f"Calibration available (lens={meta.get('lens_mode','?')}, "
+                f"hν={meta.get('hv')}). Click 'Apply' to load it."
             )
-        self._status(f"Distorsion calib trouvée pour {_calib_key_str(meta)}")
+        self._status(f"Distortion calibration found for {_calib_key_str(meta)}")
 
     def _import_calib_to_current(self):
-        """Import explicite de la calib partagée vers l'entrée du fichier courant."""
+        """Explicit import of the shared calibration into the current file's entry."""
         calib = self._load_calib_for_current()
         if not calib or self._raw_data is None or not self._current_path:
-            QMessageBox.information(self._parent, "Distorsion BM",
-                                    "Aucune calibration partagée pour cette géométrie.")
+            QMessageBox.information(self._parent, "BM distortion",
+                                    "No shared calibration available for this geometry.")
             return
         meta = self._current_meta()
         cfg = {
@@ -375,9 +389,9 @@ class DistortionController:
         self._params.set_bm_distortion_state(cfg)
         self._apply_bm_distortion()
 
-    # ── garde-fous load-time ────────────────────────────────────────────────
+    # -- load-time guardrails ------------------------------------------------
     def _check_distortion_consistency_on_load(self) -> None:
-        """Au load, vérifie hash angle_offsets vs calib stockée. Warning si stale."""
+        """On load, check angle_offsets hash versus stored calibration."""
         if self._raw_data is None or not self._current_path:
             return
         entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
@@ -388,8 +402,8 @@ class DistortionController:
         saved_hash = cfg.get("angle_offsets_hash")
         if saved_hash and saved_hash != current_hash:
             self._status(
-                "Attention: angle_offsets ont changé depuis la calibration distorsion — "
-                "recalcule ou désactive la correction."
+                "Warning: angle_offsets changed since distortion calibration - "
+                "recompute or disable the correction."
             )
         self._params.set_bm_distortion_state(cfg)
         if hasattr(self._params, "lbl_distortion"):

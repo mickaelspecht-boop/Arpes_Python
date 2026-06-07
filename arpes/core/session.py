@@ -1,18 +1,35 @@
-"""Session JSON et etat persistant pour ARPES Explorer.
+"""Session JSON and persistent state for ARPES Explorer.
 
-Ce module preserve le format `.arpes_session.json` existant. Il est separe de
-l'interface PyQt pour permettre des tests sans lancer l'application.
+This module preserves the existing `.arpes_session.json` format. It is
+separate from the PyQt interface so tests can run without launching the app.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 from typing import Optional
 import json
+import os
+import warnings
 
 import numpy as np
 
 from arpes.core.sample import SampleConfig
+
+
+# P4.8: historical default EF offset (eV). Value inherited from an original
+# CLS dataset; kept for session compatibility but with no physical scope for
+# other formats (the loader neutralizes it; see load_controller).
+DEFAULT_EF_OFFSET_EV = 0.052
+
+
+class SessionVersionError(RuntimeError):
+    """Explicit refusal to load a session from a newer schema.
+
+    Raised when `payload["version"] > Session.VERSION`: future fields cannot be
+    interpreted reliably, so refuse instead of silently dropping them (P1.6
+    audit: 3 fields added without a bump = silent cross-version loss).
+    """
 
 
 @dataclass
@@ -42,6 +59,57 @@ class FitParams:
 
 
 @dataclass
+class FitZone:
+    """Typed schema for a multi-zone fit area (P3.4).
+
+    Runtime storage remains a ``dict`` (≥6 consumers access it by key plus the
+    ``entry.fit_result`` mirror), but this dataclass is the canonical schema and
+    validated constructor: ``from_dict`` fills missing defaults and **warns
+    loudly** on unknown keys instead of losing them silently at load time (see
+    audit P3.4). ``to_dict`` converts back for storage, so no consumer needs to
+    change.
+    """
+    id: str
+    label: str
+    color_idx: int = 0
+    active: bool = True
+    fit_params: dict = field(default_factory=dict)
+    fit_result: Optional[dict] = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FitZone":
+        known = {f.name for f in fields(cls)}
+        unknown = set(d) - known
+        if unknown:
+            warnings.warn(
+                f"FitZone: unknown keys ignored on load {sorted(unknown)} "
+                "(derived schema? bump Session.VERSION if intentional).",
+                stacklevel=2,
+            )
+        return cls(
+            id=str(d.get("id", "")),
+            label=str(d.get("label", "")),
+            color_idx=int(d.get("color_idx", 0) or 0),
+            active=bool(d.get("active", True)),
+            fit_params=dict(d.get("fit_params", {}) or {}),
+            fit_result=d.get("fit_result"),
+        )
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def normalize_fit_zones(zones: list) -> list[dict]:
+    """Ensure every zone has the 6 canonical keys (defaults filled) and log
+    unknown keys. Preserve order. P3.4."""
+    out: list[dict] = []
+    for z in zones or []:
+        if isinstance(z, dict):
+            out.append(FitZone.from_dict(z).to_dict())
+    return out
+
+
+@dataclass
 class FileMeta:
     hv: float = 0.0
     temperature: float = 0.0
@@ -62,14 +130,14 @@ class FileMeta:
     lattice_source: str = ""
     sample_config: dict = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
-    # A.1 — type de scan inféré au load (BM/FS/KZ/EDC/unknown). Source de
-    # vérité unique pour pairing BM↔FS (cf BM_FS_ORGANIZATION_PLAN.md).
+    # A.1: scan type inferred on load (BM/FS/KZ/EDC/unknown). Single source of
+    # truth for BM↔FS pairing (see BM_FS_ORGANIZATION_PLAN.md).
     scan_kind: str = "unknown"
 
 
 @dataclass
 class FileEntry:
-    ef_offset: float = 0.052
+    ef_offset: float = DEFAULT_EF_OFFSET_EV
     edcnorm: bool = False
     view_mode: str = "Raw"
     fit_params: FitParams = field(default_factory=FitParams)
@@ -77,32 +145,32 @@ class FileEntry:
     meta: FileMeta = field(default_factory=FileMeta)
     fs_center_kx: Optional[float] = None
     fs_center_ky: Optional[float] = None
-    fs_v0: float = 12.0                     # inner potential (eV) pour calcul kz
+    fs_v0: float = 12.0                     # inner potential (eV) for kz calculation
     fs_kz_plane: str = "Auto"               # "Gamma" | "Z" | "Auto"
-    fs_phi_c_deg: float = 0.0               # rotation cristal/détecteur (deg)
-    fs_bz_crystal_visible: bool = False     # overlay BZ cristal MP
-    fs_hs_crystal_visible: bool = False     # labels HS cristal (Γ/X/M ou Z/R/A)
+    fs_phi_c_deg: float = 0.0               # crystal/detector rotation (deg)
+    fs_bz_crystal_visible: bool = False     # MP crystal BZ overlay
+    fs_hs_crystal_visible: bool = False     # crystal HS labels (Γ/X/M or Z/R/A)
     fs_bz_crystal_force_override: bool = False  # override mismatch a_ARPES/a_MP > 2%
     fs_lattice: dict = field(default_factory=dict)  # cache lattice MP {a,b,c,alpha,beta,gamma,bravais,space_group,mp_id}
-    propagate_distortion_to_fs: bool = False  # opt-in : applique distortion BM aux coupes du volume FS
+    propagate_distortion_to_fs: bool = False  # opt-in: apply BM distortion to FS volume slices
     grid_correction: dict = field(default_factory=dict)
     ef_correction: dict = field(default_factory=dict)
     bm_distortion: dict = field(default_factory=dict)
     theory_overlay: dict = field(default_factory=dict)
     band_analysis: dict = field(default_factory=dict)  # TB fit / kink / gap results
     fs_pockets: list[dict] = field(default_factory=list)
-    dft_grid_path: str = ""  # chemin npz DFT 3D pour comparaison poches
+    dft_grid_path: str = ""  # 3D DFT npz path for pocket comparison
     fit_zones: list[dict] = field(default_factory=list)
     # each zone : {id, label, color_idx, active, fit_params, fit_result|None}
     active_zone_id: Optional[str] = None
     annotations: dict[str, list[dict]] = field(default_factory=dict)
-    # Survit save/load : flags meta gamma déposés par apply_bm_gamma_axis_shift
+    # Survives save/load: gamma metadata flags written by apply_bm_gamma_axis_shift
     # (bm_gamma_axis_centered, bm_gamma_axis_shift, fs_gamma_axis_*,
-    # bm_gamma_reference_*). Restauré dans raw_data["metadata"] au load.
+    # bm_gamma_reference_*). Restored into raw_data["metadata"] on load.
     meta_gamma_state: dict = field(default_factory=dict)
-    # A.3 — override manuel pairing BM↔FS (cf BM_FS_ORGANIZATION_PLAN.md).
-    # Si défini : force le rattachement de cette BM à la FS au path donné,
-    # court-circuitant l'auto-discovery par métadonnées.
+    # A.3: manual BM↔FS pairing override (see BM_FS_ORGANIZATION_PLAN.md).
+    # If set: force this BM to attach to the FS at the given path, bypassing
+    # metadata auto-discovery.
     parent_fs_path: Optional[str] = None
 
     @property
@@ -118,7 +186,7 @@ def _known_kwargs(cls, values: dict) -> dict:
 
 
 def normalize_tags(value) -> list[str]:
-    """Nettoie une saisie tags separee par virgules, sans changer la casse."""
+    """Clean comma-separated tag input without changing case."""
     if value is None:
         raw: list[str] = []
     elif isinstance(value, str):
@@ -143,7 +211,7 @@ def normalize_tags(value) -> list[str]:
 
 
 def session_tags(session: "Session") -> list[str]:
-    """Retourne les tags existants, tries sans sensibilite a la casse."""
+    """Return existing tags, sorted case-insensitively."""
     seen: dict[str, str] = {}
     for entry in getattr(session, "files", {}).values():
         for tag in normalize_tags(getattr(entry.meta, "tags", [])):
@@ -152,7 +220,7 @@ def session_tags(session: "Session") -> list[str]:
 
 
 def _to_serial(obj):
-    """Convertit recursivement np.ndarray / np.floating en types JSON."""
+    """Recursively convert np.ndarray / np.floating to JSON types."""
     if isinstance(obj, np.ndarray):
         return obj.tolist()
     if isinstance(obj, (np.floating, np.integer)):
@@ -169,8 +237,36 @@ def _to_serial(obj):
     return obj
 
 
+def _atomic_write_json(path: Path, payload: dict, *, keep_backup: bool) -> None:
+    """Write the session JSON without risking a truncated file.
+
+    Strategy: write to a tmp file in the same folder, fsync, then atomic
+    os.replace. If keep_backup, the old file is copied to `.bak` before the
+    replacement (P1.6 audit: non-atomic save() = corruption on crash).
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, indent=2)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    if keep_backup and path.exists():
+        bak = path.with_name(path.name + ".bak")
+        try:
+            os.replace(path, bak)
+        except OSError:
+            pass
+    os.replace(tmp, path)
+
+
 class Session:
-    VERSION = 1
+    # v1 -> v2: added band_analysis, fit_zones, active_zone_id on FileEntry
+    # (were added without a bump; v1->v2 migration = absent fields -> defaults).
+    # v2 -> v3: added convention_registry (P2.6a, angle sign conventions
+    # freezable by beamline). v2->v3 migration = absent field -> empty dict.
+    VERSION = 3
 
     def __init__(self, folder: Path | None = None, work_func: float = 0.0):
         self.folder: Path | None = folder
@@ -180,8 +276,8 @@ class Session:
         self.logbook_sheet: str = ""
         self.logbook_mapping: dict[str, str] = {}
         self.logbook_records: list[dict] = []
-        # rel_subdir -> {"path": str, "sheet": str, "n": int} ; records eux-mêmes
-        # restent dans logbook_records taggés "_subfolder_rel".
+        # rel_subdir -> {"path": str, "sheet": str, "n": int}; records themselves
+        # remain in logbook_records tagged "_subfolder_rel".
         self.scoped_logbooks: dict[str, dict] = {}
         self.kz_logbook_path: str = ""
         self.kz_logbook_sheet: str = ""
@@ -194,9 +290,14 @@ class Session:
         self.fit_panel_preset: str = "Custom"
         self.session_notes: str = ""
         self.current_sample: dict = {}
+        # P2.6a: angle sign conventions frozen by beamline (geometric key ->
+        # dict BeamlineAngleConvention). Empty = all UNCALIBRATED (data-driven).
+        self.convention_registry: dict = {}
+        # Version of the payload that was actually loaded (None for a new session).
+        self.loaded_version: Optional[int] = None
 
     def reset(self, *, keep_folder: bool = True) -> None:
-        """Remet la session à zéro (fits, logbook, calibs…). Garde le dossier."""
+        """Reset the session (fits, logbook, calibrations...). Keep the folder."""
         folder = self.folder if keep_folder else None
         wf = self.work_func
         self.__init__(folder=folder, work_func=wf)
@@ -233,6 +334,7 @@ class Session:
             "fit_panel_preset": str(self.fit_panel_preset or "Custom"),
             "session_notes": str(self.session_notes or ""),
             "current_sample": _to_serial(self.current_sample),
+            "convention_registry": _to_serial(self.convention_registry),
             "files": {
                 name: _to_serial(asdict(entry))
                 for name, entry in self.files.items()
@@ -242,13 +344,40 @@ class Session:
     def save(self):
         if not self.json_path:
             return
-        self.json_path.write_text(json.dumps(self.to_payload(), indent=2))
+        _atomic_write_json(self.json_path, self.to_payload(), keep_backup=True)
 
     def save_to(self, path: Path) -> None:
         """Write session payload to an arbitrary path (Save As / Export)."""
-        Path(path).write_text(json.dumps(self.to_payload(), indent=2))
+        _atomic_write_json(Path(path), self.to_payload(), keep_backup=False)
+
+    @classmethod
+    def _migrate_payload(cls, raw: dict) -> dict:
+        """Normalize a payload to the current schema or explicitly refuse it.
+
+        - missing version -> treated as v1 (pre-versioned sessions).
+        - version <= VERSION -> in-place migration (new fields = defaults
+          provided by load_from_payload).
+        - version > VERSION -> SessionVersionError (unknown future schema).
+        """
+        raw = dict(raw or {})
+        try:
+            version = int(raw.get("version", 1) or 1)
+        except (TypeError, ValueError):
+            version = 1
+        if version > cls.VERSION:
+            raise SessionVersionError(
+                f"Session version {version} > supported {cls.VERSION}. "
+                "Update ARPES Explorer to open this file."
+            )
+        # v1 -> v2: no data remapping required; added fields
+        # (band_analysis, fit_zones, active_zone_id) take their defaults through
+        # load_from_payload when absent.
+        raw["version"] = version
+        return raw
 
     def load_from_payload(self, raw: dict) -> None:
+        raw = self._migrate_payload(raw)
+        self.loaded_version = int(raw.get("version", 1))
         self.work_func = raw.get("work_func", 0.0)
         self.logbook_path = raw.get("logbook_path", "")
         self.logbook_sheet = raw.get("logbook_sheet", "")
@@ -268,13 +397,15 @@ class Session:
         self.current_sample = SampleConfig.from_dict(
             raw.get("current_sample", {}) or {}
         ).to_dict()
+        # v2->v3: absent field -> empty dict (all conventions data-driven).
+        self.convention_registry = dict(raw.get("convention_registry", {}) or {})
         self.files = {}
         for name, edict in raw.get("files", {}).items():
             fp = FitParams(**_known_kwargs(FitParams, edict.get("fit_params", {})))
             mt = FileMeta(**_known_kwargs(FileMeta, edict.get("meta", {})))
             mt.sample_config = SampleConfig.from_meta(mt).to_dict()
             entry = FileEntry(
-                ef_offset=edict.get("ef_offset", 0.052),
+                ef_offset=edict.get("ef_offset", DEFAULT_EF_OFFSET_EV),
                 edcnorm=edict.get("edcnorm", False),
                 view_mode=edict.get("view_mode", "Raw"),
                 fit_params=fp,
@@ -297,7 +428,7 @@ class Session:
                 band_analysis=edict.get("band_analysis", {}) or {},
                 fs_pockets=list(edict.get("fs_pockets", []) or []),
                 dft_grid_path=str(edict.get("dft_grid_path", "") or ""),
-                fit_zones=list(edict.get("fit_zones", []) or []),
+                fit_zones=normalize_fit_zones(edict.get("fit_zones", [])),
                 active_zone_id=edict.get("active_zone_id"),
                 annotations=edict.get("annotations", {}) or {},
                 meta_gamma_state=dict(edict.get("meta_gamma_state", {}) or {}),
@@ -322,7 +453,7 @@ class Session:
         self.save()
 
     def key_for_path(self, path: str | Path) -> str:
-        """Cle stable de session : chemin relatif au dossier racine si possible."""
+        """Stable session key: path relative to the root folder if possible."""
         p = Path(path)
         if self.folder is not None:
             try:

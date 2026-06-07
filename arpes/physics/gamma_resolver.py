@@ -1,15 +1,15 @@
-"""Source de vérité unique pour la décision « comment appliquer Γ ».
+"""Single source of truth for deciding how to apply Gamma.
 
-P2 — fonction pure `resolve(raw, ref, hv, phi, entry_azi) → ResolvedGamma`
-qui prend l'état brut et retourne la décision à appliquer. Aucune mutation,
-aucun side-effect, testable headless.
+P2: pure function `resolve(raw, ref, hv, phi, entry_azi) -> ResolvedGamma`.
+It reads raw state and returns the decision to apply. No mutation, no side
+effects, headless-testable.
 
-Le controller UI (`gamma_controller.GammaController`) délègue à cette
-fonction et utilise le résultat via un single-setter (`apply_gamma`).
+The UI controller (`gamma_controller.GammaController`) delegates to this
+function and applies the result through one setter (`apply_gamma`).
 
-Invariant idempotence prouvable :
-    apply(resolve(raw, ref, …)) puis resolve(raw, ref, …) → ResolvedGamma
-    avec `axis_shift_delta == 0` (rien à faire de plus).
+Provable idempotence invariant:
+    apply(resolve(raw, ref, ...)) then resolve(raw, ref, ...) -> ResolvedGamma
+    with `axis_shift_delta == 0` (nothing more to do).
 """
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ from arpes.physics.gamma import (
 
 
 GammaMode = Literal[
-    "none",          # rien à faire (pas de raw, pas de ref valide)
-    "loader_baked",  # loader a déjà appliqué l'offset angulaire
-    "axis_shifted",  # déplacer l'axe k de raw (delta peut être 0 si déjà à jour)
+    "none",          # nothing to do (no raw data, no valid ref)
+    "loader_baked",  # loader already applied the angular offset
+    "axis_shifted",  # move raw k axis (delta can be 0 if already up to date)
 ]
 
 
@@ -39,15 +39,15 @@ class ResolvedGamma:
     - ``mode`` : famille d'action (cf `GammaMode`).
     - ``display_center`` : valeur à pousser dans `sp_cx` (centre fit affiché).
     - ``fit_center_init`` : valeur à pousser dans `entry.fit_params.center_init`.
-    - ``axis_shift_target`` : shift absolu (π/a) cible pour l'axe k.
-    - ``axis_shift_delta`` : delta à appliquer MAINTENANT
+    - ``axis_shift_target``: absolute target shift (pi/a) for the k axis.
+    - ``axis_shift_delta``: delta to apply now
       (=`target - current_shift_in_meta`).
-    - ``fs_marker_kx/ky`` : coord à pousser dans `fs_controls.set_center`
-      quand raw est FS (sinon NaN).
-    - ``is_fs`` : raw est une FS (oriente l'usage du marker).
-    - ``same_ref_path`` : la ref Γ vient du même fichier que raw.
-    - ``reason`` : message human-readable pour statusbar (peut être "").
-    - ``warning`` : message d'avertissement non bloquant (peut être "").
+    - ``fs_marker_kx/ky``: coordinates to push into `fs_controls.set_center`
+      when raw is FS (otherwise NaN).
+    - ``is_fs``: raw is an FS (guides marker usage).
+    - ``same_ref_path``: Gamma reference comes from the same file as raw.
+    - ``reason``: human-readable statusbar message (can be "").
+    - ``warning``: non-blocking warning message (can be "").
     """
     mode: GammaMode
     display_center: float
@@ -105,12 +105,12 @@ def resolve(
     """Décide quoi faire pour appliquer Γ sur ``raw_data``.
 
     Args:
-        raw_data: dict loader (clés ``metadata``, ``kpar``, ``hv``, ``path``).
-        ref: ``session.gamma_reference`` (peut être {} ou None).
-        work_func: φ (eV) pour la projection FS→BM polar.
-        bm_hv: surcharge du hv du raw (sinon lu depuis raw_data['hv']).
-        entry_azi: azi du fichier courant (sinon lu depuis ref/meta).
-        warn_collector: liste optionnelle où pousser warnings physics.
+        raw_data: loader dict (keys ``metadata``, ``kpar``, ``hv``, ``path``).
+        ref: ``session.gamma_reference`` (can be {} or None).
+        work_func: phi (eV) for the FS->BM polar projection.
+        bm_hv: raw hv override (otherwise read from raw_data['hv']).
+        entry_azi: azi for the current file (otherwise read from ref/meta).
+        warn_collector: optional list that receives physics warnings.
 
     Returns:
         `ResolvedGamma` immutable. Pas de mutation de raw_data ni de ref.
@@ -145,7 +145,7 @@ def resolve(
     same_path = _same_path(ref.get("path"), raw_path)
 
     if is_fs:
-        # Cas FS : marker = projection par azi (ou direct si même fichier).
+        # FS case: marker = projection by azi (or direct if same file).
         if same_path:
             kx_target = float(ref.get("kx", 0.0) or 0.0)
             ky_target = float(ref.get("ky", 0.0) or 0.0)
@@ -154,7 +154,7 @@ def resolve(
             kx_target, ky_target = project_gamma_by_azi(
                 ref, entry_azi,
                 on_warn=(warn_collector.append if warn_collector is not None else None),
-                warn_label="Γ référence → FS",
+                warn_label="Γ reference → FS",
             )
             warn = ""
         if not np.isfinite(kx_target) or not np.isfinite(ky_target):
@@ -174,7 +174,7 @@ def resolve(
             reason=(
                 ""
                 if same_path
-                else f"Γ FS propagé par azimut : kx={kx_target:+.4f}, ky={ky_target:+.4f} π/a"
+                else f"FS Γ propagated by azimuth: kx={kx_target:+.4f}, ky={ky_target:+.4f} π/a"
             ),
             warning=warn,
         )
@@ -202,5 +202,5 @@ def resolve(
         fs_marker_ky=float("nan"),
         is_fs=False,
         same_ref_path=same_path,
-        reason=f"Γ mémorisé appliqué : {gamma_bm:+.4f} π/a  correction={correction:+.4f}",
+        reason=f"Stored Γ applied: {gamma_bm:+.4f} π/a  correction={correction:+.4f}",
     )

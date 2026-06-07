@@ -9,6 +9,10 @@ from PyQt6.QtWidgets import QListWidgetItem
 
 
 class BrowserController:
+    # P3.1: writes to the panel are allow-listed (fail-loud on typo).
+    _OWN_ATTRS = frozenset({"_panel"})
+    _PARENT_WRITES = frozenset()
+
     def __init__(self, panel):
         object.__setattr__(self, "_panel", panel)
 
@@ -16,10 +20,16 @@ class BrowserController:
         return getattr(self._panel, name)
 
     def __setattr__(self, name, value):
-        if name == "_panel":
+        if name in self._OWN_ATTRS:
             object.__setattr__(self, name, value)
-        else:
+        elif name in self._PARENT_WRITES:
             setattr(self._panel, name, value)
+        else:
+            raise AttributeError(
+                f"{type(self).__name__} refuses to write '{name}': missing from "
+                "_PARENT_WRITES (typo?). Add it to _PARENT_WRITES "
+                "if the panel attribute is legitimate."
+            )
 
     def _populate(self):
         selected_path = None
@@ -68,7 +78,7 @@ class BrowserController:
         self._refresh_selection_state()
 
     def refresh_item(self, filename_or_key: str):
-        """Met à jour l'icône d'un fichier dans la liste."""
+        """Updates the icon of a file in the list."""
         for i in range(self._list.count()):
             item = self._list.item(i)
             path = item.data(Qt.ItemDataRole.UserRole)
@@ -131,7 +141,7 @@ class BrowserController:
                 return
 
     def select_file(self, path: str) -> bool:
-        """Sélectionne visuellement le fichier dans la liste, en ouvrant son dossier si besoin."""
+        """Visually selects the file in the list, expanding its folder group if needed."""
         if self._folder:
             try:
                 rel = Path(path).relative_to(self._folder)

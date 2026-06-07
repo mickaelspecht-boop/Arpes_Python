@@ -44,9 +44,9 @@ class TheoryOverlayController:
         cfg = self._params.theory_overlay_config()
         mpid = cfg.get("material_id", "").strip()
         if not mpid:
-            self._parent._status("Attention: MP-ID vide pour overlay DFT.")
+            self._parent._status("Warning: empty MP-ID for DFT overlay.")
             return
-        self._apply_mp_id(mpid, source="manuel", show_dialog_on_error=True)
+        self._apply_mp_id(mpid, source="manual", show_dialog_on_error=True)
 
     def _refresh_theory_overlay(self) -> None:
         """Ré-importe le MP-ID en ignorant le cache disque (récupère le
@@ -54,10 +54,10 @@ class TheoryOverlayController:
         cfg = self._params.theory_overlay_config()
         mpid = cfg.get("material_id", "").strip()
         if not mpid:
-            self._parent._status("Attention: MP-ID vide pour rafraîchir DFT.")
+            self._parent._status("Warning: empty MP-ID for DFT refresh.")
             return
-        self._parent._status(f"Rafraîchissement MP {mpid} (cache ignoré)…")
-        self._apply_mp_id(mpid, source="manuel", show_dialog_on_error=True,
+        self._parent._status(f"Refreshing MP {mpid} (cache ignored)...")
+        self._apply_mp_id(mpid, source="manual", show_dialog_on_error=True,
                           force_refresh=True)
 
     def _import_local_theory_overlay(self) -> None:
@@ -67,17 +67,17 @@ class TheoryOverlayController:
             start_dir = str(Path(current).parent)
         path_s, _ = QFileDialog.getOpenFileName(
             self._parent,
-            "Importer DFT local",
+            "Import local DFT",
             start_dir,
-            "DFT local (*.xml *.dat *.txt *.yaml *.yml *.json);;Tous fichiers (*)",
+            "Local DFT (*.xml *.dat *.txt *.yaml *.yml *.json);;All files (*)",
         )
         if not path_s:
             return
         try:
             data = load_local_band_data(Path(path_s))
         except Exception as exc:
-            self._parent._status(f"Attention: import DFT local impossible: {exc}")
-            QMessageBox.warning(self._parent, "Import DFT local", str(exc))
+            self._parent._status(f"Warning: cannot import local DFT: {exc}")
+            QMessageBox.warning(self._parent, "Import local DFT", str(exc))
             return
 
         cfg = self._params.theory_overlay_config()
@@ -98,7 +98,7 @@ class TheoryOverlayController:
                 data.warning
                 or (
                     "" if segment or not direction
-                    else f"Direction logbook {direction} non trouvée dans le chemin DFT."
+                    else f"Logbook direction {direction} not found in the DFT path."
                 )
             ),
         }
@@ -106,7 +106,7 @@ class TheoryOverlayController:
         self._params.set_theory_overlay_state(overlay)
         self._params.txt_theory_mpid.setText(data.material_id)
         self._parent._draw_current_view(include_curves=False)
-        self._parent._status(f"DFT locale importée: {Path(path_s).name} | alignement manuel requis.")
+        self._parent._status(f"Local DFT imported: {Path(path_s).name} | manual alignment required.")
 
     def _apply_mp_id(self, mpid: str, *, source: str = "manuel",
                      show_dialog_on_error: bool = False,
@@ -147,18 +147,18 @@ class TheoryOverlayController:
                 "status": "ok",
                 "warning": (
                     "" if segment or not direction
-                    else f"Direction logbook {direction} non trouvée dans le chemin DFT."
+                    else f"Logbook direction {direction} not found in the DFT path."
                 ),
             }
             self._save_overlay(overlay)
             self._params.set_theory_overlay_state(overlay)
             self._params.txt_theory_mpid.setText(mpid)
             self._parent._draw_current_view(include_curves=False)
-            label = "auto (logbook)" if source == "logbook" else "guide visuel, alignement manuel requis"
-            self._parent._status(f"DFT MP importée: {mpid}  |  {label}.")
+            label = "auto (logbook)" if source == "logbook" else "visual guide, manual alignment required"
+            self._parent._status(f"MP DFT imported: {mpid}  |  {label}.")
             return True
         except Exception as exc:
-            self._parent._status(f"Attention: overlay DFT indisponible: {exc}")
+            self._parent._status(f"Warning: DFT overlay unavailable: {exc}")
             if show_dialog_on_error:
                 QMessageBox.warning(self._parent, "Overlay DFT", str(exc))
             return False
@@ -181,7 +181,7 @@ class TheoryOverlayController:
         self._save_overlay({})
         self._params.set_theory_overlay_state({})
         self._parent._draw_current_view(include_curves=False)
-        self._parent._status("Overlay DFT vidé.")
+        self._parent._status("DFT overlay cleared.")
 
     def _on_theory_overlay_changed(self) -> None:
         overlay = dict(self._current_overlay() or {})
@@ -200,13 +200,13 @@ class TheoryOverlayController:
             float(cfg.get("z_scale", 1.0) or 1.0),
         )
         if warnings:
-            self._parent._status("Attention: " + " ".join(warnings))
+            self._parent._status("Warning: " + " ".join(warnings))
 
     def _open_theory_band_picker(self) -> None:
         overlay = dict(self._current_overlay() or {})
         data = overlay.get("data") or {}
         if not data:
-            self._parent._status("Attention: importer une DFT avant de choisir les bandes.")
+            self._parent._status("Warning: import a DFT before choosing bands.")
             return
         validation_error = validate_picker_data(data)
         if validation_error:
@@ -236,7 +236,7 @@ class TheoryOverlayController:
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         if self._overlay_picker_signature(self._current_overlay()) != signature:
-            self._parent._status("Sélection DFT abandonnée: overlay changé depuis ouverture.")
+            self._parent._status("DFT selection cancelled: overlay changed while the dialog was open.")
             return
         indices = list(applied.get("indices", dialog.selected_band_indices()))
         segment = str(applied.get("segment", dialog.selected_segment()) or "")
@@ -249,9 +249,9 @@ class TheoryOverlayController:
         self._params.cmb_theory_segment.blockSignals(False)
         self._params._on_theory_bands_text_edited()
         if not indices:
-            self._parent._status("Sélection DFT vide: affichage auto top-N conservé.")
+            self._parent._status("Empty DFT selection: keeping automatic top-N display.")
         else:
-            self._parent._status(f"Bandes DFT sélectionnées: {spec}.")
+            self._parent._status(f"Selected DFT bands: {spec}.")
 
     def _overlay_picker_signature(self, overlay: dict | None) -> tuple:
         data = (overlay or {}).get("data") or {}
@@ -268,10 +268,10 @@ class TheoryOverlayController:
     def _compare_theory_overlay(self) -> None:
         overlay = dict(self._current_overlay() or {})
         if not overlay.get("data"):
-            self._parent._status("Attention: importer une DFT avant comparaison.")
+            self._parent._status("Warning: import a DFT before comparison.")
             return
         if not self._parent._fit_res:
-            self._parent._status("Attention: faire un fit MDC avant comparaison DFT.")
+            self._parent._status("Warning: run an MDC fit before DFT comparison.")
             return
         cfg = self._params.theory_overlay_config()
         overlay["enabled"] = bool(cfg.get("enabled", False))
@@ -289,29 +289,29 @@ class TheoryOverlayController:
         self._parent._draw_current_view(include_curves=False)
         if not results:
             self._parent._status(
-                "Comparaison DFT: aucun recouvrement suffisant. Ajuster segment, μ, Z, Δk ou scale k."
+                "DFT comparison: not enough overlap. Adjust segment, mu, Z, delta k, or k scale."
             )
             return
         best = results[0]
         self._parent._status(
-            "Comparaison DFT guide visuel: "
-            f"bande {best['band_index']} {best['branch']} paire {best['pair_index'] + 1} "
-            f"RMS={best['rms_e'] * 1000:.0f} meV sur {best['n_points']} points."
+            "DFT visual-guide comparison: "
+            f"band {best['band_index']} {best['branch']} pair {best['pair_index'] + 1} "
+            f"RMS={best['rms_e'] * 1000:.0f} meV over {best['n_points']} points."
         )
 
     def _fit_theory_mu_auto(self) -> None:
         overlay = dict(self._current_overlay() or {})
         if not overlay.get("data"):
-            self._parent._status("Attention: importer une DFT avant l'ajustement μ.")
+            self._parent._status("Warning: import a DFT before fitting mu.")
             return
         if not self._parent._fit_res:
-            self._parent._status("Attention: faire un fit MDC avant l'ajustement μ.")
+            self._parent._status("Warning: run an MDC fit before fitting mu.")
             return
         cfg = self._params.theory_overlay_config()
         res = fit_mu_shift(overlay.get("data") or {}, cfg, self._parent._fit_res)
         if res is None:
             self._parent._status(
-                "Ajustement μ: aucun recouvrement suffisant. Ajuster segment, Z, Δk ou scale k."
+                "Mu fit: not enough overlap. Adjust segment, Z, delta k, or k scale."
             )
             return
         self._params.sp_theory_mu.blockSignals(True)
@@ -319,9 +319,9 @@ class TheoryOverlayController:
         self._params.sp_theory_mu.blockSignals(False)
         self._params._schedule_theory_overlay_changed()
         self._parent._status(
-            f"μ ajusté: {res['mu_before'] * 1000:+.0f} → {res['mu'] * 1000:+.0f} meV "
-            f"(bande {res['band_index']} {res['branch']} P{res['pair_index'] + 1}, "
-            f"RMS {res['rms_before'] * 1000:.0f} → {res['rms_after'] * 1000:.0f} meV, "
+            f"Mu fitted: {res['mu_before'] * 1000:+.0f} -> {res['mu'] * 1000:+.0f} meV "
+            f"(band {res['band_index']} {res['branch']} P{res['pair_index'] + 1}, "
+            f"RMS {res['rms_before'] * 1000:.0f} -> {res['rms_after'] * 1000:.0f} meV, "
             f"{res['n_points']} pts)"
         )
 
@@ -332,13 +332,13 @@ class TheoryOverlayController:
         try:
             result = real_self_energy(self._parent._fit_res, overlay)
         except ValueError as exc:
-            self._parent._status(f"Attention: Re Sigma indisponible: {exc}")
+            self._parent._status(f"Warning: Re Sigma unavailable: {exc}")
             return
         from arpes.ui.widgets.dialogs import SelfEnergyDialog
         dialog = SelfEnergyDialog(result, self._parent)
         dialog.exec()
         msg = (
-            f"Re Sigma: bande {result.band_index} {result.branch} "
+            f"Re Sigma: band {result.band_index} {result.branch} "
             f"P{result.pair_index + 1}, RMS={result.rms_e * 1000:.0f} meV"
         )
         if result.kink_energy == result.kink_energy:
@@ -351,10 +351,10 @@ class TheoryOverlayController:
             if count and hasattr(self._parent, "_mdc_map_canvas"):
                 pass
         except Exception as exc:
-            self._parent._status(f"Attention: overlay DFT non dessiné: {exc}")
+            self._parent._status(f"Warning: DFT overlay not drawn: {exc}")
 
     def _search_theory_mp(self) -> None:
-        """Ouvre dialog recherche MP par formule. Pré-rempli depuis logbook si dispo."""
+        """Open the MP formula-search dialog, prefilled from logbook when available."""
         from arpes.ui.widgets.dialogs import MPSearchDialog
         entry = self._parent._current_entry()
         initial = ""
@@ -373,7 +373,7 @@ class TheoryOverlayController:
         if not mpid:
             return
         self._params.txt_theory_mpid.setText(mpid)
-        self._apply_mp_id(mpid, source="recherche", show_dialog_on_error=True)
+        self._apply_mp_id(mpid, source="search", show_dialog_on_error=True)
 
     def _align_theory_to_arpes(self) -> None:
         """Calcule scale + Δk pour mapper segment choisi sur [0, 1] (π/a).
@@ -384,13 +384,13 @@ class TheoryOverlayController:
         data_d = overlay.get("data") or {}
         labels = data_d.get("labels") or []
         if not labels:
-            self._parent._status("Attention: importer une DFT avant alignement.")
+            self._parent._status("Warning: import a DFT before alignment.")
             return
         segment = self._params.cmb_theory_segment.currentText().strip()
         if not segment:
-            self._parent._status("Attention: choisir un segment avant aligner.")
+            self._parent._status("Warning: choose a segment before aligning.")
             return
-        # Chemin MP réel : _branch_local_k mappe déjà la branche sur
+        # Real MP path: _branch_local_k already maps the branch onto
         # [0,1] (Γ→0, bord de zone→1 en π/a). Recalculer depuis les
         # positions de label sur l'axe global double-transformerait
         # l'overlay (cause du hors-cadre). → scale=1, Δk=0.
@@ -409,21 +409,21 @@ class TheoryOverlayController:
                 a_val = float(self._params.sp_crystal_a.value())
                 if has_abs and a_val > 0:
                     msg = (
-                        f"Aligné {segment} : échelle PHYSIQUE "
-                        f"(Å⁻¹·a/π, a={a_val:.4f} Å). Γ→0, X→1, M→√2. "
-                        f"scale=1, Δk=0. Miroir Γ si scan symétrique. "
-                        f"μ encore manuel."
+                        f"Aligned {segment}: PHYSICAL scale "
+                        f"(A^-1*a/pi, a={a_val:.4f} A). Gamma->0, X->1, M->sqrt(2). "
+                        f"scale=1, delta k=0. Mirror Gamma for symmetric scans. "
+                        f"mu still manual."
                     )
                 else:
                     msg = (
-                        f"Aligné {segment} (chemin MP) : Γ→0, bord→1 "
-                        f"(échelle normalisée — renseigne « a cristal » "
-                        f"pour l'échelle physique exacte). scale=1, Δk=0."
+                        f"Aligned {segment} (MP path): Gamma->0, edge->1 "
+                        f"(normalized scale - enter crystal a "
+                        f"for the exact physical scale). scale=1, delta k=0."
                     )
                 self._parent._status(msg)
                 return
         if "-" not in segment:
-            self._parent._status("Attention: segment sans extrémités, aligner impossible.")
+            self._parent._status("Warning: segment has no endpoints; cannot align.")
             return
         a, b = [s.strip() for s in segment.split("-", 1)]
         pos = {
@@ -435,16 +435,16 @@ class TheoryOverlayController:
         pa, pb = pos.get(a_key), pos.get(b_key)
         if pa is None or pb is None:
             self._parent._status(
-                f"Attention: segment {segment} introuvable dans labels DFT."
+                f"Warning: segment {segment} not found in DFT labels."
             )
             return
         try:
             pa_f, pb_f = float(pa), float(pb)
         except (TypeError, ValueError):
-            self._parent._status(f"Attention: positions {segment} non numériques.")
+            self._parent._status(f"Warning: {segment} positions are not numeric.")
             return
         if abs(pb_f - pa_f) <= 1e-9:
-            self._parent._status(f"Attention: largeur segment {segment} nulle.")
+            self._parent._status(f"Warning: segment {segment} has zero width.")
             return
         scale = 1.0 / (pb_f - pa_f)
         shift = -pa_f / (pb_f - pa_f)
@@ -456,19 +456,27 @@ class TheoryOverlayController:
         self._params.sp_theory_dk.blockSignals(False)
         self._on_theory_overlay_changed()
         self._parent._status(
-            f"Aligné {segment} sur ARPES π/a : scale={scale:.3f}, Δk={shift:+.3f} "
-            f"({a}→0, {b}→1). μ encore manuel."
+            f"Aligned {segment} to ARPES pi/a: scale={scale:.3f}, delta k={shift:+.3f} "
+            f"({a}->0, {b}->1). mu still manual."
         )
 
     def _on_crystal_a_changed(self) -> None:
         a = float(self._params.sp_crystal_a.value())
         path = getattr(self._parent, "_current_path", None)
-        if not path:
-            return
-        entry = self._parent._session.get_or_create(self._parent._session.key_for_path(path))
-        entry.meta.crystal_a_angstrom = a
-        self._parent._session.save()
-        self._parent._status(f"Paramètre cristal a = {a:.4f} Å enregistré.")
+        if path:
+            entry = self._parent._session.get_or_create(self._parent._session.key_for_path(path))
+            entry.meta.crystal_a_angstrom = a
+            self._parent._session.save()
+        fs_controls = getattr(self._parent, "_fs_controls", None)
+        sp_a = getattr(fs_controls, "sp_a", None)
+        if sp_a is not None and abs(float(sp_a.value()) - a) > 1e-9:
+            sp_a.blockSignals(True)
+            sp_a.setValue(a)
+            sp_a.blockSignals(False)
+        self._parent._status(f"Crystal parameter a = {a:.4f} A saved.")
+        if path and getattr(self._parent, "_raw_data", None) is not None:
+            self._parent._status("Parameter a changed: recomputing k axes without cache.")
+            self._parent._load_ctrl.load(path, force_reload=True)
 
     def _align_theory_efermi(self) -> None:
         self._params.sp_theory_mu.blockSignals(True)
@@ -476,8 +484,8 @@ class TheoryOverlayController:
         self._params.sp_theory_mu.blockSignals(False)
         self._on_theory_overlay_changed()
         self._parent._status(
-            "μ = 0 forcé. Overlay: E = Z × E_DFT. "
-            "Ne suppose pas que cet alignement est physiquement optimal."
+            "mu = 0 forced. Overlay: E = Z x E_DFT. "
+            "Do not assume this alignment is physically optimal."
         )
 
     def _restore_theory_overlay_for_entry(self) -> None:

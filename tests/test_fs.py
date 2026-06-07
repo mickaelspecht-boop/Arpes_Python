@@ -1,7 +1,7 @@
-"""Tests filet sécurité avant split arpes/physics/fs.py.
+"""Safety-net tests before splitting arpes/physics/fs.py.
 
-Couvre les helpers purs (FSParams, _robust_norm, extract_fs_map) pour détecter
-toute régression sémantique au moment du déplacement Qt → ui/widgets/fs.py.
+Covers pure helpers (FSParams, _robust_norm, extract_fs_map) to detect any
+semantic regression during the Qt move → ui/widgets/fs.py.
 """
 import os
 import unittest
@@ -31,7 +31,7 @@ except Exception:  # pragma: no cover
     HAS_FS_GAMMA = False
 
 
-@unittest.skipUnless(HAS_FS, "arpes.physics.fs indisponible")
+@unittest.skipUnless(HAS_FS, "arpes.physics.fs unavailable")
 class TestFSParamsDefaults(unittest.TestCase):
     def test_defaults(self):
         p = FSParams()
@@ -44,7 +44,7 @@ class TestFSParamsDefaults(unittest.TestCase):
         self.assertTrue(p.overlay_bz)
 
 
-@unittest.skipUnless(HAS_FS, "arpes.physics.fs indisponible")
+@unittest.skipUnless(HAS_FS, "arpes.physics.fs unavailable")
 class TestRobustNorm(unittest.TestCase):
     def test_constant_image(self):
         img = np.full((10, 20), 5.0)
@@ -92,7 +92,7 @@ def _make_shifted_ring_map(center=(0.18, -0.11), n_kx=81, n_ky=75, *, asym=False
     return kx, ky, fs
 
 
-@unittest.skipUnless(HAS_FS, "arpes.physics.fs indisponible")
+@unittest.skipUnless(HAS_FS, "arpes.physics.fs unavailable")
 class TestExtractFSMap(unittest.TestCase):
     def test_kxky_nominal(self):
         kx, ky, ev, vol = _make_kxky_volume()
@@ -122,7 +122,7 @@ class TestExtractFSMap(unittest.TestCase):
         }
         params = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False)
         _kx_o, _ky_o, _fs, title = extract_fs_map(raw, params)
-        self.assertIn("EF window asymétrique", title)
+        self.assertIn("asymmetric EF window", title)
 
     def test_resolution_weighted_ef_integration_is_reported(self):
         kx, ky, ev, vol = _make_kxky_volume()
@@ -165,8 +165,8 @@ class TestExtractFSMap(unittest.TestCase):
                         norm_ref_lo=-0.150, norm_ref_hi=-0.050)
         _, _, fs_off, t_off = extract_fs_map(raw, p_off)
         _, _, fs_on, t_on = extract_fs_map(raw, p_on)
-        self.assertIn("sans norm", t_off)
-        self.assertNotIn("sans norm", t_on)
+        self.assertIn("no norm", t_off)
+        self.assertNotIn("no norm", t_on)
         self.assertEqual(fs_off.shape, fs_on.shape)
 
     def test_invalid_volume_shape_raises(self):
@@ -212,7 +212,7 @@ class TestExtractFSMap(unittest.TestCase):
         self.assertNotEqual(_fs_cache_key(raw, p1), _fs_cache_key(raw, p2))
 
 
-@unittest.skipUnless(HAS_FS_GAMMA, "arpes.physics.fs_gamma indisponible")
+@unittest.skipUnless(HAS_FS_GAMMA, "arpes.physics.fs_gamma unavailable")
 class TestFSGammaDetection(unittest.TestCase):
     def test_detect_gamma_recovers_shifted_symmetric_ring(self):
         kx, ky, fs = _make_shifted_ring_map(center=(0.18, -0.11))
@@ -244,7 +244,7 @@ class TestFSGammaDetection(unittest.TestCase):
 
     def test_canvas_detect_gamma_returns_quality_metrics(self):
         if not HAS_FS:
-            self.skipTest("arpes.physics.fs indisponible")
+            self.skipTest("arpes.physics.fs unavailable")
         kx, ky, ring = _make_shifted_ring_map(center=(0.16, -0.08), n_kx=81, n_ky=75)
         ev = np.linspace(-0.03, 0.03, 7)
         vol = np.repeat(ring[:, :, None], ev.size, axis=2)
@@ -268,7 +268,7 @@ class TestFSGammaDetection(unittest.TestCase):
         self.assertIn("kx_axis_center", res)
 
 
-@unittest.skipUnless(HAS_FS and QApplication is not None, "FS Qt indisponible")
+@unittest.skipUnless(HAS_FS and QApplication is not None, "FS Qt unavailable")
 class TestFermiSurfaceCanvas(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

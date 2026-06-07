@@ -1,4 +1,4 @@
-"""MDC/EDC plotting and fitting façade."""
+"""MDC/EDC plotting and fitting facade."""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -48,7 +48,7 @@ def mdc_waterfall(
         energies.append(ev)
         ev += delta_ev
     if not energies:
-        raise ValueError(f"Aucune energie dans [{ev_start}, {ev_end}]")
+        raise ValueError(f"No energy point in [{ev_start}, {ev_end}]")
 
     global_max = 1.0
     if normalize == "global":
@@ -95,7 +95,7 @@ def mdc_waterfall(
     ax.set_yticks([i * delta_ev * offset_scale for i in tick_idx])
     ax.set_yticklabels([f"{energies[i]:.3f}" for i in tick_idx], fontsize=8)
 
-    ax.set_xlabel("k// (pi/a)", fontsize=11)
+    ax.set_xlabel(r"$k_\parallel$ (π/a)", fontsize=11)
     ax.set_ylabel("E - EF (eV)", fontsize=11)
     ax.set_xlim(kpar[0], kpar[-1])
     ax.set_title(title or f"Waterfall MDC  [{ev_start:.2f} -> {ev_end:.2f} eV]",

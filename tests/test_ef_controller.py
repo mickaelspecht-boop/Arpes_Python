@@ -1,7 +1,7 @@
-"""Tests du contrôleur EF (`arpes_ef_controller`).
+"""Tests for the EF controller (`arpes_ef_controller`).
 
-Ces tests verrouillent les décisions scientifiques extraites de l'UI :
-calibration scalaire/poly, propagation per-file et garde-fous de référence.
+These tests pin the scientific decisions extracted from the UI: scalar/poly
+calibration, per-file propagation, and reference guards.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class TestCalibrationUpdate(unittest.TestCase):
         self.assertEqual(out.ref_payload["mode"], "scalar")
         self.assertAlmostEqual(out.ref_payload["source_ef_kin_nominal"], 43.4)
         self.assertEqual(out.ref_payload["source_energy_reference"], "ses_center_energy")
-        self.assertIn("EF scalaire", out.msg)
+        self.assertIn("Scalar EF", out.msg)
 
     def test_poly_update_forces_zero_offset(self):
         payload = {
@@ -74,7 +74,7 @@ class TestCalibrationUpdate(unittest.TestCase):
         self.assertEqual(out.ef_correction["mode"], "poly")
         self.assertEqual(out.ef_correction["source"], "self")
         self.assertEqual(out.ref_payload, out.ef_correction)
-        self.assertIn("EF par colonne", out.msg)
+        self.assertIn("Per-column EF", out.msg)
 
 
 class TestReferenceApplication(unittest.TestCase):
@@ -94,7 +94,7 @@ class TestReferenceApplication(unittest.TestCase):
         )
         self.assertAlmostEqual(out.new_ef_offset, 0.0)
         self.assertEqual(out.ef_correction["source"], "reference")
-        self.assertIn("poly", out.msg)
+        self.assertIn("Poly", out.msg)
 
     def test_scalar_reference_naive_when_kinetics_missing(self):
         ref = {"mode": "scalar", "ef_shift": 0.020, "source_file": "/data/Au.ibw"}
@@ -106,7 +106,7 @@ class TestReferenceApplication(unittest.TestCase):
         )
         self.assertAlmostEqual(out.new_ef_offset, 0.032)
         self.assertAlmostEqual(out.ef_correction["ref_effective_shift"], 0.020)
-        self.assertIn("ef_kin_nominal manquant", out.msg)
+        self.assertIn("ef_kin_nominal missing", out.msg)
 
     def test_scalar_reference_per_file_when_modes_match(self):
         ref = {
@@ -141,7 +141,7 @@ class TestReferenceApplication(unittest.TestCase):
             ref_path_str="Au.ibw",
         )
         self.assertAlmostEqual(out.new_ef_offset, -0.020)
-        self.assertIn("modes énergie différents", out.msg)
+        self.assertIn("different energy modes", out.msg)
 
     def test_bad_reference_mode_raises(self):
         with self.assertRaises(ReferenceError):

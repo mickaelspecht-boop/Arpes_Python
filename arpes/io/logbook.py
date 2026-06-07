@@ -68,6 +68,7 @@ class LogbookManager:
     def find_record_for_path(self, path: str | Path) -> dict | None:
         # 1. Pass : records avec scope subfolder (prioritaire si présents),
         #    matchés avec le mapping 'file' propre à leur logbook scopé.
+        scoped_matches: list[tuple[dict, str]] = []
         for rec in self.records:
             rel = str(rec.get("_subfolder_rel") or "").strip()
             if not rel:
@@ -76,17 +77,20 @@ class LogbookManager:
                 continue
             file_col = self._mapping_for_record(rec).get("file", "")
             if file_col and _record_matches_path(rec.get(file_col), path, self.session_folder):
-                return rec
+                scoped_matches.append((rec, file_col))
+        if scoped_matches:
+            return _best_record_for_path(scoped_matches, path, self.session_folder)
         # 2. Pass : records sans scope (global, fallback)
         file_col = self.mapping.get("file", "")
         if not file_col:
             return None
+        global_matches: list[tuple[dict, str]] = []
         for rec in self.records:
             if str(rec.get("_subfolder_rel") or "").strip():
                 continue
             if _record_matches_path(rec.get(file_col), path, self.session_folder):
-                return rec
-        return None
+                global_matches.append((rec, file_col))
+        return _best_record_for_path(global_matches, path, self.session_folder)
 
     def values_from_record(self, record: dict | None) -> LogbookAppliedValues:
         if not record:
@@ -286,6 +290,46 @@ def _format_direction_label(value: Any) -> str:
     return s.strip()
 
 
+def _best_record_for_path(
+    matches: list[tuple[dict, str]],
+    path: str | Path,
+    session_folder: Path | None,
+) -> dict | None:
+    """Disambiguate duplicate File cells with another field matching the path.
+
+    Some folder logbooks use a constant file basename for all rows and put the
+    real per-scan label in another column, e.g. ``Spectrum Name = kz_100.0``.
+    Returning the first file match would assign the first hν to every KZ file.
+    """
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0][0]
+    path_text = " ".join(_path_match_tokens(path, session_folder)).lower()
+    best_rec = matches[0][0]
+    best_score = -1
+    for rec, file_col in matches:
+        score = 0
+        for col, value in rec.items():
+            if col == file_col or str(col).startswith("_"):
+                continue
+            text = _cell_text(value).lower()
+            if len(text) < 3:
+                continue
+            if text in path_text:
+                weight = len(text)
+                col_norm = _norm_text(col)
+                if any(ch.isdigit() for ch in text) and ("_" in text or "." in text or "-" in text):
+                    weight += 1000
+                if "spectrum" in col_norm or "scan" in col_norm or "name" in col_norm:
+                    weight += 100
+                score = max(score, weight)
+        if score > best_score:
+            best_rec = rec
+            best_score = score
+    return best_rec
+
+
 def _infer_legacy_measurement_plan_mapping(columns: list[str]) -> dict[str, str]:
     normalized = {c: _norm_text(c) for c in columns}
     by_norm = {v: k for k, v in normalized.items()}
@@ -310,8 +354,8 @@ def _sniff_columns_by_content(df, columns: list[str]) -> dict[str, str]:
     """Devine les colonnes à partir des valeurs quand keyword match échoue.
 
     Règles :
-      - hv : numérique, médiane dans [4, 200] eV, ≥60% de valeurs finies > 0
-      - temperature : numérique, médiane dans [3, 500] K, ≥60% de valeurs finies > 0
+      - hv : numérique, médiane dans [4, 10000] eV (XPS/HAXPES), ≥60% finies > 0
+      - temperature : numérique, médiane dans [0.001, 1000] K (mK→HT), ≥60% finies > 0
       - direction : strings contenant Γ/G/M/X/K/Σ avec '-' ou '→'
       - polarization : strings dans {LH, LV, RC, LC, σ, π, s, p, ...}
                        ou numérique dans [0, 360]
@@ -375,16 +419,19 @@ def _sniff_columns_by_content(df, columns: list[str]) -> dict[str, str]:
         values = col_values(col)
         if not values:
             continue
-        # hv : numérique [4, 200]
+        # hv : numérique [4, 10000] (XPS/HAXPES). P4.4
+        # NB : ce sniff numérique est un repli après le matching par nom de
+        # colonne (_pick_exact_column) ; sur les plages élargies hv/T se
+        # recouvrent, donc le nom reste l'indice primaire.
         if "hv" not in out:
             med, ratio = numeric_stats(values)
-            if med is not None and 4.0 <= med <= 200.0 and ratio >= 0.6:
+            if med is not None and 4.0 <= med <= 10000.0 and ratio >= 0.6:
                 out["hv"] = col
                 continue
-        # temperature : numérique [3, 500] (mais pas hv)
+        # temperature : numérique [0.001, 1000] K (mK→HT), mais pas hv. P4.4
         if "temperature" not in out and out.get("hv") != col:
             med, ratio = numeric_stats(values)
-            if med is not None and 3.0 <= med <= 500.0 and ratio >= 0.6:
+            if med is not None and 0.001 <= med <= 1000.0 and ratio >= 0.6:
                 out["temperature"] = col
                 continue
         # direction : strings avec Γ/M/X

@@ -1,8 +1,8 @@
-"""Smoke test UI : instancie ArpesExplorer headless, vérifie wiring de base.
+"""UI smoke test: instantiates ArpesExplorer headless and checks basic wiring.
 
-Sécurise contre les régressions silencieuses du type "j'ai oublié d'importer
-QLabel" ou "le proxy dispatch ne résout pas une méthode" — bugs qui ne
-sortaient pas via les tests unitaires fonctionnels (cf bugs ν corrigés en ο).
+Protects against silent regressions such as "forgot to import QLabel" or "proxy
+dispatch does not resolve a method" — bugs that did not surface through
+functional unit tests (see ν bugs fixed in ο).
 """
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ class _FakeMessageBoxAccept(_FakeMessageBoxBase):
         return 0
 
 
-@unittest.skipUnless(UI_AVAILABLE, "PyQt6 / Qt offscreen indisponible")
+@unittest.skipUnless(UI_AVAILABLE, "PyQt6 / Qt offscreen unavailable")
 class TestUiSmoke(unittest.TestCase):
     _qt_app = None
 
@@ -80,17 +80,17 @@ class TestUiSmoke(unittest.TestCase):
     def test_window_instantiates(self):
         win = self._make_window()
         self.assertIsNotNone(win)
-        self.assertEqual(win._tabs.count(), 7)
+        self.assertEqual(win._tabs.count(), 8)
         self.assertEqual(
             [win._tabs.tabText(i) for i in range(win._tabs.count())],
-            ["BM", "MDC Fit", "Résultats", "FS", "KZ", "Notes", "Aide"],
+            ["BM", "MDC Fit", "Results", "FS", "KZ", "Notes", "Help", "Start"],
         )
         fs_tabs = win._tabs.widget(3)
         self.assertEqual(
             [fs_tabs.tabText(i) for i in range(fs_tabs.count())],
-            ["Carte FS", "Compare pol"],
+            ["FS map"],  # "Compare pol" tab removed (commit 4d98163)
         )
-        self.assertIsNotNone(win.ap, "arpes_plots doit être chargé")
+        self.assertIsNotNone(win.ap, "arpes_plots must be loaded")
 
     def test_tab_right_panel_mapping(self):
         win = self._make_window()
@@ -108,7 +108,7 @@ class TestUiSmoke(unittest.TestCase):
             self.assertEqual(
                 win._right_stack.currentIndex(),
                 right_index,
-                f"onglet {index} ({win._tabs.tabText(index)})",
+                f"tab {index} ({win._tabs.tabText(index)})",
             )
 
     def test_controllers_wired(self):
@@ -121,7 +121,7 @@ class TestUiSmoke(unittest.TestCase):
         ):
             self.assertTrue(
                 hasattr(win, attr),
-                f"controller {attr} manquant sur ArpesExplorer",
+                f"controller {attr} missing on ArpesExplorer",
             )
 
     def test_mp_lattice_fetch_signal_is_wired_to_controller(self):
@@ -194,16 +194,16 @@ class TestUiSmoke(unittest.TestCase):
         self.assertTrue(entry.fs_bz_crystal_force_override)
 
     def test_proxy_dispatch_resolves_every_entry(self):
-        """`_PROXY_MAP` doit pointer vers une vraie méthode du controller."""
+        """`_PROXY_MAP` must point to a real controller method."""
         win = self._make_window()
         for name, ctrl_attr in win._PROXY_MAP.items():
             ctrl = getattr(win, ctrl_attr, None)
-            self.assertIsNotNone(ctrl, f"controller {ctrl_attr} introuvable")
+            self.assertIsNotNone(ctrl, f"controller {ctrl_attr} not found")
             self.assertTrue(
                 callable(getattr(ctrl, name, None)),
-                f"{ctrl_attr}.{name} n'existe pas ou n'est pas callable",
+                f"{ctrl_attr}.{name} does not exist or is not callable",
             )
-            # Et la résolution via __getattr__ doit donner le même bound method
+            # Resolution through __getattr__ must return the same bound method.
             bound = getattr(win, name)
             self.assertTrue(callable(bound))
             self.assertEqual(
@@ -216,7 +216,7 @@ class TestUiSmoke(unittest.TestCase):
         for attr in ("_params", "_results", "_browser", "_bm_canvas",
                      "_mdc_edc", "_tabs", "_kz_canvas", "_kz_controls",
                      "_help_panel"):
-            self.assertTrue(hasattr(win, attr), f"widget {attr} non construit")
+            self.assertTrue(hasattr(win, attr), f"widget {attr} not built")
         self.assertTrue(hasattr(win._params, "_theory_widget"))
         self.assertTrue(hasattr(win._params, "btn_theory_pick_bands"))
         self.assertTrue(hasattr(win._params, "_distortion_widget"))
@@ -249,12 +249,12 @@ class TestUiSmoke(unittest.TestCase):
 
     def test_reset_view_and_fast_path_wired(self):
         win = self._make_window()
-        # A : reset BM branché sur le canvas + proxy résout
+        # A: BM reset wired to the canvas + proxy resolves.
         self.assertTrue(callable(getattr(win, "_reset_bm_view")))
         self.assertEqual(win._bm_canvas.reset_callback, win._reset_bm_view)
-        # _reset_bm_view sans données : no-op sûr
+        # _reset_bm_view without data: safe no-op.
         win._reset_bm_view()
-        # C : fast path overlays-only sans données : no-op sûr
+        # C: overlays-only fast path without data: safe no-op.
         win._draw_bm(overlays_only=True)
         win._draw_current_view(overlays_only=True)
 
@@ -452,10 +452,10 @@ class TestUiSmoke(unittest.TestCase):
 
         ctrl._apply_stored_gamma_to_current_file(save_entry=True)
 
-        # P1.4 / P2 : la branche FS shifte maintenant l'axe k AUSSI pour
-        # éviter le drift au reload. L'axe brut (kpar, fs_kx) est translaté
-        # de -kx_ref, fs_gamma_axis_centered devient True, et sp_cx affiche 0
-        # (centre fit relatif au nouvel axe centré sur Γ).
+        # P1.4 / P2: the FS branch now ALSO shifts the k axis to avoid drift on
+        # reload. The raw axis (kpar, fs_kx) is translated by -kx_ref,
+        # fs_gamma_axis_centered becomes True, and sp_cx shows 0 (fit center
+        # relative to the new Γ-centered axis).
         np.testing.assert_allclose(parent._raw_data["kpar"], [-1.25, -0.25, 0.75])
         np.testing.assert_allclose(parent._raw_data["metadata"]["fs_kx"], [-1.25, -0.25, 0.75])
         self.assertTrue(parent._raw_data["metadata"].get("fs_gamma_axis_centered", False))

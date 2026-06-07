@@ -132,7 +132,7 @@ class TestKzDataset(unittest.TestCase):
 
         self.assertEqual(dataset.hv_values.tolist(), [61.0, 81.0])
         self.assertEqual({s.metadata["hv_source"] for s in dataset.scans}, {"file"})
-        self.assertTrue(any("remplace" in warning for warning in dataset.warnings))
+        self.assertTrue(any("replaces" in warning for warning in dataset.warnings))
 
     def test_cls_photon_scan_folder_loads_steps_with_hv_log(self):
         with tempfile.TemporaryDirectory() as tmp:

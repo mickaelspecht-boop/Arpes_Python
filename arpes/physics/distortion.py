@@ -1,25 +1,25 @@
-"""Corrections géométriques de distorsion BM (trapèze θ + parabole E).
+"""Geometric BM distortion corrections (θ trapezoid + E parabola).
 
-Module pur (numpy + scipy uniquement, aucun PyQt). Conventions :
-- ``data`` shape ``(n_kpar, n_e)`` (cohérent avec ``arpes.physics.norm``).
-- ``kpar`` shape ``(n_kpar,)`` strictement croissant.
-- ``ev``   shape ``(n_e,)``    strictement croissant.
+Pure module (numpy + scipy only, no PyQt). Conventions:
+- ``data`` shape ``(n_kpar, n_e)`` (consistent with ``arpes.physics.norm``).
+- ``kpar`` shape ``(n_kpar,)`` strictly increasing.
+- ``ev``   shape ``(n_e,)``    strictly increasing.
 
-Modèle trapèze : pour chaque ligne d'énergie ``E``, le kpar effectif est
-étiré (``slope_left``, ``slope_right`` en ``Δkpar/ΔE``) autour de ``pivot_ev``.
-Modèle parabole : warp de l'axe énergie par ``E_corr = E + a·(kpar−k0)²``
-(non-isochromaticity Scienta, *PAS* une soustraction sur l'intensité — qui
-écraserait la dispersion physique).
+Trapezoid model: for each energy row ``E``, the effective kpar is stretched
+(``slope_left``, ``slope_right`` in ``Δkpar/ΔE``) around ``pivot_ev``.
+Parabola model: warp the energy axis by ``E_corr = E + a·(kpar−k0)²``
+(Scienta non-isochromaticity, *NOT* an intensity subtraction, which would crush
+the physical dispersion).
 
-Toutes les fonctions retournent une *nouvelle* image (les axes restent
-identiques) ; aucune mutation de l'entrée. NaN aux bords après warp.
+All functions return a *new* image (axes remain identical); no mutation of the
+input. NaNs at edges after warp.
 
-Garde-fous :
-- ``clamp_params`` borne les paramètres pour éviter les warps qui sortent
-  >50 % du domaine.
-- ``auto_detect_*`` refuse les BM trop étroites ou plates (retourne ``None``).
-- ``apply_distortion`` garantit l'identité bit-exact si le dict est vide ou
-  désactivé (test de réversibilité toggle off).
+Guards:
+- ``clamp_params`` bounds parameters to avoid warps extending >50% outside the
+  domain.
+- ``auto_detect_*`` rejects BMs that are too narrow or flat (returns ``None``).
+- ``apply_distortion`` guarantees bit-exact identity if the dict is empty or
+  disabled (toggle-off reversibility test).
 """
 from __future__ import annotations
 
@@ -34,12 +34,12 @@ except ImportError:  # pragma: no cover
 
 
 _MIN_KPAR_FOR_AUTO = 16
-_MIN_DISPERSION_EV = 0.010  # 10 meV variation max → BM plate, refus auto
+_MIN_DISPERSION_EV = 0.010  # max 10 meV variation → flat BM, auto refusal
 _PARAM_CACHE_PRECISION = 6
 
 
 def is_distortion_active(cfg: dict | None) -> bool:
-    """True si la config demande au moins une correction."""
+    """True if the config requests at least one correction."""
     if not cfg or not cfg.get("enabled", False):
         return False
     trap = (cfg.get("trapezoid") or {})
@@ -62,17 +62,17 @@ def _safe_axis(arr) -> np.ndarray:
 
 
 def _grid_step(axis: np.ndarray) -> float:
-    """Pas moyen de la grille (suppose grille régulière croissante)."""
+    """Mean grid step (assumes a regular increasing grid)."""
     return float(axis[-1] - axis[0]) / float(axis.size - 1)
 
 
 def clamp_params(cfg: dict | None, kpar, ev) -> dict:
-    """Borne les paramètres pour éviter les warps dégénérés.
+    """Bound parameters to avoid degenerate warps.
 
-    Retourne une *copie* clampée de ``cfg`` (sans muter l'original).
-    Limites :
-    - ``|slope|·Δev_total ≤ 0.5·Δkpar_total`` (le shift trapézoïdal aux
-      extrêmes de la fenêtre énergie reste sous la moitié du domaine kpar).
+    Returns a clamped *copy* of ``cfg`` (without mutating the original).
+    Limits:
+    - ``|slope|·Δev_total ≤ 0.5·Δkpar_total`` (the trapezoidal shift at the
+      extremes of the energy window stays below half the kpar domain).
     - ``|a|·max(|kpar−k0|)² ≤ 0.5·Δev_total``.
     """
     if not cfg:
@@ -131,11 +131,11 @@ def _source_coords(
     apply_para: bool,
     trap_mode: str = "symmetric",
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Calcule les coordonnées sources (k_src, e_src) en un seul passage.
+    """Compute source coordinates (k_src, e_src) in one pass.
 
-    Convention : (kpar, ev) en sortie → (k_src, e_src) à échantillonner sur
-    la grille brute. Trapèze : kpar étiré autour de pivot_ev en E. Parabole :
-    énergie warpée par a·(kpar−k0)².
+    Convention: output (kpar, ev) → (k_src, e_src) to sample on the raw grid.
+    Trapezoid: kpar stretched around pivot_ev in E. Parabola: energy warped by
+    a·(kpar−k0)².
     """
     K, E = np.meshgrid(kpar_out, ev_out, indexing="ij")
     if apply_trap:
@@ -162,11 +162,11 @@ def apply_distortion(
     ev,
     cfg: dict | None,
 ) -> tuple[np.ndarray, dict]:
-    """Applique la distorsion configurée à ``data`` (shape ``(n_kpar, n_e)``).
+    """Apply configured distortion to ``data`` (shape ``(n_kpar, n_e)``).
 
-    Retourne ``(data_corrected, info)``. Si ``cfg`` est vide / désactivée /
-    sans correction effective, retourne **l'entrée elle-même** (identité
-    bit-exact, pas de copie) — important pour la réversibilité du toggle.
+    Returns ``(data_corrected, info)``. If ``cfg`` is empty / disabled / has no
+    effective correction, returns **the input itself** (bit-exact identity, no
+    copy), which is important for toggle reversibility.
     """
     if not is_distortion_active(cfg):
         return np.asarray(data), {"applied": False, "reason": "disabled"}
@@ -247,13 +247,14 @@ def _ky_drift_metric(
     *,
     finite_only: bool = True,
 ) -> float:
-    """σ(BM_par_ky) / ⟨BM⟩ : métrique drift détecteur le long de ky.
+    """σ(BM_par_ky) / ⟨BM⟩: detector drift metric along ky.
 
-    ``volume`` shape ``(n_ky, n_kx, n_e)``. Réduit en (n_ky, n_kx) puis mesure
-    écart-type des profils par ky, normalisé par moyenne globale.
+    ``volume`` shape ``(n_ky, n_kx, n_e)``. Reduces to (n_ky, n_kx), then
+    measures the standard deviation of profiles by ky, normalized by global
+    mean.
 
-    Retourne 0.0 si volume vide / plat / NaN majoritaires.
-    Sert garde-fou redteam : refus propagation si > 0.15.
+    Returns 0.0 if the volume is empty / flat / mostly NaN.
+    Redteam guard: refuse propagation if > 0.15.
     """
     v = np.asarray(volume, dtype=float)
     if v.ndim != 3 or v.shape[0] < 2:
@@ -272,7 +273,7 @@ def _ky_drift_metric(
 
 
 def fs_domain_checksum(kpar, ev) -> tuple[float, float, float, float]:
-    """Checksum (kpar_min, kpar_max, ev_min, ev_max) — invalidation calib si shift."""
+    """Checksum (kpar_min, kpar_max, ev_min, ev_max) — invalidate calibration on shift."""
     k = _safe_axis(kpar)
     e = _safe_axis(ev)
     return (
@@ -293,29 +294,29 @@ def apply_distortion_to_fs_volume(
     drift_threshold: float = 0.15,
     bm_checksum: tuple[float, float, float, float] | None = None,
 ) -> tuple[np.ndarray, dict]:
-    """Propage la distorsion BM (trapèze seul) à chaque coupe ky d'un volume FS.
+    """Propagate BM distortion (trapezoid only) to each ky cut of an FS volume.
 
     ``volume`` shape ``(n_ky, n_kx, n_e)`` (convention loaders FS).
-    Appelle ``apply_distortion(slice_kx_ev, kx, ev, cfg_trapèze_seul)`` pour
-    chaque ``ky``. **Parabole interdite** sur volume FS (risque capture
-    dispersion réelle Dirac/Shockley — décision conseil arpes-physicist).
+    Calls ``apply_distortion(slice_kx_ev, kx, ev, cfg_trapezoid_only)`` for
+    each ``ky``. **Parabola forbidden** on FS volume (risk of capturing real
+    Dirac/Shockley dispersion, per arpes-physicist advice).
 
-    Garde-fous :
-    - σ(BM_par_ky)/⟨BM⟩ > ``drift_threshold`` → raise ``ValueError`` (tilt
-      détecteur dépendant ky, calib BM non valide hors centre).
-    - ``bm_checksum`` ≠ ``fs_domain_checksum(kx, ev)`` → raise (calib hors
-      domaine FS, ex copy-paste params depuis autre run).
-    - Volume avec NaN → préservés (slice par slice, pas de propagation).
+    Guards:
+    - σ(BM_par_ky)/⟨BM⟩ > ``drift_threshold`` → raise ``ValueError`` (ky-
+      dependent detector tilt, BM calibration invalid away from center).
+    - ``bm_checksum`` ≠ ``fs_domain_checksum(kx, ev)`` → raise (calibration
+      outside FS domain, e.g. copy-pasted params from another run).
+    - Volume with NaNs → preserved (slice by slice, no propagation).
 
-    Retourne ``(volume_corrected, info)`` avec
+    Returns ``(volume_corrected, info)`` with
     ``info = {"applied": bool, "n_slices", "drift_ratio", "reason"?}``.
 
-    Identité bit-exact si ``cfg`` désactivée.
+    Bit-exact identity if ``cfg`` is disabled.
     """
     vol = np.asarray(volume, dtype=np.float32)
     if vol.ndim != 3:
         raise ValueError(
-            f"apply_distortion_to_fs_volume: volume doit être 3D (n_ky,n_kx,n_e), got {vol.shape}"
+            f"apply_distortion_to_fs_volume: volume must be 3D (n_ky,n_kx,n_e), got {vol.shape}"
         )
     n_ky, n_kx, n_e = vol.shape
     kx_axis = _safe_axis(kx)
@@ -334,25 +335,25 @@ def apply_distortion_to_fs_volume(
     if not is_distortion_active(cfg):
         return vol, {"applied": False, "reason": "disabled", "n_slices": 0}
 
-    # GF Redteam #4 — checksum domaine kpar/ev.
+    # GF Redteam #4 — kpar/ev domain checksum.
     fs_check = fs_domain_checksum(kx_axis, ev_axis)
     if bm_checksum is not None:
         for a, b in zip(bm_checksum, fs_check):
             if abs(float(a) - float(b)) > max(1e-3, 0.05 * max(abs(a), abs(b))):
                 raise ValueError(
-                    f"apply_distortion_to_fs_volume: calib BM hors domaine FS "
-                    f"(BM={bm_checksum} vs FS={fs_check}). Recalibrer."
+                    f"apply_distortion_to_fs_volume: BM calibration outside FS domain "
+                    f"(BM={bm_checksum} vs FS={fs_check}). Recalibrate."
                 )
 
-    # GF Redteam #1 — σ(BM_par_ky)/⟨BM⟩ : tilt détecteur ky-dépendant.
+    # GF Redteam #1 — σ(BM_par_ky)/⟨BM⟩: ky-dependent detector tilt.
     drift = _ky_drift_metric(vol)
     if drift > float(drift_threshold):
         raise ValueError(
             f"apps_distortion_to_fs_volume: drift ky/⟨BM⟩={drift:.3f} > "
-            f"{drift_threshold:.3f}. Calib BM moyenne non valide hors centre."
+            f"{drift_threshold:.3f}. Mean BM calibration invalid away from center."
         )
 
-    # GF Physicist — parabole interdite sur volume FS.
+    # GF Physicist — parabola forbidden on FS volume.
     cfg_trap_only = dict(cfg or {})
     if cfg_trap_only.get("parabola"):
         cfg_trap_only["parabola"] = dict(cfg_trap_only["parabola"])
@@ -393,10 +394,10 @@ def signal_bbox(
 def _crop_to_signal(
     data: np.ndarray, kpar: np.ndarray, ev: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
-    """Supprime les colonnes/lignes complètement NaN sur les bords.
+    """Remove fully-NaN rows/columns at the edges.
 
-    Garde la plus grande sous-fenêtre rectangulaire dont *au moins une*
-    valeur est finie. Retourne (data_crop, kpar_crop, ev_crop, slices).
+    Keeps the largest rectangular sub-window with *at least one* finite value.
+    Returns (data_crop, kpar_crop, ev_crop, slices).
     """
     finite = np.isfinite(data)
     if not finite.any():
@@ -416,7 +417,7 @@ def _crop_to_signal(
 
 
 def cache_signature(cfg: dict | None) -> tuple:
-    """Signature légère pour ``_disp_cache_key`` (4 floats arrondis + flags)."""
+    """Lightweight signature for ``_disp_cache_key`` (4 rounded floats + flags)."""
     if not is_distortion_active(cfg):
         return ("distortion", False)
     trap = cfg.get("trapezoid") or {}
@@ -437,13 +438,13 @@ def cache_signature(cfg: dict | None) -> tuple:
 def auto_detect_trapezoid(
     data: np.ndarray, kpar, ev, *, percentile: float = 80.0,
 ) -> dict | None:
-    """Détecte (slope_left, slope_right, pivot_ev) par enveloppe d'intensité.
+    """Detect (slope_left, slope_right, pivot_ev) by intensity envelope.
 
-    Pour chaque ligne d'énergie : trouve les bords gauche/droit de la zone
-    > p_threshold ; fit linéaire kpar_bord(E). Pentes = coeffs angulaires.
+    For each energy row: find left/right edges of the > p_threshold area;
+    linear fit of kpar_edge(E). Slopes = angular coefficients.
 
-    Retourne ``None`` si la BM est trop étroite (n_kpar < 16) ou si le fit
-    n'est pas robuste (R² < 0.5 sur au moins un bord).
+    Returns ``None`` if the BM is too narrow (n_kpar < 16) or if the fit is not
+    robust (R² < 0.5 on at least one edge).
     """
     arr = np.asarray(data, dtype=float)
     kpar_axis = _safe_axis(kpar)
@@ -488,8 +489,8 @@ def auto_detect_trapezoid(
     if r2_l < 0.5 and r2_r < 0.5:
         return None
 
-    # Le bord gauche s'écarte vers la gauche quand le trapèze s'élargit en E
-    # → slope_left positif si la base s'écarte (k diminue avec E croissant).
+    # The left edge moves left when the trapezoid widens in E
+    # → positive slope_left if the base moves away (k decreases with increasing E).
     return {
         "slope_left": -slope_l_raw,
         "slope_right": slope_r_raw,
@@ -502,10 +503,10 @@ def auto_detect_trapezoid(
 def auto_detect_parabola(
     data: np.ndarray, kpar, ev, *, smooth_sigma_k: float = 3.0,
 ) -> dict | None:
-    """Détecte (a, k0) en fittant un polynôme deg 2 sur ``argmax_k`` par ligne E.
+    """Detect (a, k0) by fitting a degree-2 polynomial on ``argmax_k`` by E row.
 
-    Retourne ``None`` si BM trop étroite, sans dispersion claire, ou si le
-    fit converge vers des paramètres extrêmes.
+    Returns ``None`` if the BM is too narrow, lacks clear dispersion, or if the
+    fit converges to extreme parameters.
     """
     arr = np.asarray(data, dtype=float)
     kpar_axis = _safe_axis(kpar)
@@ -533,7 +534,7 @@ def auto_detect_parabola(
     if (np.ptp(e_v) < _MIN_DISPERSION_EV) and (np.ptp(k_v) < 0.05 * np.ptp(kpar_axis)):
         return None
 
-    # Fit E = a*(k - k0)^2 + c → développé : E = a·k² − 2a·k0·k + (a·k0² + c)
+    # Fit E = a*(k - k0)^2 + c → expanded: E = a·k² − 2a·k0·k + (a·k0² + c)
     coeffs = np.polyfit(k_v, e_v, 2)
     a_fit = float(coeffs[0])
     if abs(a_fit) < 1e-6:

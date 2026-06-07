@@ -78,7 +78,7 @@ class TestMultiFileAggregation(unittest.TestCase):
 
         self.assertEqual(series.points, ())
         self.assertEqual(series.skipped, 1)
-        self.assertIn("Paramètre de maille a manquant", series.warning)
+        self.assertIn("Missing lattice parameter a", series.warning)
 
 
 if __name__ == "__main__":

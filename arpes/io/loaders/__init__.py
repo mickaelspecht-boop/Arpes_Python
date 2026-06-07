@@ -1,41 +1,40 @@
 #!/usr/bin/env python3
-"""Couche IO ARPES — registre + dispatch + ré-exports publics.
+"""ARPES IO layer - registry + dispatch + public re-exports.
 
-Convention interne ARPES Explorer
-=================================
+ARPES Explorer Internal Convention
+==================================
 
-Tous les loaders doivent retourner un :class:`ARPESData` conforme à cette
-convention, indépendante du laboratoire source.
+All loaders must return an :class:`ARPESData` compliant with this convention,
+independent of the source laboratory.
 
-- Axe énergie : `energy` est toujours `E - EF` en eV, avec `0` à EF quand la
-  calibration est connue. Les énergies cinétiques brutes restent dans
-  `metadata` si elles sont utiles au diagnostic.
-- Band map : `data` a toujours la shape `(n_k, n_E)`, donc `data[:, i]` est une
-  MDC et `data[j, :]` est une EDC.
-- FS / volume : quand un volume est disponible, il est stocké dans
-  `metadata["fs_data"]` avec la shape `(n_ky, n_kx, n_E)`. Les axes associés
-  sont `metadata["fs_ky"]`, `metadata["fs_kx"]`, `metadata["fs_energy"]`.
-- Unités k : les axes `kx`/`ky` sont en `pi/a`. Les angles bruts restent dans
-  `metadata` (`theta_par_deg`, `fs_ky_angle_deg`, etc.).
-- Convention CLS/BESSY actuelle : `kx` est calculé depuis
-  `theta_raw - static_polar - theta0_deg`. Sur les FS, une position moteur P
-  qui correspond à l'axe scanné n'est pas réutilisée comme polar statique.
-  `ky` vient de l'axe scanné (`tilt`/`P-Axis`) avec son recentrage propre.
-  Les corrections cristallines `azi`/rotation de ZDB restent des métadonnées
-  ou des corrections de visualisation tant qu'elles ne sont pas propagées par
-  un modèle géométrique explicite.
+- Energy axis: `energy` is always `E - EF` in eV, with `0` at EF when the
+  calibration is known. Raw kinetic energies remain in `metadata` when useful
+  for diagnostics.
+- Band map: `data` always has shape `(n_k, n_E)`, so `data[:, i]` is an
+  MDC and `data[j, :]` is an EDC.
+- FS / volume: when a volume is available, it is stored in
+  `metadata["fs_data"]` with shape `(n_ky, n_kx, n_E)`. Associated axes are
+  `metadata["fs_ky"]`, `metadata["fs_kx"]`, `metadata["fs_energy"]`.
+- k units: the `kx`/`ky` axes are in `pi/a`. Raw angles remain in `metadata`
+  (`theta_par_deg`, `fs_ky_angle_deg`, etc.).
+- Current CLS/BESSY convention: `kx` is calculated from
+  `theta_raw - static_polar - theta0_deg`. On FS data, a P motor position that
+  corresponds to the scanned axis is not reused as static polar.
+  `ky` comes from the scanned axis (`tilt`/`P-Axis`) with its own recentering.
+  Crystal corrections `azi`/ZDB rotation remain metadata or visualization
+  corrections until they are propagated by an explicit geometric model.
 
-Avant d'ajouter un nouveau loader, il doit passer `assert_arpes_data_valid()`.
+Before adding a new loader, it must pass `assert_arpes_data_valid()`.
 
-Architecture du package
------------------------
-- `common.py` : modèles `ARPESData`/`LoaderSpec`, registre, validation,
-  helpers numériques + métadonnées, dispatcher `load_arpes`.
-- `solaris.py` : Solaris/DA30 via erlab.
-- `bessy.py` : BESSY Scienta/SES R8000 (Igor v5).
-- `cls.py` : CLS/LNLS texte (BM + FS Cycle/Step).
+Package Architecture
+--------------------
+- `common.py`: `ARPESData`/`LoaderSpec` models, registry, validation, numeric
+  helpers + metadata, `load_arpes` dispatcher.
+- `solaris.py`: Solaris/DA30 through erlab.
+- `bessy.py`: BESSY Scienta/SES R8000 (Igor v5).
+- `cls.py`: CLS/LNLS text (BM + FS Cycle/Step).
 
-L'import du package déclenche la registration de chaque backend.
+Importing the package triggers registration of each backend.
 """
 from __future__ import annotations
 

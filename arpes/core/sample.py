@@ -109,8 +109,8 @@ def require_lattice_a(sample: SampleConfig, *, context: str = "sample") -> float
         return float(sample.a_angstrom)
     label = _text(sample.formula or sample.mp_id or context) or context
     raise ValueError(
-        f"Paramètre de maille a manquant pour {label}. "
-        "Renseigne crystal_a_angstrom/SampleConfig avant un calcul physique publiable."
+        f"Missing lattice parameter a for {label}. "
+        "Set crystal_a_angstrom/SampleConfig before publishable physical calculations."
     )
 
 

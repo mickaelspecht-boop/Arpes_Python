@@ -118,7 +118,7 @@ class TestGeometryForPath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             data = Path(d) / "BM1"
             data.write_text("x")
-            # pas de param → entry doit remplir P/T
+            # No param → entry must fill P/T.
             meta = _FakeMeta(polar=2.5, tilt=1.0, azi=15.0)
             geom = geometry_for_path(data, entry_meta=meta)
             self.assertAlmostEqual(geom["polar"], 2.5)

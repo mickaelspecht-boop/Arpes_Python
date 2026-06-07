@@ -1,4 +1,4 @@
-"""Pile undo/redo générique pour actions UI réversibles."""
+"""Generic undo/redo stack for reversible UI actions."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

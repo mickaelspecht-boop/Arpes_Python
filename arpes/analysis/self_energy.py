@@ -1,4 +1,4 @@
-"""Self-energy réelle Re Sigma depuis fit ARPES et bande DFT."""
+"""Real self-energy Re Sigma from an ARPES fit and a DFT band."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from arpes.physics.kink_analysis import extract_lambda
 from arpes.theory.alignment import apply_energy_transform
 from arpes.theory.models import (
     TheoryBandData,
@@ -28,6 +29,8 @@ class RealSelfEnergyResult:
     rms_e: float
     kink_energy: float = float("nan")
     lambda_eff: float = float("nan")
+    lambda_err: float = float("nan")
+    notes: tuple[str, ...] = ()
 
 
 def real_self_energy(
@@ -39,17 +42,17 @@ def real_self_energy(
     band_index: int | None = None,
     min_points: int = 4,
 ) -> RealSelfEnergyResult:
-    """Calcule ``Re Sigma(E) = E_exp - E_DFT(k_exp)``.
+    """Compute ``Re Sigma(E) = E_exp - E_DFT(k_exp)``.
 
-    Si ``branch/pair/band`` ne sont pas fournis, la meilleure bande DFT est
-    choisie par ``compare_fit_to_theory``.
+    If ``branch/pair/band`` are not provided, the best DFT band is selected by
+    ``compare_fit_to_theory``.
     """
     fr = fit_result or {}
     overlay = theory_overlay or {}
     if not overlay.get("data"):
-        raise ValueError("Importer une DFT avant de calculer Re Sigma.")
+        raise ValueError("Import a DFT band before computing Re Sigma.")
     if not fr.get("e_fitted"):
-        raise ValueError("Faire un fit MDC avant de calculer Re Sigma.")
+        raise ValueError("Run an MDC fit before computing Re Sigma.")
 
     data = TheoryBandData.from_dict(overlay.get("data") or {})
     config = TheoryOverlayConfig.from_dict(overlay.get("config") or {})
@@ -67,20 +70,20 @@ def real_self_energy(
     e_exp = np.asarray(fr.get("e_fitted", []), dtype=float)
     branches = fr.get(branch) or []
     if not (0 <= pair_index < len(branches)):
-        raise ValueError(f"Branche {branch} paire {pair_index + 1} introuvable.")
+        raise ValueError(f"Branch {branch} pair {pair_index + 1} not found.")
     k_exp = np.asarray(branches[pair_index], dtype=float)
 
     k_dft = displayed_k_axis(data, config)
     bands = apply_energy_transform(data.bands, config)
     if bands.ndim != 2 or not (0 <= band_index < bands.shape[0]):
-        raise ValueError(f"Bande DFT {band_index} introuvable.")
+        raise ValueError(f"DFT band {band_index} not found.")
     order = np.argsort(k_dft)
     k_ref = k_dft[order]
     e_ref = bands[band_index][order]
     segment = selected_segment_mask(data, config, k_dft.size)[order]
     valid_ref = segment & np.isfinite(k_ref) & np.isfinite(e_ref)
     if int(valid_ref.sum()) < 2:
-        raise ValueError("Bande DFT invalide pour interpolation.")
+        raise ValueError("Invalid DFT band for interpolation.")
     k_ref = k_ref[valid_ref]
     e_ref = e_ref[valid_ref]
     lo, hi = float(np.nanmin(k_ref)), float(np.nanmax(k_ref))
@@ -91,12 +94,12 @@ def real_self_energy(
         & (k_exp[:n] >= lo) & (k_exp[:n] <= hi)
     )
     if int(valid.sum()) < int(min_points):
-        raise ValueError("Recouvrement DFT/fit insuffisant pour Re Sigma.")
+        raise ValueError("Insufficient DFT/fit overlap for Re Sigma.")
     e_axis = e_exp[:n][valid]
     k_axis = k_exp[:n][valid]
     e_dft = np.interp(k_axis, k_ref, e_ref)
     re_sigma = e_axis - e_dft
-    kink_energy, lambda_eff = _estimate_kink(e_axis, re_sigma)
+    kink_energy, lambda_eff, lambda_err = _estimate_kink(e_axis, re_sigma)
     return RealSelfEnergyResult(
         energy=e_axis,
         re_sigma=re_sigma,
@@ -108,7 +111,28 @@ def real_self_energy(
         rms_e=float(np.sqrt(np.nanmean(re_sigma ** 2))),
         kink_energy=kink_energy,
         lambda_eff=lambda_eff,
+        lambda_err=lambda_err,
+        notes=_double_counting_notes(data.source),
     )
+
+
+# P2.3: DFT functionals that already renormalize correlations: comparing
+# Re Σ = E_exp − E_DFT to one of them double-counts many-body effects.
+_RENORM_FUNCTIONALS = (
+    "gga+u", "dft+u", "+u", "hybrid", "hse", "pbe0", "b3lyp",
+    "scan", "meta-gga", "mbj", "gw",
+)
+
+
+def _double_counting_notes(source: str) -> tuple[str, ...]:
+    src = str(source or "").lower()
+    if any(tok in src for tok in _RENORM_FUNCTIONALS):
+        return (
+            "DFT source appears renormalized (GGA+U / hybrid / GW): Re Σ "
+            "= E_exp − E_DFT double-counts correlations. Compare against a "
+            "bare GGA/PBE band instead.",
+        )
+    return ()
 
 
 def _select_assignment(
@@ -125,26 +149,29 @@ def _select_assignment(
         return {"branch": branch, "pair_index": int(pair_index), "band_index": int(band_index)}
     matches = compare_fit_to_theory(data, config, fr, max_results=1, min_points=min_points)
     if not matches:
-        raise ValueError("Aucune bande DFT ne recouvre assez le fit.")
+        raise ValueError("No DFT band overlaps the fit enough.")
     return matches[0]
 
 
-def _estimate_kink(energy: np.ndarray, re_sigma: np.ndarray) -> tuple[float, float]:
-    """Estime grossièrement un kink par maximum de courbure de Re Sigma(E)."""
+def _estimate_kink(energy: np.ndarray, re_sigma: np.ndarray) -> tuple[float, float, float]:
+    """Kink energy (maximum curvature) + canonical λ.
+
+    P2.3: λ = −∂ReΣ/∂ω|_{ω=0} via ``kink_analysis.extract_lambda`` (linear fit
+    over |ω| < 50 meV), instead of the old ad-hoc difference between near/deep
+    slope medians. There is a single λ definition in the code.
+    Returns ``(kink_energy, lambda_eff, lambda_err)``.
+    """
     order = np.argsort(energy)
     e = np.asarray(energy, dtype=float)[order]
     s = np.asarray(re_sigma, dtype=float)[order]
     valid = np.isfinite(e) & np.isfinite(s)
     e, s = e[valid], s[valid]
     if e.size < 5:
-        return float("nan"), float("nan")
+        return float("nan"), float("nan"), float("nan")
     d1 = np.gradient(s, e)
     d2 = np.gradient(d1, e)
-    idx = int(np.nanargmax(np.abs(d2)))
-    near = np.abs(e) <= 0.04
-    deep = e < -0.08
-    if int(near.sum()) >= 2 and int(deep.sum()) >= 2:
-        lambda_eff = -float(np.nanmedian(d1[near]) - np.nanmedian(d1[deep]))
-    else:
-        lambda_eff = float("nan")
-    return float(e[idx]), lambda_eff
+    kink_energy = float(e[int(np.nanargmax(np.abs(d2)))])
+    lam, lam_err = extract_lambda(e, s, window_eV=0.05)
+    if lam is None:
+        return kink_energy, float("nan"), float("nan")
+    return kink_energy, float(lam), float(lam_err)

@@ -1,14 +1,14 @@
-"""Logique pure de sélection / caractérisation des bandes DFT.
+"""Pure DFT band selection / characterization logic.
 
-Aucun Qt, aucun réseau, aucun I/O. Sert la liste cochable (UI) et le
-loader MP. Testable isolément.
+No Qt, no network, no I/O. Used by the checkable UI list and the MP loader.
+Testable in isolation.
 
-- ``compute_band_meta`` : par bande {idx, e_min, e_max, crosses_ef}.
-- ``bands_crossing_ef`` : indices traversant ±window autour de E=0.
-- ``format_band_indices`` : inverse de ``parse_band_indices``
-  ([1,3,5,6,7,8] → "1,3,5-8"), pour synchroniser checkbox ↔ champ legacy.
-- ``aggregate_projection_character`` : projections pymatgen brutes →
-  caractère orbital dominant par bande. Dégrade gracieusement si absent.
+- ``compute_band_meta``: per band {idx, e_min, e_max, crosses_ef}.
+- ``bands_crossing_ef``: indices crossing +/-window around E=0.
+- ``format_band_indices``: inverse of ``parse_band_indices``
+  ([1,3,5,6,7,8] -> "1,3,5-8"), used to sync checkboxes with the legacy field.
+- ``aggregate_projection_character``: raw pymatgen projections -> dominant
+  orbital character per band. Degrades gracefully if absent.
 """
 from __future__ import annotations
 
@@ -29,11 +29,11 @@ def compute_band_meta(
     *,
     ef_window: float = 0.0,
 ) -> list[dict[str, Any]]:
-    """Métadonnées par bande. ``bands`` = liste de lignes (énergies sur k).
+    """Metadata per band. ``bands`` = list of rows (energies over k).
 
-    Les énergies sont supposées déjà relatives à E_F (efermi soustrait).
-    ``crosses_ef`` vrai si la bande passe à ±``ef_window`` de E=0 (avec
-    ``ef_window`` <= 0 : test strict de traversée min<=0<=max).
+    Energies are assumed already relative to E_F (efermi subtracted).
+    ``crosses_ef`` is true if the band passes within +/-``ef_window`` of E=0
+    (with ``ef_window`` <= 0: strict crossing test min<=0<=max).
     """
     out: list[dict[str, Any]] = []
     win = max(0.0, float(ef_window))
@@ -56,10 +56,10 @@ def bands_crossing_ef(
     band_meta: Sequence[dict[str, Any]],
     window: float = 0.0,
 ) -> list[int]:
-    """Indices des bandes traversant ±``window`` autour de E=0.
+    """Band indices crossing +/-``window`` around E=0.
 
-    Recalcule depuis e_min/e_max pour rester cohérent quelle que soit la
-    fenêtre demandée (band_meta peut avoir été calculé sans fenêtre).
+    Recompute from e_min/e_max to stay consistent for any requested window
+    (band_meta may have been computed without a window).
     """
     win = max(0.0, float(window))
     out: list[int] = []
@@ -79,10 +79,10 @@ def bands_crossing_ef(
 
 
 def format_band_indices(indices: Sequence[int]) -> str:
-    """[1,3,5,6,7,8] → "1,3,5-8". Inverse de ``parse_band_indices``.
+    """[1,3,5,6,7,8] -> "1,3,5-8". Inverse of ``parse_band_indices``.
 
-    Dédoublonne, trie, compresse les runs consécutifs en ``lo-hi``.
-    Liste vide → "".
+    Deduplicate, sort, and compress consecutive runs into ``lo-hi``.
+    Empty list -> "".
     """
     uniq = sorted({int(i) for i in indices if int(i) >= 0})
     if not uniq:
@@ -105,28 +105,27 @@ def aggregate_projection_character(
     *,
     top: int = 1,
 ) -> list[str]:
-    """Caractère orbital dominant par bande depuis projections pymatgen.
+    """Dominant orbital character per band from pymatgen projections.
 
-    ``projections`` : forme tolérée = mapping {Spin: ndarray
+    ``projections``: accepted form = mapping {Spin: ndarray
     (n_band, n_k, n_orbital, n_ion)} (pymatgen BandStructureSymmLine
-    .projections) OU déjà un ndarray (n_band, n_k, n_orbital[, n_ion]).
-    ``elements`` : symbole par ion (len == n_ion) pour étiqueter
-    "Ti-d". Si absent ou projections vides → liste de "" (dégradation
-    gracieuse, aucune exception).
+    .projections) OR already an ndarray (n_band, n_k, n_orbital[, n_ion]).
+    ``elements``: ion symbol (len == n_ion) used to label "Ti-d". If absent
+    or projections are empty -> list of "" (graceful degradation, no exception).
 
-    Étiquette = ``{élément}-{orbitale}`` du canal de poids cumulé max.
-    Orbitales regroupées s/p/d/f par convention pymatgen (0=s, 1-3=p,
+    Label = ``{element}-{orbital}`` for the channel with maximum cumulative
+    weight. Orbitals are grouped s/p/d/f by pymatgen convention (0=s, 1-3=p,
     4-8=d, 9-15=f).
     """
     arr = _projection_array(projections)
     if arr is None or arr.size == 0:
         return []
-    # arr -> (n_band, n_k, n_orbital, n_ion) ; compléter dims manquantes
+    # arr -> (n_band, n_k, n_orbital, n_ion); complete missing dimensions
     while arr.ndim < 4:
         arr = arr[..., np.newaxis]
     n_band, _n_k, n_orb, n_ion = arr.shape
-    weight = np.abs(arr) ** 2  # poids physique
-    # somme sur k -> (n_band, n_orb, n_ion)
+    weight = np.abs(arr) ** 2  # physical weight
+    # sum over k -> (n_band, n_orb, n_ion)
     w = weight.sum(axis=1)
     sym = list(elements or [])
     out: list[str] = []
@@ -148,7 +147,7 @@ def _projection_array(projections: Any) -> np.ndarray | None:
     if isinstance(obj, dict):
         if not obj:
             return None
-        # somme sur les canaux de spin disponibles
+        # sum over available spin channels
         try:
             stacked = [np.asarray(v, dtype=float) for v in obj.values()]
         except (TypeError, ValueError):
@@ -167,8 +166,8 @@ def _projection_array(projections: Any) -> np.ndarray | None:
 
 
 def _orbital_label(orb_index: int, n_orb: int) -> str:
-    """Index orbitale pymatgen → s/p/d/f. Repli "o{idx}" si schéma inconnu."""
-    if n_orb <= 4:  # schéma compact s,p,d,f
+    """Map pymatgen orbital index to s/p/d/f. Fallback "o{idx}" if schema is unknown."""
+    if n_orb <= 4:  # compact s,p,d,f schema
         return "spdf"[orb_index] if 0 <= orb_index < 4 else f"o{orb_index}"
     if orb_index == 0:
         return "s"

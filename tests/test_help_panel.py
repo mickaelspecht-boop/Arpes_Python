@@ -17,7 +17,7 @@ except Exception:
     UI_AVAILABLE = False
 
 
-@unittest.skipUnless(UI_AVAILABLE, "PyQt6 / Qt offscreen indisponible")
+@unittest.skipUnless(UI_AVAILABLE, "PyQt6 / Qt offscreen unavailable")
 class TestHelpPanel(unittest.TestCase):
     _qt_app = None
 
@@ -32,13 +32,13 @@ class TestHelpPanel(unittest.TestCase):
         self.assertIn("Workflow", panel._viewer.toPlainText())
 
         panel._index.setCurrentRow(1)
-        self.assertIn("Raccourcis", panel._viewer.toPlainText())
+        self.assertIn("Shortcuts", panel._viewer.toPlainText())
 
     def test_help_panel_has_missing_file_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
             panel = HelpPanel(Path(tmp))
 
-            self.assertIn("Documentation indisponible", panel._viewer.toPlainText())
+            self.assertIn("Documentation unavailable", panel._viewer.toPlainText())
 
 
 if __name__ == "__main__":

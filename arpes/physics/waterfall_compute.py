@@ -211,16 +211,16 @@ def draw_waterfall_axes(
                     residual_ax.set_yticklabels([f"{ee:.3f}" for _, ee in shown],
                                                 fontsize=7, color="w")
                     residual_ax.set_title(
-                        "Résidus MDC" if not np.isfinite(residual_rms)
-                        else f"Résidus MDC  rms={residual_rms:.3f}",
+                        "MDC residuals" if not np.isfinite(residual_rms)
+                        else f"MDC residuals  rms={residual_rms:.3f}",
                         fontsize=8, color="w",
                     )
                 else:
-                    residual_ax.text(0.5, 0.5, "Résidus hors plage",
+                    residual_ax.text(0.5, 0.5, "Residuals out of range",
                                      transform=residual_ax.transAxes,
                                      ha="center", va="center", color="#aaa", fontsize=8)
             elif residual_ax is not None:
-                residual_ax.text(0.5, 0.5, "Résidus indisponibles",
+                residual_ax.text(0.5, 0.5, "Residuals unavailable",
                                  transform=residual_ax.transAxes,
                                  ha="center", va="center", color="#aaa", fontsize=8)
 
@@ -251,5 +251,3 @@ def draw_waterfall_axes(
         for sp in residual_ax.spines.values():
             sp.set_edgecolor("#555")
     return True
-
-

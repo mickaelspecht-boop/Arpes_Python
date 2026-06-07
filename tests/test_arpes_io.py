@@ -221,11 +221,11 @@ class TestARPESIOValidation(unittest.TestCase):
                 self.assertEqual(ds.metadata["scan_kind"], kind)
             ran += 1
         if ran == 0:
-            self.skipTest("aucune fixture réelle BESSY/CLS disponible")
+            self.skipTest("no real BESSY/CLS fixture available")
 
     def test_solaris_fixture_uses_common_loader_if_erlab_available(self):
         if importlib.util.find_spec("erlab") is None:
-            self.skipTest("erlab absent: loader Solaris/DA30 non exécutable dans cet environnement")
+            self.skipTest("erlab missing: Solaris/DA30 loader not executable in this environment")
         path = Path("/Users/alexandrespecht/Documents/Stage_M2/code/BaNi2As2_/BaNi2As2_0012.pxt")
         if not path.exists():
             self.skipTest("fixture Solaris/DA30 absente")

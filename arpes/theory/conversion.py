@@ -37,7 +37,7 @@ def bandstructure_to_theory_data(
     else:
         bands = np.asarray(bands_obj, dtype=float) - efermi
     if bands.ndim != 2:
-        raise ValueError("Band structure invalide: bandes DFT non matricielles.")
+        raise ValueError("Invalid band structure: DFT bands are not matrix-shaped.")
 
     k_distance = _k_distance_from_bandstructure(bandstructure, bands.shape[1])
     labels = _labels_from_bandstructure(bandstructure, k_distance)

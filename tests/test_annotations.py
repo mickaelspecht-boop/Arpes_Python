@@ -94,7 +94,7 @@ class TestFitAnnotations(unittest.TestCase):
             entry = parent._session.files["BM1"]
             self.assertEqual(entry.annotations["kF_minus"][0]["index"], 1)
             self.assertEqual(entry.annotations["kF_minus"][0]["text"], "Point important")
-            self.assertEqual(statuses[-1], "Annotation enregistrée.")
+            self.assertEqual(statuses[-1], "Annotation saved.")
 
 
 if __name__ == "__main__":

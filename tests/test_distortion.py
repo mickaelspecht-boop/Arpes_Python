@@ -27,7 +27,7 @@ def _synthetic_bm(n_kpar: int = 100, n_e: int = 80,
     kpar = np.linspace(k_min, k_max, n_kpar)
     ev = np.linspace(ev_min, ev_max, n_e)
     K, E = np.meshgrid(kpar, ev, indexing="ij")
-    # Bande parabolique simple : E = -k² → intensité gaussienne autour
+    # Simple parabolic band: E = -k² → Gaussian intensity around it.
     band_e = -0.5 * K ** 2
     data = np.exp(-((E - band_e) ** 2) / (2 * 0.05 ** 2))
     return data.astype(np.float32), kpar, ev
@@ -89,7 +89,7 @@ class TestApplyDistortion(unittest.TestCase):
         self.assertTrue(info["applied"])
         self.assertTrue(info["trapezoid_applied"])
         self.assertEqual(out.shape, data.shape)
-        # certains pixels diffèrent (warp non-trivial)
+        # Some pixels differ (non-trivial warp).
         diff = np.nansum(np.abs(out - data))
         self.assertGreater(diff, 0)
 
@@ -124,7 +124,7 @@ class TestApplyDistortion(unittest.TestCase):
                "trapezoid": {"enabled": True, "slope_left": 0.5, "slope_right": -0.5,
                              "pivot_ev": ev[0]}}
         out, _ = apply_distortion(data, kpar, ev, cfg)
-        # Au pivot rien ne bouge ; loin du pivot, certains bords sortent → NaN.
+        # At the pivot nothing moves; far from the pivot, some edges leave bounds → NaN.
         self.assertTrue(np.isnan(out).any())
 
     def test_free_trapezoid_edges_are_independent(self):
@@ -243,8 +243,8 @@ class TestAutoDetect(unittest.TestCase):
         self.assertIsNone(auto_detect_parabola(data, kpar, ev))
 
     def test_parabola_recovers_known_curvature(self):
-        # Bande E = -0.5*k^2 (a=-0.5). argmax_k par ligne E doit donner k tel
-        # que E = -0.5*k² → fit polyfit deg 2 retrouve a≈-0.5, k0≈0.
+        # Band E = -0.5*k^2 (a=-0.5). argmax_k per E row must give k such that
+        # E = -0.5*k² → degree-2 polyfit recovers a≈-0.5, k0≈0.
         data, kpar, ev = _synthetic_bm(n_kpar=120, n_e=100,
                                         ev_min=-0.4, ev_max=-0.01)
         res = auto_detect_parabola(data, kpar, ev)
@@ -253,7 +253,7 @@ class TestAutoDetect(unittest.TestCase):
         self.assertAlmostEqual(res["k0"], 0.0, delta=0.1)
 
     def test_parabola_refuses_flat_bm(self):
-        # Carte uniforme : pas de dispersion → refus
+        # Uniform map: no dispersion → rejection.
         data = np.ones((50, 40), dtype=np.float32)
         kpar = np.linspace(-1, 1, 50)
         ev = np.linspace(-0.4, 0.1, 40)
@@ -271,7 +271,7 @@ class TestGuards(unittest.TestCase):
 
     def test_angle_offsets_hash_stable(self):
         h1 = angle_offsets_hash({"theta0_deg": 0.5, "tilt0_deg": 0.0})
-        h2 = angle_offsets_hash({"tilt0_deg": 0.0, "theta0_deg": 0.5})  # ordre différent
+        h2 = angle_offsets_hash({"tilt0_deg": 0.0, "theta0_deg": 0.5})  # different order
         self.assertEqual(h1, h2)
 
     def test_angle_offsets_hash_changes_with_value(self):
@@ -291,7 +291,7 @@ class TestGuards(unittest.TestCase):
 
     def test_calib_key_missing_fields(self):
         k = calib_key_for_meta({"hv": 100})
-        self.assertEqual(k[1], "?")  # pass_energy absent
+        self.assertEqual(k[1], "?")  # pass_energy missing
 
 
 class TestRoundtripReversibility(unittest.TestCase):
@@ -313,9 +313,9 @@ class TestSignalBbox(unittest.TestCase):
         kpar = np.linspace(-1.0, 1.0, 100)
         ev = np.linspace(-0.5, 0.0, 80)
         K, E = np.meshgrid(kpar, ev, indexing="ij")
-        # blob signal entre k∈[-0.3, 0.3], E∈[-0.3, -0.1]
+        # Signal blob between k∈[-0.3, 0.3], E∈[-0.3, -0.1].
         data = np.exp(-((K / 0.15) ** 2) - (((E + 0.2) / 0.05) ** 2))
-        # ajoute zone vide (basse intensité) ailleurs
+        # Adds an empty zone (low intensity) elsewhere.
         bbox = signal_bbox(data, kpar, ev, intensity_percentile=80.0)
         self.assertTrue(bbox["valid"])
         self.assertGreater(bbox["k_min"], -0.6)

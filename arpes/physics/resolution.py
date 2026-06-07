@@ -57,13 +57,21 @@ def estimate_resolutions(meta: dict) -> dict:
         ef_kin = _positive_float(meta.get("ef_kinetic_from_hv"))
         if ef_kin is None and hv is not None:
             ef_kin = max(hv - (work_func or 4.5), 1e-9)
-        if ef_kin is not None:
-            a_lattice = _positive_float(meta.get("a_lattice"))
-            dk_inv_a = 0.51233 * math.sqrt(ef_kin) * math.cos(0.0) * math.radians(angle_step) * a_lattice / math.pi
+        a_lattice = _positive_float(meta.get("a_lattice"))
+        if ef_kin is not None and a_lattice is not None:
+            dk_inv_a = (
+                0.51233
+                * math.sqrt(ef_kin)
+                * math.cos(0.0)
+                * math.radians(angle_step)
+                * a_lattice
+                / math.pi
+            )
             source += f"; dk depuis angle_step={angle_step:g}deg"
         else:
             dk_inv_a = DEFAULT_DK_INV_A
-            source += "; dk defaut (hv absent)"
+            reason = "hv absent" if ef_kin is None else "a_lattice absent"
+            source += f"; dk defaut ({reason})"
     else:
         dk_inv_a = DEFAULT_DK_INV_A
         source += "; dk defaut"

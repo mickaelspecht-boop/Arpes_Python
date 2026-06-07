@@ -1,4 +1,4 @@
-"""Panneau résultats — table fits + carte couleur."""
+"""Results panel: fit tables and color map."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,12 +59,12 @@ class ResultsPanel(QWidget):
 
         # droite : table + boutons
         right = QVBoxLayout()
-        right.addWidget(QLabel("Afficher fichiers fittés"))
+        right.addWidget(QLabel("Show fitted files"))
         filter_btn_row = QHBoxLayout()
-        btn_filter_all = QPushButton("Tout")
+        btn_filter_all = QPushButton("All")
         btn_filter_all.setMaximumWidth(60)
         btn_filter_all.clicked.connect(lambda: self._set_all_filter(True))
-        btn_filter_none = QPushButton("Aucun")
+        btn_filter_none = QPushButton("None")
         btn_filter_none.setMaximumWidth(60)
         btn_filter_none.clicked.connect(lambda: self._set_all_filter(False))
         filter_btn_row.addWidget(btn_filter_all)
@@ -81,11 +81,11 @@ class ResultsPanel(QWidget):
         self._file_filter_unchecked: set[str] = set()
         right.addWidget(self._file_filter)
 
-        right.addWidget(QLabel("Résultats fittés"))
+        right.addWidget(QLabel("Fitted results"))
         self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
-            ["Fichier", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)",
-             "Γ brut", "Γ corr.", "chi2_red méd."])
+            ["File", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)",
+             "Raw Γ", "Corr. Γ", "median chi2_red"])
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self._table.setStyleSheet(
@@ -93,18 +93,18 @@ class ResultsPanel(QWidget):
             "QHeaderView::section{background:#333;color:#ddd;}")
         right.addWidget(self._table, stretch=1)
 
-        self._chk_bootstrap = QCheckBox("Bootstrap σ (N=500, robuste outliers)")
+        self._chk_bootstrap = QCheckBox("Bootstrap σ (N=500, robust to outliers)")
         self._chk_bootstrap.setToolTip(
-            "Remplace σ statistique propagée par σ bootstrap (rééchantillonnage\n"
-            "des points fittés près de E_F). Plus robuste si points aberrants\n"
-            "résiduels. ~1 s pour 4 branches × 500 itérations."
+            "Replaces propagated statistical σ with bootstrap σ (resampling\n"
+            "fitted points near E_F). More robust to remaining outlier points.\n"
+            "~1 s for 4 branches × 500 iterations."
         )
         self._chk_bootstrap.toggled.connect(self.refresh)
         right.addWidget(self._chk_bootstrap)
-        right.addWidget(QLabel("Résultats physiques ± σ (fit MDC stat.)"))
+        right.addWidget(QLabel("Physical results ± σ (MDC stat. fit)"))
         self._table_phys = QTableWidget(0, 6)
         self._table_phys.setHorizontalHeaderLabels([
-            "Fichier", "Paire/Branche",
+            "File", "Pair/Branch",
             "kF (π/a) ± σ", "vF (eV·π/a) ± σ",
             "m*/me ± σ", "Γ₀ (π/a) ± σ",
         ])
@@ -115,22 +115,22 @@ class ResultsPanel(QWidget):
             "QHeaderView::section{background:#333;color:#ddd;}")
         right.addWidget(self._table_phys, stretch=1)
 
-        btn_ref = QPushButton("Actualiser tout")
-        btn_ref.setToolTip("Redessine la dispersion + Γ(E) et recalcule les tables.")
+        btn_ref = QPushButton("Refresh all")
+        btn_ref.setToolTip("Redraws dispersion + Γ(E) and recomputes the tables.")
         btn_ref.clicked.connect(self.refresh)
-        btn_recalc = QPushButton("Recalculer résultats physiques")
+        btn_recalc = QPushButton("Recompute physical results")
         btn_recalc.setToolTip(
-            "Recalcule uniquement la table 'Résultats physiques ± σ' "
-            "et le panneau Γ(E). Utile après suppression de points."
+            "Only recomputes the 'Physical results ± σ' table "
+            "and the Γ(E) panel. Useful after deleting points."
         )
         btn_recalc.clicked.connect(self.refresh_physics_only)
-        btn_multi = QPushButton("Analyse multi-fichier...")
-        btn_multi.setToolTip("Trace kF, m* et Γ0 pour les entrées fittées sélectionnées.")
+        btn_multi = QPushButton("Multi-file analysis...")
+        btn_multi.setToolTip("Plots kF, m*, and Γ0 for the selected fitted entries.")
         btn_multi.clicked.connect(self._open_multi_file_analysis)
-        btn_export = QPushButton("Exporter résultats…")
+        btn_export = QPushButton("Export results...")
         btn_export.setToolTip(
-            "Choisir le contenu (par slice ou physique ± σ) et le format\n"
-            "(CSV, TXT aligné, LaTeX booktabs)."
+            "Choose the content (per slice or physical ± σ) and the format\n"
+            "(CSV, aligned TXT, LaTeX booktabs)."
         )
         btn_export.clicked.connect(self._export_results)
         style_row = QHBoxLayout()
@@ -139,8 +139,8 @@ class ResultsPanel(QWidget):
         self._cmb_export_style.addItems(list(PRESETS.keys()))
         self._cmb_export_style.setCurrentText("default")
         self._cmb_export_style.setToolTip(
-            "Style matplotlib utilise pour l'export figure.\n"
-            "PRB utilise LaTeX si disponible, sinon fallback sans LaTeX."
+            "Matplotlib style used for figure export.\n"
+            "PRB uses LaTeX if available, otherwise falls back without LaTeX."
         )
         style_row.addWidget(self._cmb_export_style, stretch=1)
         right.addLayout(style_row)
@@ -218,9 +218,9 @@ class ResultsPanel(QWidget):
 
         ax.axhline(0, color="cyan", lw=0.8, ls="--", alpha=0.5)
         ax.axvline(0, color="w",    lw=0.5, ls="--", alpha=0.3)
-        ax.set_xlabel("k// (π/a)", fontsize=10, color="w")
-        ax.set_ylabel("E − EF (eV)", fontsize=10, color="w")
-        ax.set_title("Dispersions kF — tous fichiers fittés", fontsize=10, color="w")
+        ax.set_xlabel(r"$k_\parallel$ (π/a)", fontsize=10, color="w")
+        ax.set_ylabel(r"$E - E_F$ (eV)", fontsize=10, color="w")
+        ax.set_title("kF dispersions — all fitted files", fontsize=10, color="w")
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
         if row > 0:
@@ -283,7 +283,7 @@ class ResultsPanel(QWidget):
         except ValueError as exc:
             row = self._table_phys.rowCount()
             self._table_phys.insertRow(row)
-            for col, val in enumerate([filename, "a manquant", str(exc), "—", "—", "—"]):
+            for col, val in enumerate([filename, "missing a", str(exc), "—", "—", "—"]):
                 self._table_phys.setItem(row, col, QTableWidgetItem(val))
             return
         bundle = compute_results(
@@ -315,7 +315,7 @@ class ResultsPanel(QWidget):
                 self._table_phys.setItem(row, col, QTableWidgetItem(val))
 
     def refresh_physics_only(self) -> None:
-        """Re-popule table physique + redessine Γ(E) sans toucher à la dispersion."""
+        """Repopulate the physics table and redraw Gamma(E) without touching dispersion."""
         import matplotlib.pyplot as _plt
         self._sync_file_filter()
         visible = self._visible_files()
@@ -373,9 +373,9 @@ class ResultsPanel(QWidget):
                     ax.plot(e_grid, fl.gamma_zero + fl.coef_E2 * e_grid ** 2,
                             "--", color=color, lw=1.0, alpha=0.7)
                 plotted += 1
-        ax.set_xlabel("E − EF (eV)", fontsize=10, color="w")
-        ax.set_ylabel("Γ (π/a)", fontsize=10, color="w")
-        ax.set_title("Γ(E) — bandes ±σ et fit Fermi liquide (Γ₀ + a·E²)",
+        ax.set_xlabel(r"$E - E_F$ (eV)", fontsize=10, color="w")
+        ax.set_ylabel(r"$\Gamma_k$ (HWHM, π/a)", fontsize=10, color="w")
+        ax.set_title(r"$\Gamma_k(E)$ — bands ±σ and Fermi-liquid fit ($\Gamma_0 + aE^2$)",
                      fontsize=10, color="w")
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
@@ -397,11 +397,11 @@ class ResultsPanel(QWidget):
             return "—"
         return f"{value:.{dec}f} ± {sigma:.{dec}f}"
 
-    # ── filtre fichiers ──────────────────────────────────────────────────────
+    # -- file filter ----------------------------------------------------------
     def _sync_file_filter(self) -> None:
-        """Synchronise QListWidget avec session.files (que les fittés)."""
+        """Synchronize QListWidget with session.files (fitted files only)."""
         self._file_filter.blockSignals(True)
-        # Mémorise l'état courant avant rebuild
+        # Preserve the current state before rebuilding.
         current_unchecked = set(self._file_filter_unchecked)
         for i in range(self._file_filter.count()):
             it = self._file_filter.item(i)
@@ -458,11 +458,11 @@ class ResultsPanel(QWidget):
             return
         if not rows:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "Export", "Aucun résultat à exporter.")
+            QMessageBox.information(self, "Export", "No results to export.")
             return
         suggested = str(self._session.folder or Path.home())
         path, _ = QFileDialog.getSaveFileName(
-            self, "Exporter résultats", suggested, dlg.file_filter(),
+            self, "Export results", suggested, dlg.file_filter(),
         )
         if not path:
             return
@@ -472,7 +472,7 @@ class ResultsPanel(QWidget):
             self._dispatch_export(path, rows, dlg.content_key, dlg.format_key)
         except Exception as exc:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Export", f"Échec écriture : {exc}")
+            QMessageBox.warning(self, "Export", f"Write failed: {exc}")
 
     def _dispatch_export(self, path: str, rows: list[dict], content: str, fmt: str) -> None:
         if fmt == "csv":

@@ -3,18 +3,18 @@ from __future__ import annotations
 
 
 def update_prerequisites(panel, *, has_fit: bool, n_pairs: int, n_points: int = 0) -> None:
-    """Refresh badges + enable/disable Run, hide pair spinbox if 1 paire."""
+    """Refresh badges, enable/disable Run, and hide pair spinbox if there is one pair."""
     panel._has_fit = bool(has_fit)
     panel._n_pairs = max(1, int(n_pairs))
     if has_fit:
-        badge_txt = f"● MDC ✓ {n_points} pts, {panel._n_pairs} paire(s)"
+        badge_txt = f"● MDC ✓ {n_points} pts, {panel._n_pairs} pair(s)"
         badge_css = (
             "color:#86efac; background:#14532d; padding:2px 6px;"
             " border-radius:3px; font-size:10px;"
         )
         run_enabled = True
     else:
-        badge_txt = "⚠ MDC non fitté — onglet désactivé"
+        badge_txt = "⚠ MDC not fitted — tab disabled"
         badge_css = (
             "color:#fca5a5; background:#7f1d1d; padding:2px 6px;"
             " border-radius:3px; font-size:10px;"

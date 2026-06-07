@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -24,14 +25,14 @@ from arpes.ui.widgets.band_analysis_panel import BandAnalysisPanel
 
 
 def build_left_panel(window) -> QWidget:
-    from arpes.app import FileBrowserPanel
+    from arpes.ui.widgets.browsers import FileBrowserPanel
 
     window._browser = FileBrowserPanel(window._session)
     return window._browser
 
 
 def build_right_panel(window) -> QWidget:
-    from arpes.app import FitParamsPanel
+    from arpes.ui.widgets.params import FitParamsPanel
 
     right_split = QSplitter(Qt.Orientation.Vertical)
     right_split.setChildrenCollapsible(False)
@@ -103,29 +104,59 @@ def _build_tabs(window) -> QTabWidget:
     )
     window._tabs.addTab(_build_carte_tab(window), "BM")
     window._tabs.addTab(_build_mdc_tab(window), "MDC Fit")
-    window._tabs.addTab(_build_results_tab(window), "Résultats")
+    window._tabs.addTab(_build_results_tab(window), "Results")
     window._tabs.addTab(_build_fs_tab(window), "FS")
     window._tabs.addTab(_build_kz_tab(window), "KZ")
     window._tabs.addTab(_build_notes_tab(window), "Notes")
-    window._tabs.addTab(_build_help_tab(window), "Aide")
+    window._tabs.addTab(_build_help_tab(window), "Help")
+    window._tabs.addTab(_build_quickstart_tab(window), "Start")
     return window._tabs
 
 
+def _build_quickstart_tab(window) -> QWidget:
+    # P4.6: page d'accueil pour un·e utilisateur·rice d'un autre labo.
+    browser = QTextBrowser()
+    browser.setOpenExternalLinks(True)
+    browser.setStyleSheet("background:#1e1e1e;color:#ddd;font-size:13px;padding:10px;")
+    browser.setHtml(
+        "<h2>Quick start — ARPES Explorer</h2>"
+        "<p>Recommended workflow:</p>"
+        "<ol>"
+        "<li><b>Load</b> a file (BM or FS map) from the left panel. "
+        "Enter <i>φ</i> (work function) and crystal <i>a</i> if prompted.</li>"
+        "<li><b>Calibrate EF</b> (BM tab → « Auto EF calibration ») — an orange "
+        "banner flags uncalibrated files.</li>"
+        "<li><b>FS</b>: locate Γ, set the BZ (shape + half-BZ), correct "
+        "distortion if needed.</li>"
+        "<li><b>BM cuts</b>: draw the cuts, fit the MDCs "
+        "(MDC Fit tab) → kF, vF, Γ_k.</li>"
+        "<li><b>Pockets</b>: characterize FS pockets (area, topology, "
+        "Luttinger). Fine/Standard/Stable presets depending on noise.</li>"
+        "<li><b>Export</b>: publication presets (PRB / npj / Nature / "
+        "Science), light background + colorbar forced, vector PDF.</li>"
+        "</ol>"
+        "<p style='color:#9ab'>Conventions: E−E<sub>F</sub> in eV, "
+        "k in π/a, Γ<sub>k</sub> = HWHM. See the <b>Help</b> tab for loader "
+        "formats and shortcuts.</p>"
+    )
+    return browser
+
+
 def _build_carte_tab(window) -> QWidget:
-    from arpes.app import MplCanvas
+    from arpes.ui.widgets.canvas import MplCanvas
 
     carte_widget = QWidget()
     carte_lay = QVBoxLayout(carte_widget)
     carte_lay.setContentsMargins(0, 0, 0, 0)
 
     vbar = QHBoxLayout()
-    vbar.addWidget(QLabel("Vue :"))
+    vbar.addWidget(QLabel("View:"))
     window._cmb_view = _new_view_combo()
     vbar.addWidget(window._cmb_view)
 
     lbl_gamma = QLabel("  γ:")
     lbl_gamma.setStyleSheet("color:#aaa;font-size:11px;")
-    lbl_gamma.setToolTip("Gamma de contraste : <1 booste les faibles intensités (comme dans Igor)")
+    lbl_gamma.setToolTip("Contrast gamma: <1 boosts weak intensities (as in Igor)")
     vbar.addWidget(lbl_gamma)
 
     window._sp_gamma = QDoubleSpinBox()
@@ -135,18 +166,27 @@ def _build_carte_tab(window) -> QWidget:
     window._sp_gamma.setValue(1.0)
     window._sp_gamma.setFixedWidth(54)
     window._sp_gamma.setToolTip(
-        "γ < 1  → accentue les structures faibles (utile pour FS)\n"
-        "γ = 1  → échelle linéaire\n"
-        "γ > 1  → accentue les structures fortes\n"
-        "Identique à la correction gamma d'Igor BandFinder"
+        "γ < 1  → emphasizes weak structures (useful for FS)\n"
+        "γ = 1  → linear scale\n"
+        "γ > 1  → emphasizes strong structures\n"
+        "Same as Igor BandFinder gamma correction"
     )
     vbar.addWidget(window._sp_gamma)
     vbar.addStretch()
 
-    lbl_hint = QLabel("Clic → MDC+EDC  |  ← → naviguer fichiers")
+    lbl_hint = QLabel("Click → MDC+EDC  |  ← → navigate files")
     lbl_hint.setStyleSheet("color:#888;font-size:10px;")
     vbar.addWidget(lbl_hint)
     carte_lay.addLayout(vbar)
+
+    # P4.6: "EF not calibrated" banner, visible until an EF calibration
+    # (offset or polynomial fit) is set on the current file.
+    window._lbl_ef_uncal = QLabel("⚠ EF not calibrated — « Auto EF calibration » before quantitative analysis.")
+    window._lbl_ef_uncal.setStyleSheet(
+        "background:#5a3a1a;color:#ffcf8f;padding:3px 8px;font-size:11px;border-radius:3px;"
+    )
+    window._lbl_ef_uncal.setVisible(False)
+    carte_lay.addWidget(window._lbl_ef_uncal)
 
     window._bm_canvas = MplCanvas(figsize=(7, 6), toolbar=True)
     window._bm_canvas.reset_callback = window._reset_bm_view
@@ -160,15 +200,15 @@ def _new_view_combo() -> QComboBox:
     combo.setCurrentText("Raw")
     combo.setFixedWidth(120)
     combo.setToolTip(
-        "Raw : intensite brute.\n"
-        "EDCnorm : normalisation par EDC moyenne.\n"
-        "SecDev/Curvature : derivees pour faire ressortir les dispersions."
+        "Raw: raw intensity.\n"
+        "EDCnorm: normalization by mean EDC.\n"
+        "SecDev/Curvature: derivatives to bring out dispersions."
     )
     return combo
 
 
 def _build_mdc_tab(window) -> QWidget:
-    from arpes.app import MplCanvas
+    from arpes.ui.widgets.canvas import MplCanvas
 
     mdc_widget = QWidget()
     mdc_lay = QVBoxLayout(mdc_widget)
@@ -183,15 +223,15 @@ def _build_mdc_tab(window) -> QWidget:
     fit_lay = QVBoxLayout(fit_view)
     fit_lay.setContentsMargins(0, 0, 0, 0)
     fit_bar = QHBoxLayout()
-    fit_bar.addWidget(QLabel("Vue :"))
+    fit_bar.addWidget(QLabel("View:"))
     window._cmb_view_fit = _new_view_combo()
     fit_bar.addWidget(window._cmb_view_fit)
     fit_bar.addStretch()
-    window._lbl_fit_view_info = QLabel("Plage d'analyse")
+    window._lbl_fit_view_info = QLabel("Analysis range")
     window._lbl_fit_view_info.setStyleSheet("color:#aaa;font-size:10px;")
     window._lbl_fit_view_info.setToolTip(
-        "Dans l'onglet Fit, la carte est zoomee sur la plage d'analyse.\n"
-        "Le contraste est recalcule sur cette fenetre pour mieux voir les pics."
+        "In the Fit tab, the map is zoomed to the analysis range.\n"
+        "Contrast is recomputed on this window to better see the peaks."
     )
     fit_bar.addWidget(window._lbl_fit_view_info)
     fit_lay.addLayout(fit_bar)
@@ -203,7 +243,7 @@ def _build_mdc_tab(window) -> QWidget:
     mdc_split.addWidget(window._mdc_edc)
     mdc_split.setSizes([620, 280])
     fit_lay.addWidget(mdc_split, stretch=1)
-    window._mdc_fit_tabs.addTab(fit_view, "Fit MDC")
+    window._mdc_fit_tabs.addTab(fit_view, "MDC Fit")
 
     window._waterfall_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
     window._mdc_fit_tabs.addTab(window._waterfall_canvas, "Waterfall")
@@ -212,14 +252,14 @@ def _build_mdc_tab(window) -> QWidget:
     window._mdc_fit_tabs.addTab(window._edc_canvas, "EDC")
 
     window._band_panel = BandAnalysisPanel()
-    window._mdc_fit_tabs.addTab(window._band_panel, "Analyse bandes")
+    window._mdc_fit_tabs.addTab(window._band_panel, "Band analysis")
 
     mdc_lay.addWidget(window._mdc_fit_tabs, stretch=1)
     return mdc_widget
 
 
 def _build_results_tab(window) -> QWidget:
-    from arpes.app import ResultsPanel
+    from arpes.ui.widgets.results import ResultsPanel
 
     window._results = ResultsPanel(window._session)
     return window._results
@@ -247,7 +287,7 @@ def _build_fs_tab(window) -> QWidget:
         _lay.addWidget(bm_cuts_bar, 0)
     window._fs_linked_bms = FsLinkedBmsList()
     _lay.addWidget(window._fs_linked_bms, 1)
-    fs_tabs.addTab(fs_map_container, "Carte FS")
+    fs_tabs.addTab(fs_map_container, "FS map")
     return fs_tabs
 
 
@@ -499,6 +539,7 @@ def wire_param_signals(window) -> None:
     p.theory_mu_fit_requested.connect(window._fit_theory_mu_auto)
     p.theory_align_requested.connect(window._align_theory_to_arpes)
     p.theory_efalign_requested.connect(window._align_theory_efermi)
+    p.work_function_changed.connect(window._on_work_function_changed)
     p.crystal_a_changed.connect(window._on_crystal_a_changed)
     p.fit_section_toggled.connect(window._on_fit_section_toggled)
     p.fit_preset_changed.connect(window._on_fit_preset_changed)

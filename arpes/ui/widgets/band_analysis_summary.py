@@ -14,9 +14,9 @@ def cross_validation_block(tb: dict, kink: dict) -> str | None:
     ratio = m_over_me / predicted if predicted > 0 else float("nan")
     flag = ""
     if abs(ratio - 1.0) > 0.3:
-        flag = " ⚠ écart &gt;30 % : revoir bare-band (kink) ou modèle TB."
+        flag = " ⚠ discrepancy &gt;30%: review bare band (kink) or TB model."
     return (
-        f"m*/m = {m_over_me:.3f} vs (1+λ) prédit = {predicted:.3f}"
+        f"m*/m = {m_over_me:.3f} vs predicted (1+λ) = {predicted:.3f}"
         f" — ratio = {ratio:.2f}.{flag}"
     )
 
@@ -26,16 +26,16 @@ def render_summary_html(
 ) -> str:
     lines: list[str] = []
     lines.append("<table cellpadding='3' style='font-size:11px;'>")
-    lines.append("<tr><th align='left'>Source</th><th align='left'>Métrique</th>"
-                 "<th align='left'>Valeur</th><th align='left'>Note</th></tr>")
+    lines.append("<tr><th align='left'>Source</th><th align='left'>Metric</th>"
+                 "<th align='left'>Value</th><th align='left'>Note</th></tr>")
     if has_fit:
         lines.append(
             f"<tr><td>MDC</td><td>points</td><td>{n_points}</td>"
-            f"<td>{n_pairs} paire(s)</td></tr>"
+            f"<td>{n_pairs} pair(s)</td></tr>"
         )
     else:
-        lines.append("<tr><td colspan='4'><i>Aucun fit MDC. Lance le fit "
-                     "MDC pour activer les analyses.</i></td></tr>")
+        lines.append("<tr><td colspan='4'><i>No MDC fit. Run the "
+                     "MDC fit to enable analyses.</i></td></tr>")
         lines.append("</table>")
         return "\n".join(lines)
     tb = ba.get("tb") or {}
@@ -72,9 +72,9 @@ def render_summary_html(
         if lam is not None:
             note = ""
             if lam < 0:
-                note = "⚠ λ&lt;0 non physique"
+                note = "⚠ λ&lt;0 unphysical"
             elif lam > 2.5:
-                note = "⚠ λ très élevé"
+                note = "⚠ λ very high"
             lines.append(
                 f"<tr><td>Kink</td><td>λ</td>"
                 f"<td>{lam:.3f}"
@@ -110,7 +110,7 @@ def render_summary_html(
     lines.append("</table>")
     cross = cross_validation_block(tb, kink)
     if cross:
-        lines.append("<br><b>Cohérence:</b><br>")
+        lines.append("<br><b>Consistency:</b><br>")
         lines.append(cross)
     all_notes: list[str] = []
     for label, payload in (("TB", tb), ("Kink", kink), ("Gap", gap)):

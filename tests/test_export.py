@@ -160,7 +160,7 @@ class TestResultsExport(unittest.TestCase):
         self.assertIn('"git_commit": "abc123"', text)
 
     def test_physics_rows_requires_lattice_a(self):
-        with self.assertRaisesRegex(ValueError, "Paramètre de maille a manquant"):
+        with self.assertRaisesRegex(ValueError, "Missing lattice parameter a"):
             physics_rows(self._session_with_fit())
 
     def test_physics_rows_uses_sample_config_lattice(self):

@@ -31,8 +31,8 @@ class SessionDiffRow:
 def compare_session_payloads(payload_a: dict[str, Any], payload_b: dict[str, Any]) -> list[SessionDiffRow]:
     """Compare deux payloads JSON de session.
 
-    Retourne une ligne par fichier commun et par branche/pair disponible. Les
-    fichiers absents d'un côté produisent une ligne ``status`` explicite.
+    Returns one row per common file and per available branch/pair. Files
+    missing on one side produce an explicit ``status`` row.
     """
     session_a = Session()
     session_b = Session()
@@ -45,10 +45,10 @@ def compare_session_payloads(payload_a: dict[str, Any], payload_b: dict[str, Any
         entry_a = session_a.files.get(name)
         entry_b = session_b.files.get(name)
         if entry_a is None:
-            rows.append(SessionDiffRow(name, "", -1, "absent A"))
+            rows.append(SessionDiffRow(name, "", -1, "missing A"))
             continue
         if entry_b is None:
-            rows.append(SessionDiffRow(name, "", -1, "absent B"))
+            rows.append(SessionDiffRow(name, "", -1, "missing B"))
             continue
         rows.extend(_compare_entries(name, entry_a, entry_b))
     return rows
@@ -74,10 +74,10 @@ def _compare_entries(filename: str, entry_a: FileEntry, entry_b: FileEntry) -> l
         br_a = a_map.get((branch, pair_index))
         br_b = b_map.get((branch, pair_index))
         if br_a is None:
-            rows.append(SessionDiffRow(filename, branch, pair_index, "branche absente A"))
+            rows.append(SessionDiffRow(filename, branch, pair_index, "branch missing A"))
             continue
         if br_b is None:
-            rows.append(SessionDiffRow(filename, branch, pair_index, "branche absente B"))
+            rows.append(SessionDiffRow(filename, branch, pair_index, "branch missing B"))
             continue
         rows.append(_diff_branch(filename, br_a, br_b))
     return rows
