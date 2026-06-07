@@ -213,11 +213,15 @@ class PairingController:
                 fallback=fallback,
             )
         if float(work_func or 0.0) <= 0.0:
-            return []
+            # Fail loud instead of silently drawing nothing (was the #1 reason
+            # "Show BM cuts" looked broken on samples without a logbook φ).
+            raise ValueError(
+                "BM cuts: set the work function φ first (needed to convert angles to k)."
+            )
         if float(a_lattice or 0.0) <= 0.0:
             a_lattice = lattice_a_for_entry(self._session, fs_entry, fallback=0.0)
         if float(a_lattice or 0.0) <= 0.0:
-            return []
+            raise ValueError("BM cuts: set the lattice parameter a first.")
         bms = find_bms_for_fs(
             fs_entry, fs_path, _normalized_augmented_files(self._session),
             criteria or self._user_criteria(),

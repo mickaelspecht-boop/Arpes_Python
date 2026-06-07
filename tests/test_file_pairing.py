@@ -196,6 +196,27 @@ class TestPseudoEntriesFromLogbook(unittest.TestCase):
             self.assertEqual(e.meta.scan_kind, "BM")
             self.assertAlmostEqual(e.meta.hv, 60.0)
 
+    def test_discovers_nested_data_in_scoped_subfolders(self):
+        """Session opened at a parent with per-subfolder scoped logbooks: the
+        nested BMs (one level deeper) must still be discovered."""
+        import tempfile
+        from arpes.io.file_pairing import build_pseudo_entries_from_logbook
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            sub = tmp_path / "BNA_S1"
+            sub.mkdir()
+            (sub / "BM77.pxt").write_text("")
+            records = [{"file": "BM77.pxt", "hv": "95"}]
+            mapping = {"file": "file", "hv": "hv"}
+            s = self._stub_session(records, mapping, folder=tmp_path)
+            s.scoped_logbooks = {"BNA_S1": {"mapping": mapping}}
+            out = build_pseudo_entries_from_logbook(
+                s, scan_kind_resolver=lambda p: "BM",
+            )
+            bm_key = next((k for k in out if "BM77" in k), None)
+            self.assertIsNotNone(bm_key, f"nested BM77 not discovered: {list(out)}")
+            self.assertAlmostEqual(out[bm_key].meta.hv, 95.0)
+
     def test_skip_if_already_in_session_files(self):
         import tempfile
         from arpes.io.file_pairing import build_pseudo_entries_from_logbook

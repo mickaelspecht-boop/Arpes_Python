@@ -9,6 +9,19 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-06 — FS↔BM CLS2026 : 2 fixes (découverte + φ)
+Diagnostic sur vraie session BaNi2As2-CLS2026 (logbook scopé par sous-dossier
+BNA_S1/BNA_S2). Cause 1 : `build_pseudo_entries_from_logbook` scannait
+`session.folder` à depth=1 → quand la session est ouverte au **parent** (data
+nichée 2 niveaux), 0 pseudo-entry → aucune auto-découverte des BM non chargés.
+Fix : descendre aussi dans les sous-dossiers scopés (0→6 pseudo-entries).
+Cause 2 : `_collect_bm_cuts_for_active_fs` retournait `[]` **muet** si φ=0 (cas
+fréquent sans logbook φ) → « Show BM cuts » semblait cassé. Fix : raise fort
+→ le draw l'affiche en statusbar. (Le fix « dédup » envisagé était un faux
+diagnostic : les doublons venaient d'un test à depth=1 croisant BNA_S1/S2.)
+**Pourquoi** : l'appariement marchait sur Ba122 (dossier plat + logbook local)
+mais pas CLS2026 (parent + scoped). Voir [[project_arpes_kz_bna_v0]].
+
 ## 2026-06-06 — KZ analyse : fit V0 (Lomb-Scargle) + profil I(kz)
 Ajout `fit_inner_potential` (bouton « Fit V0 ») + `kz_profile_at_normal_emission`
 (overlay I(kz)@k//0 + c via FFT). Méthode V0 = **Lomb-Scargle** de I(kz0(V0)) à

@@ -353,8 +353,22 @@ def build_pseudo_entries_from_logbook(
     loaded_keys = set((getattr(session, "files", {}) or {}).keys())
 
     out: dict = {}
-    for path in _iter_data_candidates(Path(folder), max_depth=1):
+    candidate_paths = list(_iter_data_candidates(Path(folder), max_depth=1))
+    # Also descend into scoped-logbook subfolders (e.g. BNA_S1, BNA_S2). The
+    # session is often opened at a parent that holds per-subfolder scoped
+    # logbooks, with the actual BM/FS data nested one level deeper. A depth-1
+    # scan of the parent only sees the subfolders themselves, so without this
+    # the nested BMs are never discovered and FS↔BM auto-pairing finds nothing.
+    for rel in scoped:
+        sub = Path(folder) / rel
+        if sub.is_dir():
+            candidate_paths.extend(_iter_data_candidates(sub, max_depth=1))
+    seen_paths: set[str] = set()
+    for path in candidate_paths:
         abs_path = str(path)
+        if abs_path in seen_paths:
+            continue
+        seen_paths.add(abs_path)
         try:
             key = session.key_for_path(abs_path)
         except Exception:
