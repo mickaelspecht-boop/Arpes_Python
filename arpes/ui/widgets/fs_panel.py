@@ -206,6 +206,14 @@ class FSControlPanel(QScrollArea):
         self.sp_pairing_hv_tol.setToolTip("Δhv tolerance (%) for FS↔BM pairing. 5% = same hv; 30% links kz scans.")
         self.sp_pairing_azi_tol = self._dspin(2.0, 0.0, 30.0, 0.5, dec=1)
         self.sp_pairing_azi_tol.setToolTip("Δazi tolerance (°) for pairing.")
+        self.cmb_direction = QComboBox()
+        self.cmb_direction.addItem("All dirs")
+        for _d in ("Γ-X", "Γ-Y", "Γ-M", "Γ-K", "Γ-Σ", "Σ-X", "X-M", "M-K"):
+            self.cmb_direction.addItem(_d)
+        self.cmb_direction.setToolTip(
+            "Filter linked BMs by cut direction (from the logbook). 'All dirs' = no filter."
+        )
+        self.cmb_direction.currentIndexChanged.connect(self.params_changed)
         self.bm_cuts_bar = QWidget()
         _hl = QHBoxLayout(self.bm_cuts_bar)
         _hl.setContentsMargins(6, 2, 6, 2)
@@ -215,6 +223,8 @@ class FSControlPanel(QScrollArea):
         _hl.addWidget(self.sp_pairing_hv_tol)
         _hl.addWidget(QLabel("Tol azi°:"))
         _hl.addWidget(self.sp_pairing_azi_tol)
+        _hl.addWidget(QLabel("Dir:"))
+        _hl.addWidget(self.cmb_direction)
         _hl.addStretch(1)
         # The tolerance spinboxes already trigger params_changed (via _dspin),
         # which the controller debounces through _schedule_fs_redraw and which

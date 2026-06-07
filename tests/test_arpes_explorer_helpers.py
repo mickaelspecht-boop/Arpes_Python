@@ -50,8 +50,9 @@ class TestArpesExplorerLogbookHelpers(unittest.TestCase):
         self.assertEqual(_format_direction_label("G"), "Γ")
         self.assertEqual(_format_direction_label("gamma"), "Γ")
         self.assertEqual(_format_direction_label("Gamma-X"), "Γ-X")
-        self.assertEqual(_format_direction_label("G M"), "Γ M")
-        self.assertEqual(_format_direction_label("GM"), "ΓM")
+        # Canonical hyphen form now (space / contiguous code are separators).
+        self.assertEqual(_format_direction_label("G M"), "Γ-M")
+        self.assertEqual(_format_direction_label("GM"), "Γ-M")
 
     @classmethod
     def _app(cls):

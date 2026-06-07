@@ -146,13 +146,19 @@ class PairingController:
             return c
         sp_hv = getattr(ctrls, "sp_pairing_hv_tol", None)
         sp_az = getattr(ctrls, "sp_pairing_azi_tol", None)
+        cmb_dir = getattr(ctrls, "cmb_direction", None)
         hv_pct = float(sp_hv.value()) if sp_hv is not None else 5.0
         az_deg = float(sp_az.value()) if sp_az is not None else 2.0
+        direction = ""
+        if cmb_dir is not None:
+            txt = cmb_dir.currentText()
+            direction = "" if txt.lower().startswith("all") else txt
         return PairingCriteria(
             same_folder=c.same_folder, folder_depth=c.folder_depth,
             hv_tolerance_rel=hv_pct / 100.0, azi_tolerance_deg=az_deg,
             require_polarization=c.require_polarization,
             require_sample=c.require_sample,
+            direction_filter=direction,
         )
 
     def _bound_bms_for_active_fs(

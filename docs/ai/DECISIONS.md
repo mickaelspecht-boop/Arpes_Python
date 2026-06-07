@@ -9,6 +9,23 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-06 — Direction des cuts : normalisation + registre ZDB + filtre + azi
+Constat : pour CLS la direction cristalline **n'est pas dans le raw** (sidecar a
+polar/tilt/X/Y/Z, pas d'azimut) → vient du **logbook** (colonne `direction`).
+Nouveau module pur `arpes/physics/hs_directions.py` :
+- `normalize_direction_label` : raccourcis `GS→Γ-Σ`, `GX→Γ-X`, segments `XM→X-M`,
+  variantes (`GtoX`, `Gamma-X`, `Γ→Σ`, espaces/slash). `_format_direction_label`
+  (logbook) délègue dessus → forme canonique `A-B`. **S=Σ en entrée** (le coin
+  rect `S` reste littéral dans le registre, non normalisé).
+- `BZ_DIRECTIONS` registre par forme ZDB (square/rect/hex/centered_rect).
+- `direction_from_azimuth` (P3, data-driven freezable) : ref None → UNCALIBRATED,
+  **jamais inventer** (cf [[project_arpes_au_calibration]]) ; angles dérivés de
+  `bz_high_symmetry_points`. UI de référence non construite (inerte pour CLS sans
+  azi → backlog).
+- Filtre direction dans le FS panel (`PairingCriteria.direction_filter`,
+  `_filter_by_direction` normalise des 2 côtés → marche sur les "GS"/"SX" déjà
+  stockés bruts). Combo branché sur `params_changed` (debouncé, pas le bug lag).
+
 ## 2026-06-06 — FS↔BM CLS2026 : 2 fixes (découverte + φ)
 Diagnostic sur vraie session BaNi2As2-CLS2026 (logbook scopé par sous-dossier
 BNA_S1/BNA_S2). Cause 1 : `build_pseudo_entries_from_logbook` scannait

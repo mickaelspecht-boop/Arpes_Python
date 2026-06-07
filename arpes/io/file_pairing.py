@@ -31,6 +31,7 @@ class PairingCriteria:
     azi_tolerance_deg: float = 2.0
     require_polarization: bool = True
     require_sample: bool = False     # opt-in via formula / mp_id
+    direction_filter: str = ""       # "" = any; else keep BMs whose cut direction matches
 
 
 @dataclass(frozen=True)
@@ -201,7 +202,23 @@ def find_bms_for_fs(
 
     manual.sort(key=lambda m: m.path)
     auto.sort(key=lambda m: (m.distance, m.path))
-    return manual + auto
+    return _filter_by_direction(manual + auto, criteria.direction_filter)
+
+
+def _filter_by_direction(matches: list, direction_filter: str) -> list:
+    """Keep only matches whose cut direction equals the (normalized) filter."""
+    if not direction_filter:
+        return matches
+    from arpes.physics.hs_directions import normalize_direction_label
+    want = normalize_direction_label(direction_filter)
+    if not want:
+        return matches
+    out = []
+    for m in matches:
+        got = normalize_direction_label(getattr(m.entry.meta, "direction", "") or "")
+        if got == want:
+            out.append(m)
+    return out
 
 
 def find_fs_for_bm(

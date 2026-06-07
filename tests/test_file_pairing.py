@@ -19,10 +19,10 @@ from arpes.io.file_pairing import (
 
 def _entry(*, scan_kind: str, hv: float = 60.0, azi: float = 0.0,
            polarization: str = "LH", parent_fs_path: str | None = None,
-           formula: str = "", mp_id: str = "") -> FileEntry:
+           formula: str = "", mp_id: str = "", direction: str = "") -> FileEntry:
     meta = FileMeta(
         hv=hv, azi=azi, polarization=polarization,
-        scan_kind=scan_kind, formula=formula, mp_id=mp_id,
+        scan_kind=scan_kind, formula=formula, mp_id=mp_id, direction=direction,
     )
     e = FileEntry(meta=meta)
     e.parent_fs_path = parent_fs_path
@@ -41,6 +41,19 @@ class TestFindBmsForFs(unittest.TestCase):
         self.assertEqual(set(paths), {"/d/bna_s2/bm03.txt", "/d/bna_s2/bm04.txt"})
         # bm03 has smaller distance (azi=0).
         self.assertEqual(out[0].path, "/d/bna_s2/bm03.txt")
+
+    def test_direction_filter_keeps_only_matching_cut(self):
+        files = {
+            "/d/s/fs1.txt": _entry(scan_kind="FS", hv=60.0),
+            "/d/s/bmx.txt": _entry(scan_kind="BM", hv=60.0, direction="Γ-X"),
+            "/d/s/bmm.txt": _entry(scan_kind="BM", hv=60.0, direction="Γ-M"),
+        }
+        crit = PairingCriteria(direction_filter="GX")  # shortcut -> Γ-X
+        out = find_bms_for_fs(files["/d/s/fs1.txt"], "/d/s/fs1.txt", files, crit)
+        self.assertEqual([m.path for m in out], ["/d/s/bmx.txt"])
+        # No filter -> both.
+        out_all = find_bms_for_fs(files["/d/s/fs1.txt"], "/d/s/fs1.txt", files)
+        self.assertEqual(len(out_all), 2)
 
     def test_excludes_fs_files(self):
         files = {

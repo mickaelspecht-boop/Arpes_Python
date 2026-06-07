@@ -42,8 +42,9 @@ class TestLogbookHelpers(unittest.TestCase):
         self.assertEqual(_format_direction_label("G"), "Γ")
         self.assertEqual(_format_direction_label("gamma"), "Γ")
         self.assertEqual(_format_direction_label("Gamma-X"), "Γ-X")
-        self.assertEqual(_format_direction_label("G M"), "Γ M")
-        self.assertEqual(_format_direction_label("GM"), "ΓM")
+        # Space / contiguous codes now canonicalize to the hyphen form.
+        self.assertEqual(_format_direction_label("G M"), "Γ-M")
+        self.assertEqual(_format_direction_label("GM"), "Γ-M")
 
     def test_measurement_numbers_match_fixed_cut_ibw(self):
         self.assertEqual(_extract_measurement_numbers("BaNi2As2_0015.pxt,.ibw,"), {15})

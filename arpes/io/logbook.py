@@ -279,15 +279,9 @@ def _pick_direction_column(columns: list[str]) -> str:
 
 
 def _format_direction_label(value: Any) -> str:
-    s = _cell_text(value)
-    if not s:
-        return ""
-    s = re.sub(r"(?i)\bgamma\b", "Γ", s)
-    s = re.sub(r"(?i)\bgamma(?=[A-Z0-9])", "Γ", s)
-    s = re.sub(r"(?i)\bg(?=\s*(?:$|[-_/→> ]))", "Γ", s)
-    if re.fullmatch(r"(?i)g[mkxy][a-z0-9_-]*", s.strip()):
-        s = "Γ" + s.strip()[1:]
-    return s.strip()
+    """Canonicalize a cut-direction cell (delegates to hs_directions)."""
+    from arpes.physics.hs_directions import normalize_direction_label
+    return normalize_direction_label(_cell_text(value))
 
 
 def _best_record_for_path(
