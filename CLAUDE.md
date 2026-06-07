@@ -8,7 +8,27 @@ Contexte projet auto-chargé par Claude Code. Toute modification du code doit re
 - Repo principal: `arpes/` (package). Shims racine `arpes_explorer.py` + `arpes_plots.py` ≤5 LOC, ne pas étendre.
 - Branche active: `main`. Mono-dev, pas de PR.
 - Lancer tests: `python3 -m pytest tests/ --ignore=tests/test_annotations.py --ignore=tests/test_local_dft_loaders.py -q`
-- État courant: 494 tests OK / 61 skip.
+- État courant: 816 tests OK / 9 skip (env micromamba `peaks`, PyQt6 présent). Sans PyQt6: ~745 OK + ~61 skip Qt.
+
+## Index docs (où vit quoi)
+
+Seul ce fichier est auto-chargé. Lire les autres **à la demande**.
+
+| Fichier | Rôle | Quand le lire |
+|---|---|---|
+| `CLAUDE.md` (ici) | Règles durables + architecture | Toujours (auto) |
+| `docs/ai/BACKLOG.md` | Quoi faire ensuite (1 seule liste priorisée) | Avant de choisir/commencer un travail |
+| `docs/ai/DECISIONS.md` | Journal append-only quoi+pourquoi | Pour comprendre un choix passé |
+| `docs/ai/COUNCIL.md` | Template conseil + quand spawn quel agent | Avant feature non-triviale |
+| `.claude/agents/*.md` | 9 personas conseil | Chargés dans le prompt du sous-agent |
+| `docs/ai/archive/` | Vieux audits/plans (froid) | Référence ponctuelle, jamais auto |
+| `arpes/docs/*.md` | Help in-app (EN, chargé au runtime) | Si on touche le contenu d'aide |
+| `docs/BUILD_EXECUTABLE.md` | Recette packaging PyInstaller | Pour builder un binaire |
+
+**Règle anti-prolifération** : ne **jamais** créer un `*_PLAN.md`/`*_TODO.txt` à
+la racine. Tout travail → section dans `BACKLOG.md`. Gros design → un seul fichier
+`docs/ai/plans/<slug>.md` lié depuis le backlog, supprimé/archivé une fois fait.
+Langue : app en anglais, docs AI-facing + commits-context en français.
 
 ## Architecture (NON négociable)
 
@@ -81,13 +101,11 @@ clear_fit_result(entry)                   # reset legacy + tous fit_zones
 - Shim legacy: `entry.fit_result` = mirror zone active (≥6 consumers non-zone-aware: `results.py`, `aggregation.py`, `bootstrap.py`, `band_analysis_*`, `interaction mark-bad`, `plot overlay`).
 - Tag axes au fit dans `fr["distorted"]` + `fr["grid_active"]`. `_draw_kf_overlay` refuse si état courant diffère (cf `_axis_state_mismatch`).
 
-## Conseil agents (`.claude/agents/`)
+## Conseil agents
 
-9 personas: `arbiter`, `architect`, `geometry`, `io-architect`, `numerics`, `physicist`, `pyqt-dev`, `redteam`, `ux`.
-
-**Workflow features**: `architect` + `redteam` **toujours**, `arbiter` tranche. `physicist` si touche physique. Max 3 ou tous selon scope.
-
-**Note**: project agents = persona docs, **pas registered** comme `subagent_type`. Spawn via `general-purpose` avec prompt loadant le `.md` correspondant.
+9 personas dans `.claude/agents/`. Quand spawn quel agent + template + format de
+sortie : **`docs/ai/COUNCIL.md`**. Résumé : `architect` + `redteam` toujours,
+`arbiter` tranche ; spawn via `general-purpose`, sonnet, caveman.
 
 ## Anti-patterns INTERDITS
 
@@ -98,6 +116,7 @@ clear_fit_result(entry)                   # reset legacy + tous fit_zones
 - Nouveau Controller fourre-tout (>4 sujets).
 - `try/except: pass` silencieux sur persistance (cf HIGH-3 audit: perte zones silencieuse).
 - PyQt6 import dans `physics/` ou `io/`.
+- Forward `__setattr__` aveugle vers le parent (P3.1): un controller qui forward une écriture doit l'allow-lister via `_PARENT_WRITES` (sinon faute de frappe = attribut fantôme sur le parent, état réel périmé). 8 controllers concernés: distortion, browser, plot, fs, norm, gamma, pocket, pairing. Nouvel attribut parent écrit → l'ajouter au `_PARENT_WRITES` du controller.
 
 ## Git workflow
 
@@ -110,26 +129,16 @@ clear_fit_result(entry)                   # reset legacy + tous fit_zones
 
 ## Tests env
 
-- PyQt6 absent localement → ~61 tests skip (UI smoke + Qt-dependent).
+- Env `peaks` (micromamba) a PyQt6 → tests Qt actifs. Activer: `micromamba activate peaks`.
+- Hors `peaks`, PyQt6 absent → ~61 tests skip (UI smoke + Qt-dependent).
 - Skip permanents: `test_annotations.py`, `test_local_dft_loaders.py` (deps non installables headless).
 - CI à venir: `xvfb-run pytest` pour activer Qt headless.
 - Pre-existing failure: `test_yaml_schema_loads_band_axis_labels_and_efermi` (PyYAML manquant), pas une regression.
 
 ## Dette technique tracée
 
-### Splits à anticiper
-- `fit_runner_controller.py` 700 LOC, 5 sujets (single fit + ensemble + multi-zone + EF calib + propagate) → split prochain `_fit_*` ajouté.
-- `band_analysis_controller.py` ~510 LOC, 6 sujets (TB+Kink+Gap+Summary+CSV+Autofill) → split en 4 ctrls.
-- 6 fichiers zone jaune 660-700 LOC à surveiller.
-
-### Architecture à terme
-- Itération `fit_zones` explicite dans 6 consumers → tuer shim `entry.fit_result`.
-- `dataclass FitZone` typé (actuellement `dict` opaque).
-- Bump `Session.VERSION` + refus cross-version (3 champs ajoutés sans bump: `band_analysis`, `fit_zones`, `active_zone_id`).
-- `QThreadPool` pour `_fit_run_all_zones` (sinon UI freeze N≥3).
-- Cache LRU `_get_work_data` distortion-warped (ensemble fit recompute 30×).
-- Consolidation verb-dispatch sur `_band_analysis_ctrl` (−5 entrées PROXY_MAP).
-- Hoist imports lazy dans wrappers une fois cycles vérifiés.
+Voir **`docs/ai/BACKLOG.md`** (splits LOC à anticiper, architecture à terme,
+audit 2e passe). Ne pas dupliquer ici.
 
 ## Modèles de données clés
 

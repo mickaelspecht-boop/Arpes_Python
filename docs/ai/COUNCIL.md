@@ -5,6 +5,27 @@ quand le choix touche la géométrie instrumentale, l'intégration de données d
 plusieurs laboratoires, la correction de Γ, la calibration EF, le parsing de
 logbook, ou l'interface utilisateur.
 
+## Comment spawn
+
+Personas canoniques = `.claude/agents/*.md` (9 fichiers + `README.md`). Ils ne
+sont **pas** enregistrés comme `subagent_type` → spawn via `general-purpose`,
+modèle **sonnet**, mode **caveman** (sauf rédaction de texte user-facing → prose
+normale). Charger le `.md` du persona dans le prompt.
+
+| Spawn quand… | Agents |
+|---|---|
+| **Toute feature multi-fichier** | `architect` + `redteam` (obligatoires) + `arbiter` (tranche en dernier) |
+| Touche la physique (k, Γ, EF, dispersion) | + `physicist` |
+| Touche angles/repères labo | + `geometry` |
+| Touche loader/parsing/logbook | + `io-architect` |
+| Touche widget/controller/signal | + `pyqt-dev` |
+| Calcul lourd / algo numérique | + `numerics` |
+| Visible utilisateur (texte statut/warning) | + `ux` |
+
+Scope étroit, prompt self-contained, livrable = findings `fichier:ligne — problème — fix` (cap 30).
+
+---
+
 ## Prompt à copier
 
 ```text

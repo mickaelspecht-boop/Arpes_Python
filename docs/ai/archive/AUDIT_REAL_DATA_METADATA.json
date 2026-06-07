@@ -1,0 +1,732 @@
+{
+  "data_root": "/Users/alexandrespecht/Documents/Stage_M2/Code/Data",
+  "ba122_c05_2": {
+    "logbook": "Ba122_C05_2/Measurement CLS 2024 (1).xlsx",
+    "mapping": {
+      "file": "File name",
+      "hv": "hv (eV)",
+      "temperature": "temp (K)",
+      "polarization": "pol",
+      "azi": "azi",
+      "polar": "theta",
+      "tilt": "phi",
+      "direction": "Direct",
+      "formula": "",
+      "mp_id": "",
+      "crystal_a_angstrom": ""
+    },
+    "records": 19,
+    "values": [
+      {
+        "path": "Ba122_C05_2/BM1",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": 1.85,
+        "tilt": -0.15,
+        "pol": "LH"
+      },
+      {
+        "path": "Ba122_C05_2/BM10",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": 20.0,
+        "polar": -12.3,
+        "tilt": 10.0,
+        "pol": "LH"
+      },
+      {
+        "path": "Ba122_C05_2/BM11",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": 20.0,
+        "polar": 1.36,
+        "tilt": -1.42,
+        "pol": "LH"
+      },
+      {
+        "path": "Ba122_C05_2/BM2",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": -18.68,
+        "tilt": -0.15,
+        "pol": "LH"
+      },
+      {
+        "path": "Ba122_C05_2/BM3",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": 1.85,
+        "tilt": -13.0,
+        "pol": "LH"
+      },
+      {
+        "path": "Ba122_C05_2/BM3_2",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": null,
+        "tilt": 0.0,
+        "pol": "LH"
+      },
+      {
+        "path": "Ba122_C05_2/BM4",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": 1.85,
+        "tilt": 13.0,
+        "pol": "LV"
+      },
+      {
+        "path": "Ba122_C05_2/BM5",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": 1.85,
+        "tilt": -0.15,
+        "pol": "LV"
+      },
+      {
+        "path": "Ba122_C05_2/BM6",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": -18.68,
+        "tilt": -0.15,
+        "pol": "LV"
+      },
+      {
+        "path": "Ba122_C05_2/BM7",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": 1.85,
+        "tilt": -13.0,
+        "pol": "LV"
+      },
+      {
+        "path": "Ba122_C05_2/BM8",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": 20.0,
+        "polar": 1.36,
+        "tilt": -1.42,
+        "pol": "LV"
+      },
+      {
+        "path": "Ba122_C05_2/BM9",
+        "kind": "BM",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": 20.0,
+        "polar": -12.3,
+        "tilt": 10.0,
+        "pol": "LV"
+      },
+      {
+        "path": "Ba122_C05_2/FS1",
+        "kind": "FS",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": 0.0,
+        "polar": null,
+        "tilt": 0.0,
+        "pol": "LH"
+      },
+      {
+        "path": "Ba122_C05_2/FS2",
+        "kind": "FS",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": null,
+        "tilt": 0.0,
+        "pol": "LH"
+      },
+      {
+        "path": "Ba122_C05_2/FS3",
+        "kind": "FS",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": -25.0,
+        "polar": null,
+        "tilt": -0.15,
+        "pol": "LV"
+      },
+      {
+        "path": "Ba122_C05_2/FS4",
+        "kind": "FS",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": 20.0,
+        "polar": null,
+        "tilt": 0.0,
+        "pol": "LV"
+      },
+      {
+        "path": "Ba122_C05_2/FS5",
+        "kind": "FS",
+        "has_logbook": true,
+        "hv": 48.0,
+        "azi": 20.0,
+        "polar": null,
+        "tilt": -1.42,
+        "pol": "LH"
+      }
+    ],
+    "pairing": [
+      {
+        "fs": "Ba122_C05_2/FS1",
+        "bms": []
+      },
+      {
+        "fs": "Ba122_C05_2/FS2",
+        "bms": [
+          "Ba122_C05_2/BM1",
+          "Ba122_C05_2/BM2",
+          "Ba122_C05_2/BM3",
+          "Ba122_C05_2/BM3_2"
+        ]
+      },
+      {
+        "fs": "Ba122_C05_2/FS3",
+        "bms": [
+          "Ba122_C05_2/BM4",
+          "Ba122_C05_2/BM5",
+          "Ba122_C05_2/BM6",
+          "Ba122_C05_2/BM7"
+        ]
+      },
+      {
+        "fs": "Ba122_C05_2/FS4",
+        "bms": [
+          "Ba122_C05_2/BM8",
+          "Ba122_C05_2/BM9"
+        ]
+      },
+      {
+        "fs": "Ba122_C05_2/FS5",
+        "bms": [
+          "Ba122_C05_2/BM10",
+          "Ba122_C05_2/BM11"
+        ]
+      }
+    ],
+    "orphans": [],
+    "load_checks": [
+      {
+        "path": "Ba122_C05_2/BM1",
+        "scan_kind": "BM",
+        "hv": 48.0,
+        "azi": -25.0,
+        "pol": "LH",
+        "tilt_meta": -0.149,
+        "tilt_param": -0.149,
+        "polar_meta": 1.849,
+        "polar_raw_motor": 1.849,
+        "fs_ky_points": null
+      },
+      {
+        "path": "Ba122_C05_2/FS1",
+        "scan_kind": "FS",
+        "hv": 48.0,
+        "azi": 0.0,
+        "pol": "LH",
+        "tilt_meta": 0.046,
+        "tilt_param": 0.046,
+        "polar_meta": 0.0,
+        "polar_raw_motor": 0.0,
+        "fs_ky_points": 45
+      }
+    ]
+  },
+  "cls2026": {
+    "logbook": "BaNi2As2-CLS2026/CLS_2026_Exp_INFO.xlsx",
+    "scoped_count": 2,
+    "scopes": [
+      {
+        "sheet": "CA041_S1",
+        "folder_declared": "BNA_S1",
+        "subfolder": "BNA_S1",
+        "mapping": {
+          "file": "File",
+          "hv": "hv (eV)",
+          "temperature": "TEMP",
+          "polarization": "Pol",
+          "azi": "Az",
+          "polar": "Theta_0",
+          "tilt": "Phi_0",
+          "direction": "Direct",
+          "formula": "",
+          "mp_id": "",
+          "crystal_a_angstrom": ""
+        },
+        "records": 13,
+        "matched_files": 10,
+        "files": [
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/BM01",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 100.0,
+            "azi": 5.5,
+            "polar": 2.5,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/BM02",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 100.0,
+            "azi": 5.5,
+            "polar": 12.3,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/BM03",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 94.7,
+            "azi": 5.5,
+            "polar": 2.5,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/BM05",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 60.0,
+            "azi": 5.5,
+            "polar": 3.2,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/FS1",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 102.0,
+            "azi": 0.0,
+            "polar": null,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/FS2",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 100.0,
+            "azi": 0.0,
+            "polar": null,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/FS3",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 100.0,
+            "azi": 5.5,
+            "polar": null,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/FS4",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 60.0,
+            "azi": 5.5,
+            "polar": null,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/PS1",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 50.0,
+            "azi": 5.5,
+            "polar": 2.5,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S1/PS2",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 55.0,
+            "azi": 5.5,
+            "polar": 2.5,
+            "tilt": 0.0,
+            "pol": "LH"
+          }
+        ],
+        "pairing": [
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S1/FS1",
+            "bms": []
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S1/FS2",
+            "bms": []
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S1/FS3",
+            "bms": [
+              "BaNi2As2-CLS2026/BNA_S1/BM01",
+              "BaNi2As2-CLS2026/BNA_S1/BM02"
+            ]
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S1/FS4",
+            "bms": [
+              "BaNi2As2-CLS2026/BNA_S1/BM05"
+            ]
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S1/PS1",
+            "bms": []
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S1/PS2",
+            "bms": []
+          }
+        ],
+        "orphans": [
+          "BaNi2As2-CLS2026/BNA_S1/BM03"
+        ]
+      },
+      {
+        "sheet": "CA046_S2",
+        "folder_declared": "BNA_S2",
+        "subfolder": "BNA_S2",
+        "mapping": {
+          "file": "File",
+          "hv": "hv (eV)",
+          "temperature": "TEMP",
+          "polarization": "Pol",
+          "azi": "Az",
+          "polar": "Theta_0",
+          "tilt": "Phi_0",
+          "direction": "Direct",
+          "formula": "",
+          "mp_id": "",
+          "crystal_a_angstrom": ""
+        },
+        "records": 17,
+        "matched_files": 17,
+        "files": [
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM01",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 100.0,
+            "azi": 0.0,
+            "polar": -0.5,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM02",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 100.0,
+            "azi": 0.0,
+            "polar": -10.2,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM03",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 66.0,
+            "azi": 0.0,
+            "polar": -0.6,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM04",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 66.0,
+            "azi": 0.0,
+            "polar": -13.6,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM05",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 78.0,
+            "azi": 0.0,
+            "polar": -0.6,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM06",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 78.0,
+            "azi": 0.0,
+            "polar": -0.6,
+            "tilt": 0.0,
+            "pol": "LV"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM07",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 78.0,
+            "azi": 0.0,
+            "polar": -11.3,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM08",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 78.0,
+            "azi": 0.0,
+            "polar": -11.3,
+            "tilt": 0.0,
+            "pol": "LV"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM09",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 71.0,
+            "azi": 0.0,
+            "polar": -0.6,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM10",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 71.0,
+            "azi": 0.0,
+            "polar": -0.6,
+            "tilt": 0.0,
+            "pol": "LV"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM11",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 66.0,
+            "azi": 0.0,
+            "polar": -0.6,
+            "tilt": 0.0,
+            "pol": "LV"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/BM12",
+            "kind": "BM",
+            "has_logbook": true,
+            "hv": 66.0,
+            "azi": 0.0,
+            "polar": -13.6,
+            "tilt": 0.0,
+            "pol": "LV"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/FS1",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 100.0,
+            "azi": 0.0,
+            "polar": null,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/FS2",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 100.0,
+            "azi": 0.0,
+            "polar": null,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/FS3",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 66.0,
+            "azi": 0.0,
+            "polar": null,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/FS4",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": 78.0,
+            "azi": 0.0,
+            "polar": null,
+            "tilt": 0.0,
+            "pol": "LH"
+          },
+          {
+            "path": "BaNi2As2-CLS2026/BNA_S2/PS1",
+            "kind": "FS",
+            "has_logbook": true,
+            "hv": null,
+            "azi": 0.0,
+            "polar": -0.6,
+            "tilt": 0.0,
+            "pol": "LH"
+          }
+        ],
+        "pairing": [
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S2/FS1",
+            "bms": [
+              "BaNi2As2-CLS2026/BNA_S2/BM01",
+              "BaNi2As2-CLS2026/BNA_S2/BM02"
+            ]
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S2/FS2",
+            "bms": [
+              "BaNi2As2-CLS2026/BNA_S2/BM01",
+              "BaNi2As2-CLS2026/BNA_S2/BM02"
+            ]
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S2/FS3",
+            "bms": [
+              "BaNi2As2-CLS2026/BNA_S2/BM03",
+              "BaNi2As2-CLS2026/BNA_S2/BM04"
+            ]
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S2/FS4",
+            "bms": [
+              "BaNi2As2-CLS2026/BNA_S2/BM05",
+              "BaNi2As2-CLS2026/BNA_S2/BM07"
+            ]
+          },
+          {
+            "fs": "BaNi2As2-CLS2026/BNA_S2/PS1",
+            "bms": []
+          }
+        ],
+        "orphans": [
+          "BaNi2As2-CLS2026/BNA_S2/BM06",
+          "BaNi2As2-CLS2026/BNA_S2/BM08",
+          "BaNi2As2-CLS2026/BNA_S2/BM09",
+          "BaNi2As2-CLS2026/BNA_S2/BM10",
+          "BaNi2As2-CLS2026/BNA_S2/BM11",
+          "BaNi2As2-CLS2026/BNA_S2/BM12"
+        ]
+      }
+    ]
+  },
+  "kz": {
+    "logbook": "BaNi2As2_/kz_scan_1/___KZ_SCAN_1_FOLDER_LOGBOOK___.csv",
+    "mapping": {
+      "file": "File",
+      "hv": "Monochromator energy [eV]",
+      "temperature": "Sample temperature [K]",
+      "polarization": "",
+      "azi": "",
+      "polar": "",
+      "tilt": "",
+      "direction": "",
+      "formula": "",
+      "mp_id": "",
+      "crystal_a_angstrom": ""
+    },
+    "records": 39,
+    "files_checked": 39,
+    "hv_minmax": [
+      44.0,
+      119.99
+    ],
+    "bad_hv": [],
+    "sample": [
+      {
+        "path": "BaNi2As2_/kz_scan_1/BaNi2As2_0001kz_100.0.ibw",
+        "expected_hv_from_name": 100.0,
+        "hv_logbook": 99.99,
+        "ok": true,
+        "tilt": null,
+        "polar": null,
+        "azi": null
+      },
+      {
+        "path": "BaNi2As2_/kz_scan_1/BaNi2As2_0001kz_102.0.ibw",
+        "expected_hv_from_name": 102.0,
+        "hv_logbook": 102.0,
+        "ok": true,
+        "tilt": null,
+        "polar": null,
+        "azi": null
+      },
+      {
+        "path": "BaNi2As2_/kz_scan_1/BaNi2As2_0001kz_104.0.ibw",
+        "expected_hv_from_name": 104.0,
+        "hv_logbook": 104.0,
+        "ok": true,
+        "tilt": null,
+        "polar": null,
+        "azi": null
+      },
+      {
+        "path": "BaNi2As2_/kz_scan_1/BaNi2As2_0001kz_94.0.ibw",
+        "expected_hv_from_name": 94.0,
+        "hv_logbook": 94.0,
+        "ok": true,
+        "tilt": null,
+        "polar": null,
+        "azi": null
+      },
+      {
+        "path": "BaNi2As2_/kz_scan_1/BaNi2As2_0001kz_96.0.ibw",
+        "expected_hv_from_name": 96.0,
+        "hv_logbook": 95.99,
+        "ok": true,
+        "tilt": null,
+        "polar": null,
+        "azi": null
+      },
+      {
+        "path": "BaNi2As2_/kz_scan_1/BaNi2As2_0001kz_98.0.ibw",
+        "expected_hv_from_name": 98.0,
+        "hv_logbook": 98.0,
+        "ok": true,
+        "tilt": null,
+        "polar": null,
+        "azi": null
+      }
+    ]
+  }
+}
