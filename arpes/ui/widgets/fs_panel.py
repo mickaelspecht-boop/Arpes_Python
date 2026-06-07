@@ -216,12 +216,12 @@ class FSControlPanel(QScrollArea):
         _hl.addWidget(QLabel("Tol azi°:"))
         _hl.addWidget(self.sp_pairing_azi_tol)
         _hl.addStretch(1)
-        self.sp_pairing_hv_tol.valueChanged.connect(
-            lambda _v: self.bm_cuts_visibility_changed.emit(self.chk_show_bm_cuts.isChecked())
-        )
-        self.sp_pairing_azi_tol.valueChanged.connect(
-            lambda _v: self.bm_cuts_visibility_changed.emit(self.chk_show_bm_cuts.isChecked())
-        )
+        # The tolerance spinboxes already trigger params_changed (via _dspin),
+        # which the controller debounces through _schedule_fs_redraw and which
+        # re-collects the BM cuts with the new tolerance. Emitting an extra
+        # immediate bm_cuts_visibility_changed here forced a second, un-debounced
+        # full FS redraw per spin tick → lag + a backlog that kept redrawing for
+        # seconds after the last click. Removed: the debounced path is enough.
 
         grp_pocket = QGroupBox("FS Pockets")
         fp = QFormLayout(grp_pocket)
