@@ -337,6 +337,7 @@ def load_kz_stack(
     *,
     work_func: float,
     ef_offset: float,
+    a_lattice: float = 0.0,
     hv_fallback: float | None = None,
     kz_logbook_records: list[dict] | None = None,
     kz_logbook_mapping: dict[str, str] | None = None,
@@ -359,6 +360,7 @@ def load_kz_stack(
                     path,
                     work_func=work_func,
                     ef_offset=ef_offset,
+                    a_lattice=a_lattice,
                 )
             except Exception as exc:
                 warnings.append(f"{path.name}: photon scan loading failed ({exc})")

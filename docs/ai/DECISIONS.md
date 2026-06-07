@@ -9,6 +9,36 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-06 — KZ analyse : fit V0 (Lomb-Scargle) + profil I(kz)
+Ajout `fit_inner_potential` (bouton « Fit V0 ») + `kz_profile_at_normal_emission`
+(overlay I(kz)@k//0 + c via FFT). Méthode V0 = **Lomb-Scargle** de I(kz0(V0)) à
+ω=c (période 2π/c) ; max = V0 où la modulation E_F est sinusoïdale pure.
+Essayé d'abord paramètre d'ordre circulaire → **biaisé** (V0 haut groupe les
+phases artificiellement, raile) ; puis concentration spectrale à fc → échoue.
+LS récupère le V0 synthétique (5z ET 2z) avec max interne, et donne `power∈[0,1]`
+= significativité. Confiance "low" si power<0.5 / railing / <1.5 zone → dans ce
+cas **on n'écrase pas V0**, on dit pourquoi. Voir [[project_arpes_kz_bna_v0]].
+
+## 2026-06-06 — Refonte onglet KZ
+5 modes confus (`interpolated/binned/points/hv map/MDC waterfall`, mélangeaient
+système de coordonnées × style de rendu) → **2 vues** (`Raw hν` · `kz`) +
+overlays cases à cocher (`sample points`, `plans Γ/Z`). Supprimé `binned`,
+`points`, `MDC waterfall` (`compute_mdc_waterfall`/`MdcWaterfallResult` retirés ;
+`compute_kz_map` interpolé seul). Ajouté l'aide calibration V0 : lignes Γ/Z
+(`kz_high_symmetry_planes`) + readout périodicité/hν (`kz_coverage_summary`,
+`hv_for_kz`) ; autofill a/c depuis `sample_for_entry` ; fallback Raw si a/c
+manquants. Conseil ARPES fait inline.
+**Pourquoi** : l'onglet ne servait à rien (pas d'aide pour trouver V0, but réel
+d'un scan kz) ; `fold_kz_to_1bz` physique existait mais n'était pas branché.
+
+**Bug racine trouvé en testant sur vraies données (BNA S1/PS1·PS2, S2/PS1)** :
+`load_kz_stack` ne passait pas `a_lattice` à `_load_cls_photon_scan_folder` →
+défaut 0 → `_cls_angle_to_k_pi_over_a` renvoyait k//≡0 → nuage (k//,kz)
+colinéaire → `compute_kz_map` plantait (`QhullError`). Fix : thread `a_lattice`
+(load + controller via `_lattice_a` depuis l'échantillon) + garde anti-crash
+(nuage dégénéré → carte binnée, flag `degenerate_kpar`, warn). Les 3 dossiers
+rendent désormais une vraie carte kz (Γ@hν≈47,64,83,104 · Z@hν≈55,73,93 eV).
+
 ## 2026-06-06 — Traduction app FR→EN terminée (Codex)
 Tout l'app en anglais (code/UI/commentaires/docstrings/help in-app). Listes
 mots-clés de matching logbook **gardées bilingues** (`logbook*.py` : clés FR+EN

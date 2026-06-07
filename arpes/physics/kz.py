@@ -52,7 +52,6 @@ class KzParams:
     kz_bins: int = 240
     kz_unit: str = "A^-1"
     normalize: str = "per_scan_median"
-    display_mode: str = "interpolated"
 
 
 @dataclass(frozen=True)
@@ -68,15 +67,6 @@ class HvKMapResult:
     image: np.ndarray
     k_grid: np.ndarray
     hv_grid: np.ndarray
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class MdcWaterfallResult:
-    curves: np.ndarray
-    k_grid: np.ndarray
-    hv_grid: np.ndarray
-    offsets: np.ndarray
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -240,6 +230,18 @@ def convert_kz_unit(kz_inv_a, *, unit: str, c_lattice: float) -> np.ndarray:
     raise ValueError(f"unknown kz unit: {unit}")
 
 
+def kz_unit_to_inv_a(kz_value, *, unit: str, c_lattice: float) -> np.ndarray:
+    """Inverse of ``convert_kz_unit``: bring a display-unit kz back to A^-1."""
+    kz = np.asarray(kz_value, dtype=float)
+    if unit == "A^-1":
+        return kz
+    if unit == "pi/c":
+        if c_lattice <= 0:
+            raise ValueError(f"invalid kz: c={c_lattice:.3f} A")
+        return kz * np.pi / float(c_lattice)
+    raise ValueError(f"unknown kz unit: {unit}")
+
+
 def _normalize_slice(values: np.ndarray, mode: str) -> np.ndarray:
     vals = np.asarray(values, dtype=float)
     if mode == "none":
@@ -364,20 +366,35 @@ def compute_kz_map(scans: Iterable[KzScanInput], params: KzParams) -> KzMapResul
     filled = counts > 0
     image_binned[filled] = sums[filled] / counts[filled]
 
-    mode = str(params.display_mode or "interpolated")
-    if mode == "binned":
-        image = image_binned
-    elif mode == "interpolated":
-        image = _interpolate_cloud_to_grid(k, z, intensity, kk_grid, zz_grid)
-        if _scipy_griddata is not None and np.isnan(image).any():
-            points = np.column_stack([k, z])
-            nearest = _scipy_griddata(points, intensity, (kk_grid, zz_grid), method="nearest")
-            inside = np.isfinite(image_binned)
-            image[np.isnan(image) & inside] = nearest[np.isnan(image) & inside]
-    elif mode == "points":
+    # Single output: interpolated cloud -> grid (the publishable kz map). Raw
+    # sample points are always returned in diagnostics for the optional overlay.
+    k_spread = float(np.ptp(k)) if k.size else 0.0
+    z_spread = float(np.ptp(z)) if z.size else 0.0
+    degenerate = k_spread <= 1e-9 or z_spread <= 1e-9
+    if degenerate:
+        # Collinear cloud (e.g. normal-emission scan with k//≈const): a 2D
+        # triangulation is impossible, so fall back to the binned map instead
+        # of letting scipy raise a QhullError. P2: a flat k// usually means the
+        # angle→k// conversion lacked the lattice parameter a.
+        warnings.warn(
+            "kz: degenerate point cloud (k// or kz has no spread) → showing "
+            "binned map. Check the lattice parameter a (k// may be all zero).",
+            RuntimeWarning, stacklevel=2,
+        )
         image = image_binned
     else:
-        raise ValueError(f"unknown KZ mode: {mode}")
+        try:
+            image = _interpolate_cloud_to_grid(k, z, intensity, kk_grid, zz_grid)
+        except Exception:
+            image = image_binned
+        if _scipy_griddata is not None and np.isnan(image).any():
+            points = np.column_stack([k, z])
+            try:
+                nearest = _scipy_griddata(points, intensity, (kk_grid, zz_grid), method="nearest")
+                inside = np.isfinite(image_binned)
+                image[np.isnan(image) & inside] = nearest[np.isnan(image) & inside]
+            except Exception:
+                pass
 
     diagnostics = {
         "n_scans": len(scans_std),
@@ -387,13 +404,200 @@ def compute_kz_map(scans: Iterable[KzScanInput], params: KzParams) -> KzMapResul
         "kz_unit": params.kz_unit,
         "energy_center": float(params.energy_center),
         "energy_window": float(params.energy_window),
-        "display_mode": mode,
         "interpolation_backend": "scipy" if _scipy_griddata is not None else "numpy_idw",
+        "degenerate_kpar": bool(degenerate),
         "point_k": k,
         "point_kz": z,
         "point_i": intensity,
     }
     return KzMapResult(image=image, k_grid=k_grid, kz_grid=z_grid, diagnostics=diagnostics)
+
+
+def _kz_at_normal_emission(hv: float, *, work_func: float, inner_potential: float,
+                           energy: float = 0.0) -> float:
+    """kz (A^-1) at k//=0 for one photon energy; nan if non-physical."""
+    ekin = float(hv) - float(work_func) + float(energy)
+    val = (K_INV_A_PER_SQRT_EV ** 2) * (ekin + float(inner_potential))
+    return float(np.sqrt(val)) if val > 0 else float("nan")
+
+
+def _normal_emission_intensity(
+    scans: Iterable[KzScanInput], params: KzParams, kpar_window: float,
+) -> dict:
+    """Per-scan E_F intensity at k//≈0, normalized by each scan's full-k mean.
+
+    The full-k normalization removes the hν-dependent cross-section drift while
+    keeping the normal-emission modulation (the kz signal lives *between* scans,
+    so per-scan median normalization would erase it).
+    """
+    scans_std = [standardize_scan(s) for s in scans]
+    if len(scans_std) < 2:
+        raise ValueError("kz profile: at least two hν scans required")
+    hv: list[float] = []
+    inten: list[float] = []
+    for scan in scans_std:
+        vals = energy_slice(scan, params.energy_center, params.energy_window)
+        finite = np.isfinite(vals)
+        if not finite.any():
+            continue
+        full = float(np.nanmean(vals[finite]))
+        if not np.isfinite(full) or abs(full) < 1e-12:
+            continue
+        sel = (np.abs(scan.kpar) <= float(kpar_window)) & finite
+        if sel.any():
+            center = float(np.nanmean(vals[sel]))
+        else:
+            idx = int(np.argmin(np.abs(scan.kpar)))
+            center = float(vals[idx]) if finite[idx] else float("nan")
+        if not np.isfinite(center):
+            continue
+        hv.append(float(scan.hv))
+        inten.append(center / full)
+    if len(hv) < 2:
+        raise ValueError("kz profile: not enough valid scans")
+    return {"hv": np.asarray(hv, dtype=float), "intensity": np.asarray(inten, dtype=float)}
+
+
+def kz_profile_at_normal_emission(
+    scans: Iterable[KzScanInput], params: KzParams, *, kpar_window: float = 0.05,
+) -> dict:
+    """1D normal-emission profile I(kz) at k//≈0, sorted by kz, with FFT period.
+
+    Returns ``{"kz", "intensity", "hv", "c_implied"}``. ``c_implied`` is the
+    lattice c inferred from the dominant FFT period of the modulation
+    (``c = 2π · f_peak``); compare it to the input c as a consistency check.
+    """
+    prof = _normal_emission_intensity(scans, params, kpar_window)
+    hv = prof["hv"]
+    inten = prof["intensity"]
+    kz = np.asarray([
+        _kz_at_normal_emission(h, work_func=params.work_func,
+                               inner_potential=params.inner_potential,
+                               energy=params.energy_center)
+        for h in hv
+    ])
+    good = np.isfinite(kz) & np.isfinite(inten)
+    kz, inten, hv = kz[good], inten[good], hv[good]
+    order = np.argsort(kz)
+    kz, inten, hv = kz[order], inten[order], hv[order]
+    c_implied = float("nan")
+    if kz.size >= 4 and float(np.ptp(kz)) > 1e-6:
+        ku = np.linspace(float(kz[0]), float(kz[-1]), max(64, kz.size * 4))
+        iu = np.interp(ku, kz, inten)
+        iu = iu - float(np.mean(iu))
+        spec = np.abs(np.fft.rfft(iu))
+        freqs = np.fft.rfftfreq(ku.size, d=float(ku[1] - ku[0]))
+        spec[0] = 0.0
+        f_peak = float(freqs[int(np.argmax(spec))])
+        if f_peak > 0:
+            c_implied = float(2.0 * np.pi * f_peak)
+    return {"kz": kz, "intensity": inten, "hv": hv, "c_implied": c_implied}
+
+
+def _lomb_scargle_power(x: np.ndarray, y: np.ndarray, omega: float) -> float:
+    """Normalized Lomb-Scargle power at one angular frequency, ∈ [0, 1].
+
+    Measures how well ``y`` sampled at (uneven) positions ``x`` fits a sinusoid
+    of angular frequency ``omega``. 1 = perfect single sinusoid, 0 = none. No
+    clustering bias (unlike a naive circular order parameter), and it handles
+    the non-uniform kz spacing produced by the sqrt mapping.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float) - float(np.mean(y))
+    var = float(np.sum(y ** 2))
+    if var < 1e-30 or x.size < 3 or omega <= 0:
+        return 0.0
+    w2 = 2.0 * omega
+    tau = np.arctan2(np.sum(np.sin(w2 * x)), np.sum(np.cos(w2 * x))) / w2
+    cc = np.cos(omega * (x - tau))
+    ss = np.sin(omega * (x - tau))
+    sc = float(np.sum(cc ** 2))
+    sss = float(np.sum(ss ** 2))
+    term_c = (float(np.sum(y * cc)) ** 2 / sc) if sc > 1e-30 else 0.0
+    term_s = (float(np.sum(y * ss)) ** 2 / sss) if sss > 1e-30 else 0.0
+    return float(np.clip((term_c + term_s) / var, 0.0, 1.0))
+
+
+def fit_inner_potential(
+    scans: Iterable[KzScanInput], params: KzParams, *,
+    v0_min: float = 5.0, v0_max: float = 30.0, n_steps: int = 251,
+    kpar_window: float = 0.05,
+) -> dict:
+    """Fit the inner potential V0 from kz periodicity at normal emission.
+
+    Sweeps V0 and maximizes the Lomb-Scargle power of the normal-emission
+    profile ``I(kz0(V0))`` at the crystal angular frequency ``ω = 2π/(2π/c) = c``
+    (period ``2π/c``). At the right V0 the kz axis is undistorted, so the E_F
+    modulation is a clean sinusoid of period ``2π/c`` → power → 1.
+
+    Returns ``{"v0_best", "v0_sigma", "power", "cluster_phase", "n_zones",
+    "boundary", "confidence", "v0_grid", "power_curve"}``. ``power`` ∈ [0,1] is
+    the periodicity significance; ``confidence`` is "low" when power is weak, the
+    optimum rails to the V0 range edge, or fewer than ~1.5 zones are covered —
+    i.e. the scan does not actually constrain V0. ``cluster_phase`` ≈ 0 → maxima
+    on Γ, ≈ 0.5 → on Z.
+    """
+    if params.c_lattice <= 0:
+        raise ValueError(f"fit V0: c={params.c_lattice:.3f} A invalid")
+    prof = _normal_emission_intensity(scans, params, kpar_window)
+    hv = prof["hv"]
+    inten = prof["intensity"]
+
+    omega = float(params.c_lattice)  # 2π / (period 2π/c)
+    v0_grid = np.linspace(float(v0_min), float(v0_max), max(5, int(n_steps)))
+    power_curve = np.zeros_like(v0_grid)
+    ekin = hv - params.work_func + params.energy_center
+    for j, v0 in enumerate(v0_grid):
+        val = (K_INV_A_PER_SQRT_EV ** 2) * (ekin + v0)
+        kz0 = np.sqrt(np.where(val > 0, val, np.nan))
+        m = np.isfinite(kz0)
+        if m.sum() < 3:
+            continue
+        power_curve[j] = _lomb_scargle_power(kz0[m], inten[m], omega)
+
+    j_best = int(np.argmax(power_curve))
+    v0_best = float(v0_grid[j_best])
+    power = float(power_curve[j_best])
+    boundary = j_best in (0, v0_grid.size - 1)
+
+    val = (K_INV_A_PER_SQRT_EV ** 2) * (ekin + v0_best)
+    kz0 = np.sqrt(np.where(val > 0, val, np.nan))
+    m = np.isfinite(kz0)
+    z = np.sum((inten[m] - np.mean(inten[m])) * np.exp(1j * omega * kz0[m]))
+    cluster_phase = float((np.angle(z) / (2.0 * np.pi)) % 1.0)
+    n_zones = float((np.nanmax(kz0) - np.nanmin(kz0)) / (2.0 * np.pi / params.c_lattice)) if m.any() else 0.0
+
+    v0_sigma = _parabola_sigma(v0_grid, power_curve, j_best)
+    weak = power < 0.5 or boundary or n_zones < 1.5
+    confidence = "low" if weak else "ok"
+    return {
+        "v0_best": v0_best,
+        "v0_sigma": v0_sigma,
+        "power": power,
+        "cluster_phase": cluster_phase,
+        "n_zones": n_zones,
+        "boundary": bool(boundary),
+        "confidence": confidence,
+        "v0_grid": v0_grid,
+        "power_curve": power_curve,
+    }
+
+
+def _parabola_sigma(x: np.ndarray, y: np.ndarray, j: int) -> float:
+    """Curvature-based 1σ of a peak at index ``j`` from a local parabola fit."""
+    if j <= 0 or j >= x.size - 1:
+        return float("nan")
+    x0, x1, x2 = float(x[j - 1]), float(x[j]), float(x[j + 1])
+    y0, y1, y2 = float(y[j - 1]), float(y[j]), float(y[j + 1])
+    denom = (x0 - x1) * (x0 - x2) * (x1 - x2)
+    if abs(denom) < 1e-30:
+        return float("nan")
+    a = (x2 * (y1 - y0) + x1 * (y0 - y2) + x0 * (y2 - y1)) / denom
+    if a >= 0:  # not a concave peak
+        return float("nan")
+    # Treat (R_max − R) like a χ²-style well: σ where the order parameter drops
+    # by ~1 curvature unit. Scale by the peak height for a meaningful spread.
+    return float(np.sqrt(max(y1, 1e-6) / (-a)))
 
 
 def compute_hv_k_map(scans: Iterable[KzScanInput], params: KzParams) -> HvKMapResult:
@@ -447,30 +651,93 @@ def compute_hv_k_map(scans: Iterable[KzScanInput], params: KzParams) -> HvKMapRe
     return HvKMapResult(image=image, k_grid=k_grid, hv_grid=hv_grid, diagnostics=diagnostics)
 
 
-def compute_mdc_waterfall(scans: Iterable[KzScanInput], params: KzParams) -> MdcWaterfallResult:
-    """MDC I(k//) curves stacked by hν, integrated around an energy."""
-    hv_map = compute_hv_k_map(scans, params)
-    curves = np.asarray(hv_map.image, dtype=float)
-    curves = np.where(np.isfinite(curves), curves, np.nan)
-    if params.normalize != "none":
-        for idx in range(curves.shape[0]):
-            finite = curves[idx, np.isfinite(curves[idx]) & (curves[idx] > 0)]
-            if finite.size:
-                scale = float(np.nanpercentile(finite, 95))
-                if scale > 1e-12:
-                    curves[idx] = curves[idx] / scale
+def hv_for_kz(
+    kz_inv_a: float,
+    *,
+    work_func: float,
+    inner_potential: float,
+    energy: float = 0.0,
+) -> float:
+    """Inverse of ``kz_from_hv_kpar`` at k//=0: photon energy giving this kz.
 
-    finite_all = curves[np.isfinite(curves)]
-    span = float(np.nanpercentile(finite_all, 95) - np.nanpercentile(finite_all, 5)) if finite_all.size else 1.0
-    offset_step = max(span, 1e-12) * 1.15
-    offsets = np.arange(curves.shape[0], dtype=float) * offset_step
-    diagnostics = dict(hv_map.diagnostics)
-    diagnostics["display_mode"] = "MDC waterfall"
-    diagnostics["offset_step"] = float(offset_step)
-    return MdcWaterfallResult(
-        curves=curves,
-        k_grid=hv_map.k_grid,
-        hv_grid=hv_map.hv_grid,
-        offsets=offsets,
-        diagnostics=diagnostics,
-    )
+    From ``kz = K·sqrt(Ekin + V0)`` at normal emission (k//=0), with
+    ``K = K_INV_A_PER_SQRT_EV`` and ``Ekin = hν − φ + E``::
+
+        hν = (kz / K)**2 − V0 + φ − E
+
+    Returns ``nan`` if the resulting photon energy would be non-physical.
+    """
+    kz = float(kz_inv_a)
+    if not np.isfinite(kz):
+        return float("nan")
+    ekin = (kz / K_INV_A_PER_SQRT_EV) ** 2 - float(inner_potential)
+    hv = ekin + float(work_func) - float(energy)
+    return float(hv) if np.isfinite(hv) and hv > 0 else float("nan")
+
+
+def kz_high_symmetry_planes(
+    kz_min_inv_a: float,
+    kz_max_inv_a: float,
+    c_lattice: float,
+    *,
+    unit: str = "A^-1",
+) -> list[dict]:
+    """High-symmetry kz planes within ``[kz_min, kz_max]`` (in A^-1).
+
+    Γ planes sit at ``kz = m·2π/c`` and Z planes at ``kz = (2m+1)·π/c``; the
+    spacing between consecutive Γ/Z planes is ``π/c``. Each returned dict holds
+    ``{"kz", "label", "n"}`` with ``kz`` already converted to ``unit`` and
+    ``label`` ∈ {"Γ", "Z"} (Γ for even ``n``, Z for odd).
+    """
+    if c_lattice <= 0:
+        raise ValueError(f"kz planes: c={c_lattice:.3f} A invalid")
+    lo = min(float(kz_min_inv_a), float(kz_max_inv_a))
+    hi = max(float(kz_min_inv_a), float(kz_max_inv_a))
+    if not (np.isfinite(lo) and np.isfinite(hi)):
+        return []
+    spacing = np.pi / float(c_lattice)  # Γ ↔ Z distance in A^-1
+    n0 = int(np.floor(lo / spacing))
+    n1 = int(np.ceil(hi / spacing))
+    planes: list[dict] = []
+    for n in range(n0, n1 + 1):
+        kz = n * spacing
+        if kz < lo - 1e-12 or kz > hi + 1e-12:
+            continue
+        kz_disp = float(convert_kz_unit(kz, unit=unit, c_lattice=c_lattice))
+        planes.append({"kz": kz_disp, "label": "Γ" if n % 2 == 0 else "Z", "n": int(n)})
+    return planes
+
+
+def kz_coverage_summary(
+    kz_min_inv_a: float,
+    kz_max_inv_a: float,
+    c_lattice: float,
+    *,
+    work_func: float,
+    inner_potential: float,
+    energy: float = 0.0,
+) -> dict:
+    """Periodicity readout for the kz range: zones covered + plane hν hints.
+
+    Returns ``{"n_zones", "gamma_hv", "z_hv"}`` where ``n_zones`` is the kz span
+    expressed in units of ``π/c`` (one Γ→Z step = 1) and ``gamma_hv``/``z_hv``
+    are sorted lists of photon energies (eV, at k//=0) hitting Γ/Z planes.
+    """
+    if c_lattice <= 0:
+        raise ValueError(f"kz coverage: c={c_lattice:.3f} A invalid")
+    lo = min(float(kz_min_inv_a), float(kz_max_inv_a))
+    hi = max(float(kz_min_inv_a), float(kz_max_inv_a))
+    spacing = np.pi / float(c_lattice)
+    n_zones = float((hi - lo) / spacing) if np.isfinite(hi - lo) else 0.0
+    planes = kz_high_symmetry_planes(lo, hi, c_lattice, unit="A^-1")
+    gamma_hv: list[float] = []
+    z_hv: list[float] = []
+    for plane in planes:
+        hv = hv_for_kz(
+            plane["kz"], work_func=work_func,
+            inner_potential=inner_potential, energy=energy,
+        )
+        if not np.isfinite(hv):
+            continue
+        (gamma_hv if plane["label"] == "Γ" else z_hv).append(round(float(hv), 1))
+    return {"n_zones": n_zones, "gamma_hv": sorted(gamma_hv), "z_hv": sorted(z_hv)}

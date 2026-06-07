@@ -126,6 +126,7 @@ PROXY_MAP = {
     "_refresh_kz_dataset": "_kz_ctrl",
     "_on_kz_params_changed": "_kz_ctrl",
     "_draw_kz_tab": "_kz_ctrl",
+    "_fit_kz_v0": "_kz_ctrl",
     "_current_supports_kz": "_kz_ctrl",
     "_save_kz_session": "_kz_ctrl",
     # THEORY_OVERLAY

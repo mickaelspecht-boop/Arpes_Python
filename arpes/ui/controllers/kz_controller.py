@@ -7,13 +7,18 @@ import traceback
 import numpy as np
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
-from arpes.core.sample import work_function_for_entry
+from arpes.core.sample import sample_for_entry, work_function_for_entry
 from arpes.io.kz_dataset import KzDataset, dataset_summary, load_kz_stack
 from arpes.physics.kz import (
     KzParams,
     compute_hv_k_map,
     compute_kz_map,
-    compute_mdc_waterfall,
+    convert_kz_unit,
+    fit_inner_potential,
+    kz_coverage_summary,
+    kz_high_symmetry_planes,
+    kz_profile_at_normal_emission,
+    kz_unit_to_inv_a,
     scan_from_legacy_dict,
 )
 
@@ -49,6 +54,23 @@ class KzController:
             self._current_entry(),
             fallback=fallback,
         )
+
+    def _lattice_a(self) -> float:
+        """Lattice a (Å) for the angle→k// conversion at load time.
+
+        Prefer the value typed in the KZ tab, else the sample's. Without it the
+        CLS photon-scan loader leaves k// at zero (degenerate kz map).
+        """
+        try:
+            typed = float(self._parent._kz_controls.sp_a.value())
+        except Exception:
+            typed = 0.0
+        if typed > 0:
+            return typed
+        try:
+            return float(sample_for_entry(self._parent._session, self._current_entry()).a_angstrom)
+        except Exception:
+            return 0.0
 
     def _current_supports_kz(self) -> bool:
         d = self._parent._raw_data
@@ -120,6 +142,7 @@ class KzController:
                 self._last_folder,
                 work_func=self._work_func(),
                 ef_offset=float(self._params.sp_ef.value()),
+                a_lattice=self._lattice_a(),
                 hv_fallback=float(self._params.sp_hv.value()) if self._params.sp_hv.value() > 0 else None,
                 kz_logbook_records=self._parent._session.kz_logbook_records,
                 kz_logbook_mapping=self._parent._session.kz_logbook_mapping,
@@ -151,23 +174,27 @@ class KzController:
     def _draw_kz_tab(self):
         if not hasattr(self._parent, "_kz_canvas"):
             return
-        while len(self._parent._kz_canvas.map.fig.axes) > 1:
-            self._parent._kz_canvas.map.fig.delaxes(self._parent._kz_canvas.map.fig.axes[-1])
+        fig = self._parent._kz_canvas.map.fig
+        while len(fig.axes) > 1:
+            fig.delaxes(fig.axes[-1])
         ax = self._parent._kz_canvas.map.ax
         ax.cla()
         ax.set_facecolor("#1a1a1a")
         if self._dataset is None:
-            ax.text(
-                0.5, 0.5,
-                "Choose a KZ folder\n(variable-hν band-map series)",
-                transform=ax.transAxes,
-                ha="center", va="center",
-                color="white", fontsize=11,
-            )
-            self._parent._kz_canvas.map.redraw()
+            self._kz_placeholder(ax, "Choose a KZ folder\n(variable-hν band-map series)")
             return
 
-        ui = self._parent._kz_controls.params()
+        controls = self._parent._kz_controls
+        self._autofill_lattice(controls)
+        ui = controls.params()
+
+        view = ui.view
+        note = ""
+        if view == "kz" and (ui.a_lattice <= 0 or ui.c_lattice <= 0):
+            view = "raw"
+            controls.force_raw_view()
+            note = "set lattice a & c (sample) for the kz view — showing Raw"
+
         params = KzParams(
             work_func=self._work_func(),
             inner_potential=ui.inner_potential,
@@ -179,115 +206,191 @@ class KzController:
             kz_bins=ui.kz_bins,
             kz_unit=ui.kz_unit,
             normalize=ui.normalize,
-            display_mode=ui.display_mode,
         )
         try:
-            if ui.display_mode == "hv map":
-                result = compute_hv_k_map(self._dataset.scans, params)
-            elif ui.display_mode == "MDC waterfall":
-                result = compute_mdc_waterfall(self._dataset.scans, params)
+            if view == "raw":
+                info = self._draw_raw_view(ax, params, ui)
             else:
-                result = compute_kz_map(self._dataset.scans, params)
+                info = self._draw_kz_view(ax, params, ui)
         except Exception as exc:
-            ax.text(0.5, 0.5, str(exc), transform=ax.transAxes,
-                    ha="center", va="center", color="tomato", fontsize=10)
-            self._parent._kz_canvas.map.redraw()
+            self._kz_placeholder(ax, str(exc), color="tomato")
             self._status(f"Warning: KZ : {exc}")
             return
 
-        diag = result.diagnostics
-        if ui.display_mode == "MDC waterfall":
-            curves = result.curves
-            finite = curves[np.isfinite(curves)]
-            vmax = float(np.nanpercentile(finite, 99)) if finite.size else 1.0
-        else:
-            img = result.image
-            finite = img[np.isfinite(img)]
-            vmax = float(np.nanpercentile(finite, 99)) if finite.size else 1.0
-        if ui.display_mode == "hv map":
-            artist = ax.pcolormesh(
-                result.k_grid, result.hv_grid, img,
-                shading="auto", cmap="inferno", vmin=0.0, vmax=max(vmax, 1e-12),
-            )
-            ax.set_xlabel("k// (π/a)", color="white")
-            ax.set_ylabel("hν (eV)", color="white")
-            ax.set_title(
-                f"Raw hν map  E={ui.energy_center:+.3f}±{ui.energy_window:.3f} eV",
-                color="white", fontsize=10,
-            )
-        elif ui.display_mode == "MDC waterfall":
-            artist = None
-            for idx, (hv, offset) in enumerate(zip(result.hv_grid, result.offsets)):
-                line, = ax.plot(result.k_grid, result.curves[idx] + offset, lw=1.0)
-                artist = line
-                ax.text(
-                    result.k_grid[-1], offset, f"{hv:.0f} eV",
-                    color=line.get_color(), fontsize=7, va="bottom", ha="left",
-                )
-            ax.set_xlabel("k// (π/a)", color="white")
-            ax.set_ylabel("MDC intensity + offset", color="white")
-            ax.set_title(
-                f"MDC waterfall  E={ui.energy_center:+.3f}±{ui.energy_window:.3f} eV",
-                color="white", fontsize=10,
-            )
-        elif ui.display_mode == "points":
-            vals = np.asarray(diag["point_i"], dtype=float)
-            vmax = float(np.nanpercentile(vals[np.isfinite(vals)], 99)) if np.isfinite(vals).any() else 1.0
-            artist = ax.scatter(
-                diag["point_k"], diag["point_kz"], c=vals,
-                s=5, cmap="inferno", vmin=0.0, vmax=max(vmax, 1e-12), linewidths=0,
-            )
-            ax.set_xlabel("k// (π/a)", color="white")
-            ax.set_ylabel(f"kz ({ui.kz_unit})", color="white")
-            ax.set_title(
-                f"KZ points  E={ui.energy_center:+.3f}±{ui.energy_window:.3f} eV  "
-                f"V0={ui.inner_potential:.1f} eV",
-                color="white", fontsize=10,
-            )
-        else:
-            artist = ax.pcolormesh(
-                result.k_grid, result.kz_grid, img,
-                shading="auto", cmap="inferno", vmin=0.0, vmax=max(vmax, 1e-12),
-            )
-            ax.set_xlabel("k// (π/a)", color="white")
-            ax.set_ylabel(f"kz ({ui.kz_unit})", color="white")
-            ax.set_title(
-                f"KZ  E={ui.energy_center:+.3f}±{ui.energy_window:.3f} eV  "
-                f"V0={ui.inner_potential:.1f} eV",
-                color="white", fontsize=10,
-            )
+        if note:
+            info = f"{note} | {info}"
+        self._style_axes(ax)
+        controls.set_info(info)
+        fig.tight_layout(pad=0.8)
+        self._parent._kz_canvas.map.redraw()
+
+    # --- draw helpers -----------------------------------------------------
+
+    def _kz_placeholder(self, ax, text: str, *, color: str = "white") -> None:
+        ax.text(0.5, 0.5, text, transform=ax.transAxes,
+                ha="center", va="center", color=color, fontsize=11)
+        self._parent._kz_canvas.map.redraw()
+
+    @staticmethod
+    def _style_axes(ax) -> None:
         ax.tick_params(colors="white", labelsize=8)
         for sp in ax.spines.values():
             sp.set_edgecolor("#555")
+
+    @staticmethod
+    def _vmax(arr: np.ndarray) -> float:
+        finite = arr[np.isfinite(arr)]
+        return float(np.nanpercentile(finite, 99)) if finite.size else 1.0
+
+    def _colorbar(self, artist, ax) -> None:
         try:
-            if artist is not None and ui.display_mode != "MDC waterfall":
-                self._parent._kz_canvas.map.fig.colorbar(artist, ax=ax, fraction=0.046, pad=0.04)
+            self._parent._kz_canvas.map.fig.colorbar(artist, ax=ax, fraction=0.046, pad=0.04)
         except Exception:
             pass
+
+    def _autofill_lattice(self, controls) -> None:
+        try:
+            sample = sample_for_entry(self._parent._session, self._current_entry())
+        except Exception:
+            return
+        controls.autofill_lattice(sample.a_angstrom, sample.c_angstrom)
+
+    def _draw_raw_view(self, ax, params: KzParams, ui) -> str:
+        result = compute_hv_k_map(self._dataset.scans, params)
+        artist = ax.pcolormesh(
+            result.k_grid, result.hv_grid, result.image,
+            shading="auto", cmap="inferno", vmin=0.0, vmax=max(self._vmax(result.image), 1e-12),
+        )
+        ax.set_xlabel("k// (π/a)", color="white")
+        ax.set_ylabel("hν (eV)", color="white")
+        ax.set_title(
+            f"Raw hν map  E={ui.energy_center:+.3f}±{ui.energy_window:.3f} eV",
+            color="white", fontsize=10,
+        )
+        self._colorbar(artist, ax)
+        diag = result.diagnostics
         summary = dataset_summary(self._dataset)
-        hv_source_txt = self._format_hv_sources(summary["hv_sources"])
-        if ui.display_mode == "hv map":
-            info = (
-                f"{diag['n_scans']} scans kept | {len(summary['warnings'])} ignored | "
-                f"hν={diag['hv_min']:.1f}→{diag['hv_max']:.1f} eV | "
-                f"points={diag['n_points']} | raw hν map (no kz conversion) | {hv_source_txt}"
+        return (
+            f"{diag['n_scans']} scans | hν={diag['hv_min']:.1f}→{diag['hv_max']:.1f} eV | "
+            f"raw (no kz conversion) | {self._format_hv_sources(summary['hv_sources'])}"
+        )
+
+    def _draw_kz_view(self, ax, params: KzParams, ui) -> str:
+        result = compute_kz_map(self._dataset.scans, params)
+        diag = result.diagnostics
+        artist = ax.pcolormesh(
+            result.k_grid, result.kz_grid, result.image,
+            shading="auto", cmap="inferno", vmin=0.0, vmax=max(self._vmax(result.image), 1e-12),
+        )
+        if ui.show_points:
+            ax.scatter(diag["point_k"], diag["point_kz"], c="#66ccff",
+                       s=3, alpha=0.35, linewidths=0)
+        coverage = self._draw_kz_planes(ax, result, params) if ui.show_planes else None
+        profile = self._draw_kz_profile(ax, result, params) if ui.show_profile else None
+        ax.set_xlabel("k// (π/a)", color="white")
+        ax.set_ylabel(f"kz ({ui.kz_unit})", color="white")
+        ax.set_title(
+            f"KZ  E={ui.energy_center:+.3f}±{ui.energy_window:.3f} eV  V0={ui.inner_potential:.1f} eV",
+            color="white", fontsize=10,
+        )
+        self._colorbar(artist, ax)
+        summary = dataset_summary(self._dataset)
+        info = (
+            f"{diag['n_scans']} scans | hν={summary['hv_min']:.1f}→{summary['hv_max']:.1f} eV | "
+            f"points={diag['n_points']} | bins={diag['n_bins_filled']} | "
+            f"{diag['interpolation_backend']}"
+        )
+        if coverage:
+            info += f" | {coverage}"
+        if profile:
+            info += f" | {profile}"
+        return info + f" | {self._format_hv_sources(summary['hv_sources'])}"
+
+    def _draw_kz_profile(self, ax, result, params: KzParams) -> str:
+        """Overlay the normal-emission I(kz) curve on the left margin of the map."""
+        try:
+            prof = kz_profile_at_normal_emission(self._dataset.scans, params)
+        except Exception:
+            return ""
+        kz = prof["kz"]
+        inten = prof["intensity"]
+        if kz.size < 2:
+            return ""
+        y = convert_kz_unit(kz, unit=params.kz_unit, c_lattice=params.c_lattice)
+        k0 = float(result.k_grid[0])
+        kspan = float(result.k_grid[-1] - result.k_grid[0]) or 1.0
+        lo, hi = float(np.nanmin(inten)), float(np.nanmax(inten))
+        rng = (hi - lo) or 1.0
+        x = k0 + ((inten - lo) / rng) * 0.3 * kspan
+        ax.plot(x, y, color="white", lw=1.2, alpha=0.9)
+        c_imp = prof.get("c_implied", float("nan"))
+        return f"I(kz)@k//0 → c≈{c_imp:.1f} Å" if np.isfinite(c_imp) else "I(kz)@k//0"
+
+    def _fit_kz_v0(self):
+        if self._dataset is None:
+            self._status("Warning: KZ: load a folder first")
+            return
+        ui = self._parent._kz_controls.params()
+        params = KzParams(
+            work_func=self._work_func(),
+            inner_potential=ui.inner_potential,
+            a_lattice=ui.a_lattice,
+            c_lattice=ui.c_lattice,
+            energy_center=ui.energy_center,
+            energy_window=ui.energy_window,
+            kz_unit=ui.kz_unit,
+            normalize=ui.normalize,
+        )
+        if params.c_lattice <= 0:
+            self._status("Warning: KZ: set lattice c before fitting V0")
+            return
+        try:
+            res = fit_inner_potential(self._dataset.scans, params)
+        except Exception as exc:
+            self._status(f"Warning: KZ fit V0: {exc}")
+            return
+        if res["confidence"] == "low":
+            # Don't overwrite V0 with an unconstrained value: tell the user why.
+            reason = "rails to range edge" if res["boundary"] else "no clear periodicity"
+            self._status(
+                f"Warning: KZ: V0 not determined ({reason}; power={res['power']:.2f}, "
+                f"{res['n_zones']:.1f} zones). Need a wider hν range or set V0 manually."
             )
-        elif ui.display_mode == "MDC waterfall":
-            info = (
-                f"{diag['n_scans']} scans kept | {len(summary['warnings'])} ignored | "
-                f"hν={diag['hv_min']:.1f}→{diag['hv_max']:.1f} eV | "
-                f"points={diag['n_points']} | MDC waterfall (no fits) | {hv_source_txt}"
-            )
-        else:
-            info = (
-                f"{diag['n_scans']} scans kept | {len(summary['warnings'])} ignored | "
-                f"hν={summary['hv_min']:.1f}→{summary['hv_max']:.1f} eV | "
-                f"points={diag['n_points']} | bins={diag['n_bins_filled']} | "
-                f"{diag['display_mode']} ({diag['interpolation_backend']}) | {hv_source_txt}"
-            )
-        self._parent._kz_controls.set_info(info)
-        self._parent._kz_canvas.map.fig.tight_layout(pad=0.8)
-        self._parent._kz_canvas.map.redraw()
+            return
+        sp = self._parent._kz_controls.sp_v0
+        sp.blockSignals(True)
+        sp.setValue(float(res["v0_best"]))
+        sp.blockSignals(False)
+        sig = res["v0_sigma"]
+        sig_txt = f"±{sig:.2f}" if np.isfinite(sig) else "±?"
+        phase = res["cluster_phase"]
+        plane = "Γ" if (phase < 0.25 or phase > 0.75) else "Z"
+        self._status(
+            f"V0 = {res['v0_best']:.2f} {sig_txt} eV (power={res['power']:.2f}, "
+            f"{res['n_zones']:.1f} zones, maxima@{plane})"
+        )
+        self._draw_kz_tab()
+
+    def _draw_kz_planes(self, ax, result, params: KzParams) -> str:
+        kz_lo = float(kz_unit_to_inv_a(
+            float(np.nanmin(result.kz_grid)), unit=params.kz_unit, c_lattice=params.c_lattice))
+        kz_hi = float(kz_unit_to_inv_a(
+            float(np.nanmax(result.kz_grid)), unit=params.kz_unit, c_lattice=params.c_lattice))
+        for plane in kz_high_symmetry_planes(kz_lo, kz_hi, params.c_lattice, unit=params.kz_unit):
+            is_gamma = plane["label"] == "Γ"
+            ax.axhline(plane["kz"], color="#dddddd", lw=1.0,
+                       ls="-" if is_gamma else "--", alpha=0.7)
+            ax.text(result.k_grid[-1], plane["kz"], f" {plane['label']}",
+                    color="#dddddd", fontsize=8, va="center", ha="left")
+        cov = kz_coverage_summary(
+            kz_lo, kz_hi, params.c_lattice,
+            work_func=params.work_func,
+            inner_potential=params.inner_potential,
+            energy=params.energy_center,
+        )
+        g = ",".join(f"{h:.0f}" for h in cov["gamma_hv"]) or "—"
+        z = ",".join(f"{h:.0f}" for h in cov["z_hv"]) or "—"
+        return f"{cov['n_zones']:.1f} zones | Γ@hν≈{g} · Z@hν≈{z} eV"
 
     def _save_kz_session(self):
         # MVP: only UI parameters remain in the widgets.

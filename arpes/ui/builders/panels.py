@@ -465,6 +465,8 @@ def wire_ui_signals(window) -> None:
     if hasattr(window._kz_controls, "kz_logbook_requested"):
         window._kz_controls.kz_logbook_requested.connect(window._open_kz_logbook)
     window._kz_controls.redraw_requested.connect(window._draw_kz_tab)
+    if hasattr(window._kz_controls, "fit_v0_requested"):
+        window._kz_controls.fit_v0_requested.connect(window._fit_kz_v0)
     window._kz_controls.params_changed.connect(window._on_kz_params_changed)
 
 
