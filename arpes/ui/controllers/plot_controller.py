@@ -8,6 +8,7 @@ import numpy as np
 from arpes.physics.norm import remove_grid_artifact as remove_detector_grid_artifact
 from arpes.physics.plot_compute import (
     BandmapAxesState,
+    DerivParams,
     compute_bandmap_display,
     draw_bandmap_axes as _plot_draw_bandmap_axes,
     draw_ef_label as _plot_draw_ef_label,
@@ -83,6 +84,18 @@ class PlotController:
         except Exception:
             return
 
+    def _deriv_params(self) -> DerivParams:
+        """Read the SecDev/Curvature tuning spinboxes (fall back to defaults)."""
+        p = self._parent
+        dp = DerivParams()
+        try:
+            dp.sigma_e_eV = float(p._sp_deriv_sigma_e.value())
+            dp.sigma_k_inv_a = float(p._sp_deriv_sigma_k.value())
+            dp.c0_alpha = float(p._sp_deriv_c0.value())
+        except (AttributeError, RuntimeError):
+            pass  # widgets not built yet (headless / early load)
+        return dp
+
     def _update_display_data(self):
         if self._raw_data is None:
             return
@@ -106,6 +119,12 @@ class PlotController:
         distortion_cfg_active = bm_dist if (bm_dist and _distortion_active(bm_dist)) else None
         distortion_key = _distortion_cache_sig(distortion_cfg_active)
         raw_key = getattr(self, "_current_raw_load_cache_key", None)
+        deriv_params = self._deriv_params()
+        deriv_key = (
+            (deriv_params.sigma_e_eV, deriv_params.sigma_k_inv_a,
+             deriv_params.c0_alpha, deriv_params.ef_margin_eV)
+            if mode in ("SecDev", "Curvature") else None
+        )
         cache_key = (
             raw_key,
             id(raw),
@@ -113,6 +132,7 @@ class PlotController:
             mode,
             grid_key,
             distortion_key,
+            deriv_key,
             _axis_cache_signature(d["kpar"]),
             _axis_cache_signature(d["ev_arr"]),
         )
@@ -145,6 +165,7 @@ class PlotController:
             grid_correction=grid_cfg_active,
             grid_artifact_fn=remove_detector_grid_artifact,
             distortion_correction=distortion_cfg_active,
+            deriv_params=deriv_params,
         )
         self._data_disp = result.data
         self._grid_display_info = result.grid_info

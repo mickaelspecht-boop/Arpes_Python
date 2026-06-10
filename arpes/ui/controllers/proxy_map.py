@@ -80,6 +80,7 @@ PROXY_MAP = {
     "_draw_distortion_preview_overlay": "_distortion_ctrl",
     # InteractionController
     "_on_view_changed": "_interaction_ctrl",
+    "_on_deriv_params_changed": "_interaction_ctrl",
     "_on_view_fit_changed": "_interaction_ctrl",
     "_on_ev_spinbox_changed": "_interaction_ctrl",
     "_schedule_model_redraw": "_interaction_ctrl",

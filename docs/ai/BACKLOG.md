@@ -46,6 +46,11 @@ résultat → item ici, puis `DECISIONS.md`.
 
 ## IDÉES (P3)
 - CI `xvfb-run pytest` pour activer Qt headless (cf CLAUDE.md tests env).
+- Modes **1D-MDC curvature** (le long de k) et **1D-EDC curvature** (le long de E) :
+  features distinctes (nouveau mode combo + compute), DEFER conseil 2026-06-10.
+  Le physicien préfère MDC-1D pour suivre une bande métallique traversant EF.
+- Avertissement UI si grille k non-uniforme (Δk varie >5%) en modes dérivés
+  (gaussian_filter en px suppose grille uniforme) — conseil 2026-06-10, non bloquant.
 - Regroupement panneau FS (proposition UX 2026-06-10, DEFER arbitre) :
   "FS Extraction" (EF window, norm, smoothing, cmap, distortion, redraw) open /
   "Lattice & Units" collapsed / Γ open / "Brillouin Zone" fusionné collapsed /

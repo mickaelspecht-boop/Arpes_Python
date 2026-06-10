@@ -15,7 +15,8 @@ import numpy as np
 import arpes.ui.controllers.plot_controller as plot_ctrl_mod
 from arpes.physics.plot_compute import (
     BandmapAxesState,
-    _compute_below_ef_only,
+    _compute_deriv_below_ef,
+    DerivParams,
     apply_edcnorm,
     compute_bandmap_display,
     display_grid_config,
@@ -236,16 +237,14 @@ class TestPlotController(unittest.TestCase):
         np.testing.assert_allclose(np.nanmean(out.data, axis=0), [1.0, 1.0, 1.0])
 
     def test_derivative_modes_mask_above_ef(self):
-        data = np.arange(20, dtype=float).reshape(4, 5)
-        ev = np.asarray([-0.2, -0.1, 0.0, 0.1, 0.2])
+        data = np.arange(40, dtype=float).reshape(4, 10)
+        ev = np.linspace(-0.2, 0.2, 10)
 
-        def fake_compute(d, _k, _e):
-            return np.ones_like(d)
-
-        out = _compute_below_ef_only(fake_compute, data, np.arange(4), ev)
+        out = _compute_deriv_below_ef(
+            "SecDev", data, np.arange(4), ev, DerivParams(ef_margin_eV=0.0))
         self.assertEqual(out.shape, data.shape)
-        np.testing.assert_allclose(out[:, :3], 1.0)
-        self.assertTrue(np.isnan(out[:, 3:]).all())
+        self.assertTrue(np.isfinite(out[:, ev <= 0.0]).any())
+        self.assertTrue(np.isnan(out[:, ev > 0.0]).all())
 
     def test_grid_config_clamps_strength(self):
         self.assertEqual(display_grid_config({"strength": 2.0})["strength"], 1.0)

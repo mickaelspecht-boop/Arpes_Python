@@ -18,70 +18,148 @@ def apply_edcnorm(data: np.ndarray) -> np.ndarray:
     return data / safe
 
 
-def compute_secdev(data: np.ndarray, kpar, ev_arr, sigma_k=2.0, sigma_e=2.0) -> np.ndarray:
-    """Smoothed -d2I/dE2."""
+@dataclass
+class DerivParams:
+    """User-tunable parameters for the SecDev / Curvature display modes.
+
+    Smoothing widths are in *physical* units (eV and π/a), converted to pixels
+    per map from the local axis spacing, so the same value behaves consistently
+    across datasets with different sampling. ``c0_alpha`` is the curvature
+    regularization fraction; ``ef_margin_eV`` is how far above EF the derivative
+    is still shown (a hard cut exactly at EF creates a spurious derivative edge).
+    """
+    sigma_e_eV: float = 0.025
+    sigma_k_inv_a: float = 0.04
+    c0_alpha: float = 0.05
+    ef_margin_eV: float = 0.05
+
+
+def _sigma_px(coord, sigma_phys: float, fallback: float = 2.0) -> float:
+    """Convert a physical smoothing width to pixels using the median axis step."""
+    coord = np.asarray(coord, dtype=float)
+    if coord.size < 2 or sigma_phys <= 0:
+        return 0.0 if sigma_phys <= 0 else fallback
+    step = abs(float(np.median(np.diff(coord))))
+    if step <= 0 or not np.isfinite(step):
+        return fallback
+    return float(sigma_phys / step)
+
+
+def _smooth_masked(arr: np.ndarray, sigma) -> tuple[np.ndarray, np.ndarray]:
+    """NaN-safe Gaussian smoothing via normalized convolution.
+
+    The trapezoid-corrected maps carry a NaN border whose sample↔background
+    cliff is the largest gradient in the frame; filling it with a median (the
+    old behaviour) leaks the background inward and poisons every downstream
+    derivative and the C0 estimate. Here NaNs are excluded from the convolution
+    (``Gauss(I·M)/Gauss(M)``) so the border never contaminates the interior.
+    Returns the smoothed field and the smoothed validity mask (0 outside data).
+    """
     from scipy.ndimage import gaussian_filter
 
-    d = gaussian_filter(data.astype(float), sigma=[sigma_k, sigma_e])
-    de = np.gradient(np.gradient(d, ev_arr, axis=1), ev_arr, axis=1)
-    return -de
+    a = np.asarray(arr, dtype=float)
+    mask = np.isfinite(a).astype(float)
+    filled = np.where(mask > 0, a, 0.0)
+    den = gaussian_filter(mask, sigma)
+    smooth = gaussian_filter(filled, sigma) / (den + 1e-10)
+    return smooth, den
+
+
+def compute_secdev(data, kpar, ev_arr, *, sigma_k_px=2.0, sigma_e_px=2.0,
+                   border_clip=3, **_ignored) -> np.ndarray:
+    """Smoothed -d²I/dE² (peaks → positive). NaN-safe smoothing first."""
+    ev_arr = np.asarray(ev_arr, dtype=float)
+    smooth, mask_sm = _smooth_masked(data, [sigma_k_px, sigma_e_px])
+    d2 = np.gradient(np.gradient(smooth, ev_arr, axis=1), ev_arr, axis=1)
+    out = -d2
+    out[mask_sm < 0.5] = np.nan  # re-propagate the data mask (drop the border)
+    _clip_border(out, border_clip)
+    return out
+
+
+def _clip_border(arr: np.ndarray, border_clip: int) -> None:
+    bc = max(0, int(border_clip))
+    if bc > 0 and min(arr.shape) > 2 * bc:
+        arr[:bc, :] = np.nan
+        arr[-bc:, :] = np.nan
+        arr[:, :bc] = np.nan
+        arr[:, -bc:] = np.nan
 
 
 def compute_curvature(
-    data: np.ndarray,
-    kpar,
-    ev_arr,
-    sigma_k=2.0,
-    sigma_e=2.0,
-    c0_fraction=0.05,
-    border_clip=3,
+    data, kpar, ev_arr, *,
+    sigma_k_px=2.0, sigma_e_px=2.0, c0_alpha=0.05, border_clip=3, **_ignored,
 ) -> np.ndarray:
-    """Courbure 2D ARPES type Zhang et al. (RSI 2011)."""
-    from scipy.ndimage import gaussian_filter
+    """Full 2D curvature, Zhang et al. RSI 82, 043712 (2011).
 
-    arr = data.astype(float)
-    nan_mask = ~np.isfinite(arr)
-    if nan_mask.any():
-        arr = arr.copy()
-        finite = arr[np.isfinite(arr)]
-        arr[nan_mask] = float(np.nanmedian(finite)) if finite.size else 0.0
+        C = -[ (C0 + I_E²)·I_kk − 2·I_k·I_E·I_kE + (C0 + I_k²)·I_EE ]
+             / (C0 + I_k² + I_E²)^(3/2)
 
-    d = gaussian_filter(arr, sigma=[sigma_k, sigma_e])
-    dI_dE = np.gradient(d, ev_arr, axis=1)
-    dI_dk = np.gradient(d, kpar, axis=0)
-    d2I_dk2 = np.gradient(dI_dk, kpar, axis=0)
-    d2I_dkdE = np.gradient(dI_dk, ev_arr, axis=1)
+    Both cross term (factor 2) and the I_EE term are included — the previous
+    implementation dropped them, so it only enhanced k-direction structure and
+    looked flat on steep bands. C0 is the regularization scale: set from the
+    95th percentile of the gradient magnitude on the *eroded interior* (never
+    the max, which sits on the trapezoid border cliff and would wash the band).
+    """
+    from scipy.ndimage import binary_erosion
 
-    bc = max(0, int(border_clip))
-    interior = (slice(bc, -bc or None), slice(bc, -bc or None))
-    gk_ref = np.abs(dI_dk[interior])
-    ge_ref = np.abs(dI_dE[interior])
-    if gk_ref.size == 0 or ge_ref.size == 0:
-        gk_ref = np.abs(dI_dk)
-        ge_ref = np.abs(dI_dE)
-    C0 = float(c0_fraction) * (np.nanmax(gk_ref) ** 2 + np.nanmax(ge_ref) ** 2)
+    kpar = np.asarray(kpar, dtype=float)
+    ev_arr = np.asarray(ev_arr, dtype=float)
+    smooth, mask_sm = _smooth_masked(data, [sigma_k_px, sigma_e_px])
 
-    numer = (C0 + dI_dE**2) * d2I_dk2 - dI_dk * dI_dE * d2I_dkdE
-    denom = (C0 + dI_dk**2 + dI_dE**2) ** 1.5
+    I_E = np.gradient(smooth, ev_arr, axis=1)
+    I_k = np.gradient(smooth, kpar, axis=0)
+    I_kk = np.gradient(I_k, kpar, axis=0)
+    I_EE = np.gradient(I_E, ev_arr, axis=1)
+    I_kE = np.gradient(I_k, ev_arr, axis=1)
+
+    valid = mask_sm >= 0.99  # fully inside data (no border smoothing bleed)
+    interior = binary_erosion(valid, iterations=5)
+    if not interior.any():
+        interior = valid
+    if interior.any():
+        gk = np.abs(I_k[interior])
+        ge = np.abs(I_E[interior])
+        C0 = float(c0_alpha) * (
+            float(np.percentile(gk, 95)) ** 2 + float(np.percentile(ge, 95)) ** 2
+        )
+    else:
+        C0 = float(c0_alpha) * (np.nanmax(np.abs(I_k)) ** 2 + np.nanmax(np.abs(I_E)) ** 2)
+    C0 = max(C0, 1e-30)
+
+    numer = (C0 + I_E**2) * I_kk - 2.0 * I_k * I_E * I_kE + (C0 + I_k**2) * I_EE
+    denom = (C0 + I_k**2 + I_E**2) ** 1.5
     curv = -numer / (denom + 1e-30)
 
-    if bc > 0 and min(curv.shape) > 2 * bc:
-        curv[:bc, :] = np.nan
-        curv[-bc:, :] = np.nan
-        curv[:, :bc] = np.nan
-        curv[:, -bc:] = np.nan
+    curv[mask_sm < 0.5] = np.nan
+    _clip_border(curv, border_clip)
     return curv
 
 
-def _compute_below_ef_only(compute_fn, data: np.ndarray, kpar, ev_arr) -> np.ndarray:
-    """Calcule un mode derive seulement pour E <= EF, masque E > EF."""
+def _compute_deriv_below_ef(kind: str, data: np.ndarray, kpar, ev_arr,
+                            dp: "DerivParams") -> np.ndarray:
+    """Run a derivative display mode for E ≤ EF + margin, NaN above.
+
+    A hard cut exactly at EF injects a spurious derivative edge; the configurable
+    ``ef_margin_eV`` keeps EF and the thermally populated states just above it
+    visible while still dropping the noisy high-energy tail.
+    """
     ev_arr = np.asarray(ev_arr, dtype=float)
     data = np.asarray(data)
-    out = np.full_like(data, np.nan, dtype=float)
-    below = ev_arr <= 0.0
+    out = np.full(data.shape, np.nan, dtype=float)
+    below = ev_arr <= float(dp.ef_margin_eV)
     if below.sum() < 3:
         return out
-    out[:, below] = compute_fn(data[:, below], kpar, ev_arr[below])
+    ev_b = ev_arr[below]
+    sk_px = _sigma_px(kpar, dp.sigma_k_inv_a)
+    se_px = _sigma_px(ev_b, dp.sigma_e_eV)
+    if kind == "SecDev":
+        out[:, below] = compute_secdev(
+            data[:, below], kpar, ev_b, sigma_k_px=sk_px, sigma_e_px=se_px)
+    elif kind == "Curvature":
+        out[:, below] = compute_curvature(
+            data[:, below], kpar, ev_b,
+            sigma_k_px=sk_px, sigma_e_px=se_px, c0_alpha=dp.c0_alpha)
     return out
 
 
@@ -138,6 +216,7 @@ def compute_bandmap_display(
     grid_correction: dict | None = None,
     grid_artifact_fn=None,
     distortion_correction: dict | None = None,
+    deriv_params: "DerivParams | None" = None,
 ) -> BandmapDisplayResult:
     """Prépare la carte BM affichée pour le mode demandé.
 
@@ -161,16 +240,17 @@ def compute_bandmap_display(
                 ev_disp = np.asarray(distortion_info.get("ev_axis", ev_disp))
         except Exception as exc:
             distortion_info = {"applied": False, "error": str(exc)}
+    dp = deriv_params or DerivParams()
     if mode == "Raw":
         disp = raw
     elif mode == "EDCnorm":
         disp = apply_edcnorm(raw)
     elif mode == "SecDev":
         norm = apply_edcnorm(raw) if edc_norm_enabled else raw
-        disp = _compute_below_ef_only(compute_secdev, norm, kpar_disp, ev_disp)
+        disp = _compute_deriv_below_ef("SecDev", norm, kpar_disp, ev_disp, dp)
     elif mode == "Curvature":
         norm = apply_edcnorm(raw) if edc_norm_enabled else raw
-        disp = _compute_below_ef_only(compute_curvature, norm, kpar_disp, ev_disp)
+        disp = _compute_deriv_below_ef("Curvature", norm, kpar_disp, ev_disp, dp)
     else:
         disp = raw
 

@@ -50,10 +50,27 @@ class InteractionController:
             p._cmb_view_fit.setCurrentText(p._cmb_view.currentText())
             p._cmb_view_fit.blockSignals(False)
         mode = p._cmb_view.currentText()
+        bar = getattr(p, "_deriv_params_bar", None)
+        if bar is not None:
+            bar.setVisible(mode in ("SecDev", "Curvature"))
+            c0 = getattr(p, "_sp_deriv_c0", None)
+            lbl = getattr(p, "_lbl_deriv_c0", None)
+            for w in (c0, lbl):
+                if w is not None:
+                    w.setVisible(mode == "Curvature")  # C0 α is curvature-only
         if p._current_path:
             entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
             entry.view_mode = mode
             entry.edcnorm = mode == "EDCnorm"
+        p._update_display_data()
+        self._draw_current_view()
+
+    def _on_deriv_params_changed(self, _=None):
+        """Re-run the SecDev/Curvature display when a tuning value changes."""
+        p = self._parent
+        if p._cmb_view.currentText() not in ("SecDev", "Curvature"):
+            return
+        p._disp_cache_key = None  # force recompute (deriv params feed the key)
         p._update_display_data()
         self._draw_current_view()
 

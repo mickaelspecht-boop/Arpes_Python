@@ -179,6 +179,12 @@ def _build_carte_tab(window) -> QWidget:
     vbar.addWidget(lbl_hint)
     carte_lay.addLayout(vbar)
 
+    # SecDev / Curvature tuning bar — only visible for those modes. σ are in
+    # physical units (converted to pixels per-map); C0 α is the curvature
+    # regularization (sets the noise-vs-sharpness balance — the knob that makes
+    # the mode actually useful).
+    carte_lay.addWidget(_build_deriv_params_bar(window))
+
     # P4.6: "EF not calibrated" banner, visible until an EF calibration
     # (offset or polynomial fit) is set on the current file.
     window._lbl_ef_uncal = QLabel("⚠ EF not calibrated — « Auto EF calibration » before quantitative analysis.")
@@ -192,6 +198,46 @@ def _build_carte_tab(window) -> QWidget:
     window._bm_canvas.reset_callback = window._reset_bm_view
     carte_lay.addWidget(window._bm_canvas, stretch=1)
     return carte_widget
+
+
+def _build_deriv_params_bar(window) -> QWidget:
+    """Row of SecDev/Curvature tuning spinboxes (hidden unless that mode is on)."""
+    bar = QWidget()
+    lay = QHBoxLayout(bar)
+    lay.setContentsMargins(2, 0, 2, 0)
+
+    def _spin(lo, hi, step, dec, val, tip, width=64):
+        sp = QDoubleSpinBox()
+        sp.setRange(lo, hi); sp.setSingleStep(step); sp.setDecimals(dec)
+        sp.setValue(val); sp.setFixedWidth(width); sp.setKeyboardTracking(False)
+        sp.setToolTip(tip)
+        return sp
+
+    lay.addWidget(QLabel("σ_E [eV]:"))
+    window._sp_deriv_sigma_e = _spin(
+        0.002, 0.300, 0.005, 3, 0.025,
+        "Energy smoothing before differentiation (eV).\n"
+        "Larger = less noise but blurs the band. Raise this if SecDev looks like noise.")
+    lay.addWidget(window._sp_deriv_sigma_e)
+
+    lay.addWidget(QLabel("σ_k [π/a]:"))
+    window._sp_deriv_sigma_k = _spin(
+        0.005, 0.300, 0.005, 3, 0.040,
+        "Momentum smoothing before differentiation (π/a).")
+    lay.addWidget(window._sp_deriv_sigma_k)
+
+    window._lbl_deriv_c0 = QLabel("C0 α:")
+    lay.addWidget(window._lbl_deriv_c0)
+    window._sp_deriv_c0 = _spin(
+        0.005, 0.500, 0.01, 3, 0.050,
+        "Curvature regularization (Zhang C0 as a fraction of the interior\n"
+        "gradient). Small = sharper but noisier; large = smoother. Curvature only.")
+    lay.addWidget(window._sp_deriv_c0)
+    lay.addStretch()
+
+    bar.setVisible(False)
+    window._deriv_params_bar = bar
+    return bar
 
 
 def _new_view_combo() -> QComboBox:
@@ -317,6 +363,9 @@ def wire_ui_signals(window) -> None:
     window._cmb_view_fit.currentIndexChanged.connect(window._on_view_fit_changed)
     # B: debounce gamma BM colormap (évite rafales pendant drag spinbox)
     window._sp_gamma.valueChanged.connect(window._schedule_model_redraw)
+    # SecDev/Curvature tuning → recompute the display (not just recolor).
+    for _sp in (window._sp_deriv_sigma_e, window._sp_deriv_sigma_k, window._sp_deriv_c0):
+        _sp.valueChanged.connect(window._on_deriv_params_changed)
 
     _connect_map_canvas(window._bm_canvas, window)
     _connect_map_canvas(window._mdc_map_canvas, window)

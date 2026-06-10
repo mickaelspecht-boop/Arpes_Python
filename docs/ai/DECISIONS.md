@@ -9,6 +9,23 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-10 — SecDev/Curvature réparés (conseil physicist+numerics+arbiter)
+Sur BNA réel : SecDev = bruit pur, Curvature = seuls les bords du masque
+trapèze ressortent, bande lavée. 3 causes empilées trouvées : (1) formule
+« Zhang 2D » INCOMPLÈTE — manquaient le terme `(C0+I_k²)·I_EE` ET le facteur
+2 du terme croisé → n'affûtait que selon k ; (2) `C0 = 0.05·max(|∇I|)` : le
+max = falaise du bord masque → C0 explose → bande/C0→0 ; (3) `sigma=2px` figé +
+nan-median fill qui fait fuiter le fond dans la falaise. Fix : vraie formule 2D
+complète ; `_smooth_masked` (convolution normalisée `Gauss(I·M)/Gauss(M)`,
+NaN jamais propagés) ; C0 = α·percentile(|∇|,95) sur intérieur **érodé 5px**
+(exclut la falaise) ; σ exposés en **unités physiques** (eV, π/a) → px via
+median(diff(axe)) ; masquage à **EF+margin** (0.05 eV) au lieu de EF sec (coupe
+sèche = artefact dérivée). UI : barre σ_E/σ_k/C0α visible si SecDev/Curvature
+(C0α curvature-only), `_on_deriv_params_changed` (PROXY 146/150). Test
+tautologique remplacé par référence indépendante + test « bande>bord » +
+« C0 non lavé ». Copie morte `common.py::secdev_curvature` supprimée. DEFER
+(backlog) : modes 1D-MDC et 1D-EDC curvature. 854 OK / 9 skip.
+
 ## 2026-06-10 — Viz production-grade : conseil 6 agents, hover/export/badge/cache
 Demande « production-grade viz ». Conseil (architect/redteam/pyqt/numerics/ux/
 arbiter) : la perf demandée EXISTAIT déjà (debounce 150 ms `_fs_redraw_timer`,

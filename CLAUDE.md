@@ -8,7 +8,7 @@ Contexte projet auto-chargé par Claude Code. Toute modification du code doit re
 - Repo principal: `arpes/` (package). Shims racine `arpes_explorer.py` + `arpes_plots.py` ≤5 LOC, ne pas étendre.
 - Branche active: `main`. Mono-dev, pas de PR.
 - Lancer tests: `python3 -m pytest tests/ --ignore=tests/test_annotations.py --ignore=tests/test_local_dft_loaders.py -q`
-- État courant: 849 tests OK / 9 skip (env micromamba `peaks`, PyQt6 présent). Sans PyQt6: ~745 OK + ~61 skip Qt.
+- État courant: 854 tests OK / 9 skip (env micromamba `peaks`, PyQt6 présent). Sans PyQt6: ~745 OK + ~61 skip Qt.
 
 ## Index docs (où vit quoi)
 
@@ -67,7 +67,7 @@ arpes/
 ## PROXY_MAP (`arpes/ui/controllers/proxy_map.py`)
 
 - Mappe handlers `_on_*`/`_draw_*`/`_apply_*` exposés par `ArpesExplorer` vers leur controller via `__getattr__`.
-- Plafond 150. **Actuel: 143**.
+- Plafond 150. **Actuel: 146**.
 - Tout nouveau handler → ajouter une entrée + couvrir par `tests/test_ui_smoke.py::test_proxy_dispatch_resolves_every_entry`.
 - **Pour ≥3 actions liées: verb-dispatch unique.** Exemple: `fit_zone_action(verb, payload)` couvre add/remove/set_active/toggle/rename/clear_results/list en 1 entrée. Préserve la marge.
 
