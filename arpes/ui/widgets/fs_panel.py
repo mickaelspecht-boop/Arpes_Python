@@ -236,6 +236,16 @@ class FSControlPanel(QScrollArea):
 
         grp_pocket = QGroupBox("FS Pockets")
         fp = QFormLayout(grp_pocket)
+        # Primary entry point — mirrors the canvas-toolbar "▭ Pocket" toggle,
+        # which is too discreet to be discovered on its own.
+        self.btn_pocket_lasso = QPushButton("▭  Select pocket (drag a box)")
+        self.btn_pocket_lasso.setCheckable(True)
+        self.btn_pocket_lasso.setStyleSheet("font-weight:bold;")
+        self.btn_pocket_lasso.setToolTip(
+            "Draw a box around ONE pocket on the map: the seed point and "
+            "iso-level are derived automatically, then validate the preview."
+        )
+        fp.addRow(self.btn_pocket_lasso)
         self.lbl_pocket_count = QLabel("0 pockets")
         self.lbl_pocket_count.setStyleSheet("color:#aaa; font-size:10px;")
         self.cmb_pocket_quality = QComboBox()

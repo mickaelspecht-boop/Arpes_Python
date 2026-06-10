@@ -451,6 +451,14 @@ def wire_ui_signals(window) -> None:
                     "characterize_mdc", {"kx": float(kx), "ky": float(ky)}
                 )
             )
+        if (hasattr(window._fs_canvas, "_act_pocket_lasso")
+                and hasattr(window._fs_controls, "btn_pocket_lasso")):
+            _act = window._fs_canvas._act_pocket_lasso
+            _btn = window._fs_controls.btn_pocket_lasso
+            # Two-way sync; setChecked with the same value emits nothing, so
+            # no signal loop.
+            _btn.toggled.connect(_act.setChecked)
+            _act.toggled.connect(_btn.setChecked)
         if hasattr(window._fs_canvas, "pocket_preview_level_changed"):
             def _bar_level_changed(v, _w=window):
                 # Inline bar drives the same source of truth as the panel spin.
