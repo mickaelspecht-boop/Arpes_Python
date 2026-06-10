@@ -1,14 +1,21 @@
 """Shared Qt helpers (preconfigured spinboxes, separators, pair palette)."""
 from __future__ import annotations
 
+from PyQt6.QtCore import QLocale
 from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QPushButton, QSizePolicy, QSpinBox
 
 
 PAIR_COLORS = ["#ff8c00", "#00e5ff", "#7fff00", "#ff44cc"]
 
+# Force the dot as decimal separator regardless of the system locale. On a
+# French system QDoubleSpinBox expects a comma, so typing "4.5" was rejected and
+# only the integer part registered ("can only enter one digit" for φ etc.).
+_C_LOCALE = QLocale(QLocale.Language.C)
+
 
 def dspin(val, lo, hi, step, dec=3) -> QDoubleSpinBox:
     w = QDoubleSpinBox()
+    w.setLocale(_C_LOCALE)
     w.setRange(lo, hi); w.setSingleStep(step)
     w.setDecimals(dec); w.setValue(val); w.setFixedWidth(82)
     w.setKeyboardTracking(False)

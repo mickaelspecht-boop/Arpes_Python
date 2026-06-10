@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QLocale, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -41,6 +41,7 @@ class KzUiParams:
 
 def _dspin(value, lo, hi, step, dec=3) -> QDoubleSpinBox:
     sp = QDoubleSpinBox()
+    sp.setLocale(QLocale(QLocale.Language.C))  # dot decimal regardless of system locale
     sp.setRange(lo, hi)
     sp.setSingleStep(step)
     sp.setDecimals(dec)

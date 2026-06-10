@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QLocale, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
@@ -65,6 +65,7 @@ class FSControlPanel(QScrollArea):
 
     def _dspin(self, value, lo, hi, step, dec=3):
         sp = QDoubleSpinBox()
+        sp.setLocale(QLocale(QLocale.Language.C))  # dot decimal regardless of system locale
         sp.setRange(lo, hi); sp.setSingleStep(step); sp.setDecimals(dec); sp.setValue(value)
         sp.setKeyboardTracking(False)
         sp.valueChanged.connect(self.params_changed)

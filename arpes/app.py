@@ -74,7 +74,7 @@ from arpes.ui.controllers.session_io_controller import SessionIOController
 from arpes.core.session import FileEntry, FitParams, Session
 from arpes.core.undo import UndoStack
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QLocale, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
@@ -524,6 +524,10 @@ class ArpesExplorer(QMainWindow):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
+    # Force C locale app-wide so numeric spinboxes accept a dot decimal
+    # separator regardless of the host OS locale (FR locale expects a comma,
+    # which silently rejected "4.5"-style entries). UI is English throughout.
+    QLocale.setDefault(QLocale(QLocale.Language.C))
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     pal = QPalette()

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QLocale, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -27,6 +27,7 @@ from arpes.ui.widgets.canvas import MplCanvas
 def _dspin(lo: float, hi: float, val: float, step: float = 0.01,
            dec: int = 4) -> QDoubleSpinBox:
     sb = QDoubleSpinBox()
+    sb.setLocale(QLocale(QLocale.Language.C))  # dot decimal regardless of system locale
     sb.setRange(lo, hi)
     sb.setDecimals(dec)
     sb.setSingleStep(step)
