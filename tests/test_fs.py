@@ -417,6 +417,15 @@ class TestFermiSurfaceCanvas(unittest.TestCase):
         canvas.draw_fs(None, FSParams())
         self.assertIsNone(canvas._hover_data)
 
+    def test_draw_pocket_preview_accepts_ndarray(self):
+        # Regression: `contour or []` on an ndarray raised "truth value of an
+        # array is ambiguous" and crashed the lasso flow on first use.
+        canvas = FermiSurfaceCanvas()
+        t = np.linspace(0, 2 * np.pi, 30)
+        contour = np.column_stack([np.cos(t), np.sin(t)])
+        canvas.draw_pocket_preview(contour)  # must not raise
+        canvas.draw_pocket_preview(None)     # and the empty case still works
+
     def test_pending_badge_toggles(self):
         canvas = FermiSurfaceCanvas()
         self.assertFalse(canvas._pending_label.isVisible())

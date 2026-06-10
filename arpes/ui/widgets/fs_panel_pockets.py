@@ -189,7 +189,7 @@ def clear_pocket_preview(canvas) -> None:
 
 def draw_pocket_preview(canvas, contour) -> None:
     clear_pocket_preview(canvas)
-    arr = np.asarray(contour or [], dtype=float)
+    arr = np.asarray([] if contour is None else contour, dtype=float)
     if arr.ndim != 2 or arr.shape[1] != 2 or arr.shape[0] < 3:
         canvas.canvas.draw_idle()
         return
