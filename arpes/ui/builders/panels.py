@@ -297,8 +297,13 @@ def _build_mdc_tab(window) -> QWidget:
     window._edc_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
     window._mdc_fit_tabs.addTab(window._edc_canvas, "EDC")
 
+    # Created here (MDC tab builds before Results) but DISPLAYED in the
+    # Results tab: TB fit / kink / gap are results, not fitting controls.
     window._band_panel = BandAnalysisPanel()
-    window._mdc_fit_tabs.addTab(window._band_panel, "Band analysis")
+    _moved = QLabel("Band Analysis has moved to the Results tab →")
+    _moved.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    _moved.setStyleSheet("color:#888;")
+    window._mdc_fit_tabs.addTab(_moved, "Band analysis →")
 
     mdc_lay.addWidget(window._mdc_fit_tabs, stretch=1)
     return mdc_widget
@@ -308,7 +313,15 @@ def _build_results_tab(window) -> QWidget:
     from arpes.ui.widgets.results import ResultsPanel
 
     window._results = ResultsPanel(window._session)
-    return window._results
+    # Results = the analysis hub: MDC-fit physics tables + band analysis.
+    tabs = QTabWidget()
+    tabs.setStyleSheet(
+        "QTabBar::tab{background:#303030;color:#bbb;padding:4px 10px;}"
+        "QTabBar::tab:selected{background:#444;color:white;}"
+    )
+    tabs.addTab(window._results, "MDC Results")
+    tabs.addTab(window._band_panel, "Band Analysis")
+    return tabs
 
 
 def _build_fs_tab(window) -> QWidget:

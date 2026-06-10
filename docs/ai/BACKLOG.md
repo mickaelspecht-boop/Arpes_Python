@@ -58,3 +58,6 @@ résultat → item ici, puis `DECISIONS.md`.
 - Preview sous-échantillonnée pendant drag (NO-GO arbitre 2026-06-10 : debounce
   150 ms suffit, goulot = intégration numpy pas pcolormesh, stride aliase les
   poches fines). Rouvrir SEULEMENT avec un benchmark mesuré qui prouve le besoin.
+- Colonne n_Luttinger dans Results (NO-GO conseil 2026-06-10 tant que la
+  dimensionnalité du compte n'est pas définie — kF²/π 2D vs autre; lié au
+  Luttinger des poches FS qui lui existe déjà).

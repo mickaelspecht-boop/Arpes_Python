@@ -9,6 +9,18 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-10 — Results = hub d'analyse : Band Analysis déplacé, tables lisibles
+Plainte : Results illisible + Band analysis caché dans MDC Fit. Conseil (ux+
+architect+redteam+arbiter) : (A) GO — Results devient sous-onglets « MDC
+Results » + « Band Analysis » (panneau déplacé ; placeholder « → Results tab »
+laissé dans MDC Fit pour les habitudes, redteam R2). `_band_panel` reste créé
+dans _build_mdc_tab (ordre de build : MDC avant Results) mais affiché dans
+Results — signaux panels.py inchangés. (B) GO — tables 10→11px, headers gras,
+lignes alternées, table physique stretch=2 vs per-slice 1 (le résultat prime
+sur le diagnostic), boutons 5 empilés → 2 lignes. (C) NO-GO — colonne
+n_Luttinger PAS calculée dans results.py ; l'ajouter = choisir une
+dimensionnalité (kF²/π vs autre) → feature séparée, backlog. 865 OK / 9 skip.
+
 ## 2026-06-10 — Poches FS : barre d'action inline pour le preview
 User : « ajuster Level dans le panneau + clic droit Validate = pas ergonomique »
 (actions invisibles, aller-retour panneau↔canvas). Conseil (ux+architect+

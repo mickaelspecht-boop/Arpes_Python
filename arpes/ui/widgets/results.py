@@ -88,9 +88,11 @@ class ResultsPanel(QWidget):
              "Raw Γ", "Corr. Γ", "median chi2_red"])
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
+        self._table.setAlternatingRowColors(True)
         self._table.setStyleSheet(
-            "QTableWidget{background:#222;color:#ddd;font-size:10px;}"
-            "QHeaderView::section{background:#333;color:#ddd;}")
+            "QTableWidget{background:#222;color:#ddd;font-size:11px;"
+            "alternate-background-color:#2a2a2a;}"
+            "QHeaderView::section{background:#333;color:#eee;font-weight:bold;}")
         right.addWidget(self._table, stretch=1)
 
         self._chk_bootstrap = QCheckBox("Bootstrap σ (N=500, robust to outliers)")
@@ -110,10 +112,14 @@ class ResultsPanel(QWidget):
         ])
         self._table_phys.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
+        self._table_phys.setAlternatingRowColors(True)
         self._table_phys.setStyleSheet(
-            "QTableWidget{background:#222;color:#ddd;font-size:10px;}"
-            "QHeaderView::section{background:#333;color:#ddd;}")
-        right.addWidget(self._table_phys, stretch=1)
+            "QTableWidget{background:#222;color:#ddd;font-size:11px;"
+            "alternate-background-color:#2a2a2a;}"
+            "QHeaderView::section{background:#333;color:#eee;font-weight:bold;}")
+        # The physical table is THE result; the per-slice table above is
+        # diagnostic — give the physics twice the vertical share.
+        right.addWidget(self._table_phys, stretch=2)
 
         btn_ref = QPushButton("Refresh all")
         btn_ref.setToolTip("Redraws dispersion + Γ(E) and recomputes the tables.")
@@ -146,8 +152,10 @@ class ResultsPanel(QWidget):
         right.addLayout(style_row)
         btn_pdf = QPushButton("Export figure")
         btn_pdf.clicked.connect(self._export_fig)
-        for b in (btn_ref, btn_recalc, btn_multi, btn_export, btn_pdf):
-            right.addWidget(b)
+        row1 = QHBoxLayout(); row1.addWidget(btn_ref); row1.addWidget(btn_recalc)
+        row2 = QHBoxLayout(); row2.addWidget(btn_multi); row2.addWidget(btn_export)
+        row2.addWidget(btn_pdf)
+        right.addLayout(row1); right.addLayout(row2)
 
         rw = QWidget(); rw.setLayout(right)
         rw.setMaximumWidth(350)
