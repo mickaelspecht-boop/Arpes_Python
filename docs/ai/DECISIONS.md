@@ -9,6 +9,18 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-10 — Spinbox locale + rotation BM par direction + logbook b/c/φ
+Trois choses livrées (2 commits). (1) **Locale** : sur OS FR, `QDoubleSpinBox`
+attend la virgule et rejetait silencieusement le point (work function "4.5" →
+"4"). Fix global `QLocale.setDefault(C)` dans `main()` (couvre tous les spinboxes
++ dialogs + futurs ; UI EN partout). `setLocale` par-helper gardés en filet.
+(2) **Rotation BM** : quand `azi` moteur absent (BESSY), on tourne le cut depuis
+le label direction du logbook (Γ-X/Γ-M…) au lieu de supposer 0° ; cut tagué
+"rotated". (3) **Logbook** : mappe désormais b, c et work function (match exact +
+flou + garde plausibilité numérique). `b_angstrom` ajouté à SampleConfig/FileMeta
+(additif, pas de bump VERSION). Cuts dupliqués décalés perpendiculairement pour
+rester lisibles. 844 OK / 9 skip.
+
 ## 2026-06-07 — FS↔BM CLS2026 : LE vrai bug = double key_for_path
 Malgré les fixes découverte+φ, toujours 0 lien sur CLS2026. Cause racine :
 `key_for_path` **n'est pas idempotent** sur clé nichée (`"BNA_S1/FS3"→"FS3"`).
