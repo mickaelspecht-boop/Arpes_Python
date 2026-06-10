@@ -9,6 +9,20 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-10 — Poches FS : barre d'action inline pour le preview
+User : « ajuster Level dans le panneau + clic droit Validate = pas ergonomique »
+(actions invisibles, aller-retour panneau↔canvas). Conseil (ux+architect+
+redteam+arbiter) GO : barre inline sous le canvas FS, visible SEULEMENT
+pendant un preview : `[Level slider+spin] [✓ Validate (MDC fit)] [✗ Cancel]`.
+Slider live avec debounce 80 ms (sinon recompute contour à chaque tick) ;
+range calibré sur min/max réels de la carte previewée (pas 0–1 figé) ; source
+de vérité unique = sp_pocket_level du panneau (sync blockSignals). Cancel via
+menu cache AUSSI la barre (état zombi sinon, redteam cas 1) ; échec MDC → la
+barre RESTE (preview gardée). Molette souris pour level REFUSÉE (conflit
+scroll-zoom mpl). Menu clic-droit conservé comme chemin alternatif. Code dans
+fs_panel_pockets.py (free function, pattern lasso) — fs_panel quasi au cap.
+864 OK / 9 skip.
+
 ## 2026-06-10 — Poches FS : flux unique, wizard SUPPRIMÉ, panneau dégraissé
 Suite plainte « 4 portes d'entrée incompréhensibles ». Conseil (architect+ux+
 redteam+arbiter, 1 spawn) : flux UNIQUE « lasso/clic → preview ISO (visuel) →

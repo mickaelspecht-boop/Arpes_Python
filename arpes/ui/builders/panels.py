@@ -451,6 +451,13 @@ def wire_ui_signals(window) -> None:
                     "characterize_mdc", {"kx": float(kx), "ky": float(ky)}
                 )
             )
+        if hasattr(window._fs_canvas, "pocket_preview_level_changed"):
+            def _bar_level_changed(v, _w=window):
+                # Inline bar drives the same source of truth as the panel spin.
+                sp = _w._fs_controls.sp_pocket_level
+                sp.blockSignals(True); sp.setValue(float(v)); sp.blockSignals(False)
+                _w._pocket_action("preview_update", {"level": float(v)})
+            window._fs_canvas.pocket_preview_level_changed.connect(_bar_level_changed)
         if hasattr(window._fs_canvas, "pocket_lasso_requested"):
             window._fs_canvas.pocket_lasso_requested.connect(
                 lambda x0, x1, y0, y1: window._pocket_action(

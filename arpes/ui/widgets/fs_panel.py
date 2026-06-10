@@ -454,6 +454,7 @@ class FermiSurfaceCanvas(QWidget):
     pockets_export_requested = pyqtSignal()
     pocket_open_requested = pyqtSignal(int)
     pocket_lasso_requested = pyqtSignal(float, float, float, float)  # kx0,kx1,ky0,ky1
+    pocket_preview_level_changed = pyqtSignal(float)  # inline action-bar slider
 
     def __init__(self):
         super().__init__()
@@ -489,9 +490,12 @@ class FermiSurfaceCanvas(QWidget):
             "The figure is exported as displayed — pockets and BZ overlays included."
         )
         act_exp.triggered.connect(self.export_figure)
-        from arpes.ui.widgets.fs_panel_pockets import setup_pocket_lasso
+        from arpes.ui.widgets.fs_panel_pockets import (
+            setup_pocket_action_bar, setup_pocket_lasso,
+        )
         setup_pocket_lasso(self)  # "▭ Pocket" toolbar toggle (box → seed+level)
         lay.addWidget(self.toolbar); lay.addWidget(self.canvas)
+        setup_pocket_action_bar(self)  # inline Level/Validate/Cancel (preview)
         self.canvas.mpl_connect("button_press_event", self._on_canvas_button_press)
         self.canvas.mpl_connect("pick_event", self._on_pick_event)
         # Map data kept for the toolbar hover readout (x, y, fs) — refreshed by

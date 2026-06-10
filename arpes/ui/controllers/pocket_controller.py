@@ -162,6 +162,22 @@ class PocketController:
         from arpes.ui.controllers.pocket_controller_mdc import characterize_mdc_at
         return characterize_mdc_at(self, payload)
 
+    def _show_preview_bar(self, level: float, fs_pocket) -> None:
+        """Show the inline Level/Validate/Cancel bar, calibrated to the actual
+        intensity range of the previewed map (not a fixed 0-1)."""
+        fn = getattr(self._fs_canvas, "set_pocket_bar_state", None)
+        if fn is None:
+            return
+        finite = np.isfinite(fs_pocket)
+        lo = float(np.nanmin(fs_pocket)) if finite.any() else 0.0
+        hi = float(np.nanmax(fs_pocket)) if finite.any() else 1.0
+        fn(True, level=float(level), lo=lo, hi=hi)
+
+    def _hide_preview_bar(self) -> None:
+        fn = getattr(self._fs_canvas, "set_pocket_bar_state", None)
+        if fn is not None:
+            fn(False)
+
     def _lasso_characterize(self, payload: dict):
         """Human-in-the-loop entry: a box dragged around ONE pocket.
 
@@ -216,9 +232,10 @@ class PocketController:
         object.__setattr__(self, "_preview_seed_plot",
                            (seed.seed_kx - cx, seed.seed_ky - cy))
         self._draw_preview_at(seed.level)
+        self._show_preview_bar(seed.level, fs_pocket)
         self._status(
             f"Pocket lasso: level auto={seed.level:.3f} ({seed.n_px} px). "
-            "Adjust Level if needed, right-click → Validate." + warn)
+            "Drag the Level slider if needed, then Validate." + warn)
         return None
 
     def _preview_start(self, payload: dict):
@@ -246,9 +263,10 @@ class PocketController:
             object.__setattr__(self, "_preview_seed_raw", seed_raw)
             object.__setattr__(self, "_preview_seed_plot", seed_plot)
             self._draw_preview_at(level)
+            self._show_preview_bar(level, fs_pocket)
             self._status(
-                f"Pocket preview: adjust the Level slider (auto={level:.3f}). "
-                "Right-click → Validate or Cancel."
+                f"Pocket preview: drag the Level slider (auto={level:.3f}), "
+                "then Validate."
             )
         except Exception as exc:
             self._status(f"Pocket preview: {exc}")
@@ -265,6 +283,7 @@ class PocketController:
         return None
 
     def _preview_cancel(self):
+        self._hide_preview_bar()
         object.__setattr__(self, "_preview_seed_raw", None)
         object.__setattr__(self, "_preview_seed_plot", None)
         if hasattr(self._fs_canvas, "clear_pocket_preview"):
@@ -296,6 +315,7 @@ class PocketController:
                 "Adjust 'MDC dirs'/'MDC R²min' in Advanced settings, or use "
                 "Quick ISO (no fit).")
             return None
+        self._hide_preview_bar()
         if hasattr(self._fs_canvas, "clear_pocket_preview"):
             self._fs_canvas.clear_pocket_preview()
         object.__setattr__(self, "_preview_seed_raw", None)

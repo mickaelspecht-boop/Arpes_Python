@@ -62,6 +62,83 @@ def setup_pocket_lasso(canvas) -> None:
     canvas._act_pocket_lasso = act
 
 
+def setup_pocket_action_bar(canvas) -> None:
+    """Inline action bar shown under the FS canvas while a pocket preview is
+    active: a Level slider (live contour redraw, 80 ms debounce) plus explicit
+    Validate / Cancel buttons. Replaces the hidden right-click-only flow; the
+    context menu remains as an alternative path."""
+    from PyQt6.QtCore import Qt, QTimer
+    from PyQt6.QtWidgets import (
+        QDoubleSpinBox, QHBoxLayout, QLabel, QPushButton, QSlider, QWidget,
+    )
+
+    bar = QWidget()
+    lay = QHBoxLayout(bar)
+    lay.setContentsMargins(4, 2, 4, 2)
+    lay.addWidget(QLabel("Level:"))
+    slider = QSlider(Qt.Orientation.Horizontal)
+    slider.setRange(0, 1000)
+    spin = QDoubleSpinBox()
+    spin.setDecimals(3); spin.setRange(0.0, 1.0)
+    spin.setSingleStep(0.005); spin.setFixedWidth(70)
+    spin.setKeyboardTracking(False)
+    btn_ok = QPushButton("✓ Validate (MDC fit)")
+    btn_ok.setToolTip("Run the radial MDC fit from this contour. "
+                      "Produces kF ± σ. May take a few seconds.")
+    btn_no = QPushButton("✗ Cancel")
+    btn_no.setToolTip("Discard this preview without adding a pocket.")
+    lay.addWidget(slider, stretch=3)
+    lay.addWidget(spin)
+    lay.addWidget(btn_ok)
+    lay.addWidget(btn_no)
+    bar.setVisible(False)
+
+    # Debounced live redraw: a fast drag emits once per 80 ms, not per tick.
+    timer = QTimer(bar); timer.setSingleShot(True); timer.setInterval(80)
+    timer.timeout.connect(lambda: canvas.pocket_preview_level_changed.emit(spin.value()))
+    canvas._pocket_bar_range = (0.0, 1.0)
+
+    def _slider_to_level(v: int) -> float:
+        lo, hi = canvas._pocket_bar_range
+        return lo + (hi - lo) * (v / 1000.0)
+
+    def _level_to_slider(lvl: float) -> int:
+        lo, hi = canvas._pocket_bar_range
+        span = (hi - lo) or 1.0
+        return int(round(1000.0 * (float(lvl) - lo) / span))
+
+    def _on_slider(v: int):
+        spin.blockSignals(True); spin.setValue(_slider_to_level(v)); spin.blockSignals(False)
+        timer.start()
+
+    def _on_spin(val: float):
+        slider.blockSignals(True); slider.setValue(_level_to_slider(val)); slider.blockSignals(False)
+        timer.start()
+
+    slider.valueChanged.connect(_on_slider)
+    spin.valueChanged.connect(_on_spin)
+    btn_ok.clicked.connect(canvas.pocket_preview_validate_requested)
+    btn_no.clicked.connect(canvas.pocket_preview_cancel_requested)
+
+    def set_state(visible: bool, level: float | None = None,
+                  lo: float | None = None, hi: float | None = None) -> None:
+        """Controller hook: show/hide the bar and calibrate slider mapping to
+        the actual intensity range of the previewed map."""
+        if lo is not None and hi is not None and hi > lo:
+            canvas._pocket_bar_range = (float(lo), float(hi))
+            spin.blockSignals(True)
+            spin.setRange(float(lo), float(hi)); spin.blockSignals(False)
+        if level is not None:
+            spin.blockSignals(True); spin.setValue(float(level)); spin.blockSignals(False)
+            slider.blockSignals(True)
+            slider.setValue(_level_to_slider(float(level))); slider.blockSignals(False)
+        bar.setVisible(bool(visible))
+
+    canvas.pocket_action_bar = bar
+    canvas.set_pocket_bar_state = set_state
+    canvas.layout().addWidget(bar)
+
+
 def handle_canvas_right_click(canvas, event) -> None:
     """Open right-click pocket menu and emit the selected canvas signal."""
     from PyQt6.QtWidgets import QMenu

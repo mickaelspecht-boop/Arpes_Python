@@ -208,6 +208,9 @@ class _Chk:
 class _FakeCanvas:
     """No-op stand-in for FermiSurfaceCanvas used by the preview path."""
 
+    def __init__(self):
+        self.bar_calls: list[tuple] = []  # (visible, level, lo, hi)
+
     def draw_pocket_preview(self, *_a, **_k):
         return None
 
@@ -216,6 +219,9 @@ class _FakeCanvas:
 
     def draw_pockets(self, *_a, **_k):
         return None
+
+    def set_pocket_bar_state(self, visible, level=None, lo=None, hi=None):
+        self.bar_calls.append((bool(visible), level, lo, hi))
 
 
 class _Parent:
@@ -273,6 +279,43 @@ def _raw_fs():
             "fs_kind": "kxky",
         }
     }
+
+
+class TestPreviewActionBar(unittest.TestCase):
+    """Inline Level/Validate/Cancel bar lifecycle (council 2026-06-10)."""
+
+    def _ctrl(self, tmp):
+        parent = _Parent(Path(tmp))
+        return parent, PocketController(parent)
+
+    def test_preview_start_shows_bar_with_dynamic_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent, ctrl = self._ctrl(tmp)
+            ctrl._pocket_action("preview_start", {"kx": 0.0, "ky": 0.0})
+            shows = [c for c in parent._fs_canvas.bar_calls if c[0]]
+            self.assertTrue(shows)
+            _, level, lo, hi = shows[-1]
+            self.assertIsNotNone(level)
+            self.assertLess(lo, hi)  # calibrated to the map, not fixed 0-1
+
+    def test_cancel_hides_bar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent, ctrl = self._ctrl(tmp)
+            ctrl._pocket_action("preview_start", {"kx": 0.0, "ky": 0.0})
+            ctrl._pocket_action("preview_cancel", {})
+            self.assertFalse(parent._fs_canvas.bar_calls[-1][0])  # hidden
+
+    def test_mdc_failure_keeps_bar_visible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent, ctrl = self._ctrl(tmp)
+            ctrl._pocket_action("preview_start", {"kx": 0.0, "ky": 0.0})
+            n_calls = len(parent._fs_canvas.bar_calls)
+            result = ctrl._pocket_action("preview_validate", {})
+            if result is None:  # MDC failed on this synthetic map
+                # No hide call may have been issued on the failure path.
+                new = parent._fs_canvas.bar_calls[n_calls:]
+                self.assertTrue(all(c[0] for c in new) or not new)
+                self.assertIsNotNone(ctrl._preview_seed_plot)  # preview kept
 
 
 if __name__ == "__main__":
