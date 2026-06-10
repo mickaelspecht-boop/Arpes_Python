@@ -24,6 +24,7 @@ from arpes.physics.kpar_geometry import (
     C_ARPES,
     kpar_scale,
 )
+from arpes.physics.hs_directions import normalize_direction_label
 
 
 Quality = Literal["exact", "rotated", "scaled", "incompatible"]
@@ -124,6 +125,46 @@ def _classify_quality(
 def _angle_delta_deg(dst: float, src: float) -> float:
     """Signed shortest angular delta dst-src in degrees, in [-180, 180)."""
     return (float(dst) - float(src) + 180.0) % 360.0 - 180.0
+
+
+def _direction_angle_deg(value) -> float | None:
+    """Best-effort angle for common high-symmetry line labels.
+
+    This is a fallback for BESSY-style logbooks where `direction` is present
+    but motor `azi` is not. It only covers canonical line labels the UI already
+    exposes; calibrated azimuth remains the preferred source.
+    """
+    label = normalize_direction_label(value)
+    if not label:
+        return None
+    parts = [p for p in label.split("-") if p]
+    if len(parts) < 2:
+        return None
+    start, end = parts[0], parts[-1]
+    if start == "Γ":
+        table = {"X": 0.0, "Y": 90.0, "M": 45.0, "K": 30.0, "Σ": 45.0}
+        return table.get(end)
+    if {start, end} == {"X", "M"}:
+        return 90.0
+    if {start, end} == {"Y", "M"}:
+        return 0.0
+    return None
+
+
+def _direction_delta_deg(bm_entry, fs_entry) -> tuple[float | None, str]:
+    bm_dir = getattr(getattr(bm_entry, "meta", None), "direction", "")
+    fs_dir = getattr(getattr(fs_entry, "meta", None), "direction", "")
+    bm_ang = _direction_angle_deg(bm_dir)
+    if bm_ang is None:
+        return None, ""
+    fs_ang = _direction_angle_deg(fs_dir)
+    if fs_ang is None:
+        fs_ang = 0.0
+        fs_dir = "Γ-X"
+    return _angle_delta_deg(fs_ang, bm_ang), (
+        f"direction {normalize_direction_label(str(bm_dir))} vs "
+        f"{normalize_direction_label(str(fs_dir)) or 'Γ-X'} → rotation applied"
+    )
 
 
 def compute_bm_cut_in_fs_frame(
@@ -238,14 +279,23 @@ def compute_bm_cut_in_fs_frame(
         kx_local = t.copy()
     ky_local = np.full_like(kx_local, ky_in_fs_local)
 
-    # Rotate by delta_azi around Γ if azi differs
+    # Rotate by calibrated azi when available; otherwise fall back to logbook
+    # high-symmetry direction (common in BESSY sheets with no motor azi).
+    direction_note = ""
+    used_direction_rotation = False
     if azi_bm is not None and azi_fs is not None:
         try:
-            delta_azi_rad = np.radians(_angle_delta_deg(float(azi_fs), float(azi_bm)))
+            delta_deg = _angle_delta_deg(float(azi_fs), float(azi_bm))
         except (TypeError, ValueError):
-            delta_azi_rad = 0.0
+            delta_deg = 0.0
     else:
-        delta_azi_rad = 0.0
+        delta_dir, direction_note = _direction_delta_deg(bm_entry, fs_entry)
+        if delta_dir is None:
+            delta_deg = 0.0
+        else:
+            delta_deg = float(delta_dir)
+            used_direction_rotation = abs(delta_deg) > 1e-12
+    delta_azi_rad = np.radians(delta_deg)
     if abs(delta_azi_rad) > 1e-12:
         c, s = np.cos(delta_azi_rad), np.sin(delta_azi_rad)
         kx_out = kx_local * c - ky_local * s
@@ -259,6 +309,10 @@ def compute_bm_cut_in_fs_frame(
         hv_tol_rel=hv_tolerance_rel,
         azi_tol_deg=azi_tolerance_deg,
     )
+    if used_direction_rotation and quality == "exact":
+        quality = "rotated"
+    if direction_note and used_direction_rotation:
+        warning = f"{warning} | {direction_note}" if warning else direction_note
     if tilt_note:
         warning = f"{warning} | {tilt_note}" if warning else tilt_note
     # Strict overlay guard: if Δhv/max > overlay_max_hv_rel, list the BM

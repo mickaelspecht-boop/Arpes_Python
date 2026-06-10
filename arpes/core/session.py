@@ -125,6 +125,7 @@ class FileMeta:
     formula: str = ""
     mp_id: str = ""
     crystal_a_angstrom: float = 0.0
+    crystal_b_angstrom: float = 0.0
     crystal_c_angstrom: float = 0.0
     work_function_eV: float = 0.0
     space_group: str = ""

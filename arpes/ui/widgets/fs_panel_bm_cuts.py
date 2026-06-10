@@ -1,6 +1,8 @@
 """BM cut overlay drawer for FermiSurfaceCanvas (free functions)."""
 from __future__ import annotations
 
+import math
+
 
 _COLOR = {
     "exact": "#00d4ff",
@@ -8,6 +10,33 @@ _COLOR = {
     "scaled": "#ff5544",
     "incompatible": "#888888",
 }
+
+
+def _line_key(cut) -> tuple:
+    if cut.kx_points.size == 0:
+        return ()
+    return (
+        round(float(cut.kx_points[0]), 5),
+        round(float(cut.ky_points[0]), 5),
+        round(float(cut.kx_points[-1]), 5),
+        round(float(cut.ky_points[-1]), 5),
+    )
+
+
+def _duplicate_offsets(cuts: list) -> dict[int, float]:
+    groups: dict[tuple, list[int]] = {}
+    for i, cut in enumerate(cuts):
+        key = _line_key(cut)
+        if key:
+            groups.setdefault(key, []).append(i)
+    offsets: dict[int, float] = {}
+    for idxs in groups.values():
+        n = len(idxs)
+        if n <= 1:
+            continue
+        for rank, idx in enumerate(idxs):
+            offsets[idx] = (rank - (n - 1) / 2.0) * 0.018
+    return offsets
 
 
 def clear_bm_cut_artists(canvas) -> None:
@@ -31,11 +60,20 @@ def draw_bm_cuts(canvas, cuts: list) -> None:
         canvas.canvas.draw_idle()
         return
     cx, cy = getattr(canvas, "_bm_cut_center", (0.0, 0.0))
-    for cut in cuts:
+    offsets = _duplicate_offsets(cuts)
+    for i, cut in enumerate(cuts):
         if cut.kx_points.size == 0:
             continue
         kx_plot = cut.kx_points - cx
         ky_plot = cut.ky_points - cy
+        offset = offsets.get(i, 0.0)
+        if offset:
+            dx = float(kx_plot[-1] - kx_plot[0])
+            dy = float(ky_plot[-1] - ky_plot[0])
+            norm = math.hypot(dx, dy)
+            if norm > 1e-12:
+                kx_plot = kx_plot + (-dy / norm) * offset
+                ky_plot = ky_plot + (dx / norm) * offset
         color = _COLOR.get(cut.quality, "white")
         linestyle = "--" if cut.quality == "scaled" else "-"
         line, = canvas.ax.plot(

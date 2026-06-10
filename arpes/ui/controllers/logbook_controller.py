@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QLocale, Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -20,10 +20,12 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QDoubleSpinBox,
     QVBoxLayout,
 )
 
-from arpes.io.logbook import LogbookManager, _cell_text, _norm_text
+from arpes.core.sample import SampleConfig
+from arpes.io.logbook import LogbookManager, _cell_float, _cell_text, _norm_text
 from arpes.io.logbook_io import read_logbook as read_logbook_file
 
 
@@ -161,6 +163,7 @@ class LogbookIngestController:
                 "mapping": dict(mapping),
             }
         self._session.logbook_records = keep + added
+        self._ensure_sample_params_after_logbook(added, mapping)
         self._session.save()
         scope_txt = ", ".join(chosen)
         self._status(f"Scoped logbook '{Path(path).name}' → {scope_txt} | {len(records)} rows ×{len(chosen)}")
@@ -258,6 +261,10 @@ class LogbookIngestController:
                 "path": path, "sheet": sheet, "n": len(records),
                 "mapping": dict(mapping),
             }
+        self._ensure_sample_params_after_logbook(
+            self._session.logbook_records,
+            self._session.logbook_mapping,
+        )
         self._session.save()
         attached_txt = ", ".join(f"{e['sheet']}→{e['subfolder_rel']}" for e in chosen)
         self._status(f"✓ Auto-scope: {len(chosen)} sheets attached ({attached_txt})")
@@ -300,6 +307,166 @@ class LogbookIngestController:
             for i in range(lst.count())
             if lst.item(i).checkState() == Qt.CheckState.Checked
         ]
+
+    # ------------------------------------------------------ sample parameters
+    def _ensure_sample_params_after_logbook(
+        self, records: list[dict], mapping: dict[str, str]
+    ) -> None:
+        """Prompt once for sample constants missing from the loaded logbook.
+
+        `current_sample` is the durable source. Per-file logbook values still
+        win through SampleConfig.from_meta when present.
+        """
+        sample = SampleConfig.from_dict(self._session.current_sample)
+        detected = self._sample_values_from_logbook(records, mapping)
+        merged = sample.merge_missing_from(detected)
+
+        missing = [
+            key for key, value in (
+                ("a", merged.a_angstrom),
+                ("b", merged.b_angstrom),
+                ("c", merged.c_angstrom),
+                ("work", merged.work_function_eV),
+            )
+            if float(value or 0.0) <= 0.0
+        ]
+        if not missing:
+            self._save_and_sync_sample(merged, source="logbook")
+            return
+
+        chosen = self._sample_params_dialog(merged, missing)
+        if chosen is None:
+            self._save_and_sync_sample(merged, source=merged.lattice_source or "logbook")
+            self._status(
+                "Sample parameters still incomplete; detected constants were kept, "
+                "but FS/KZ may need manual a/b/c/φ."
+            )
+            return
+        self._save_and_sync_sample(chosen, source="manual")
+
+    @staticmethod
+    def _sample_values_from_logbook(
+        records: list[dict], mapping: dict[str, str]
+    ) -> SampleConfig:
+        def first_positive(key: str) -> float:
+            col = mapping.get(key, "")
+            if not col:
+                return 0.0
+            for rec in records:
+                if not isinstance(rec, dict):
+                    continue
+                val = _cell_float(rec.get(col))
+                if val is not None and val > 0:
+                    return float(val)
+            return 0.0
+
+        return SampleConfig(
+            a_angstrom=first_positive("crystal_a_angstrom"),
+            b_angstrom=first_positive("crystal_b_angstrom"),
+            c_angstrom=first_positive("crystal_c_angstrom"),
+            work_function_eV=first_positive("work_function_eV"),
+            lattice_source="logbook",
+        )
+
+    def _sample_params_dialog(
+        self, sample: SampleConfig, missing: list[str]
+    ) -> SampleConfig | None:
+        dlg = QDialog(self._parent)
+        dlg.setWindowTitle("Sample constants")
+        lay = QVBoxLayout(dlg)
+        label = QLabel(
+            "The logbook does not provide all constants needed for physical "
+            "k-space conversion. Enter the sample values once for this session."
+        )
+        label.setWordWrap(True)
+        lay.addWidget(label)
+        form = QFormLayout()
+        lay.addLayout(form)
+
+        def spin(value: float, *, lo: float, hi: float, step: float, dec: int):
+            w = QDoubleSpinBox()
+            w.setRange(lo, hi)
+            w.setSingleStep(step)
+            w.setDecimals(dec)
+            w.setLocale(QLocale(QLocale.Language.C))
+            w.setValue(float(value or 0.0))
+            w.setKeyboardTracking(False)
+            return w
+
+        a0 = float(sample.a_angstrom or 0.0)
+        b0 = float(sample.b_angstrom or a0 or 0.0)
+        c0 = float(sample.c_angstrom or 0.0)
+        w0 = float(sample.work_function_eV or 0.0)
+        sp_a = spin(a0, lo=0.0, hi=30.0, step=0.01, dec=4)
+        sp_b = spin(b0, lo=0.0, hi=30.0, step=0.01, dec=4)
+        sp_c = spin(c0, lo=0.0, hi=80.0, step=0.01, dec=4)
+        sp_w = spin(w0, lo=0.0, hi=10.0, step=0.01, dec=3)
+        if float(sample.b_angstrom or 0.0) <= 0.0:
+            sp_a.valueChanged.connect(
+                lambda v: sp_b.setValue(float(v)) if sp_b.value() <= 0.0 else None
+            )
+        form.addRow("a (Å):", sp_a)
+        form.addRow("b (Å):", sp_b)
+        form.addRow("c (Å):", sp_c)
+        form.addRow("φ work function (eV):", sp_w)
+
+        if missing:
+            miss_txt = ", ".join(missing)
+            hint = QLabel(f"Missing from logbook/session: {miss_txt}.")
+            hint.setWordWrap(True)
+            lay.addWidget(hint)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return SampleConfig(
+            formula=sample.formula,
+            a_angstrom=float(sp_a.value()),
+            b_angstrom=float(sp_b.value()),
+            c_angstrom=float(sp_c.value()),
+            work_function_eV=float(sp_w.value()),
+            space_group=sample.space_group,
+            mp_id=sample.mp_id,
+            lattice_source="manual",
+        )
+
+    def _save_and_sync_sample(self, sample: SampleConfig, *, source: str) -> None:
+        if sample.a_angstrom <= 0 and sample.b_angstrom <= 0 and sample.c_angstrom <= 0 and sample.work_function_eV <= 0:
+            return
+        if source:
+            sample.lattice_source = source
+        self._session.current_sample = sample.to_dict()
+        self._sync_sample_widgets(sample)
+        self._status(
+            "Sample constants: "
+            f"a={sample.a_angstrom:g} Å, b={sample.b_angstrom:g} Å, "
+            f"c={sample.c_angstrom:g} Å, φ={sample.work_function_eV:g} eV."
+        )
+
+    def _sync_sample_widgets(self, sample: SampleConfig) -> None:
+        def set_spin(obj, name: str, value: float) -> None:
+            sp = getattr(obj, name, None) if obj is not None else None
+            if sp is None or float(value or 0.0) <= 0.0:
+                return
+            if abs(float(sp.value()) - float(value)) <= 1e-9:
+                return
+            sp.blockSignals(True)
+            sp.setValue(float(value))
+            sp.blockSignals(False)
+
+        set_spin(self._params, "sp_phi", sample.work_function_eV)
+        set_spin(self._params, "sp_crystal_a", sample.a_angstrom)
+        fs_controls = getattr(self._parent, "_fs_controls", None)
+        set_spin(fs_controls, "sp_a", sample.a_angstrom)
+        set_spin(fs_controls, "sp_b", sample.b_angstrom or sample.a_angstrom)
+        kz_controls = getattr(self._parent, "_kz_controls", None)
+        set_spin(kz_controls, "sp_a", sample.a_angstrom)
+        set_spin(kz_controls, "sp_c", sample.c_angstrom)
 
     # --------------------------------------------------------- detach / state
     def attached_logbooks(self) -> list[tuple[str, str, str]]:
@@ -351,6 +518,7 @@ class LogbookIngestController:
             scoped = [r for r in self._session.logbook_records
                       if isinstance(r, dict) and r.get("_subfolder_rel")]
             self._session.logbook_records = scoped + list(records)
+            self._ensure_sample_params_after_logbook(records, mapping)
             self._session.save()
             used = ", ".join(f"{k}={v or '—'}" for k, v in mapping.items())
             sheet_txt = f" [{sheet_name}]" if sheet_name else ""
@@ -487,6 +655,10 @@ class LogbookIngestController:
             "azi": "Azimut:",
             "polar": "Polar / theta manip:",
             "tilt": "Tilt / phi manip:",
+            "crystal_a_angstrom": "a lattice (Å):",
+            "crystal_b_angstrom": "b lattice (Å):",
+            "crystal_c_angstrom": "c lattice (Å):",
+            "work_function_eV": "φ work function (eV):",
         }
         choices = [""] + columns
         for key, label in labels.items():

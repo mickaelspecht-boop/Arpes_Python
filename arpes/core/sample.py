@@ -33,6 +33,7 @@ class SampleConfig:
 
     formula: str = ""
     a_angstrom: float = 0.0
+    b_angstrom: float = 0.0
     c_angstrom: float = 0.0
     work_function_eV: float = 0.0
     space_group: str = ""
@@ -49,6 +50,9 @@ class SampleConfig:
             formula=_text(data.get("formula")),
             a_angstrom=_finite_positive(
                 data.get("a_angstrom", data.get("crystal_a_angstrom"))
+            ),
+            b_angstrom=_finite_positive(
+                data.get("b_angstrom", data.get("crystal_b_angstrom"))
             ),
             c_angstrom=_finite_positive(
                 data.get("c_angstrom", data.get("crystal_c_angstrom"))
@@ -67,6 +71,7 @@ class SampleConfig:
         legacy = cls(
             formula=_text(getattr(meta, "formula", "")),
             a_angstrom=_finite_positive(getattr(meta, "crystal_a_angstrom", 0.0)),
+            b_angstrom=_finite_positive(getattr(meta, "crystal_b_angstrom", 0.0)),
             c_angstrom=_finite_positive(getattr(meta, "crystal_c_angstrom", 0.0)),
             work_function_eV=_finite_positive(getattr(meta, "work_function_eV", 0.0)),
             space_group=_text(getattr(meta, "space_group", "")),
@@ -80,6 +85,7 @@ class SampleConfig:
         return SampleConfig(
             formula=self.formula or other.formula,
             a_angstrom=self.a_angstrom or other.a_angstrom,
+            b_angstrom=self.b_angstrom or other.b_angstrom,
             c_angstrom=self.c_angstrom or other.c_angstrom,
             work_function_eV=self.work_function_eV or other.work_function_eV,
             space_group=self.space_group or other.space_group,

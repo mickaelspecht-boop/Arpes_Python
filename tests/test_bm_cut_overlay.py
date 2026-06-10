@@ -15,15 +15,21 @@ from arpes.physics.bm_cut_overlay import (
 TEST_A = 3.96
 
 
-def _bm_entry(*, polar=0.0, azi=0.0, hv=60.0, pol="LH", tilt=None) -> FileEntry:
+def _bm_entry(
+    *, polar=0.0, azi=0.0, hv=60.0, pol="LH", tilt=None, direction=""
+) -> FileEntry:
     return FileEntry(meta=FileMeta(
-        hv=hv, polar=polar, azi=azi, tilt=tilt, polarization=pol, scan_kind="BM",
+        hv=hv, polar=polar, azi=azi, tilt=tilt, direction=direction,
+        polarization=pol, scan_kind="BM",
     ))
 
 
-def _fs_entry(*, polar=0.0, azi=0.0, hv=60.0, pol="LH", tilt=None) -> FileEntry:
+def _fs_entry(
+    *, polar=0.0, azi=0.0, hv=60.0, pol="LH", tilt=None, direction=""
+) -> FileEntry:
     return FileEntry(meta=FileMeta(
-        hv=hv, polar=polar, azi=azi, tilt=tilt, polarization=pol, scan_kind="FS",
+        hv=hv, polar=polar, azi=azi, tilt=tilt, direction=direction,
+        polarization=pol, scan_kind="FS",
     ))
 
 
@@ -135,6 +141,17 @@ class TestComputeBmCut(unittest.TestCase):
         # → kx must be constant, ky must vary.
         kx_unique = np.unique(np.round(out.kx_points, 6))
         self.assertEqual(len(kx_unique), 1)
+        self.assertGreater(out.ky_points.max() - out.ky_points.min(), 0.1)
+
+    def test_direction_fallback_rotates_when_azi_missing(self):
+        bm = _bm_entry(polar=0.0, azi=None, direction="Γ-M")
+        fs = _fs_entry(polar=0.0, azi=None, direction="Γ-X")
+        out = compute_bm_cut_in_fs_frame(
+            bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(scan_center=0.0),
+            work_func=self.WF, a_lattice=TEST_A,
+        )
+        self.assertEqual(out.quality, "rotated")
+        self.assertIn("direction", out.warning)
         self.assertGreater(out.ky_points.max() - out.ky_points.min(), 0.1)
 
     def test_returns_incompatible_for_invalid_fs_hv(self):

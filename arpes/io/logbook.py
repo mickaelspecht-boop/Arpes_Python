@@ -24,6 +24,9 @@ class LogbookAppliedValues:
     formula: str = ""
     mp_id: str = ""
     crystal_a_angstrom: float | None = None
+    crystal_b_angstrom: float | None = None
+    crystal_c_angstrom: float | None = None
+    work_function_eV: float | None = None
     sources: dict[str, str] = field(default_factory=dict)
 
     def has_any(self) -> bool:
@@ -38,6 +41,9 @@ class LogbookAppliedValues:
             bool(self.formula),
             bool(self.mp_id),
             self.crystal_a_angstrom is not None,
+            self.crystal_b_angstrom is not None,
+            self.crystal_c_angstrom is not None,
+            self.work_function_eV is not None,
         ])
 
 
@@ -158,6 +164,24 @@ class LogbookManager:
             out.crystal_a_angstrom = float(a_val)
             out.sources["crystal_a_angstrom"] = "logbook"
 
+        b_col = m.get("crystal_b_angstrom", "")
+        b_val = _cell_float(record.get(b_col)) if b_col else None
+        if b_val is not None and np.isfinite(b_val) and b_val > 0:
+            out.crystal_b_angstrom = float(b_val)
+            out.sources["crystal_b_angstrom"] = "logbook"
+
+        c_col = m.get("crystal_c_angstrom", "")
+        c_val = _cell_float(record.get(c_col)) if c_col else None
+        if c_val is not None and np.isfinite(c_val) and c_val > 0:
+            out.crystal_c_angstrom = float(c_val)
+            out.sources["crystal_c_angstrom"] = "logbook"
+
+        wf_col = m.get("work_function_eV", "")
+        wf_val = _cell_float(record.get(wf_col)) if wf_col else None
+        if wf_val is not None and np.isfinite(wf_val) and wf_val > 0:
+            out.work_function_eV = float(wf_val)
+            out.sources["work_function_eV"] = "logbook"
+
         return out
 
     def values_for_path(self, path: str | Path) -> LogbookAppliedValues:
@@ -185,6 +209,12 @@ class LogbookManager:
             entry.meta.mp_id = values.mp_id
         if values.crystal_a_angstrom is not None:
             entry.meta.crystal_a_angstrom = float(values.crystal_a_angstrom)
+        if values.crystal_b_angstrom is not None:
+            entry.meta.crystal_b_angstrom = float(values.crystal_b_angstrom)
+        if values.crystal_c_angstrom is not None:
+            entry.meta.crystal_c_angstrom = float(values.crystal_c_angstrom)
+        if values.work_function_eV is not None:
+            entry.meta.work_function_eV = float(values.work_function_eV)
         return values
 
 
@@ -540,6 +570,26 @@ def _infer_logbook_mapping(columns: list[str], df=None) -> dict[str, str]:
         }) or _pick_column(columns, [
             ["lattice", "a"], ["parametre", "a"], ["a", "angstrom"],
         ]),
+        "crystal_b_angstrom": _pick_exact_column(columns, {
+            "b", "b (a)", "b (angstrom)", "b_angstrom", "b_a", "lattice_b",
+            "parametre b", "parametre_b", "lattice b", "b [a]",
+        }) or _pick_column(columns, [
+            ["lattice", "b"], ["parametre", "b"], ["b", "angstrom"],
+        ]),
+        "crystal_c_angstrom": _pick_exact_column(columns, {
+            "c", "c (a)", "c (angstrom)", "c_angstrom", "c_a", "lattice_c",
+            "parametre c", "parametre_c", "lattice c", "c [a]",
+        }) or _pick_column(columns, [
+            ["lattice", "c"], ["parametre", "c"], ["c", "angstrom"],
+        ]),
+        "work_function_eV": _pick_exact_column(columns, {
+            "phi", "φ", "work function", "work_function", "workfunction",
+            "work function ev", "work_function_ev", "fonction travail",
+            "fonction de travail", "wf", "wf_ev",
+        }) or _pick_column(columns, [
+            ["work", "function"], ["fonction", "travail"], ["phi"],
+            ["workfunction"], ["wf"],
+        ]),
     }
     legacy = _infer_legacy_measurement_plan_mapping(columns)
     for key, val in legacy.items():
@@ -600,7 +650,11 @@ def _drop_implausible_mappings(mapping: dict[str, str], df) -> dict[str, str]:
         n = sum(1 for v in values if strict_numeric(v))
         return n / len(values)
 
-    NUMERIC_KEYS = {"hv", "temperature", "azi", "polar", "tilt", "crystal_a_angstrom"}
+    NUMERIC_KEYS = {
+        "hv", "temperature", "azi", "polar", "tilt",
+        "crystal_a_angstrom", "crystal_b_angstrom", "crystal_c_angstrom",
+        "work_function_eV",
+    }
     for key in list(out.keys()):
         col = out[key]
         if not col:

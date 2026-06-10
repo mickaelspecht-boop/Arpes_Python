@@ -238,15 +238,17 @@ class PairingController:
             a_lattice = lattice_a_for_entry(self._session, fs_entry, fallback=0.0)
         if float(a_lattice or 0.0) <= 0.0:
             raise ValueError("BM cuts: set the lattice parameter a first.")
+        criteria = criteria or self._user_criteria()
         bms = find_bms_for_fs(
             fs_entry, fs_path, _normalized_augmented_files(self._session),
-            criteria or self._user_criteria(),
+            criteria,
         )
         cuts = []
         for match in bms:
             cut = compute_bm_cut_in_fs_frame(
                 match.entry, match.path, fs_entry, fs_path, fs_metadata,
                 work_func=float(work_func), a_lattice=float(a_lattice),
+                overlay_max_hv_rel=float(criteria.hv_tolerance_rel),
             )
             if cut is not None:
                 cuts.append(cut)

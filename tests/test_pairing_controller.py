@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 from arpes.core.session import FileEntry, FileMeta, Session
+from arpes.io.file_pairing import PairingCriteria
 from arpes.ui.controllers.pairing_controller import PairingController
 
 
@@ -188,6 +189,27 @@ class TestCollectBmCuts(unittest.TestCase):
         parent = _StubParent(s, current_path="/d/bm.txt")
         ctrl = PairingController(parent)
         self.assertEqual(ctrl._collect_bm_cuts_for_active_fs(), [])
+
+    def test_collect_draws_hv_scaled_cuts_with_user_tolerance(self):
+        s = _make_session({
+            "/d/fs1.txt": _fs(hv=60.0, azi=0.0),
+            "/d/bm_hv.txt": _bm(hv=72.0, azi=0.0),
+        })
+        s.key_for_path = lambda p: p
+        parent = _StubParent(s, current_path="/d/fs1.txt")
+        parent._raw_data = {"metadata": {"fs_scan_axis_deg": {"center": 0.0}}}
+        parent._params = type("P", (), {
+            "sp_phi": type("S", (), {"value": staticmethod(lambda: 4.5)})()
+        })()
+        ctrl = PairingController(parent)
+
+        cuts = ctrl._collect_bm_cuts_for_active_fs(
+            criteria=PairingCriteria(hv_tolerance_rel=0.25),
+        )
+
+        self.assertEqual([c.label for c in cuts], ["bm_hv"])
+        self.assertGreater(cuts[0].kx_points.size, 0)
+        self.assertEqual(cuts[0].quality, "scaled")
 
 
 class TestPairingVerbDispatch(unittest.TestCase):

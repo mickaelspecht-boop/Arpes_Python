@@ -38,6 +38,25 @@ class TestLogbookHelpers(unittest.TestCase):
         self.assertEqual(mapping["polar"], "Polar")
         self.assertEqual(mapping["direction"], "Direction")
 
+    def test_sample_constants_mapping_and_values(self):
+        columns = ["File", "a", "b", "c", "Work Function"]
+        mapping = _infer_logbook_mapping(columns)
+        self.assertEqual(mapping["crystal_a_angstrom"], "a")
+        self.assertEqual(mapping["crystal_b_angstrom"], "b")
+        self.assertEqual(mapping["crystal_c_angstrom"], "c")
+        self.assertEqual(mapping["work_function_eV"], "Work Function")
+
+        manager = LogbookManager(
+            [{"File": "FS1", "a": 3.96, "b": 3.97, "c": 13.0, "Work Function": 4.3}],
+            mapping,
+        )
+        values = manager.values_from_record(manager.records[0])
+
+        self.assertAlmostEqual(values.crystal_a_angstrom, 3.96)
+        self.assertAlmostEqual(values.crystal_b_angstrom, 3.97)
+        self.assertAlmostEqual(values.crystal_c_angstrom, 13.0)
+        self.assertAlmostEqual(values.work_function_eV, 4.3)
+
     def test_direction_label_formats_gamma_variants(self):
         self.assertEqual(_format_direction_label("G"), "Γ")
         self.assertEqual(_format_direction_label("gamma"), "Γ")
