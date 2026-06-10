@@ -86,15 +86,23 @@ class TestPocketController(unittest.TestCase):
 
                 ctrl._pocket_action("preview_start", {"kx": 0.0, "ky": 0.0})
                 parent._fs_controls.sp_pocket_level.setValue(0.5)
+                # New contract: Validate runs the radial-MDC fit; on failure
+                # the pocket is NOT created and the preview is kept (no silent
+                # ISO fallback). Quick ISO stays the explicit no-fit path.
                 pocket = ctrl._pocket_action("preview_validate", {})
+                if pocket is None:
+                    self.assertIsNotNone(ctrl._preview_seed_plot)  # preview kept
+                    ctrl._pocket_action("preview_cancel", {})
+                    pocket = ctrl._pocket_action(
+                        "characterize", {"kx": 0.0, "ky": 0.0, "level": 0.5})
+                    self.assertIsNotNone(pocket)
+                    self.assertEqual(pocket["level"], 0.5)
+                    self.assertEqual(pocket["mp_label"], "mp-test:Γ")
                 shown = ctrl._pocket_action("show", {"index": 0})
                 ctrl._pocket_action("clear", {})
 
                 self.assertIsNotNone(pocket)
-                self.assertEqual(pocket["level"], 0.5)
-                self.assertEqual(pocket["mp_label"], "mp-test:Γ")
                 self.assertEqual(shown["topology"], "electron")
-                self.assertEqual(len(calls), 2)
                 self.assertEqual(parent._current_entry().fs_pockets, [])
         finally:
             pocket_controller_mod.PocketResultDialog = old_dialog

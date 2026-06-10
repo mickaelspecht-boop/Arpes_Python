@@ -68,15 +68,14 @@ def handle_canvas_right_click(canvas, event) -> None:
     from PyQt6.QtGui import QCursor
 
     menu = QMenu(canvas)
-    act_wiz = menu.addAction("Guided characterization (wizard)")
-    act = menu.addAction("Characterize pocket here (iso-contour)")
-    act_mdc = menu.addAction("Characterize with radial MDC (publication)")
-    act_preview = menu.addAction("Preview pocket here (slider)")
+    act_preview = menu.addAction("Preview pocket here (ISO contour)")
+    act = menu.addAction("Quick ISO (no fit)")
+    act.setToolTip("Heuristic iso-contour only — fast quicklook, no kF ± σ.")
     act_validate = None
     act_cancel = None
     if canvas._pocket_preview_active:
         menu.addSeparator()
-        act_validate = menu.addAction("Validate preview")
+        act_validate = menu.addAction("Validate → MDC fit")
         act_cancel = menu.addAction("Cancel preview")
     menu.addSeparator()
     act_diag = menu.addAction("Diagnostic pairing FS ↔ BMs")
@@ -85,12 +84,8 @@ def handle_canvas_right_click(canvas, event) -> None:
     act_clear = menu.addAction("Clear pockets")
     chosen = menu.exec(QCursor.pos())
     x, y = float(event.xdata), float(event.ydata)
-    if chosen == act_wiz:
-        canvas.pocket_wizard_requested.emit(x, y)
-    elif chosen == act:
+    if chosen == act:
         canvas.pocket_requested.emit(x, y)
-    elif chosen == act_mdc:
-        canvas.pocket_mdc_requested.emit(x, y)
     elif chosen == act_preview:
         canvas.pocket_preview_requested.emit(x, y)
     elif chosen is not None and chosen is act_validate:

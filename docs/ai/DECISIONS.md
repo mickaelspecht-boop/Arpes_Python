@@ -9,6 +9,21 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-10 — Poches FS : flux unique, wizard SUPPRIMÉ, panneau dégraissé
+Suite plainte « 4 portes d'entrée incompréhensibles ». Conseil (architect+ux+
+redteam+arbiter, 1 spawn) : flux UNIQUE « lasso/clic → preview ISO (visuel) →
+Validate = fit MDC radial (chiffres kF±σ) ». ISO = aperçu, MDC = mesure.
+**Échec MDC = poche NON validée, preview gardée, message + auto-expand
+Advanced — JAMAIS de fallback ISO silencieux** (un contour iso sans kF±σ
+empoisonnerait Luttinger/bootstrap en aval, redteam cas 1). « Quick ISO (no
+fit) » reste le chemin rapide EXPLICITE au menu. Wizard 3 pages SUPPRIMÉ
+(fichier + verbe + signal, ~250 LOC). Menu clic-droit : 4 items au lieu de 6.
+Panneau FS Pockets : visibles = count/Quality/Manual level/Level/n bands/
+Spin/Export/Clear ; les 12 réglages algorithmiques → sous-groupe « Advanced
+settings » replié (auto-déplié sur échec MDC, redteam cas 3). QThread pour le
+MDC = DEFER (synchrone qq s, double-validate impossible sans thread). Test
+manual_level adapté au nouveau contrat. 861 OK / 9 skip.
+
 ## 2026-06-10 — Poches FS : lasso human-in-the-loop + wizard dégraissé
 Plainte user : trop d'options. Conseil (architect+redteam+arbiter, 1 spawn) :
 lasso rectangle = seul workflow viable (s'accroche au preview existant ; points

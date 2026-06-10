@@ -284,24 +284,37 @@ class FSControlPanel(QScrollArea):
         self.sp_pocket_level.valueChanged.connect(
             lambda v: self.pocket_preview_level_changed.emit(float(v))
         )
+        # Visible: what a physicist touches per pocket. Everything algorithmic
+        # lives in the collapsed Advanced sub-group below (auto-expanded by the
+        # controller when an MDC fit fails, so the relevant knobs surface
+        # exactly when they are needed).
         fp.addRow(self.lbl_pocket_count)
         fp.addRow("Quality:", self.cmb_pocket_quality)
         fp.addRow(self.chk_pocket_level_manual)
         fp.addRow("Level :", self.sp_pocket_level)
-        fp.addRow("ky smoothing:", self.sp_pocket_smooth_y)
-        fp.addRow("kx smoothing:", self.sp_pocket_smooth_x)
-        fp.addRow("Contour :", self.sp_pocket_contour_window)
-        fp.addRow("Simplify:", self.sp_pocket_simplify)
-        fp.addRow("Min area:", self.sp_pocket_min_area)
         fp.addRow("n bands:", self.sp_pocket_n_bands)
         fp.addRow("Spin :", self.sp_pocket_spin)
-        fp.addRow("Γ-X (°) :", self.sp_pocket_hs_x_deg)
-        fp.addRow("Γ-M (°) :", self.sp_pocket_hs_m_deg)
-        fp.addRow("Tol HS (°) :", self.sp_pocket_hs_tol_deg)
-        fp.addRow(self.chk_pocket_bootstrap)
-        fp.addRow("Bootstrap N :", self.sp_pocket_bootstrap_n)
-        fp.addRow("MDC dirs :", self.sp_pocket_mdc_n)
-        fp.addRow("MDC R²min :", self.sp_pocket_mdc_r2)
+        self._btn_pocket_adv = QPushButton("▶ Advanced settings")
+        self._btn_pocket_adv.setCheckable(True)
+        self._btn_pocket_adv.setStyleSheet("text-align:left; color:#aaa;")
+        self._grp_pocket_adv = QGroupBox()
+        fa = QFormLayout(self._grp_pocket_adv)
+        fa.addRow("ky smoothing:", self.sp_pocket_smooth_y)
+        fa.addRow("kx smoothing:", self.sp_pocket_smooth_x)
+        fa.addRow("Contour :", self.sp_pocket_contour_window)
+        fa.addRow("Simplify:", self.sp_pocket_simplify)
+        fa.addRow("Min area:", self.sp_pocket_min_area)
+        fa.addRow("Γ-X (°) :", self.sp_pocket_hs_x_deg)
+        fa.addRow("Γ-M (°) :", self.sp_pocket_hs_m_deg)
+        fa.addRow("Tol HS (°) :", self.sp_pocket_hs_tol_deg)
+        fa.addRow(self.chk_pocket_bootstrap)
+        fa.addRow("Bootstrap N :", self.sp_pocket_bootstrap_n)
+        fa.addRow("MDC dirs :", self.sp_pocket_mdc_n)
+        fa.addRow("MDC R²min :", self.sp_pocket_mdc_r2)
+        self._grp_pocket_adv.setVisible(False)
+        self._btn_pocket_adv.toggled.connect(self._set_pocket_advanced_visible)
+        fp.addRow(self._btn_pocket_adv)
+        fp.addRow(self._grp_pocket_adv)
         btn_export_pockets = compact_button(QPushButton("Export Pockets CSV"), max_width=160)
         btn_export_pockets.clicked.connect(self.pockets_export_requested)
         btn_clear_pockets = compact_button(QPushButton("Clear FS Pockets"), max_width=160)
@@ -372,6 +385,15 @@ class FSControlPanel(QScrollArea):
             "mdc_r2_min": float(self.sp_pocket_mdc_r2.value()),
         }
 
+    def _set_pocket_advanced_visible(self, on: bool) -> None:
+        self._grp_pocket_adv.setVisible(bool(on))
+        self._btn_pocket_adv.setText(
+            "▼ Advanced settings" if on else "▶ Advanced settings")
+
+    def expand_pocket_advanced(self) -> None:
+        """Surface the algorithmic knobs (called when an MDC fit fails)."""
+        self._btn_pocket_adv.setChecked(True)
+
     def set_pocket_count(self, count: int) -> None:
         n = int(count)
         self.lbl_pocket_count.setText(f"{n} pocket" + ("" if n == 1 else "s"))
@@ -423,7 +445,6 @@ class FSControlPanel(QScrollArea):
 class FermiSurfaceCanvas(QWidget):
     pocket_requested = pyqtSignal(float, float)
     pocket_mdc_requested = pyqtSignal(float, float)
-    pocket_wizard_requested = pyqtSignal(float, float)
     pairing_diagnose_requested = pyqtSignal()
     pocket_level_requested = pyqtSignal(float, float)
     pocket_preview_requested = pyqtSignal(float, float)

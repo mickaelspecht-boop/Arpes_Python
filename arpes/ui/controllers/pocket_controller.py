@@ -27,8 +27,6 @@ from arpes.physics.pocket_compare import compare_pocket_contours
 from arpes.physics.pocket_mdc_radial import characterize_pocket_mdc_radial
 from arpes.physics.pocket_quality import run_pocket_guards
 from arpes.ui.widgets.dialogs.pocket_result import PocketResultDialog
-from arpes.ui.widgets.dialogs.pocket_wizard import PocketWizardDialog
-from arpes.physics.pocket_quality import local_snr
 
 
 class PocketController:
@@ -63,8 +61,6 @@ class PocketController:
             return self._characterize_at(payload)
         if verb == "characterize_mdc":
             return self._characterize_mdc_at(payload)
-        if verb == "wizard":
-            return self._run_wizard(payload)
         if verb == "lasso":
             return self._lasso_characterize(payload)
         if verb == "preview_start":
@@ -161,70 +157,6 @@ class PocketController:
             pocket["dft_compare"] = d
         except Exception as exc:
             pocket["dft_compare_error"] = f"DFT: {exc}"
-
-    def _run_wizard(self, payload: dict):
-        """Open 3-step wizard, then run iso or MDC pipeline with chosen settings."""
-        if self._raw_data is None or not self._current_is_fs():
-            self._status("Pocket wizard: load an FS map first.")
-            return None
-        seed_plot = (float(payload["kx"]), float(payload["ky"]))
-        params0 = self._fs_controls.params()
-        seed_raw = (seed_plot[0] + float(params0.kx_center),
-                    seed_plot[1] + float(params0.ky_center))
-        defaults = self._pocket_settings()
-        defaults["ef_window"] = float(params0.ef_window)
-
-        def _snr(sy, sx, ef_win):
-            old_win = self._fs_controls.sp_win.value()
-            self._fs_controls.sp_win.blockSignals(True)
-            self._fs_controls.sp_win.setValue(float(ef_win))
-            self._fs_controls.sp_win.blockSignals(False)
-            try:
-                params = self._fs_controls.params()
-                kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
-                fs_p = smooth_fs_image(fs, sigma=(float(sy), float(sx)))
-                dx = float(kx[1] - kx[0]) if kx.size >= 2 else 0.0
-                dy = float(ky[1] - ky[0]) if ky.size >= 2 else 0.0
-                return local_snr(fs_p, kx, ky, seed_raw,
-                                 radius=2.0 * max(abs(dx), abs(dy)))
-            finally:
-                self._fs_controls.sp_win.blockSignals(True)
-                self._fs_controls.sp_win.setValue(old_win)
-                self._fs_controls.sp_win.blockSignals(False)
-
-        wiz = PocketWizardDialog(self._parent,
-                                 seed_plot=seed_plot, defaults=defaults,
-                                 snr_provider=_snr)
-        if wiz.exec() != wiz.DialogCode.Accepted:
-            return None
-        result = wiz.result_settings()
-        # Apply chosen settings into the panel so they persist + drive pipeline
-        ctrls = self._fs_controls
-        for attr, key in (
-            ("sp_pocket_smooth_y", "smooth_sigma_y"),
-            ("sp_pocket_smooth_x", "smooth_sigma_x"),
-            ("sp_win", "ef_window"),
-            ("sp_pocket_mdc_n", "mdc_n_directions"),
-            ("sp_pocket_mdc_r2", "mdc_r2_min"),
-            ("sp_pocket_level", "level"),
-            ("sp_pocket_hs_x_deg", "hs_dir_x_deg"),
-            ("sp_pocket_hs_m_deg", "hs_dir_m_deg"),
-            ("sp_pocket_hs_tol_deg", "hs_dir_tol_deg"),
-        ):
-            sp = getattr(ctrls, attr, None)
-            if sp is None or key not in result:
-                continue
-            sp.blockSignals(True); sp.setValue(result[key]); sp.blockSignals(False)
-        if result.get("algo") == "mdc":
-            return self._characterize_mdc_at({
-                "kx": seed_plot[0], "ky": seed_plot[1],
-                "force_arc": bool(result.get("force_arc", False)),
-            })
-        ctrls.chk_pocket_level_manual.setChecked(True)
-        return self._characterize_at({
-            "kx": seed_plot[0], "ky": seed_plot[1],
-            "level": float(result["level"]),
-        })
 
     def _characterize_mdc_at(self, payload: dict):
         from arpes.ui.controllers.pocket_controller_mdc import characterize_mdc_at
@@ -341,15 +273,34 @@ class PocketController:
         return None
 
     def _preview_validate(self):
+        """Validate = run the rigorous radial-MDC fit seeded by the preview.
+
+        The ISO preview is the *visual* check; the MDC fit produces the actual
+        kF ± σ. On failure the pocket is NOT validated and the preview is kept
+        on screen (no silent ISO fallback — an iso contour has no kF ± σ and
+        would silently poison Luttinger/bootstrap downstream). The Quick ISO
+        menu entry remains the explicit no-fit path.
+        """
         if self._preview_seed_plot is None:
             return None
         seed = self._preview_seed_plot
-        level = float(self._fs_controls.sp_pocket_level.value())
+        self._status("MDC fit running — a few seconds…")
+        result = self._characterize_mdc_at({"kx": seed[0], "ky": seed[1]})
+        if result is None:
+            # _characterize_mdc_at already reported the cause; add guidance,
+            # keep the preview alive, and surface the relevant knobs.
+            if hasattr(self._fs_controls, "expand_pocket_advanced"):
+                self._fs_controls.expand_pocket_advanced()
+            self._status(
+                "MDC fit failed — pocket NOT validated, preview kept. "
+                "Adjust 'MDC dirs'/'MDC R²min' in Advanced settings, or use "
+                "Quick ISO (no fit).")
+            return None
         if hasattr(self._fs_canvas, "clear_pocket_preview"):
             self._fs_canvas.clear_pocket_preview()
         object.__setattr__(self, "_preview_seed_raw", None)
         object.__setattr__(self, "_preview_seed_plot", None)
-        return self._characterize_at({"kx": seed[0], "ky": seed[1], "level": level})
+        return result
 
     def _draw_preview_at(self, level: float) -> None:
         if self._preview_seed_raw is None or not hasattr(self._fs_canvas, "draw_pocket_preview"):
