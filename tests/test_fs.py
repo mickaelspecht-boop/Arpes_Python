@@ -211,6 +211,46 @@ class TestExtractFSMap(unittest.TestCase):
         p2 = FSParams(ef_window=0.050, smooth_sigma=0.5, normalize_profile=False)
         self.assertNotEqual(_fs_cache_key(raw, p1), _fs_cache_key(raw, p2))
 
+    def test_fs_cache_key_changes_when_volume_content_changes(self):
+        # Regression: the key used id(fs_data); a reloaded array could reuse
+        # the GC'd address of the old one (same shape + same axes) and serve a
+        # stale cached map. Content must drive the key.
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        p = FSParams(ef_window=0.030, smooth_sigma=0.5, normalize_profile=False)
+        key1 = _fs_cache_key(raw, p)
+        vol2 = vol.copy()
+        vol2[0, 0, 0] += 1.0  # same shape, same axes, different content
+        raw2 = dict(raw)
+        raw2["metadata"] = dict(raw["metadata"], fs_data=vol2)
+        self.assertNotEqual(key1, _fs_cache_key(raw2, p))
+        # Identical content in a distinct array object -> same key (id-free).
+        raw3 = dict(raw)
+        raw3["metadata"] = dict(raw["metadata"], fs_data=vol.copy())
+        self.assertEqual(key1, _fs_cache_key(raw3, p))
+
+
+class TestBandmapFormatCoord(unittest.TestCase):
+    def test_reads_nearest_intensity_and_nan_dash(self):
+        from arpes.physics.plot_compute import make_bandmap_format_coord
+        kpar = np.linspace(-1.0, 1.0, 5)
+        ev = np.linspace(-0.5, 0.0, 4)
+        c_arr = np.arange(20, dtype=float).reshape(4, 5)  # (n_E, n_k)
+        c_arr[2, 3] = np.nan
+        fmt = make_bandmap_format_coord(kpar, ev, c_arr)
+        s = fmt(0.0, -0.5)  # nearest: i=2, j=0 -> value 2.0
+        self.assertIn("k = 0.000", s)
+        self.assertIn("E = -0.5000 eV", s)
+        self.assertIn("I = 2", s)
+        s_nan = fmt(0.5, -0.17)  # nearest: i=3, j=2 -> NaN
+        self.assertIn("I = —", s_nan)
+
 
 @unittest.skipUnless(HAS_FS_GAMMA, "arpes.physics.fs_gamma unavailable")
 class TestFSGammaDetection(unittest.TestCase):
@@ -245,6 +285,9 @@ class TestFSGammaDetection(unittest.TestCase):
     def test_canvas_detect_gamma_returns_quality_metrics(self):
         if not HAS_FS:
             self.skipTest("arpes.physics.fs unavailable")
+        if QApplication is None:
+            self.skipTest("PyQt6 unavailable")
+        _ = QApplication.instance() or QApplication([])  # widget needs an app
         kx, ky, ring = _make_shifted_ring_map(center=(0.16, -0.08), n_kx=81, n_ky=75)
         ev = np.linspace(-0.03, 0.03, 7)
         vol = np.repeat(ring[:, :, None], ev.size, axis=2)
@@ -352,6 +395,63 @@ class TestFermiSurfaceCanvas(unittest.TestCase):
         canvas.draw_fs(raw2, params)
 
         self.assertIsNot(canvas._mesh, first_mesh)
+
+    def test_hover_format_coord_shows_intensity(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        canvas = FermiSurfaceCanvas()
+        canvas.draw_fs(raw, FSParams(ef_window=0.030, smooth_sigma=0.0,
+                                     normalize_profile=False))
+        self.assertIsNotNone(canvas._hover_data)
+        s = canvas.ax.format_coord(0.0, 0.0)
+        self.assertIn("kx = 0.000", s)
+        self.assertIn("I = ", s)
+        self.assertNotIn("nan", s.lower())
+        # No data -> readout falls back to coordinates only.
+        canvas.draw_fs(None, FSParams())
+        self.assertIsNone(canvas._hover_data)
+
+    def test_pending_badge_toggles(self):
+        canvas = FermiSurfaceCanvas()
+        self.assertFalse(canvas._pending_label.isVisible())
+        canvas.set_pending(True)
+        self.assertTrue(canvas._pending_label.isVisibleTo(canvas.canvas))
+        canvas.set_pending(False)
+        self.assertFalse(canvas._pending_label.isVisibleTo(canvas.canvas))
+
+    def test_export_figure_writes_png_and_svg(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        canvas = FermiSurfaceCanvas()
+        canvas.draw_fs(raw, FSParams(ef_window=0.030, smooth_sigma=0.0,
+                                     normalize_profile=False))
+        with tempfile.TemporaryDirectory() as tmp:
+            png = str(Path(tmp) / "out.png")
+            svg = str(Path(tmp) / "out.svg")
+            with patch("arpes.ui.widgets.fs_panel.QFileDialog.getSaveFileName",
+                       return_value=(png, "PNG image, 300 dpi (*.png)")):
+                canvas.export_figure()
+            with patch("arpes.ui.widgets.fs_panel.QFileDialog.getSaveFileName",
+                       return_value=(svg, "SVG vector (*.svg)")):
+                canvas.export_figure()
+            self.assertGreater(Path(png).stat().st_size, 1000)
+            self.assertGreater(Path(svg).stat().st_size, 1000)
+            self.assertIn(b"<svg", Path(svg).read_bytes()[:500])
 
     def test_draw_fs_resets_limits_when_overlay_disabled(self):
         kx, ky, ev, vol = _make_kxky_volume()

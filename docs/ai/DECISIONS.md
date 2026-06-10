@@ -9,6 +9,21 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-10 — Viz production-grade : conseil 6 agents, hover/export/badge/cache
+Demande « production-grade viz ». Conseil (architect/redteam/pyqt/numerics/ux/
+arbiter) : la perf demandée EXISTAIT déjà (debounce 150 ms `_fs_redraw_timer`,
+réuse mesh `set_array`+signature, NavToolbar FS, cmaps perceptually-uniform) —
+vérifié avant d'agir. GO livrés : (1) hover readout (k, E/ky, I) via
+`ax.format_coord` (toolbar mpl native, zéro throttle/signal — lit le VRAI array,
+NaN → « — ») sur FS et BM ; (2) export toolbar PNG 300 dpi / SVG avec `draw()`
+sync avant savefig ; (3) badge « Updating… » pendant le debounce (frame
+périmée ≠ silencieuse) ; (4) fix cache : `id(array)` → digest contenu sparse
+(collision GC possible = stale map servie, redteam §7). NO-GO : preview
+sous-échantillonnée (stride aliase les poches fines ; goulot = intégration
+numpy, pas pcolormesh) et cumsum O(1) (+784 MB RAM, gain nul). DEFER :
+regroupement panneau (backlog). Crash pré-existant test_fs.py standalone
+(canvas sans QApplication) fixé au passage. 849 OK / 9 skip.
+
 ## 2026-06-10 — Spinbox locale + rotation BM par direction + logbook b/c/φ
 Trois choses livrées (2 commits). (1) **Locale** : sur OS FR, `QDoubleSpinBox`
 attend la virgule et rejetait silencieusement le point (work function "4.5" →

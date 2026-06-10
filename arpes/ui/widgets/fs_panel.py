@@ -13,9 +13,9 @@ import numpy as np
 
 from PyQt6.QtCore import QLocale, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
-    QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
+    QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
@@ -460,10 +460,72 @@ class FermiSurfaceCanvas(QWidget):
         act.setToolTip("Reset axes to data limits "
                        "(the plot keeps its size).")
         act.triggered.connect(self.reset_view)
+        act_exp = self.toolbar.addAction("Export figure…")
+        act_exp.setToolTip(
+            "Save the current FS map as PNG (300 dpi, publication quality) or "
+            "SVG (axes and labels stay vector; the map is embedded at 300 dpi). "
+            "The figure is exported as displayed — pockets and BZ overlays included."
+        )
+        act_exp.triggered.connect(self.export_figure)
         lay.addWidget(self.toolbar); lay.addWidget(self.canvas)
         self.canvas.mpl_connect("button_press_event", self._on_canvas_button_press)
         self.canvas.mpl_connect("pick_event", self._on_pick_event)
+        # Map data kept for the toolbar hover readout (x, y, fs) — refreshed by
+        # draw_fs, never read for computation.
+        self._hover_data = None
+        # "Updating…" badge shown while the debounced redraw is pending, so the
+        # user never mistakes a stale frame for the current parameters.
+        self._pending_label = QLabel("Updating…", self.canvas)
+        self._pending_label.setStyleSheet(
+            "color: #ffb86c; background: rgba(43, 43, 43, 200);"
+            "padding: 2px 8px; border-radius: 3px; font-weight: bold;"
+        )
+        self._pending_label.move(8, 8)
+        self._pending_label.hide()
         self._dark()
+
+    def set_pending(self, pending: bool) -> None:
+        """Show/hide the 'Updating…' badge (debounced redraw in flight)."""
+        try:
+            self._pending_label.setVisible(bool(pending))
+        except RuntimeError:
+            pass  # widget already destroyed
+
+    def export_figure(self) -> None:
+        """Export the current view as high-resolution PNG or SVG."""
+        path, selected = QFileDialog.getSaveFileName(
+            self, "Export figure", "fs_map.png",
+            "PNG image, 300 dpi (*.png);;SVG vector (*.svg)",
+        )
+        if not path:
+            return
+        if "SVG" in selected and not path.lower().endswith(".svg"):
+            path += ".svg"
+        elif "PNG" in selected and not path.lower().endswith(".png"):
+            path += ".png"
+        try:
+            self.canvas.draw()  # synchronous flush so savefig sees the final frame
+            self.fig.savefig(path, dpi=300, facecolor=self.fig.get_facecolor())
+        except Exception:
+            QMessageBox.critical(
+                self, "Export failed",
+                f"The figure could not be saved to:\n{path}\n\n"
+                "Check that the folder exists and is writable.",
+            )
+            return
+
+    def _format_coord(self, x, y) -> str:
+        """Toolbar hover readout: exact (kx, ky) plus the intensity of the
+        nearest data pixel from the true array. NaN shows as an em dash."""
+        base = f"kx = {x:.3f}   ky = {y:.3f}   (π/a)"
+        if self._hover_data is None:
+            return base
+        ax_x, ax_y, fs = self._hover_data
+        i = int(np.argmin(np.abs(ax_x - x)))
+        j = int(np.argmin(np.abs(ax_y - y)))
+        val = fs[j, i] if (j < fs.shape[0] and i < fs.shape[1]) else np.nan
+        ival = f"{val:.3f}" if np.isfinite(val) else "—"
+        return f"{base}   I = {ival}"
 
     def reset_view(self):
         try:
@@ -487,6 +549,7 @@ class FermiSurfaceCanvas(QWidget):
             self.ax.cla(); self._dark()
             self._mesh = None
             self._mesh_signature = None
+            self._hover_data = None
             self._overlay_artists = []
             self._clear_pocket_artists()
             self.ax.text(0.5, 0.5, "Load an FS", transform=self.ax.transAxes,
@@ -559,12 +622,17 @@ class FermiSurfaceCanvas(QWidget):
                 self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
             self.ax.tick_params(colors="w")
             for sp in self.ax.spines.values(): sp.set_edgecolor("#555")
+            self._hover_data = (np.asarray(x, dtype=float).ravel(),
+                                np.asarray(y, dtype=float).ravel(),
+                                np.asarray(fs))
+            self.ax.format_coord = self._format_coord
             self.canvas.draw_idle()
             return f"{title} | shape={fs.shape}"
         except Exception as exc:
             self.ax.cla(); self._dark()
             self._mesh = None
             self._mesh_signature = None
+            self._hover_data = None
             self._overlay_artists = []
             self._clear_pocket_artists()
             self.ax.text(0.5, 0.5, str(exc), transform=self.ax.transAxes,

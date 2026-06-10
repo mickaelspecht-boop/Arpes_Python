@@ -21,6 +21,8 @@ _(rien)_
 ## DETTE PLANIFIÉE (P2)
 
 ### Splits LOC à anticiper
+- `fs_panel.py` 713 brut / 640 hors commentaires → extraire `FermiSurfaceCanvas`
+  (~290 LOC) vers `widgets/fs_canvas.py` au prochain ajout (plan architecte 2026-06-10).
 - `fit_runner_controller.py` 700 LOC, 5 sujets → split `_fit_*` au prochain ajout.
 - `band_analysis_controller.py` ~510 LOC, 6 sujets → split en 4 ctrls.
 - 6 fichiers zone jaune 660-700 LOC à surveiller (`wc -l` cf CLAUDE.md commandes).
@@ -44,3 +46,10 @@ résultat → item ici, puis `DECISIONS.md`.
 
 ## IDÉES (P3)
 - CI `xvfb-run pytest` pour activer Qt headless (cf CLAUDE.md tests env).
+- Regroupement panneau FS (proposition UX 2026-06-10, DEFER arbitre) :
+  "FS Extraction" (EF window, norm, smoothing, cmap, distortion, redraw) open /
+  "Lattice & Units" collapsed / Γ open / "Brillouin Zone" fusionné collapsed /
+  "BM Cuts" collapsed / Pockets open. Cosmétique, après stabilité des features viz.
+- Preview sous-échantillonnée pendant drag (NO-GO arbitre 2026-06-10 : debounce
+  150 ms suffit, goulot = intégration numpy pas pcolormesh, stride aliase les
+  poches fines). Rouvrir SEULEMENT avec un benchmark mesuré qui prouve le besoin.

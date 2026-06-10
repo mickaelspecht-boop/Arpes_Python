@@ -86,6 +86,12 @@ class FSController:
     def _schedule_fs_redraw(self, _=None):
         timer = getattr(self._parent, "_fs_redraw_timer", None)
         if timer is not None:
+            # Badge "Updating…" while the debounced redraw is in flight: the
+            # frame on screen is stale w.r.t. the new parameter values until
+            # the timer fires (single-shot → always cleared in _draw_fs_tab).
+            canvas = getattr(self, "_fs_canvas", None)
+            if canvas is not None and hasattr(canvas, "set_pending"):
+                canvas.set_pending(True)
             timer.start(150)
             return
         self._on_fs_params_changed()
@@ -127,6 +133,8 @@ class FSController:
         propagated = self._apply_distortion_to_fs_volume_if_enabled()
         fs_params = self._fs_controls.params()
         info = self._fs_canvas.draw_fs(self._raw_data, fs_params)
+        if hasattr(self._fs_canvas, "set_pending"):
+            self._fs_canvas.set_pending(False)
         entry = self._current_entry()
         if entry is not None and hasattr(self._fs_canvas, "draw_pockets"):
             pockets = getattr(entry, "fs_pockets", []) or []

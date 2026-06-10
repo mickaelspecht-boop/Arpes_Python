@@ -180,6 +180,23 @@ def _axis_signature(axis: Any) -> tuple:
     return (tuple(payload.shape), digest)
 
 
+def _data_signature(arr: np.ndarray) -> tuple:
+    """Content-sensitive, cheap signature for large data arrays.
+
+    ``id()`` is unsafe as a cache key: after a reload, CPython can hand the new
+    array the address of the garbage-collected old one; with identical axes the
+    whole key then collides and a stale cached map is served. Hash a sparse
+    strided sample (≤65536 elements) instead of the full buffer so the cost
+    stays negligible on (700, 700, 400) volumes.
+    """
+    a = np.asarray(arr)
+    flat = a.ravel() if a.flags.c_contiguous else np.ascontiguousarray(a).ravel()
+    step = max(1, flat.size // 65536)
+    sample = np.ascontiguousarray(flat[::step])
+    digest = hashlib.sha256(sample.tobytes()).hexdigest()[:16]
+    return (tuple(a.shape), str(a.dtype), digest)
+
+
 def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
     meta = raw_data.get("metadata", {}) or {}
     fs_data = meta.get("fs_data")
@@ -187,7 +204,7 @@ def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
         data = np.asarray(raw_data.get("data"))
         return (
             "bm-fallback",
-            id(data),
+            _data_signature(data),
             tuple(data.shape),
             _axis_signature(raw_data.get("kpar")),
             _axis_signature(raw_data.get("ev_arr")),
@@ -196,7 +213,7 @@ def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
     fs_arr = np.asarray(fs_data)
     return (
         "fs-volume",
-        id(fs_arr),
+        _data_signature(fs_arr),
         tuple(fs_arr.shape),
         _axis_signature(meta.get("fs_kx")),
         _axis_signature(meta.get("fs_ky")),

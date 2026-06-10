@@ -257,6 +257,25 @@ def map_color_kwargs(
     vmax = float(np.nanpercentile(pos, 99)) if pos.size else 1.0
     return "hot_r", {"vmin": 0, "vmax": max(vmax, 1e-12)}
 
+
+def make_bandmap_format_coord(kpar, ev, c_arr):
+    """Toolbar hover readout: exact (k, E) plus the intensity of the nearest
+    data pixel. Reads the true array (not the rendered image) so the value
+    shown matches the science; NaN shows as an em dash, never 0."""
+    kp = np.asarray(kpar, dtype=float).ravel()
+    e = np.asarray(ev, dtype=float).ravel()
+    arr = np.asarray(c_arr)
+
+    def _fmt(x, y):
+        i = int(np.argmin(np.abs(kp - x)))
+        j = int(np.argmin(np.abs(e - y)))
+        val = arr[j, i] if (j < arr.shape[0] and i < arr.shape[1]) else np.nan
+        ival = f"{val:.4g}" if np.isfinite(val) else "—"
+        return f"k = {x:.3f}   E = {y:.4f} eV   I = {ival}"
+
+    return _fmt
+
+
 def draw_bandmap_axes(
     ax,
     *,
@@ -352,6 +371,7 @@ def draw_bandmap_axes(
     if state_out is not None:
         state_out.base_artists = base_artists
 
+    ax.format_coord = make_bandmap_format_coord(kpar, ev, c_arr)
     ax.set_xlabel("k// (π/a)", fontsize=label_size, color="w")
     ax.set_ylabel("E − EF (eV)", fontsize=label_size, color="w")
     ax.set_title(title, fontsize=title_size, color="w")
