@@ -8,7 +8,7 @@ Contexte projet auto-chargé par Claude Code. Toute modification du code doit re
 - Repo principal: `arpes/` (package). Shims racine `arpes_explorer.py` + `arpes_plots.py` ≤5 LOC, ne pas étendre.
 - Branche active: `main`. Mono-dev, pas de PR.
 - Lancer tests: `python3 -m pytest tests/ --ignore=tests/test_annotations.py --ignore=tests/test_local_dft_loaders.py -q`
-- État courant: 854 tests OK / 9 skip (env micromamba `peaks`, PyQt6 présent). Sans PyQt6: ~745 OK + ~61 skip Qt.
+- État courant: 861 tests OK / 9 skip (env micromamba `peaks`, PyQt6 présent). Sans PyQt6: ~745 OK + ~61 skip Qt.
 
 ## Index docs (où vit quoi)
 

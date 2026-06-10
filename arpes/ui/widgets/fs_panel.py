@@ -432,6 +432,7 @@ class FermiSurfaceCanvas(QWidget):
     pockets_clear_requested = pyqtSignal()
     pockets_export_requested = pyqtSignal()
     pocket_open_requested = pyqtSignal(int)
+    pocket_lasso_requested = pyqtSignal(float, float, float, float)  # kx0,kx1,ky0,ky1
 
     def __init__(self):
         super().__init__()
@@ -467,6 +468,8 @@ class FermiSurfaceCanvas(QWidget):
             "The figure is exported as displayed — pockets and BZ overlays included."
         )
         act_exp.triggered.connect(self.export_figure)
+        from arpes.ui.widgets.fs_panel_pockets import setup_pocket_lasso
+        setup_pocket_lasso(self)  # "▭ Pocket" toolbar toggle (box → seed+level)
         lay.addWidget(self.toolbar); lay.addWidget(self.canvas)
         self.canvas.mpl_connect("button_press_event", self._on_canvas_button_press)
         self.canvas.mpl_connect("pick_event", self._on_pick_event)

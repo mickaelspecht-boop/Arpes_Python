@@ -457,6 +457,13 @@ def wire_ui_signals(window) -> None:
                     "wizard", {"kx": float(kx), "ky": float(ky)}
                 )
             )
+        if hasattr(window._fs_canvas, "pocket_lasso_requested"):
+            window._fs_canvas.pocket_lasso_requested.connect(
+                lambda x0, x1, y0, y1: window._pocket_action(
+                    "lasso", {"kx0": float(x0), "kx1": float(x1),
+                              "ky0": float(y0), "ky1": float(y1)}
+                )
+            )
         if hasattr(window._fs_canvas, "pairing_diagnose_requested"):
             window._fs_canvas.pairing_diagnose_requested.connect(
                 lambda: window._pairing_action("diagnose", {})

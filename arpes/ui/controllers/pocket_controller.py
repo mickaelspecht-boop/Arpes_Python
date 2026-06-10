@@ -65,6 +65,8 @@ class PocketController:
             return self._characterize_mdc_at(payload)
         if verb == "wizard":
             return self._run_wizard(payload)
+        if verb == "lasso":
+            return self._lasso_characterize(payload)
         if verb == "preview_start":
             return self._preview_start(payload)
         if verb == "preview_update":
@@ -227,6 +229,65 @@ class PocketController:
     def _characterize_mdc_at(self, payload: dict):
         from arpes.ui.controllers.pocket_controller_mdc import characterize_mdc_at
         return characterize_mdc_at(self, payload)
+
+    def _lasso_characterize(self, payload: dict):
+        """Human-in-the-loop entry: a box dragged around ONE pocket.
+
+        Derives seed + iso-level from the selection (no manual smoothing /
+        level tuning), then drops into the existing preview flow: the user
+        still sees the contour and validates via right-click. Every degenerate
+        case surfaces a status message — never a silent fallback.
+        """
+        if self._raw_data is None or not self._current_is_fs():
+            self._status("Pocket lasso: load an FS map first.")
+            return None
+        from arpes.physics.pocket_lasso import (
+            contour_convexity_ratio, contour_touches_boundary, lasso_to_seed,
+        )
+        try:
+            params = self._fs_controls.params()
+            settings = self._pocket_settings()
+            kx, ky, fs, _ = extract_fs_map(self._raw_data, params)
+            # plot → raw coordinates (selection arrives Γ-centered)
+            cx, cy = float(params.kx_center), float(params.ky_center)
+            rect = (float(payload["kx0"]) + cx, float(payload["kx1"]) + cx,
+                    float(payload["ky0"]) + cy, float(payload["ky1"]) + cy)
+            fs_pocket = smooth_fs_image(
+                fs, sigma=(settings["smooth_sigma_y"], settings["smooth_sigma_x"]))
+            seed = lasso_to_seed(kx, ky, fs_pocket, rect)
+        except (ValueError, KeyError) as exc:
+            self._status(str(exc))
+            return None
+        # Seed-inside-contour guard: a bimodal selection (two pockets) puts the
+        # box center in the dip between them -> no contour at that level.
+        try:
+            raw_contour = extract_fs_contour(
+                fs_pocket, kx, ky, seed.level,
+                seed_point=(seed.seed_kx, seed.seed_ky))
+        except ValueError:
+            self._status(
+                f"Pocket lasso: no closed contour at level={seed.level:.3f} — "
+                "select one pocket at a time, or adjust the Level slider.")
+            return None
+        warn = ""
+        ratio = contour_convexity_ratio(raw_contour)
+        if np.isfinite(ratio) and ratio > 1.4:
+            warn = f" | contour non-convex (ratio={ratio:.2f}) — possible double pocket."
+        if contour_touches_boundary(raw_contour, kx, ky):
+            warn += " | contour touches the scan edge — consider Arc mode."
+        # Hand over to the existing preview flow (level spin + right-click).
+        self._fs_controls.sp_pocket_level.blockSignals(True)
+        self._fs_controls.sp_pocket_level.setValue(float(seed.level))
+        self._fs_controls.sp_pocket_level.blockSignals(False)
+        self._fs_controls.chk_pocket_level_manual.setChecked(True)
+        object.__setattr__(self, "_preview_seed_raw", (seed.seed_kx, seed.seed_ky))
+        object.__setattr__(self, "_preview_seed_plot",
+                           (seed.seed_kx - cx, seed.seed_ky - cy))
+        self._draw_preview_at(seed.level)
+        self._status(
+            f"Pocket lasso: level auto={seed.level:.3f} ({seed.n_px} px). "
+            "Adjust Level if needed, right-click → Validate." + warn)
+        return None
 
     def _preview_start(self, payload: dict):
         if self._raw_data is None or not self._current_is_fs():

@@ -20,6 +20,48 @@ def _pocket_color(idx: int) -> str:
     return _POCKET_COLORS[int(idx) % len(_POCKET_COLORS)]
 
 
+def setup_pocket_lasso(canvas) -> None:
+    """Toolbar toggle: drag a box around one pocket → pocket_lasso_requested.
+
+    The RectangleSelector is created lazily on each activation so it always
+    binds to the *current* axes content (draw_fs may have cla()'d the axes
+    since the last use)."""
+    canvas._pocket_lasso_selector = None
+    act = canvas.toolbar.addAction("▭ Pocket")
+    act.setCheckable(True)
+    act.setToolTip(
+        "Drag a box around ONE pocket: the seed point and iso-level are "
+        "derived automatically from the selection. Then fine-tune the Level "
+        "if needed and validate the preview (right-click)."
+    )
+
+    def _on_select(eclick, erelease):
+        act.setChecked(False)  # one-shot; also deactivates via _toggle
+        if eclick.xdata is None or erelease.xdata is None:
+            return
+        canvas.pocket_lasso_requested.emit(
+            float(eclick.xdata), float(erelease.xdata),
+            float(eclick.ydata), float(erelease.ydata),
+        )
+
+    def _toggle(on: bool):
+        sel = canvas._pocket_lasso_selector
+        if not on:
+            if sel is not None:
+                sel.set_active(False)
+            canvas._pocket_lasso_selector = None
+            return
+        from matplotlib.widgets import RectangleSelector
+        canvas._pocket_lasso_selector = RectangleSelector(
+            canvas.ax, _on_select, useblit=True, button=[1],
+            interactive=False,
+            props=dict(facecolor="none", edgecolor="#00d4ff", linestyle="--"),
+        )
+
+    act.toggled.connect(_toggle)
+    canvas._act_pocket_lasso = act
+
+
 def handle_canvas_right_click(canvas, event) -> None:
     """Open right-click pocket menu and emit the selected canvas signal."""
     from PyQt6.QtWidgets import QMenu

@@ -9,6 +9,22 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-10 — Poches FS : lasso human-in-the-loop + wizard dégraissé
+Plainte user : trop d'options. Conseil (architect+redteam+arbiter, 1 spawn) :
+lasso rectangle = seul workflow viable (s'accroche au preview existant ; points
+de contrainte/spline = refusé, pocket.py 670 LOC déboderait ; drag contour =
+refonte). Livré : bouton toolbar « ▭ Pocket » → drag boîte autour d'UNE poche →
+`physics/pocket_lasso.py` (pur numpy) dérive seed = centre boîte + level =
+percentile(40) intérieur → enchaîne sur le preview existant (slider + clic
+droit Validate). Gardes-fous redteam TOUS bruyants : sélection <16 px, zone
+NaN, zéro contraste, pas de contour fermé au level (= 2 poches sélectionnées),
+convexité >1.4 (= double poche, warning), contour au bord scan (suggère Arc,
+PAS de switch auto). RectangleSelector recréé à chaque toggle (survit ax.cla()).
+Wizard dégraissé : sigma_y/x, mdc_n_directions, mdc_r2_min retirés (auto/
+internes — defaults panneau) ; restent ef_window, algo MDC/Iso, iso level,
+mode Auto/Arc, orientation HS. Verbe « lasso » dans _pocket_action (0 entrée
+PROXY_MAP). 861 OK / 9 skip.
+
 ## 2026-06-10 — SecDev/Curvature réparés (conseil physicist+numerics+arbiter)
 Sur BNA réel : SecDev = bruit pur, Curvature = seuls les bords du masque
 trapèze ressortent, bande lavée. 3 causes empilées trouvées : (1) formule

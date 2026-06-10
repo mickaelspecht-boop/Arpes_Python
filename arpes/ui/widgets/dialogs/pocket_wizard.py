@@ -48,31 +48,23 @@ class _SeedSmoothingPage(QWizardPage):
             "Choose smoothing and the EF window consistently with the instrumental resolution."
         )
         self._snr_provider = snr_provider
+        # Smoothing σ are no longer user-facing here (panel defaults are used);
+        # the wizard only asks for the physically meaningful ΔE window.
+        self._sigma_y = float(defaults["smooth_sigma_y"])
+        self._sigma_x = float(defaults["smooth_sigma_x"])
         lay = QFormLayout(self)
-        self.sp_sigma_y = _dspin(defaults["smooth_sigma_y"], 0.0, 6.0, 0.25, dec=2)
-        self.sp_sigma_x = _dspin(defaults["smooth_sigma_x"], 0.0, 12.0, 0.25, dec=2)
         self.sp_ef_window = _dspin(defaults["ef_window"], 0.001, 0.5, 0.005, dec=3)
-        lay.addRow("σ smoothing ky (pixels) :", self.sp_sigma_y)
-        lay.addRow("σ smoothing kx (pixels) :", self.sp_sigma_x)
         lay.addRow("EF window ±eV:", self.sp_ef_window)
         self.lbl_snr = QLabel("Local SNR around seed: —")
         self.lbl_snr.setStyleSheet("color:#9cf; font-weight:bold;")
         lay.addRow(self.lbl_snr)
-        warn = QLabel(
-            "Physics reminder: σ·dk should not exceed ~0.5·kF, otherwise "
-            "the kF measurement is biased. Check after characterization."
-        )
-        warn.setStyleSheet("color:#aaa; font-size:10px;")
-        warn.setWordWrap(True)
-        lay.addRow(warn)
-        for sp in (self.sp_sigma_y, self.sp_sigma_x, self.sp_ef_window):
-            sp.valueChanged.connect(self._refresh_snr)
+        self.sp_ef_window.valueChanged.connect(self._refresh_snr)
         self._refresh_snr()
 
     def _refresh_snr(self) -> None:
         try:
             snr = float(self._snr_provider(
-                self.sp_sigma_y.value(), self.sp_sigma_x.value(), self.sp_ef_window.value()
+                self._sigma_y, self._sigma_x, self.sp_ef_window.value()
             ))
         except Exception:
             snr = float("nan")
@@ -84,11 +76,7 @@ class _SeedSmoothingPage(QWizardPage):
         self.lbl_snr.setStyleSheet(f"color:{color}; font-weight:bold;")
 
     def values(self) -> dict[str, float]:
-        return {
-            "smooth_sigma_y": float(self.sp_sigma_y.value()),
-            "smooth_sigma_x": float(self.sp_sigma_x.value()),
-            "ef_window": float(self.sp_ef_window.value()),
-        }
+        return {"ef_window": float(self.sp_ef_window.value())}
 
 
 class _AlgoPage(QWizardPage):
@@ -108,11 +96,9 @@ class _AlgoPage(QWizardPage):
         lay.addWidget(self.rb_mdc); lay.addWidget(self.rb_iso)
 
         form = QFormLayout()
-        self.sp_mdc_n = _ispin(int(defaults.get("mdc_n_directions", 36)), 8, 180, 4)
-        self.sp_mdc_r2 = _dspin(float(defaults.get("mdc_r2_min", 0.5)), 0.0, 1.0, 0.05, dec=2)
+        # MDC direction count / R² threshold are internal quality settings
+        # (panel defaults apply); only the iso level and the mode remain.
         self.sp_iso_level = _dspin(float(defaults.get("level", 0.5) or 0.5), 0.0, 1.0, 0.01, dec=3)
-        form.addRow("MDC : directions :", self.sp_mdc_n)
-        form.addRow("MDC : R² min :", self.sp_mdc_r2)
         form.addRow("Iso : level :", self.sp_iso_level)
         from PyQt6.QtWidgets import QComboBox
         self.cmb_mode = QComboBox()
@@ -136,8 +122,6 @@ class _AlgoPage(QWizardPage):
     def values(self) -> dict[str, Any]:
         return {
             "algo": "mdc" if self.rb_mdc.isChecked() else "iso",
-            "mdc_n_directions": int(self.sp_mdc_n.value()),
-            "mdc_r2_min": float(self.sp_mdc_r2.value()),
             "level": float(self.sp_iso_level.value()),
             "force_arc": bool(self.cmb_mode.currentIndex() == 1),
         }
