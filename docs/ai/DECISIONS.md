@@ -9,6 +9,22 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-11 — Materials Project : raw mode + fallback chemins DFT
+Import MP cassait avant conversion car `mp_api` validait des réponses sans
+`equivalent_labels` via Pydantic. Fix : `MPRester(..., use_document_model=False)`
+et helpers compatibles dict/objet ; bandstructure passe par route directe et
+tente `setyawan_curtarolo`, `hinuma`, `latimer_munro`.
+**Pourquoi** : MP peut changer son schéma serveur avant le client installé.
+Pour `mp-568280`, MP répond maintenant que les 3 objets S3 bandstructure manquent.
+
+## 2026-06-11 — Loader ALLS SpecsLab Prodigy ITX
+Ajout backend `alls_itx` pour exports Igor Text SpecsLab Prodigy (`.itx`) :
+détection stricte, parsing `WAVES/S/N` + `SetScale`, FS en `fs_data`
+`(scan,kx,E)` et 2D affichée = moyenne scan. Axes `ShiftX a.u.`, `delay`,
+`Loop` restent bruts/non calibrés ; scans temps sans `theta_y` refusés.
+**Pourquoi** : importer les données ALLS sans logbook tout en évitant une fausse
+conversion silencieuse vers momentum ou binding energy.
+
 ## 2026-06-11 — Packaging : exécutables Win/macOS/Linux via GitHub Actions
 Demande : binaires 3 OS, robustes, patchables. Pas de cross-compilation
 possible (PyInstaller) → CI = la seule voie robuste sans 3 machines. Livré :
@@ -255,3 +271,7 @@ historique 44KB. Adopté « 4 fichiers chauds + archive froide » : `CLAUDE.md`
 `FitZone` dataclass + normalize au load (loud sur clé inconnue, tue pertes
 silencieuses) ; controllers instanciés dans `_install_controllers()` ; garde
 ré-entrance `_fit_busy`. Détail : `archive/AUDIT_UPDATES_HISTORY.md`.
+
+## 2026-06-11 — Import DFT Materials Project cassé = client mp-api périmé, pas le code
+
+Symptôme : tout import MP échoue avec `No object found: s3://materialsproject-parsed/bandstructures/<id>.json.gz`, même mp-149 (Si). Cause : migration du stockage côté serveur MP ; le client mp-api 0.46.1 résolvait des clés S3 obsolètes. Fix : `micromamba run -n peaks pip install -U mp-api emmet-core` (0.46.3 / 0.87.0). Réflexe futur : si l'import MP casse d'un coup sans changement du code, tester `mp-149` en direct puis upgrader mp-api AVANT de chercher dans `arpes/theory/`.
