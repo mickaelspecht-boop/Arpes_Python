@@ -70,11 +70,14 @@ def render_summary_html(
         err = kink.get("lambda_err")
         vb = kink.get("v_bare")
         if lam is not None:
-            note = ""
             if lam < 0:
-                note = "⚠ λ&lt;0 unphysical"
-            elif lam > 2.5:
-                note = "⚠ λ very high"
+                note = "<span style='color:#e05c5c'>⚠ λ&lt;0 unphysical</span>"
+            elif lam < 0.3:
+                note = "weak coupling"
+            elif lam <= 1.5:
+                note = "<span style='color:#7ec97e'>typical (0.3–1.5)</span>"
+            else:
+                note = "<span style='color:#e6b35a'>⚠ strong — verify bare model</span>"
             lines.append(
                 f"<tr><td>Kink</td><td>λ</td>"
                 f"<td>{lam:.3f}"
@@ -87,12 +90,19 @@ def render_summary_html(
                 f"<td>{vb:.3f} eV·Å</td><td></td></tr>"
             )
     if gap:
+        res_meV = float(gap.get("resolution_meV", 0.0) or 0.0)
         for i, D in enumerate(gap.get("deltas_meV") or []):
             errs = gap.get("delta_err_meV") or []
             e = errs[i] if i < len(errs) else 0.0
+            note = ""
+            if res_meV > 0:
+                note = ("<span style='color:#e05c5c'>not resolved "
+                        f"(&lt;2×res {res_meV:.1f} meV)</span>"
+                        if D < 2.0 * res_meV else
+                        "<span style='color:#7ec97e'>&gt;2×res ✓</span>")
             lines.append(
                 f"<tr><td>Gap</td><td>Δ<sub>{i+1}</sub></td>"
-                f"<td>{D:.2f} ± {e:.2f} meV</td><td></td></tr>"
+                f"<td>{D:.2f} ± {e:.2f} meV</td><td>{note}</td></tr>"
             )
         for i, G in enumerate(gap.get("gammas_meV") or []):
             lines.append(

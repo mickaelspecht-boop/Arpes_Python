@@ -63,6 +63,23 @@ class TestSummaryRender:
         html = render_summary_html(ba, has_fit=True, n_points=5, n_pairs=1)
         assert "unphysical" in html
 
+    def test_lambda_typical_range_labelled(self):
+        ba = {"kink": {"lambda": 0.8}}
+        html = render_summary_html(ba, has_fit=True, n_points=5, n_pairs=1)
+        assert "typical" in html
+
+    def test_gap_below_resolution_flagged_not_resolved(self):
+        ba = {"gap": {"deltas_meV": [3.0], "delta_err_meV": [0.2],
+                      "resolution_meV": 5.0}}
+        html = render_summary_html(ba, has_fit=True, n_points=5, n_pairs=1)
+        assert "not resolved" in html
+
+    def test_gap_above_resolution_validated(self):
+        ba = {"gap": {"deltas_meV": [12.0], "delta_err_meV": [0.2],
+                      "resolution_meV": 5.0}}
+        html = render_summary_html(ba, has_fit=True, n_points=5, n_pairs=1)
+        assert "2×res" in html and "not resolved" not in html
+
     def test_warnings_consolidated_at_bottom(self):
         ba = {
             "tb": {"params": {"t": 0.1}, "perr": {"t": 0.0},

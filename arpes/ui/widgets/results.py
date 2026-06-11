@@ -6,6 +6,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -81,11 +82,30 @@ class ResultsPanel(QWidget):
         self._file_filter_unchecked: set[str] = set()
         right.addWidget(self._file_filter)
 
-        right.addWidget(QLabel("Fitted results"))
+        right.addWidget(QLabel("Per-slice diagnostics"))
         self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
             ["File", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)",
-             "Raw Γ", "Corr. Γ", "median chi2_red"])
+             "Raw Γ", "Corr. Γ", "median χ²_red"])
+        _DIAG_TIPS = [
+            "Filename.",
+            "Photon energy (eV).",
+            "Sample temperature (K).",
+            "Measurement direction (logbook/metadata).",
+            "k_F of the + branch at the slice closest to E_F (π/a). Snapshot "
+            "only — use the Physical results table for the fitted value ± σ.",
+            "Mean common center offset of the pair fit (π/a): how far the band "
+            "center drifts from 0. Large |xg| → check the Γ centering.",
+            "Median MDC half-width Γ before resolution correction (π/a).",
+            "Median MDC half-width Γ after instrumental-resolution correction "
+            "(π/a). This is the physical linewidth.",
+            "Median reduced χ² over the fitted slices. ≲1.5 good fit · 1.5–4 "
+            "acceptable · >4 poor (check ROI, pair count, ΔE window).",
+        ]
+        for _c, _t in enumerate(_DIAG_TIPS):
+            it = self._table.horizontalHeaderItem(_c)
+            if it is not None:
+                it.setToolTip(_t)
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self._table.setAlternatingRowColors(True)
@@ -103,13 +123,29 @@ class ResultsPanel(QWidget):
         )
         self._chk_bootstrap.toggled.connect(self.refresh)
         right.addWidget(self._chk_bootstrap)
-        right.addWidget(QLabel("Physical results ± σ (MDC stat. fit)"))
+        right.addWidget(QLabel("Physical results ± σ — the quantities to report"))
         self._table_phys = QTableWidget(0, 6)
         self._table_phys.setHorizontalHeaderLabels([
             "File", "Pair/Branch",
             "kF (π/a) ± σ", "vF (eV·π/a) ± σ",
             "m*/me ± σ", "Γ₀ (π/a) ± σ",
         ])
+        _PHYS_TIPS = [
+            "Filename.",
+            "Lorentzian pair index and branch (kF− left / kF+ right of center).",
+            "Fermi wavevector from the weighted linear fit E = α + β·k of the "
+            "dispersion near E_F (kF = −α/β). Units π/a; ×π/a[Å] for Å⁻¹.",
+            "Fermi velocity = slope β of the same linear fit (eV·π/a). "
+            "Only meaningful if the dispersion is linear in the fit window.",
+            "Effective mass ℏ²k_F/v_F in units of m_e. Typically 1–5 for "
+            "correlated metals; ≫10 usually means a bad vF.",
+            "Residual linewidth at E=0 from the Fermi-liquid fit "
+            "Γ(E) = Γ₀ + a·E² — proxy for the impurity scattering rate.",
+        ]
+        for _c, _t in enumerate(_PHYS_TIPS):
+            it = self._table_phys.horizontalHeaderItem(_c)
+            if it is not None:
+                it.setToolTip(_t)
         self._table_phys.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self._table_phys.setAlternatingRowColors(True)
@@ -219,7 +255,17 @@ class ResultsPanel(QWidget):
                 meta.direction, f"{kf_ef:.4f}", f"{xg_m:.4f}",
                 f"{gamma_b:.4f}", f"{gamma_c:.4f}", f"{chi2_med:.3f}",
             ]):
-                self._table.setItem(row, col, QTableWidgetItem(val))
+                item = QTableWidgetItem(val)
+                if col == 8 and np.isfinite(chi2_med):
+                    # Traffic light on fit quality (thresholds in header tip).
+                    if chi2_med < 1.5:
+                        item.setForeground(QColor("#7ec97e"))
+                    elif chi2_med <= 4.0:
+                        item.setForeground(QColor("#e6b35a"))
+                    else:
+                        item.setForeground(QColor("#e05c5c"))
+                    item.setToolTip("reduced χ²: ≲1.5 good · 1.5–4 acceptable · >4 poor")
+                self._table.setItem(row, col, item)
             row += 1
 
             self._populate_physics_rows(name, fr, n, entry.meta)

@@ -9,6 +9,21 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-11 — Results compréhensibles : tooltips physiques + seuils honnêtes
+Plainte : résultats « difficiles à comprendre et utiliser ». Conseil 4 voix,
+plan 6 étapes indépendantes, livrées 1-5 (6 = polish marginal, skip) :
+(1) tooltips sur CHAQUE colonne des 2 tables Results — 1 phrase physique
+vérifiée dans le code (xg = offset commun du fit de paires ; Corr. Γ = après
+correction résolution ; Γ₀ = intercept du fit FL Γ(E)=Γ₀+aE²…) ; χ²_red en
+feu tricolore (≲1.5 vert / 1.5-4 orange / >4 rouge, seuils dans le tooltip).
+(2) labels clairs : « Per-slice diagnostics » vs « Physical results — the
+quantities to report ». (3) Band Analysis : Summary passé en 1er onglet (on
+LIT la synthèse, on AGIT dans TB/Kink/Gap) ; chips ○ MDC→Gap cliquables
+(naviguent vers le sous-onglet) + tooltips workflow Step 0-3. (4) interpré-
+tation λ honnête (weak <0.3 / typical 0.3-1.5 / strong / unphysical <0) et
+Δ vs résolution (« not resolved » si Δ<2×res — affiché, jamais silencieux),
+dans les renders ET le Summary. n_Luttinger toujours NO-GO (backlog). 868 OK.
+
 ## 2026-06-10 — Results = hub d'analyse : Band Analysis déplacé, tables lisibles
 Plainte : Results illisible + Band analysis caché dans MDC Fit. Conseil (ux+
 architect+redteam+arbiter) : (A) GO — Results devient sous-onglets « MDC

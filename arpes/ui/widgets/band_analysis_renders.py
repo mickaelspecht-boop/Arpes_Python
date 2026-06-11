@@ -47,6 +47,18 @@ def show_kink_result(p, kink: dict) -> None:
     parts = []
     if lam is not None:
         parts.append(f"<b>λ</b>={lam:.3f}" + (f"±{lam_err:.3f}" if lam_err else ""))
+        # Honest qualitative context (electron-boson coupling literature).
+        if lam < 0:
+            parts.append("<span style='color:#e05c5c'>unphysical (λ&lt;0) — "
+                         "check bare-band window</span>")
+        elif lam < 0.3:
+            parts.append("<span style='color:#9cf'>weak coupling</span>")
+        elif lam <= 1.5:
+            parts.append("<span style='color:#7ec97e'>typical range "
+                         "(0.3–1.5)</span>")
+        else:
+            parts.append("<span style='color:#e6b35a'>strong — verify the "
+                         "bare model</span>")
     if vb is not None:
         parts.append(f"v_bare={vb:.3f} eV·Å")
     p.kink_summary.setText(" — ".join(parts) or "λ not extractable.")
@@ -79,9 +91,18 @@ def show_gap_result(p, gap: dict) -> None:
     errs = gap.get("delta_err_meV") or []
     Gs = gap.get("gammas_meV") or []
     parts = []
+    res_meV = float(gap.get("resolution_meV", 0.0) or 0.0)
     for i, D in enumerate(Ds):
         e = errs[i] if i < len(errs) else 0.0
-        parts.append(f"Δ<sub>{i+1}</sub>={D:.2f}±{e:.2f} meV")
+        txt = f"Δ<sub>{i+1}</sub>={D:.2f}±{e:.2f} meV"
+        # A gap below ~2× the instrumental resolution is not resolved — say it.
+        if res_meV > 0:
+            if D < 2.0 * res_meV:
+                txt += (" <span style='color:#e05c5c'>(not resolved: "
+                        f"&lt;2×res {res_meV:.1f} meV)</span>")
+            else:
+                txt += " <span style='color:#7ec97e'>✓ &gt;2×res</span>"
+        parts.append(txt)
     for i, G in enumerate(Gs):
         parts.append(f"Γ<sub>{i+1}</sub>={G:.2f} meV")
     parts.append(f"k_F={gap.get('k_F_inv_A', 0.0):.3f} Å⁻¹")

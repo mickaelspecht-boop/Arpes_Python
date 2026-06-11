@@ -92,10 +92,12 @@ class BandAnalysisPanel(QWidget):
         lay.setSpacing(2)
         lay.addWidget(self._build_status_row())
         self.tabs = QTabWidget()
+        # Summary first: it is the page you READ; the three analysis pages
+        # (workflow order TB → Kink → Gap) are where you act.
+        self.tabs.addTab(self._build_summary_tab(), "Summary")
         self.tabs.addTab(self._build_tb_tab(), "TB fit")
         self.tabs.addTab(self._build_kink_tab(), "Kink Σ(E)")
         self.tabs.addTab(self._build_gap_tab(), "Gap Δ")
-        self.tabs.addTab(self._build_summary_tab(), "Summary")
         lay.addWidget(self.tabs)
 
     # ------------------------------------------------------------------
@@ -113,12 +115,30 @@ class BandAnalysisPanel(QWidget):
         self.stage_tb = QLabel("○ TB")
         self.stage_kink = QLabel("○ Kink")
         self.stage_gap = QLabel("○ Gap")
-        for lbl in (self.stage_mdc, self.stage_tb, self.stage_kink, self.stage_gap):
+        _CHIP_TIPS = {
+            "MDC": "Step 0 — run an MDC fit in the MDC Fit tab first; every "
+                   "analysis below uses its kF(E) points.",
+            "TB": "Step 1 — tight-binding fit of the dispersion (click to open).",
+            "Kink": "Step 2 — self-energy / electron-boson coupling λ from the "
+                    "deviation to a bare band (click to open).",
+            "Gap": "Step 3 — superconducting/CDW gap Δ from the symmetrized "
+                   "EDC (click to open).",
+        }
+        # Chips MDC→Gap mirror the workflow order; clicking one (except MDC,
+        # which lives in the MDC Fit tab) jumps to the matching sub-tab.
+        for chip_idx, lbl in enumerate(
+                (self.stage_mdc, self.stage_tb, self.stage_kink, self.stage_gap)):
             lbl.setStyleSheet(
                 "color:#aaa; background:#222; padding:2px 6px;"
                 " border-radius:3px; font-size:10px;"
             )
             lbl.setMinimumWidth(60)
+            name = ("MDC", "TB", "Kink", "Gap")[chip_idx]
+            lbl.setToolTip(_CHIP_TIPS[name])
+            if chip_idx > 0:  # TB/Kink/Gap → sub-tabs 1/2/3 (Summary is 0)
+                lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+                lbl.mousePressEvent = (
+                    lambda _e, i=chip_idx: self.tabs.setCurrentIndex(i))
             row.addWidget(lbl)
         row.addStretch(1)
         row.addWidget(QLabel("Preset:"))
