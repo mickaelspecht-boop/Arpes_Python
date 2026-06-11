@@ -316,6 +316,22 @@ def _records_from_df(pd, df, mapping: dict[str, str]) -> list[dict]:
     return inherit_logbook_context(records, mapping)
 
 
+def get_xlsx_sheet_names(path: str | Path) -> list[str]:
+    """Sheet names of an Excel workbook, without reading any data.
+
+    Raises ValueError on unreadable/corrupt files (never silent) and
+    ImportError when pandas is missing.
+    """
+    try:
+        import pandas as pd
+    except Exception as exc:
+        raise ImportError("pandas is required to read Excel logbooks.") from exc
+    try:
+        return [str(s) for s in pd.ExcelFile(Path(path)).sheet_names]
+    except Exception as exc:
+        raise ValueError(f"Cannot read Excel file {Path(path).name}: {exc}") from exc
+
+
 def read_logbook(
     path: str | Path,
     *,

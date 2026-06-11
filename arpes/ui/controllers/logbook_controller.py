@@ -541,11 +541,13 @@ class LogbookIngestController:
         path: Path,
         *,
         sheet_override: str | None = None,
+        silent_mapping: bool = False,
     ) -> tuple[list[dict], dict[str, str], str]:
         """Lit le logbook via `read_logbook_file` en injectant les sélecteurs UI.
 
         ``sheet_override`` : force la sheet utilisée (court-circuite le dialog
-        de sélection). Utilisé par l'auto-attach scopé.
+        de sélection). ``silent_mapping`` : garde le mapping heuristique sans
+        ouvrir le dialog de mapping (sample setup : jamais de dialog imbriqué).
         """
         sheet_selector = self._choose_excel_sheet
         if sheet_override is not None:
@@ -554,9 +556,61 @@ class LogbookIngestController:
             path,
             sheet_selector=sheet_selector,
             table_selector=self._choose_excel_table,
-            mapping_selector=self._choose_logbook_mapping,
+            mapping_selector=None if silent_mapping else self._choose_logbook_mapping,
         )
         return result.records, result.mapping, result.sheet_name
+
+    def attach_scoped_silent(
+        self,
+        path,
+        sheet: str,
+        rels: list[str],
+        *,
+        mapping_override: dict | None = None,
+    ) -> int:
+        """Attach (path, sheet) to subfolder scopes with ZERO dialog.
+
+        Called from the Sample setup flow after its dialog has closed — any
+        interactive selector here would nest dialogs (council redteam case).
+        ``rel == ""`` targets the session-wide (global) logbook. Returns the
+        number of rows read; raises on unreadable files (caller surfaces it).
+        """
+        path = Path(path)
+        records, mapping, sheet_name = self.read(
+            path, sheet_override=(sheet or None), silent_mapping=True,
+        )
+        if mapping_override:
+            mapping = dict(mapping_override)
+        scoped_rels = [r for r in rels if r]
+        if any(not r for r in rels):
+            self._session.logbook_path = str(path)
+            self._session.logbook_sheet = sheet_name
+            self._session.logbook_mapping = dict(mapping)
+            keep_scoped = [r for r in self._session.logbook_records
+                           if isinstance(r, dict) and r.get("_subfolder_rel")]
+            self._session.logbook_records = keep_scoped + list(records)
+        if scoped_rels:
+            keep = [r for r in self._session.logbook_records
+                    if not (isinstance(r, dict) and r.get("_subfolder_rel") in scoped_rels)]
+            added = []
+            for rel in scoped_rels:
+                for r in records:
+                    if isinstance(r, dict):
+                        rc = dict(r)
+                        rc["_subfolder_rel"] = rel
+                        added.append(rc)
+                self._session.scoped_logbooks[rel] = {
+                    "path": str(path), "sheet": sheet_name, "n": len(records),
+                    "mapping": dict(mapping),
+                }
+            self._session.logbook_records = keep + added
+        self._session.save()
+        scope_txt = ", ".join(scoped_rels) or "session"
+        self._status(f"✓ Logbook {path.name} [{sheet_name}] → {scope_txt} | {len(records)} rows")
+        if self._parent._current_path:
+            self.apply_to_controls(self._parent._current_path)
+        self._browser.refresh()
+        return len(records)
 
     def _choose_excel_sheet(self, sheet_names: list[str]) -> str:
         if not sheet_names:

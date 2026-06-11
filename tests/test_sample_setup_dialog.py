@@ -85,3 +85,80 @@ class TestSampleSetupDialog:
         sp_phi.setValue(4.2)
         dlg.rb_single.setChecked(True)
         assert dlg.sp_phi_single.value() == pytest.approx(4.2)
+
+
+def _xlsx(tmp_path, name="logbook.xlsx", sheets=("CA041", "CA046")):
+    import pandas as pd
+    p = tmp_path / name
+    with pd.ExcelWriter(p) as xw:
+        for sh in sheets:
+            pd.DataFrame({"File": ["f1", "f2"], "hv": [21.2, 48.0]}).to_excel(
+                xw, sheet_name=sh, index=False)
+    return p
+
+
+class TestLogbookColumn:
+    def test_autodetect_lone_xlsx(self, tmp_path):
+        _xlsx(tmp_path)
+        dlg = _dlg(subfolders=[("CA041", 5), ("CA046", 4)],
+                   folder_path=str(tmp_path))
+        assert dlg.ed_logbook.text().endswith("logbook.xlsx")
+        assert dlg._global_sheets == ["CA041", "CA046"]
+
+    def test_sheets_matched_to_samples_by_name(self, tmp_path):
+        _xlsx(tmp_path)
+        dlg = _dlg(subfolders=[("CA041", 5), ("CA046", 4)],
+                   folder_path=str(tmp_path))
+        out = {d["rel"]: d["sheet"] for d in dlg.result_logbooks()}
+        assert out == {"CA041": "CA041", "CA046": "CA046"}
+
+    def test_unmatched_sample_defaults_none(self, tmp_path):
+        _xlsx(tmp_path)
+        dlg = _dlg(subfolders=[("Au_ref", 3)], folder_path=str(tmp_path))
+        assert dlg.result_logbooks() == []
+
+    def test_mode_b_per_row_file(self, tmp_path):
+        glob = _xlsx(tmp_path)  # global
+        other = _xlsx(tmp_path, name="CA041_custom.xlsx", sheets=("Data",))
+        dlg = _dlg(subfolders=[("CA041", 5), ("CA046", 4)],
+                   folder_path=str(tmp_path))
+        # two xlsx in the folder: auto-detection abstains -> set explicitly
+        dlg.ed_logbook.setText(str(glob))
+        dlg._reload_global_sheets()
+        # simulate "Other file…" outcome for CA041
+        dlg._row_files["CA041"] = (str(other), "Data")
+        dlg._refresh_logbook_combos()
+        out = {d["rel"]: (d["path"], d["sheet"]) for d in dlg.result_logbooks()}
+        assert out["CA041"] == (str(other), "Data")
+        assert out["CA046"][1] == "CA046"  # still global sheet
+
+    def test_saved_sheet_missing_warns_not_silent(self, tmp_path):
+        p = _xlsx(tmp_path, sheets=("CA041_v2",))
+        dlg = _dlg(subfolders=[("CA041", 5)], folder_path=str(tmp_path),
+                   existing_logbooks={"CA041": {"path": str(p), "sheet": "CA041_v1"}})
+        rel, cmb = dlg._row_logbooks[0]
+        assert cmb.currentText() == "None"
+        assert "not found" in cmb.toolTip()
+        assert dlg.result_logbooks() == []
+
+    def test_corrupt_xlsx_loud_not_crash(self, tmp_path):
+        bad = tmp_path / "bad.xlsx"
+        bad.write_bytes(b"not an excel file")
+        dlg = _dlg(subfolders=[("CA041", 5)], folder_path=str(tmp_path))
+        assert dlg._global_sheets == []
+        assert "Cannot read" in dlg.ed_logbook.toolTip()
+        assert dlg.result_logbooks() == []
+
+    def test_single_mode_logbook_rel_empty(self, tmp_path):
+        _xlsx(tmp_path, sheets=("Global",))
+        dlg = _dlg(subfolders=[], detected_mode="single", n_root_files=3,
+                   folder_path=str(tmp_path))
+        out = dlg.result_logbooks()
+        assert out == [{"rel": "", "path": dlg.ed_logbook.text(), "sheet": "Global"}]
+
+    def test_browse_only_flag(self):
+        dlg = _dlg()
+        assert dlg.browse_only_requested is False
+        dlg._on_browse_only()
+        assert dlg.browse_only_requested is True
+        assert dlg.result() == 0  # rejected

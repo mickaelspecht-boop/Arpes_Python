@@ -297,6 +297,9 @@ class Session:
         self.fit_panel_preset: str = "Custom"
         self.session_notes: str = ""
         self.current_sample: dict = {}
+        # Browse-only: suppress automatic setup prompts (sample setup popup,
+        # logbook auto-attach) for this session. Fits still ask when needed.
+        self.browse_only: bool = False
         # Per-top-level-subfolder sample parameters (folder-load setup dialog).
         # key = first component of the file's session key ("" = root files),
         # value = SampleConfig.to_dict(). Resolution: file meta ->
@@ -346,6 +349,7 @@ class Session:
             "fit_panel_preset": str(self.fit_panel_preset or "Custom"),
             "session_notes": str(self.session_notes or ""),
             "current_sample": _to_serial(self.current_sample),
+            "browse_only": bool(self.browse_only),
             "sample_configs": _to_serial(self.sample_configs),
             "convention_registry": _to_serial(self.convention_registry),
             "files": {
@@ -410,6 +414,7 @@ class Session:
         self.current_sample = SampleConfig.from_dict(
             raw.get("current_sample", {}) or {}
         ).to_dict()
+        self.browse_only = bool(raw.get("browse_only", False))
         # Absent on pre-feature sessions -> empty (current_sample fallback).
         self.sample_configs = {
             str(k): SampleConfig.from_dict(v or {}).to_dict()

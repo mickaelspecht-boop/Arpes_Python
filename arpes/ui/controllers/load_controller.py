@@ -93,11 +93,18 @@ class LoadController:
         the browser "Samples…" button, always opens.
         """
         if verb == "folder_opened":
+            if getattr(self._session, "browse_only", False):
+                return  # user chose Browse only for this session
             if getattr(self._session, "sample_configs", None):
                 self._warn_orphan_sample_keys()
                 return
             return self._open_sample_setup(auto=True)
         if verb == "open_dialog":
+            # Manual open always clears Browse only (arbiter decision: the
+            # "Samples…" button is the way back out of browse-only mode).
+            if getattr(self._session, "browse_only", False):
+                self._session.browse_only = False
+                self._session.save()
             return self._open_sample_setup(auto=False)
 
     def _open_sample_setup(self, *, auto: bool) -> None:
@@ -123,12 +130,22 @@ class LoadController:
                 detected_mode=layout.mode,
                 existing=getattr(self._session, "sample_configs", {}) or {},
                 session_default=getattr(self._session, "current_sample", {}) or {},
+                folder_path=str(folder),
+                existing_logbooks=getattr(self._session, "scoped_logbooks", {}) or {},
             )
             accepted = bool(dialog.exec())
         finally:
             self._parent._sample_dialog_open = False
         if not accepted:
-            self._status("Sample setup skipped — φ/a will be requested at fit time.")
+            if getattr(dialog, "browse_only_requested", False):
+                self._session.browse_only = True
+                self._session.save()
+                self._status(
+                    "⚠ Browse only — sample setup and logbook prompts disabled "
+                    "for this session. Use “Samples…” to configure later."
+                )
+            else:
+                self._status("Sample setup skipped — φ/a will be requested at fit time.")
             return
         configs = dialog.result_configs()
         whole = configs.pop("", None)
@@ -146,13 +163,39 @@ class LoadController:
                 existing[key] = base
             self._session.sample_configs = existing
             self._session.save()
-            n = len(configs)
+        n_logbooks = self._apply_dialog_logbooks(dialog.result_logbooks())
+        n = len(configs)
+        if configs or whole is not None or n_logbooks:
             self._status(
-                f"✓ Sample setup applied — {n} subfolder(s) configured"
-                if n else "✓ Sample setup applied — folder-wide sample set"
+                f"✓ Sample setup — {n} subfolder(s) configured"
+                + (f", {n_logbooks} logbook(s) attached" if n_logbooks else "")
             )
         else:
             self._status("Sample setup: no values entered — nothing saved.")
+
+    def _apply_dialog_logbooks(self, wanted: list[dict]) -> int:
+        """Attach each (rel, path, sheet) chosen in the dialog. Loud failures."""
+        n_ok = 0
+        ctrl = getattr(self._parent, "_logbook_ctrl", None)
+        if ctrl is None or not wanted:
+            return 0
+        for item in wanted:
+            rel, path, sheet = item["rel"], item["path"], item["sheet"]
+            saved = (getattr(self._session, "scoped_logbooks", {}) or {}).get(rel) or {}
+            mapping = saved.get("mapping") if (
+                str(saved.get("path", "")) == str(path)
+                and str(saved.get("sheet", "")) == str(sheet)
+            ) else None
+            try:
+                ctrl.attach_scoped_silent(path, sheet, [rel],
+                                          mapping_override=mapping)
+                n_ok += 1
+            except Exception as exc:
+                self._status(
+                    f"⚠ Logbook {Path(path).name} [{sheet}] → "
+                    f"{rel or 'session'} failed: {exc}"
+                )
+        return n_ok
 
     def _warn_orphan_sample_keys(self) -> None:
         """Resume case: warn when a saved sample key no longer matches a folder."""
