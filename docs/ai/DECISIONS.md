@@ -275,3 +275,7 @@ ré-entrance `_fit_busy`. Détail : `archive/AUDIT_UPDATES_HISTORY.md`.
 ## 2026-06-11 — Import DFT Materials Project cassé = client mp-api périmé, pas le code
 
 Symptôme : tout import MP échoue avec `No object found: s3://materialsproject-parsed/bandstructures/<id>.json.gz`, même mp-149 (Si). Cause : migration du stockage côté serveur MP ; le client mp-api 0.46.1 résolvait des clés S3 obsolètes. Fix : `micromamba run -n peaks pip install -U mp-api emmet-core` (0.46.3 / 0.87.0). Réflexe futur : si l'import MP casse d'un coup sans changement du code, tester `mp-149` en direct puis upgrader mp-api AVANT de chercher dans `arpes/theory/`.
+
+## 2026-06-11 — Orientation BM↔FS par direction logbook + conventions labels ZDB
+
+Décisions user : (1) direction logbook > azi moteur en cas de conflit (warning visible) ; (2) presets + renommage libre pour les labels HS ; (3) coupes verticales identifiées par la colonne direction. Implémentation data-driven : angles des directions depuis bz_high_symmetry_points (géométrie du panneau FS), remap labels unique dans bz.py (overlay + poches + matching direction cohérents). Bug de signe historique corrigé (fallback direction tournait fs−bm : Γ-M à 135° au lieu de 45°). Alias « Γ-Y » → X vertical sur zone carrée (usage logbook standard, documenté). Persistance par entrée : fs_bz_label_overrides/fs_bz_label_preset. Conseil GO (architect+redteam+arbiter) ; commit 827d745.
