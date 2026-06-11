@@ -203,7 +203,17 @@ class ResultsPanel(QWidget):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 0)
         split.setSizes([1100, 380])
+        self._split = split
         lay.addWidget(split)
+
+    def showEvent(self, event):  # noqa: N802 (Qt API)
+        super().showEvent(event)
+        # Apply the 65/35 split once the real width is known; doing it at
+        # build time lets the tables' size hints crush the plots.
+        if not getattr(self, "_split_initialized", False) and self.width() > 400:
+            self._split_initialized = True
+            w = self.width()
+            self._split.setSizes([int(w * 0.65), int(w * 0.35)])
 
     def refresh(self):
         self._sync_file_filter()
@@ -286,12 +296,13 @@ class ResultsPanel(QWidget):
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
         if row > 0:
-            leg = ax.legend(
-                fontsize=8, facecolor="#333", labelcolor="w",
-                loc="upper left", bbox_to_anchor=(1.02, 1.0),
-                borderaxespad=0.0, markerscale=2, frameon=True,
-            )
-            leg.set_draggable(True)
+            handles, labels = ax.get_legend_handles_labels()
+            if len(labels) <= 8:  # a bigger legend would cover the data
+                leg = ax.legend(
+                    fontsize=7, facecolor="#333", labelcolor="w",
+                    loc="best", markerscale=2, frameon=True, framealpha=0.75,
+                )
+                leg.set_draggable(True)
             self._canvas.fig.subplots_adjust(right=0.74)
         else:
             self._canvas.fig.subplots_adjust(right=0.97)
@@ -442,13 +453,13 @@ class ResultsPanel(QWidget):
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
         if plotted > 0:
-            leg = ax.legend(
-                fontsize=7, facecolor="#333", labelcolor="w",
-                loc="upper left", bbox_to_anchor=(1.02, 1.0),
-                borderaxespad=0.0, ncol=1, frameon=True,
-            )
-            leg.set_draggable(True)
-            self._canvas_gamma.fig.subplots_adjust(right=0.74)
+            handles, labels = ax.get_legend_handles_labels()
+            if len(labels) <= 8:
+                leg = ax.legend(
+                    fontsize=7, facecolor="#333", labelcolor="w",
+                    loc="best", frameon=True, framealpha=0.75,
+                )
+                leg.set_draggable(True)
         else:
             self._canvas_gamma.fig.subplots_adjust(right=0.97)
         self._canvas_gamma.redraw()

@@ -186,6 +186,16 @@ class BandAnalysisPanel(QWidget):
                         QSizePolicy.Policy.Expanding)
         return c
 
+    @staticmethod
+    def _placeholder(canvas, msg: str) -> None:
+        """Friendly empty state instead of bare 0–1 axes."""
+        ax = canvas.ax if hasattr(canvas, "ax") else canvas.axes[0]
+        for a in getattr(canvas, "axes", [ax]):
+            a.set_xticks([]); a.set_yticks([])
+            a.set_facecolor("#1a1a1a")
+        ax.text(0.5, 0.5, msg, transform=ax.transAxes, ha="center",
+                va="center", color="#888", fontsize=10, wrap=True)
+
     def _branch_combo(self) -> QComboBox:
         c = QComboBox()
         c.addItem("kF−  (left branch, k<0)", "kF_minus")
@@ -302,6 +312,9 @@ class BandAnalysisPanel(QWidget):
         outer.addWidget(self.tb_summary)
 
         self.tb_canvas = self._make_canvas()
+        self._placeholder(self.tb_canvas,
+                          "Run TB fit — the measured dispersion E(k) and the\n"
+                          "tight-binding curve will be drawn here.")
         self.tb_notes = QTextBrowser()
         self.tb_notes.setMaximumHeight(80)
         outer.addWidget(self.tb_notes)
@@ -403,6 +416,9 @@ class BandAnalysisPanel(QWidget):
         outer.addWidget(self.kink_summary)
 
         self.kink_canvas = self._make_canvas(nrows=2)
+        self._placeholder(self.kink_canvas,
+                          "Run kink analysis — Re Σ(E) and Im Σ(E)\n"
+                          "will be drawn here.")
         self.kink_notes = QTextBrowser()
         self.kink_notes.setMaximumHeight(80)
         outer.addWidget(self.kink_notes)
@@ -494,6 +510,9 @@ class BandAnalysisPanel(QWidget):
         outer.addWidget(self.gap_summary)
 
         self.gap_canvas = self._make_canvas()
+        self._placeholder(self.gap_canvas,
+                          "Run gap fit — the symmetrized EDC and the Dynes\n"
+                          "fit will be drawn here.")
         self.gap_notes = QTextBrowser()
         self.gap_notes.setMaximumHeight(80)
         outer.addWidget(self.gap_notes)
