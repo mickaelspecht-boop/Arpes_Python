@@ -25,11 +25,11 @@ class TestBZLabelsDialog:
 
     def test_preset_fills_fields(self):
         dlg = BZLabelsDialog(shape="square")
-        idx = dlg.cmb_preset.findData("i4mmm_sigma_corner")
+        idx = dlg.cmb_preset.findData("i4mmm_sigma_diagonal")
         dlg.cmb_preset.setCurrentIndex(idx)
         assert dlg._edits["M"].text() == "Σ"
         assert dlg.overrides() == {"M": "Σ"}
-        assert dlg.preset_key() == "i4mmm_sigma_corner"
+        assert dlg.preset_key() == "i4mmm_sigma_diagonal"
 
     def test_duplicate_labels_block_ok(self):
         dlg = BZLabelsDialog(shape="square")
@@ -45,9 +45,9 @@ class TestBZLabelsDialog:
 
     def test_existing_overrides_prefill(self):
         dlg = BZLabelsDialog(shape="square", current_overrides={"M": "Σ"},
-                             current_preset="i4mmm_sigma_corner")
+                             current_preset="i4mmm_sigma_diagonal")
         assert dlg._edits["M"].text() == "Σ"
-        assert dlg.preset_key() == "i4mmm_sigma_corner"
+        assert dlg.preset_key() == "i4mmm_sigma_diagonal"
 
     def test_rectangle_has_three_labels(self):
         dlg = BZLabelsDialog(shape="rectangle")

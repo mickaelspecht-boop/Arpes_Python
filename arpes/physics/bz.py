@@ -249,19 +249,26 @@ class Lattice3D:
 
 
 # Display conventions for the theoretical BZ overlay. Pure label renames —
-# the geometry never changes. Papers disagree on naming (e.g. 122-pnictide
-# I4/mmm articles label the square-zone corner Σ where the P-tetragonal
-# convention says M); the user picks the convention matching the article, or
-# edits labels freely on top of a preset.
+# the geometry never changes. Papers disagree on naming; the user picks the
+# convention matching the article, or edits labels freely on top of a preset.
+#
+# Caveat on "Σ" (122 pnictides, I4/mmm = BCT2): strictly, Σ is the [110]
+# diagonal direction; as a point (Setyawan-Curtarolo) it sits where that
+# diagonal crosses the TRUE body-centred-tetragonal zone boundary, at
+# η=(1+a²/c²)/4 of the projected-square diagonal (~56% for BaNi2As2) — and
+# the projected square corner (π/a, π/a, 0) is strictly the Z point. ARPES
+# articles use Σ loosely for the diagonal/corner region of the projected
+# 2D zone; this preset follows that display usage. The DIRECTION Γ-Σ (45°)
+# is exact either way.
 BZ_LABEL_CONVENTION_PRESETS: dict[str, dict[str, str]] = {
     "standard": {},
-    "i4mmm_sigma_corner": {"M": "Σ"},
+    "i4mmm_sigma_diagonal": {"M": "Σ"},
     "pnictide_1fe_2fe_swap": {"X": "M", "M": "X"},
 }
 
 BZ_LABEL_CONVENTION_TITLES: dict[str, str] = {
     "standard": "Standard (X faces, M corners)",
-    "i4mmm_sigma_corner": "I4/mmm 122 (Σ corners)",
+    "i4mmm_sigma_diagonal": "122 articles (corner shown as Σ — strictly the Γ-Σ diagonal; exact Σ at ~56%, corner = Z)",
     "pnictide_1fe_2fe_swap": "Pnictide 1-Fe ↔ 2-Fe (swap X/M)",
 }
 

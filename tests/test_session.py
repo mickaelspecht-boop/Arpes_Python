@@ -367,11 +367,11 @@ class TestBzLabelOverridesCompat(unittest.TestCase):
             session = Session(root)
             entry = session.get_or_create("FS1")
             entry.fs_bz_label_overrides = {"M": "Σ"}
-            entry.fs_bz_label_preset = "i4mmm_sigma_corner"
+            entry.fs_bz_label_preset = "i4mmm_sigma_diagonal"
             session.save()
 
             restored = Session(root)
             restored.load(root / ".arpes_session.json")
             out = restored.files["FS1"]
             self.assertEqual(out.fs_bz_label_overrides, {"M": "Σ"})
-            self.assertEqual(out.fs_bz_label_preset, "i4mmm_sigma_corner")
+            self.assertEqual(out.fs_bz_label_preset, "i4mmm_sigma_diagonal")
