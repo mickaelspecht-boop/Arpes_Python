@@ -116,3 +116,91 @@ class TestScanOverKF:
         out = ge.scan_gap_over_kf(edcs, resolution_meV=0.0, omega_max_meV=25.0)
         assert len(out["angle_deg"]) == 3
         assert np.all(out["delta_meV"] > 0)
+
+
+@requires_scipy
+class TestNormanSpectral:
+    def test_zero_gap_is_single_lorentzian_peak(self):
+        w = np.linspace(-20, 20, 401)
+        A = ge.norman_spectral(w, Delta=0.0, Gamma1=1.0, Gamma0=1.0)
+        assert np.argmax(A) == len(w) // 2  # peak at omega = 0
+        assert (A > 0).all()
+
+    def test_finite_gap_two_peaks_near_pm_delta(self):
+        w = np.linspace(-20, 20, 801)
+        A = ge.norman_spectral(w, Delta=5.0, Gamma1=0.3, Gamma0=0.3)
+        # Peaks near ±sqrt(Δ²−Γ₀²) ≈ ±Δ; the minimum sits at ω = 0.
+        pos = w[np.argmax(np.where(w > 1, A, 0))]
+        neg = w[np.argmax(np.where(w < -1, A, 0))]
+        assert abs(pos - 5.0) < 0.5
+        assert abs(neg + 5.0) < 0.5
+        assert A[len(w) // 2] < 0.5 * A.max()
+
+    def test_positive_definite_everywhere(self):
+        w = np.linspace(-50, 50, 1001)
+        A = ge.norman_spectral(w, Delta=8.0, Gamma1=2.0, Gamma0=1.0)
+        assert (A > 0).all()
+
+
+@requires_scipy
+class TestFitNormanSingle:
+    def test_recovers_delta(self):
+        D_true, G_true, g0 = 5.0, 0.8, 1.0
+        w = np.linspace(-25, 25, 201)
+        I = 3.0 * ge.norman_spectral(w, D_true, G_true, g0) + 0.05
+        res = ge.fit_norman_single(w, I, Delta_guess_meV=4.0)
+        assert abs(res.deltas_meV[0] - D_true) < 0.5
+        assert res.n_gaps == 1
+
+    def test_no_resolution_note(self):
+        w = np.linspace(-25, 25, 201)
+        I = ge.norman_spectral(w, 5.0, 0.5, 1.0)
+        res = ge.fit_norman_single(w, I, resolution_meV=0.0)
+        assert any("resolution" in n.lower() for n in res.notes)
+
+
+@requires_scipy
+class TestFitNormanTwoGap:
+    def test_recovers_two_gaps(self):
+        w = np.linspace(-25, 25, 301)
+        I = 2.0 * ge.norman_multi(w, [3.0, 9.0], [0.3, 0.4], [0.5, 0.5],
+                                  gamma0=1.0) + 0.02
+        res = ge.fit_norman_two_gap(w, I, D1_guess_meV=2.5, D2_guess_meV=8.0)
+        recovered = sorted(res.deltas_meV)
+        assert abs(recovered[0] - 3.0) < 1.0
+        assert abs(recovered[1] - 9.0) < 1.0
+        assert res.n_gaps == 2
+        assert sum(res.weights) == pytest.approx(1.0, abs=0.05)
+
+    def test_degenerate_gaps_noted(self):
+        w = np.linspace(-25, 25, 301)
+        I = ge.norman_multi(w, [5.0, 5.0], [0.4, 0.4], [0.5, 0.5], gamma0=1.0)
+        res = ge.fit_norman_two_gap(w, I, D1_guess_meV=5.0, D2_guess_meV=5.1)
+        assert any("indistinguishable" in n for n in res.notes)
+
+
+@requires_scipy
+class TestScanOverKFTwoGapAndRobustness:
+    def _edcs(self):
+        E = np.linspace(-0.03, 0.03, 61)
+        w = E * 1e3
+        edcs = []
+        for ang in (0.0, 20.0):
+            I = ge.dynes_multi(w, [2.5, 7.0], [0.2, 0.3], [0.5, 0.5]) + 0.01
+            edcs.append({"angle_deg": ang, "E": E, "I": I, "E_F": 0.0})
+        return edcs
+
+    def test_two_gap_scan(self):
+        out = ge.scan_gap_over_kf(self._edcs(), omega_max_meV=25.0, n_gaps=2)
+        assert len(out["angle_deg"]) == 2
+        assert "delta2_meV" in out
+        assert len(out["delta2_meV"]) == 2
+
+    def test_failing_edc_skipped(self):
+        edcs = self._edcs()
+        # EDC with mismatched arrays must be skipped, not crash the scan.
+        edcs.insert(1, {"angle_deg": 10.0, "E": np.linspace(-0.03, 0.03, 61),
+                        "I": np.ones(5), "E_F": 0.0})
+        out = ge.scan_gap_over_kf(edcs, omega_max_meV=25.0)
+        assert len(out["angle_deg"]) == 2
+        assert 10.0 not in out["angle_deg"]

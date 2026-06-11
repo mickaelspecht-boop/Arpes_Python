@@ -166,6 +166,8 @@ def symmetrize_edc(
     """
     E = np.asarray(E, float)
     I = np.asarray(I, float)
+    if E.shape != I.shape:
+        raise ValueError(f"E and I shapes differ: {E.shape} vs {I.shape}")
     omega_eV = E - E_F
     mask = np.abs(omega_eV) <= (omega_max_meV * 1e-3) * 1.05
     if mask.sum() < 6:
