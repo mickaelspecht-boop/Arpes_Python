@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QTableWidget,
+    QTabWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -50,13 +51,20 @@ class ResultsPanel(QWidget):
     def _build(self):
         lay = QHBoxLayout(self)
 
-        # canvas gauche : dispersion (top) + Γ(E) (bottom) empilés
-        canvases = QVBoxLayout()
-        self._canvas = MplCanvas(figsize=(6, 4))
-        self._canvas_gamma = MplCanvas(figsize=(6, 3))
-        canvases.addWidget(self._canvas, stretch=3)
-        canvases.addWidget(self._canvas_gamma, stretch=2)
-        cw = QWidget(); cw.setLayout(canvases)
+        # Left: one plot at a time, full height — switch with the sub-tabs
+        # (stacking both crushed each to half height).
+        self._canvas = MplCanvas(figsize=(6, 4), toolbar=True)
+        self._canvas_gamma = MplCanvas(figsize=(6, 3), toolbar=True)
+        cw = QTabWidget()
+        cw.setStyleSheet(
+            "QTabBar::tab{background:#303030;color:#bbb;padding:4px 10px;}"
+            "QTabBar::tab:selected{background:#444;color:white;}"
+        )
+        cw.addTab(self._canvas, "kF dispersion")
+        cw.addTab(self._canvas_gamma, "Γ(E) — lifetime")
+        cw.setTabToolTip(0, "kF(E) points of every fitted file (both branches).")
+        cw.setTabToolTip(1, "MDC linewidth Γ(E) ± σ with the Fermi-liquid fit "
+                            "Γ(E) = Γ₀ + a·E².")
 
         # droite : table + boutons
         right = QVBoxLayout()
