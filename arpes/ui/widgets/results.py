@@ -411,6 +411,7 @@ class ResultsPanel(QWidget):
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas_gamma.fig.set_facecolor("#2b2b2b")
         plotted = 0
+        self._gamma_sigma_missing = False
         for ci, (name, entry) in enumerate(self._session.files.items()):
             if entry.fit_result is None:
                 continue
@@ -440,6 +441,15 @@ class ResultsPanel(QWidget):
                                         g_n[band_valid] - sg[band_valid],
                                         g_n[band_valid] + sg[band_valid],
                                         color=color, alpha=0.18, lw=0)
+                        # The band alone is invisible when σ ≪ Γ (typical good
+                        # fit: σ ~1% of Γ): explicit capped error bars on a
+                        # subsample keep the uncertainty readable.
+                        idxs = np.flatnonzero(band_valid)[::max(1, int(band_valid.sum()) // 12)]
+                        ax.errorbar(e_n[idxs], g_n[idxs], yerr=sg[idxs],
+                                    fmt="none", ecolor=color, elinewidth=0.9,
+                                    capsize=2.5, alpha=0.9, zorder=3)
+                else:
+                    self._gamma_sigma_missing = True
                 fl = fit_gamma_fermi_liquid(fr, pair_index=i, e_window=0.30)
                 if np.isfinite(fl.gamma_zero) and np.isfinite(fl.coef_E2):
                     e_grid = np.linspace(float(np.nanmin(e_n[valid])),
@@ -453,6 +463,10 @@ class ResultsPanel(QWidget):
                      fontsize=10, color="w")
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
+        if self._gamma_sigma_missing:
+            ax.text(0.02, 0.97, "σ not stored in this fit — re-run the MDC fit "
+                    "to get uncertainty bars", transform=ax.transAxes,
+                    ha="left", va="top", color="#e6b35a", fontsize=8)
         if plotted > 0:
             handles, labels = ax.get_legend_handles_labels()
             if len(labels) <= 8:
