@@ -7,7 +7,7 @@ PyQt widgets (FSControlPanel, FermiSurfaceCanvas) moved to
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import OrderedDict
 from typing import Any
 import hashlib
@@ -40,6 +40,9 @@ class FSParams:
     bz_half_x: float = 1.0
     bz_half_y: float = 1.0
     bz_angle_deg: float = 90.0
+    # Display-only label convention ({"M": "Σ"}…), applied wherever HS labels
+    # are shown or matched (BZ overlay, pocket naming, BM cut directions).
+    bz_label_overrides: dict = field(default_factory=dict)
     normalize_profile: bool = True
     overlay_bz: bool = True
     show_hsym: bool = True

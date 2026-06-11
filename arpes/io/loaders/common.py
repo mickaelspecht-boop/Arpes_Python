@@ -403,6 +403,22 @@ def detect_scan_kind(path: str | Path, format_hint: str | None = None) -> str:
             return "BM"
         if len(info.dims) == 3:
             return "FS"
+    if fmt == "alls_itx":
+        from .alls_itx import _read_alls_itx_info
+        try:
+            info = _read_alls_itx_info(p)
+        except (OSError, ValueError):
+            return "unknown"
+        labels = " ".join(
+            (info.scales.get(axis).label if info.scales.get(axis) else "").lower()
+            for axis in ("x", "y", "z")
+        )
+        if "delay" in labels or "loop" in labels:
+            return "unknown"
+        if len(info.dims) == 2:
+            return "BM"
+        if len(info.dims) == 3:
+            return "FS"
     if fmt == "solaris_da30":
         if p.suffix.lower() == ".zip":
             return "FS"
@@ -473,6 +489,7 @@ def loader_label(source_format: str | None, metadata: dict | None = None) -> str
         "cls_txt": "CLS",
         "solaris_da30": "Solaris",
         "bessy_ses_ibw": "BESSY",
+        "alls_itx": "ALLS",
     }
     if fmt in labels:
         return labels[fmt]

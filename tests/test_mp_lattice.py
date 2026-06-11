@@ -16,8 +16,13 @@ from arpes.physics.bz import Lattice3D
 from arpes.theory.materials_project import (
     DEFAULT_MP_TIMEOUT_S,
     MaterialsProjectUnavailable,
+    _get_bandstructure,
+    _get_crystal_system,
+    _get_formula,
+    _get_space_group,
     _lattice_cache_path,
     _lattice_from_dict,
+    _open_mprester,
     _structure_to_dict,
     load_lattice,
 )
@@ -91,6 +96,46 @@ def _install_fake_mp(monkeypatch, *, structure, crystal_system="Tetragonal",
     parent.client = fake_module
     monkeypatch.setitem(sys.modules, "mp_api", parent)
     monkeypatch.setitem(sys.modules, "mp_api.client", fake_module)
+
+
+class TestMPResterRawMode:
+    def test_open_mprester_disables_document_validation(self):
+        calls = []
+
+        class FakeMPRester:
+            def __init__(self, api_key=None, **kwargs):
+                calls.append((api_key, kwargs))
+
+        _open_mprester(FakeMPRester, "k")
+        assert calls == [("k", {"use_document_model": False})]
+
+    def test_summary_helpers_accept_raw_dict_docs(self):
+        sym = {"symbol": "I4/mmm", "number": 139, "crystal_system": "Tetragonal"}
+        mpr = types.SimpleNamespace(
+            materials=types.SimpleNamespace(
+                summary=types.SimpleNamespace(
+                    search=lambda **kw: [{"formula_pretty": "BaNi2As2", "symmetry": sym}]
+                )
+            )
+        )
+        assert _get_formula(mpr, "mp-1") == "BaNi2As2"
+        assert _get_crystal_system(mpr, "mp-1") == "Tetragonal"
+        assert _get_space_group(mpr, "mp-1") == "I4/mmm (139)"
+
+    def test_bandstructure_prefers_direct_route_with_path_type(self):
+        calls = []
+
+        class FakeRoute:
+            def get_bandstructure_from_material_id(self, mpid, path_type=None):
+                calls.append((mpid, getattr(path_type, "value", path_type)))
+                return "bs"
+
+        mpr = types.SimpleNamespace(
+            materials=types.SimpleNamespace(electronic_structure_bandstructure=FakeRoute()),
+            get_bandstructure_by_material_id=lambda _mpid: "legacy",
+        )
+        assert _get_bandstructure(mpr, "mp-1", path_type="hinuma") == "bs"
+        assert calls == [("mp-1", "hinuma")]
 
 
 # ---- _structure_to_dict ----------------------------------------------------

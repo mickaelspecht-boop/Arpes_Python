@@ -526,6 +526,8 @@ def wire_ui_signals(window) -> None:
         )
         if hasattr(window._fs_controls, "bz_preset_requested"):
             window._fs_controls.bz_preset_requested.connect(window._choose_bz_preset)
+        if hasattr(window._fs_controls, "bz_labels_requested"):
+            window._fs_controls.bz_labels_requested.connect(window._edit_bz_labels)
         if hasattr(window._fs_controls, "bz_crystal_overlay_changed"):
             window._fs_controls.bz_crystal_overlay_changed.connect(
                 window._on_bz_crystal_overlay_changed

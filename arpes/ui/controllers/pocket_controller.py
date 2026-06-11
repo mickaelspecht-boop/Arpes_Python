@@ -639,6 +639,7 @@ class PocketController:
             float(params.bz_half_x),
             float(params.bz_half_y),
             float(params.bz_angle_deg),
+            label_overrides=(getattr(params, "bz_label_overrides", None) or None),
         ):
             if not name:
                 continue

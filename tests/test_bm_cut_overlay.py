@@ -228,3 +228,124 @@ class TestComputeBmCut(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDirectionGeometry(unittest.TestCase):
+    """Direction labels resolved on the actual BZ geometry (not a table)."""
+    WF = 4.4
+
+    def _cut(self, bm, fs, geom=None):
+        from arpes.physics.bm_cut_overlay import BZGeometry
+        return compute_bm_cut_in_fs_frame(
+            bm, "/d/bm.txt", fs, "/d/fs.txt", _fs_metadata(scan_center=0.0),
+            work_func=self.WF, a_lattice=TEST_A,
+            bz_geometry=geom if geom is not None else BZGeometry(),
+        )
+
+    def _segment_angle(self, out):
+        dx = out.kx_points[-1] - out.kx_points[0]
+        dy = out.ky_points[-1] - out.ky_points[0]
+        return float(np.degrees(np.arctan2(dy, dx))) % 180.0
+
+    def test_square_gy_vertical(self):
+        # Γ-Y cut on a square zone must be drawn VERTICAL when the FS is Γ-X.
+        bm = _bm_entry(azi=None, direction="GY")
+        fs = _fs_entry(azi=None, direction="GX")
+        out = self._cut(bm, fs)
+        self.assertAlmostEqual(self._segment_angle(out), 90.0, places=6)
+
+    def test_square_gm_45deg(self):
+        bm = _bm_entry(azi=None, direction="GM")
+        fs = _fs_entry(azi=None, direction="GX")
+        out = self._cut(bm, fs)
+        self.assertAlmostEqual(self._segment_angle(out), 45.0, places=6)
+
+    def test_rectangle_gs_angle_follows_aspect(self):
+        # Rectangle bx=1, by=0.5: corner S at (1, 0.5) -> atan2 = 26.57°,
+        # NOT the hardcoded 45° of the old table.
+        from arpes.physics.bm_cut_overlay import BZGeometry
+        geom = BZGeometry(shape="rectangle", half_x=1.0, half_y=0.5)
+        bm = _bm_entry(azi=None, direction="Γ-S")
+        fs = _fs_entry(azi=None, direction="Γ-X")
+        # Note: "Γ-S" normalizes S -> Σ on input; rename corner to match.
+        geom = BZGeometry(shape="rectangle", half_x=1.0, half_y=0.5,
+                          label_overrides={"S": "Σ"})
+        out = self._cut(bm, fs, geom)
+        self.assertAlmostEqual(self._segment_angle(out),
+                               np.degrees(np.arctan2(0.5, 1.0)), places=4)
+
+    def test_logbook_direction_wins_over_motor_azi(self):
+        # Motor azi says 0° rotation; logbook says the BM is Γ-Y (vertical).
+        bm = _bm_entry(azi=10.0, direction="GY")
+        fs = _fs_entry(azi=10.0, direction="GX")
+        out = self._cut(bm, fs)
+        self.assertAlmostEqual(self._segment_angle(out), 90.0, places=6)
+        self.assertIn("overrides motor azi", out.warning)
+
+    def test_no_warning_when_direction_and_azi_agree(self):
+        bm = _bm_entry(azi=0.0, direction="GX")
+        fs = _fs_entry(azi=0.0, direction="GX")
+        out = self._cut(bm, fs)
+        self.assertAlmostEqual(self._segment_angle(out), 0.0, places=6)
+        self.assertNotIn("overrides", out.warning)
+
+    def test_unresolvable_label_loud_not_silent(self):
+        # Oblique zone has no labelled HS points: Γ-X cannot be resolved.
+        from arpes.physics.bm_cut_overlay import BZGeometry
+        geom = BZGeometry(shape="oblique", angle_deg=75.0)
+        bm = _bm_entry(azi=None, direction="GX")
+        fs = _fs_entry(azi=None, direction="")
+        out = self._cut(bm, fs, geom)
+        self.assertIn("not in the current BZ", out.warning)
+        self.assertIn("direction ignored", out.warning)
+        self.assertAlmostEqual(self._segment_angle(out), 0.0, places=6)
+
+    def test_renamed_corner_matches_logbook_sigma(self):
+        # User convention M -> Σ: logbook "GS" (Γ-Σ) must hit the 45° corner.
+        from arpes.physics.bm_cut_overlay import BZGeometry
+        geom = BZGeometry(label_overrides={"M": "Σ"})
+        bm = _bm_entry(azi=None, direction="GS")
+        fs = _fs_entry(azi=None, direction="GX")
+        out = self._cut(bm, fs, geom)
+        self.assertAlmostEqual(self._segment_angle(out), 45.0, places=6)
+
+    def test_no_direction_no_azi_stays_horizontal(self):
+        bm = _bm_entry(azi=None, direction="")
+        fs = _fs_entry(azi=None, direction="")
+        out = self._cut(bm, fs)
+        self.assertAlmostEqual(self._segment_angle(out), 0.0, places=6)
+        self.assertEqual(out.warning, "")
+
+
+class TestBzLabelOverrides(unittest.TestCase):
+    def test_overrides_rename_output(self):
+        from arpes.physics.bz import bz_high_symmetry_points
+        pts = bz_high_symmetry_points("square", 1.0, 1.0,
+                                      label_overrides={"M": "Σ"})
+        labels = {name for _, _, name, _ in pts}
+        self.assertIn("Σ", labels)
+        self.assertNotIn("M", labels)
+        self.assertIn("Γ", labels)
+
+    def test_swap_preset_is_lossless(self):
+        from arpes.physics.bz import (
+            BZ_LABEL_CONVENTION_PRESETS, bz_high_symmetry_points,
+        )
+        swap = BZ_LABEL_CONVENTION_PRESETS["pnictide_1fe_2fe_swap"]
+        base = bz_high_symmetry_points("square", 1.0, 1.0)
+        out = bz_high_symmetry_points("square", 1.0, 1.0, label_overrides=swap)
+        # Same coordinates, X and M exchanged.
+        for (x0, y0, l0, _), (x1, y1, l1, _) in zip(base, out):
+            self.assertEqual((x0, y0), (x1, y1))
+            if l0 == "X":
+                self.assertEqual(l1, "M")
+            elif l0 == "M":
+                self.assertEqual(l1, "X")
+
+    def test_no_overrides_unchanged(self):
+        from arpes.physics.bz import bz_high_symmetry_points
+        a = bz_high_symmetry_points("square", 1.0, 1.0)
+        b = bz_high_symmetry_points("square", 1.0, 1.0, label_overrides=None)
+        c = bz_high_symmetry_points("square", 1.0, 1.0, label_overrides={})
+        self.assertEqual(a, b)
+        self.assertEqual(a, c)

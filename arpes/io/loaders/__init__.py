@@ -33,6 +33,7 @@ Package Architecture
 - `solaris.py`: Solaris/DA30 through erlab.
 - `bessy.py`: BESSY Scienta/SES R8000 (Igor v5).
 - `cls.py`: CLS/LNLS text (BM + FS Cycle/Step).
+- `alls_itx.py`: ALLS SpecsLab Prodigy Igor Text exports.
 
 Importing the package triggers registration of each backend.
 """
@@ -83,6 +84,15 @@ from .solaris import (
     _is_solaris_da30_file,
     _load_solaris_from_registry,
     load_solaris_da30_bandmap,
+)
+from .alls_itx import (
+    ITXInfo,
+    ITXScale,
+    _is_alls_itx_file,
+    _load_alls_itx_array,
+    _parse_alls_itx_info,
+    _read_alls_itx_info,
+    load_alls_itx,
 )
 from .cls import (
     _CLS_CACHE_VERSION,

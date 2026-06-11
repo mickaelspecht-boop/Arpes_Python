@@ -36,6 +36,13 @@ def build_bz_theoretical_group(panel, lay) -> None:
     btn_bz = compact_button(QPushButton("Choose BZ..."), max_width=160)
     btn_bz.setToolTip("Opens a selector with a diagram for choosing a 2D Bravais BZ.")
     btn_bz.clicked.connect(panel.bz_preset_requested)
+    panel.btn_bz_labels = compact_button(QPushButton("Label conventions..."), max_width=160)
+    panel.btn_bz_labels.setToolTip(
+        "Rename the high-symmetry point labels (e.g. M → Σ) to match the\n"
+        "convention used in a given article. Display-only: the geometry does\n"
+        "not change, and logbook directions (Γ-Σ…) match the renamed labels."
+    )
+    panel.btn_bz_labels.clicked.connect(panel.bz_labels_requested)
     fl3.addRow(panel.chk_bz)
     fl3.addRow(panel.chk_hsym)
     fl3.addRow("Forme:", panel.cmb_bz_shape)
@@ -44,6 +51,7 @@ def build_bz_theoretical_group(panel, lay) -> None:
     fl3.addRow("lattice angle:", panel.sp_bz_angle)
     fl3.addRow("display limit:", panel.sp_klim)
     fl3.addRow(btn_bz)
+    fl3.addRow(panel.btn_bz_labels)
     panel._update_bz_angle_visibility()
     panel._add_collapsible_group(lay, "Theoretical BZ", grp_bz, open_default=False)
 

@@ -154,6 +154,11 @@ class FileEntry:
     fs_hs_crystal_visible: bool = False     # crystal HS labels (Γ/X/M or Z/R/A)
     fs_bz_crystal_force_override: bool = False  # override mismatch a_ARPES/a_MP > 2%
     fs_lattice: dict = field(default_factory=dict)  # cache lattice MP {a,b,c,alpha,beta,gamma,bravais,space_group,mp_id}
+    # BZ label convention for the theoretical overlay: pure display renames
+    # ({"M": "Σ"}…) applied by bz_high_symmetry_points AND by the logbook
+    # direction matching (a renamed corner must keep matching "Γ-Σ" cuts).
+    fs_bz_label_overrides: dict = field(default_factory=dict)
+    fs_bz_label_preset: str = ""  # key in bz.BZ_LABEL_CONVENTION_PRESETS
     propagate_distortion_to_fs: bool = False  # opt-in: apply BM distortion to FS volume slices
     grid_correction: dict = field(default_factory=dict)
     ef_correction: dict = field(default_factory=dict)
@@ -422,6 +427,8 @@ class Session:
                 fs_hs_crystal_visible=bool(edict.get("fs_hs_crystal_visible", False)),
                 fs_bz_crystal_force_override=bool(edict.get("fs_bz_crystal_force_override", False)),
                 fs_lattice=edict.get("fs_lattice", {}) or {},
+                fs_bz_label_overrides=edict.get("fs_bz_label_overrides", {}) or {},
+                fs_bz_label_preset=str(edict.get("fs_bz_label_preset", "") or ""),
                 propagate_distortion_to_fs=bool(edict.get("propagate_distortion_to_fs", False)),
                 grid_correction=edict.get("grid_correction", {}) or {},
                 ef_correction=edict.get("ef_correction", {}) or {},

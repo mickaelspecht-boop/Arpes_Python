@@ -127,43 +127,110 @@ def _angle_delta_deg(dst: float, src: float) -> float:
     return (float(dst) - float(src) + 180.0) % 360.0 - 180.0
 
 
-def _direction_angle_deg(value) -> float | None:
-    """Best-effort angle for common high-symmetry line labels.
+@dataclass(frozen=True)
+class BZGeometry:
+    """BZ parameters of the FS panel, used to resolve direction labels.
 
-    This is a fallback for BESSY-style logbooks where `direction` is present
-    but motor `azi` is not. It only covers canonical line labels the UI already
-    exposes; calibrated azimuth remains the preferred source.
+    Defaults match the historical hardcoded behaviour (square zone).
+    `label_overrides` is the user label convention (e.g. {"M": "Σ"}): the
+    logbook direction is matched against the RENAMED labels, so a "Γ-Σ" cut
+    keeps working after the user switches convention.
     """
-    label = normalize_direction_label(value)
-    if not label:
-        return None
-    parts = [p for p in label.split("-") if p]
-    if len(parts) < 2:
-        return None
-    start, end = parts[0], parts[-1]
-    if start == "Γ":
-        table = {"X": 0.0, "Y": 90.0, "M": 45.0, "K": 30.0, "Σ": 45.0}
-        return table.get(end)
-    if {start, end} == {"X", "M"}:
-        return 90.0
-    if {start, end} == {"Y", "M"}:
-        return 0.0
+    shape: str = "square"
+    half_x: float = 1.0
+    half_y: float = 1.0
+    angle_deg: float = 90.0
+    label_overrides: dict | None = None
+
+
+def _hs_point_coords(label: str, geom: BZGeometry) -> tuple[float, float] | None:
+    """Coordinates of the first listed HS point named `label` (post-convention).
+
+    Equivalent points (4 X's on a square…) are listed positive-x first in
+    bz_high_symmetry_points, so the choice is deterministic: Γ-X → 0°,
+    Γ-M → 45° on the default square zone.
+
+    Logbook alias: on a square zone the vertical axis point (0, b) is also
+    labelled X (it is symmetry-equivalent), yet experimenters write "Γ-Y"
+    for the vertical cut. A request for an absent "Y" therefore resolves to
+    the most vertical X-equivalent point when one exists.
+    """
+    from arpes.physics.bz import bz_high_symmetry_points
+    points = bz_high_symmetry_points(
+        geom.shape, geom.half_x, geom.half_y, geom.angle_deg,
+        label_overrides=geom.label_overrides,
+    )
+    for x, y, name, _color in points:
+        if name == label:
+            return float(x), float(y)
+    if label == "Y":
+        candidates = [(x, y) for x, y, name, _ in points
+                      if name == "X" and (abs(x) > 1e-12 or abs(y) > 1e-12)]
+        if candidates:
+            # Most vertical X-equivalent (line angles are 180°-periodic).
+            def _vert(c):
+                ang = np.degrees(np.arctan2(c[1], c[0])) % 180.0
+                return abs(ang - 90.0)
+            best = min(candidates, key=_vert)
+            if _vert(best) < 45.0:
+                return float(best[0]), float(best[1])
     return None
 
 
-def _direction_delta_deg(bm_entry, fs_entry) -> tuple[float | None, str]:
+def _direction_angle_deg(value, geom: BZGeometry) -> tuple[float | None, str]:
+    """Angle (deg, 0 = +kx) of a high-symmetry line label in the chosen BZ.
+
+    Data-driven: the angle comes from the actual BZ geometry selected in the
+    FS panel (shape, half_x/half_y, angle, label convention), not from a
+    hardcoded table — Γ-M is 45° on a square zone but not on a rectangle.
+
+    Returns (angle, "") on success, (None, reason) when the label cannot be
+    resolved (no direction, oblique zone, label absent from this BZ).
+    """
+    label = normalize_direction_label(value)
+    if not label:
+        return None, ""
+    parts = [p for p in label.split("-") if p]
+    if len(parts) < 2:
+        return None, f"direction '{label}' incomplete"
+    start, end = parts[0], parts[-1]
+    p_start = (0.0, 0.0) if start == "Γ" else _hs_point_coords(start, geom)
+    p_end = (0.0, 0.0) if end == "Γ" else _hs_point_coords(end, geom)
+    if p_start is None or p_end is None:
+        missing = start if p_start is None else end
+        return None, (
+            f"direction {label}: point '{missing}' not in the current BZ "
+            f"({geom.shape}) — check BZ shape / label conventions"
+        )
+    dx, dy = p_end[0] - p_start[0], p_end[1] - p_start[1]
+    if abs(dx) < 1e-12 and abs(dy) < 1e-12:
+        return None, f"direction {label}: degenerate (zero-length line)"
+    return float(np.degrees(np.arctan2(dy, dx))), ""
+
+
+def _direction_delta_deg(bm_entry, fs_entry, geom: BZGeometry) -> tuple[float | None, str]:
+    """Rotation FS−BM from logbook direction labels, resolved on `geom`.
+
+    The FS direction defaults to the 0° axis of the zone when unspecified
+    (the FS kx axis is taken as the reference horizontal direction).
+    Unresolvable BM labels return (None, loud reason) — never a silent 0°.
+    """
     bm_dir = getattr(getattr(bm_entry, "meta", None), "direction", "")
     fs_dir = getattr(getattr(fs_entry, "meta", None), "direction", "")
-    bm_ang = _direction_angle_deg(bm_dir)
+    bm_ang, bm_reason = _direction_angle_deg(bm_dir, geom)
     if bm_ang is None:
-        return None, ""
-    fs_ang = _direction_angle_deg(fs_dir)
+        return None, bm_reason
+    fs_ang, _ = _direction_angle_deg(fs_dir, geom)
+    fs_label = normalize_direction_label(str(fs_dir))
     if fs_ang is None:
         fs_ang = 0.0
-        fs_dir = "Γ-X"
-    return _angle_delta_deg(fs_ang, bm_ang), (
+        fs_label = "FS axis (0°)"
+    # BM line angle in the FS frame = θ_bm − θ_fs (the FS kx axis lies along
+    # the FS's own direction). The historical fs−bm order rotated Γ-M cuts
+    # to 135° instead of 45° — wrong side of the zone diagonal.
+    return _angle_delta_deg(bm_ang, fs_ang), (
         f"direction {normalize_direction_label(str(bm_dir))} vs "
-        f"{normalize_direction_label(str(fs_dir)) or 'Γ-X'} → rotation applied"
+        f"{fs_label} → rotation applied"
     )
 
 
@@ -181,11 +248,13 @@ def compute_bm_cut_in_fs_frame(
     azi_tolerance_deg: float = 0.5,
     hv_tolerance_rel: float = 0.02,
     overlay_max_hv_rel: float = 0.05,
+    bz_geometry: BZGeometry | None = None,
 ) -> BMCutLine | None:
     """Project a BM into the (kx, ky) frame of an FS.
 
     Args:
-        bm_entry: BM FileEntry (reads meta.hv, meta.polar, meta.azi).
+        bm_entry: BM FileEntry (reads meta.hv, meta.polar, meta.azi,
+            meta.direction).
         bm_path: BM key/path in session.files.
         fs_entry: reference FS FileEntry.
         fs_path: FS key/path.
@@ -196,6 +265,14 @@ def compute_bm_cut_in_fs_frame(
         n_points: number of points along the segment.
         azi_tolerance_deg: beyond this → quality="rotated".
         hv_tolerance_rel: beyond this → quality="scaled".
+        bz_geometry: BZ shape/size/convention selected in the FS panel; used
+            to resolve logbook direction labels into angles. None = default
+            square zone (historical behaviour).
+
+    Orientation priority (user decision, 2026-06): the logbook `direction`
+    label WINS over the motor azimuth when both are present — experimenters
+    record the crystal direction deliberately while the azi motor zero is
+    often uncalibrated. A visible warning reports any disagreement.
 
     Returns:
         BMCutLine or None if the BM is incomplete (not a BM, no polar, etc.).
@@ -279,22 +356,39 @@ def compute_bm_cut_in_fs_frame(
         kx_local = t.copy()
     ky_local = np.full_like(kx_local, ky_in_fs_local)
 
-    # Rotate by calibrated azi when available; otherwise fall back to logbook
-    # high-symmetry direction (common in BESSY sheets with no motor azi).
+    # Orientation: logbook direction label FIRST (resolved on the chosen BZ
+    # geometry), motor azi as fallback. When both exist and disagree, the
+    # direction wins and the conflict is reported loudly.
+    geom = bz_geometry if bz_geometry is not None else BZGeometry()
     direction_note = ""
     used_direction_rotation = False
+    delta_azi: float | None = None
     if azi_bm is not None and azi_fs is not None:
         try:
-            delta_deg = _angle_delta_deg(float(azi_fs), float(azi_bm))
+            delta_azi = _angle_delta_deg(float(azi_fs), float(azi_bm))
         except (TypeError, ValueError):
-            delta_deg = 0.0
+            delta_azi = None
+    delta_dir, direction_note = _direction_delta_deg(bm_entry, fs_entry, geom)
+    if delta_dir is not None:
+        delta_deg = float(delta_dir)
+        used_direction_rotation = abs(delta_deg) > 1e-12
+        if delta_azi is not None and abs(_angle_delta_deg(delta_azi, delta_deg)) > azi_tolerance_deg:
+            direction_note = (
+                f"{direction_note} | ⚠ logbook direction ({delta_deg:+.1f}°) "
+                f"overrides motor azi (Δazi={delta_azi:+.1f}°) — verify"
+            )
+        elif not used_direction_rotation:
+            direction_note = ""  # same direction, no rotation: nothing to report
+    elif direction_note:
+        # The BM has a direction label that could not be resolved on the
+        # current BZ: never rotate silently, surface the reason.
+        delta_deg = delta_azi if delta_azi is not None else 0.0
+        direction_note = f"{direction_note} → direction ignored"
+        used_direction_rotation = False
+    elif delta_azi is not None:
+        delta_deg = delta_azi
     else:
-        delta_dir, direction_note = _direction_delta_deg(bm_entry, fs_entry)
-        if delta_dir is None:
-            delta_deg = 0.0
-        else:
-            delta_deg = float(delta_dir)
-            used_direction_rotation = abs(delta_deg) > 1e-12
+        delta_deg = 0.0
     delta_azi_rad = np.radians(delta_deg)
     if abs(delta_azi_rad) > 1e-12:
         c, s = np.cos(delta_azi_rad), np.sin(delta_azi_rad)
@@ -311,7 +405,9 @@ def compute_bm_cut_in_fs_frame(
     )
     if used_direction_rotation and quality == "exact":
         quality = "rotated"
-    if direction_note and used_direction_rotation:
+    if direction_note:
+        # Always surfaced: rotation applied, conflict with motor azi, or
+        # unresolvable label — none of these may stay silent.
         warning = f"{warning} | {direction_note}" if warning else direction_note
     if tilt_note:
         warning = f"{warning} | {tilt_note}" if warning else tilt_note

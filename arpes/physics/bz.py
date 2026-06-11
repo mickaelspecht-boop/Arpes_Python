@@ -149,6 +149,7 @@ def bz_high_symmetry_points(
     half_x: float,
     half_y: float,
     angle_deg: float = 90.0,
+    label_overrides: dict[str, str] | None = None,
 ) -> list[tuple[float, float, str, str]]:
     """Visual aid points: (x, y, label, color).
 
@@ -159,7 +160,18 @@ def bz_high_symmetry_points(
     - centered rectangle       : Γ, X (edge center), S (BZ vertex)
     - oblique                  : Γ only; vertices marked without label
       (no standard high-symmetry points beyond Γ).
+
+    ``label_overrides`` renames the canonical labels above on output
+    (e.g. ``{"M": "Σ"}`` for the I4/mmm 122-pnictide convention). It is the
+    single remap point: every consumer (BZ overlay, direction matching)
+    sees the renamed labels, so a logbook "Γ-Σ" cut keeps matching the
+    geometry.
     """
+    if label_overrides:
+        base = bz_high_symmetry_points(shape, half_x, half_y, angle_deg)
+        src = list(label_overrides.keys())
+        dst = [str(label_overrides[k]) for k in src]
+        return _label_remap(base, src, dst)
     shape = _norm_shape(shape)
     bx = max(float(half_x), 1e-9)
     by = max(float(half_y), 1e-9)
@@ -234,6 +246,24 @@ class Lattice3D:
         if bv == "hexagonal":
             return "hexagonal"
         return "square"  # reasonable fallback
+
+
+# Display conventions for the theoretical BZ overlay. Pure label renames —
+# the geometry never changes. Papers disagree on naming (e.g. 122-pnictide
+# I4/mmm articles label the square-zone corner Σ where the P-tetragonal
+# convention says M); the user picks the convention matching the article, or
+# edits labels freely on top of a preset.
+BZ_LABEL_CONVENTION_PRESETS: dict[str, dict[str, str]] = {
+    "standard": {},
+    "i4mmm_sigma_corner": {"M": "Σ"},
+    "pnictide_1fe_2fe_swap": {"X": "M", "M": "X"},
+}
+
+BZ_LABEL_CONVENTION_TITLES: dict[str, str] = {
+    "standard": "Standard (X faces, M corners)",
+    "i4mmm_sigma_corner": "I4/mmm 122 (Σ corners)",
+    "pnictide_1fe_2fe_swap": "Pnictide 1-Fe ↔ 2-Fe (swap X/M)",
+}
 
 
 _HS_LABELS_BY_PLANE: dict[str, dict[str, list[str]]] = {

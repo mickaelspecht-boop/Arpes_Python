@@ -10,6 +10,7 @@ PROXY_MAP = {
     "_save_current_fs_center": "_fs_ctrl",
     "_draw_fs_tab": "_fs_ctrl",
     "_choose_bz_preset": "_fs_ctrl",
+    "_edit_bz_labels": "_fs_ctrl",
     "_on_bz_crystal_overlay_changed": "_fs_ctrl",
     "_on_mp_lattice_fetch": "_fs_ctrl",
     "_save_current_bz_crystal_settings": "_fs_ctrl",

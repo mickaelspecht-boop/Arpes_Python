@@ -47,6 +47,7 @@ class FSControlPanel(QScrollArea):
     pockets_export_requested = pyqtSignal()
     pocket_preview_level_changed = pyqtSignal(float)
     bz_preset_requested = pyqtSignal()
+    bz_labels_requested = pyqtSignal()  # "Label conventions..." button
     distortion_fs_toggled = pyqtSignal(bool)
     # --- Crystal BZ overlay (MP) -----------------------------------------
     mp_lattice_fetch_requested = pyqtSignal()   # "Fetch MP symmetry" button
@@ -61,7 +62,15 @@ class FSControlPanel(QScrollArea):
         self._lay = QVBoxLayout(w)
         self._lay.setContentsMargins(6, 6, 6, 6)
         self.setWidget(w)
+        # HS label convention of the current FS entry (display renames,
+        # e.g. {"M": "Σ"}); set by the FS controller on entry change.
+        self._bz_label_overrides: dict = {}
         self._build()
+
+    def set_bz_label_overrides(self, overrides: dict | None, *, emit: bool = True) -> None:
+        self._bz_label_overrides = dict(overrides or {})
+        if emit:
+            self.params_changed.emit()
 
     def _dspin(self, value, lo, hi, step, dec=3):
         sp = QDoubleSpinBox()
@@ -350,6 +359,7 @@ class FSControlPanel(QScrollArea):
             bz_shape=self.cmb_bz_shape.currentText(),
             bz_half_x=self.sp_bzx.value(), bz_half_y=self.sp_bzy.value(),
             bz_angle_deg=self.sp_bz_angle.value(),
+            bz_label_overrides=dict(self._bz_label_overrides),
             normalize_profile=self.chk_norm.isChecked(), overlay_bz=self.chk_bz.isChecked(),
             show_hsym=self.chk_hsym.isChecked(), cmap=self.cmb_cmap.currentText(),
             v0_eV=self.sp_v0.value(),
@@ -744,7 +754,10 @@ class FermiSurfaceCanvas(QWidget):
                 scat = self.ax.scatter([x],[y], c=color, s=35, zorder=5, linewidths=0)
                 ann = self.ax.annotate(name, (x,y), xytext=(4,4), textcoords="offset points", color=color, fontsize=9, fontweight="bold")
                 self._overlay_artists.extend([scat, ann])
-            for x, y, name, color in bz_high_symmetry_points(p.bz_shape, bx, by, p.bz_angle_deg):
+            for x, y, name, color in bz_high_symmetry_points(
+                p.bz_shape, bx, by, p.bz_angle_deg,
+                label_overrides=(getattr(p, "bz_label_overrides", None) or None),
+            ):
                 dot(x, y, name, color)
         # NE PAS recadrer aux limites BZ : on garde le signal entier visible,
         # le user zoome via la toolbar matplotlib si besoin. (Demandé par user

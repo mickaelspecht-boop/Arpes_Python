@@ -350,3 +350,28 @@ class TestSessionManager(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBzLabelOverridesCompat(unittest.TestCase):
+    def test_missing_keys_default_empty(self):
+        # Sessions saved before the BZ label convention feature must load
+        # with empty overrides (default square labels, original behaviour).
+        entry = FileEntry(meta=FileMeta(scan_kind="FS"))
+        d = entry.to_dict() if hasattr(entry, "to_dict") else None
+        self.assertEqual(entry.fs_bz_label_overrides, {})
+        self.assertEqual(entry.fs_bz_label_preset, "")
+
+    def test_roundtrip_preserves_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = Session(root)
+            entry = session.get_or_create("FS1")
+            entry.fs_bz_label_overrides = {"M": "Σ"}
+            entry.fs_bz_label_preset = "i4mmm_sigma_corner"
+            session.save()
+
+            restored = Session(root)
+            restored.load(root / ".arpes_session.json")
+            out = restored.files["FS1"]
+            self.assertEqual(out.fs_bz_label_overrides, {"M": "Σ"})
+            self.assertEqual(out.fs_bz_label_preset, "i4mmm_sigma_corner")

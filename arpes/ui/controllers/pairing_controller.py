@@ -19,7 +19,7 @@ from arpes.io.file_pairing import (
     find_fs_for_bm,
 )
 from arpes.core.sample import lattice_a_for_entry, work_function_for_entry
-from arpes.physics.bm_cut_overlay import compute_bm_cut_in_fs_frame
+from arpes.physics.bm_cut_overlay import BZGeometry, compute_bm_cut_in_fs_frame
 
 
 def _augmented_files(session) -> dict:
@@ -243,16 +243,42 @@ class PairingController:
             fs_entry, fs_path, _normalized_augmented_files(self._session),
             criteria,
         )
+        geom = self._bz_geometry_for(fs_entry)
         cuts = []
         for match in bms:
             cut = compute_bm_cut_in_fs_frame(
                 match.entry, match.path, fs_entry, fs_path, fs_metadata,
                 work_func=float(work_func), a_lattice=float(a_lattice),
                 overlay_max_hv_rel=float(criteria.hv_tolerance_rel),
+                bz_geometry=geom,
             )
             if cut is not None:
                 cuts.append(cut)
         return cuts
+
+    def _bz_geometry_for(self, fs_entry) -> BZGeometry:
+        """BZ shape/size from the FS panel + label convention from the entry.
+
+        Headless or panel-less contexts fall back to the default square zone
+        (the historical behaviour of the direction table).
+        """
+        overrides = dict(getattr(fs_entry, "fs_bz_label_overrides", {}) or {})
+        ctrls = getattr(self._parent, "_fs_controls", None)
+        params = None
+        if ctrls is not None:
+            try:
+                params = ctrls.params()
+            except Exception:
+                params = None
+        if params is None:
+            return BZGeometry(label_overrides=overrides or None)
+        return BZGeometry(
+            shape=str(getattr(params, "bz_shape", "square") or "square"),
+            half_x=float(getattr(params, "bz_half_x", 1.0) or 1.0),
+            half_y=float(getattr(params, "bz_half_y", 1.0) or 1.0),
+            angle_deg=float(getattr(params, "bz_angle_deg", 90.0) or 90.0),
+            label_overrides=overrides or None,
+        )
 
     # ---------------------------------------------------------------
     # Verb-dispatch unique pour le proxy (CLAUDE.md plafond 150).

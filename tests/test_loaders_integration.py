@@ -57,6 +57,14 @@ FIXTURES = [
         "kwargs": {"work_func": 4.031, "ef_offset": 0.0, "hv": 100.0},
     },
     {
+        "label": "ALLS SpecsLab ITX FS (Ba122 alignment grid)",
+        "path": "Data/Nouveau loader/ALLS/BaNi2As2/Ba122_FS_alignment10_grid_12_Map1.itx",
+        "format": "alls_itx",
+        "ndim": 2,
+        "kwargs": {"work_func": 4.5, "ef_offset": 0.0, "a_lattice": 4.0},
+        "expect_fs": True,
+    },
+    {
         "label": "CLS texte (BM1)",
         "path": "Ba122_C05_2/BM1",
         "format": None,  # CLS format is not in the current registry.

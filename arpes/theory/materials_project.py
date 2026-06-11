@@ -62,7 +62,7 @@ def load_materials_project_band_data(
 
     api_key = api_key or os.environ.get("MP_API_KEY") or None
     try:
-        with MPRester(api_key) as mpr:
+        with _open_mprester(MPRester, api_key) as mpr:
             bs = _get_bandstructure(mpr, mpid, path_type=path_type)
             formula = _get_formula(mpr, mpid)
             crystal_system = _get_crystal_system(mpr, mpid)
@@ -110,21 +110,21 @@ def search_by_formula(
     api_key = api_key or os.environ.get("MP_API_KEY") or None
     fields = ["material_id", "formula_pretty", "symmetry", "energy_above_hull", "is_stable"]
     try:
-        with MPRester(api_key) as mpr:
+        with _open_mprester(MPRester, api_key) as mpr:
             docs = mpr.materials.summary.search(formula=formula, fields=fields)
     except Exception as exc:
         raise RuntimeError(f"Materials Project search failed for '{formula}': {exc}") from exc
 
     out: list[dict] = []
     for d in docs[: int(max_results)]:
-        sym = getattr(d, "symmetry", None)
+        sym = _doc_get(d, "symmetry")
         out.append({
-            "material_id": str(getattr(d, "material_id", "") or ""),
-            "formula_pretty": str(getattr(d, "formula_pretty", "") or ""),
-            "crystal_system": str(getattr(sym, "crystal_system", "") or "") if sym else "",
-            "spacegroup_symbol": str(getattr(sym, "symbol", "") or "") if sym else "",
-            "energy_above_hull": float(getattr(d, "energy_above_hull", 0.0) or 0.0),
-            "is_stable": bool(getattr(d, "is_stable", False)),
+            "material_id": str(_doc_get(d, "material_id", "") or ""),
+            "formula_pretty": str(_doc_get(d, "formula_pretty", "") or ""),
+            "crystal_system": str(_doc_get(sym, "crystal_system", "") or "") if sym else "",
+            "spacegroup_symbol": str(_doc_get(sym, "symbol", "") or "") if sym else "",
+            "energy_above_hull": float(_doc_get(d, "energy_above_hull", 0.0) or 0.0),
+            "is_stable": bool(_doc_get(d, "is_stable", False)),
         })
     out.sort(key=lambda r: (not r["is_stable"], r["energy_above_hull"]))
     return out
@@ -181,7 +181,7 @@ def load_lattice(
     api_key_resolved = api_key or os.environ.get("MP_API_KEY") or None
 
     def _fetch() -> dict:
-        with MPRester(api_key_resolved) as mpr:
+        with _open_mprester(MPRester, api_key_resolved) as mpr:
             structure = _get_structure(mpr, mpid)
             crystal_system = _get_crystal_system(mpr, mpid)
             space_group = _get_space_group(mpr, mpid)
@@ -214,6 +214,22 @@ def _lattice_cache_path(cache_dir: str | Path | None, material_id: str) -> Path:
     return root / f"{safe}_lattice.json"
 
 
+def _open_mprester(MPRester, api_key: str | None):
+    """Create MPRester without MP document validation.
+
+    MP occasionally ships API payloads before the installed emmet/mp-api
+    Pydantic models know every optional field. Raw dict mode avoids client-side
+    validation failures while preserving pymatgen bandstructure download.
+    """
+    return MPRester(api_key, use_document_model=False)
+
+
+def _doc_get(doc, key: str, default=None):
+    if isinstance(doc, dict):
+        return doc.get(key, default)
+    return getattr(doc, key, default)
+
+
 def _get_structure(mpr, material_id: str):
     if hasattr(mpr, "get_structure_by_material_id"):
         return mpr.get_structure_by_material_id(material_id)
@@ -223,7 +239,7 @@ def _get_structure(mpr, material_id: str):
     docs = mpr.materials.summary.search(material_ids=[material_id], fields=["structure"])
     if not docs:
         raise MaterialsProjectUnavailable(f"No structure for {material_id}.")
-    return docs[0].structure
+    return _doc_get(docs[0], "structure")
 
 
 def _get_space_group(mpr, material_id: str) -> str:
@@ -231,12 +247,12 @@ def _get_space_group(mpr, material_id: str) -> str:
         docs = mpr.materials.summary.search(material_ids=[material_id], fields=["symmetry"])
         if not docs:
             return ""
-        sym = getattr(docs[0], "symmetry", None)
+        sym = _doc_get(docs[0], "symmetry")
         if sym is None:
             return ""
         # symmetry.symbol = "I4/mmm", symmetry.number = 139
-        sym_symbol = getattr(sym, "symbol", "") or ""
-        sym_number = getattr(sym, "number", "") or ""
+        sym_symbol = _doc_get(sym, "symbol", "") or ""
+        sym_number = _doc_get(sym, "number", "") or ""
         if sym_number:
             return f"{sym_symbol} ({sym_number})" if sym_symbol else str(sym_number)
         return str(sym_symbol)
@@ -292,14 +308,51 @@ def _cache_path(
 
 
 def _get_bandstructure(mpr, material_id: str, *, path_type: str):
+    materials = getattr(mpr, "materials", None)
+    band_route = (
+        getattr(materials, "electronic_structure_bandstructure", None)
+        if materials is not None else None
+    )
+    if band_route is None:
+        electronic = getattr(materials, "electronic_structure", None) if materials is not None else None
+        band_route = getattr(electronic, "bandstructure", None) if electronic is not None else None
+    if band_route is not None and hasattr(band_route, "get_bandstructure_from_material_id"):
+        errors: list[str] = []
+        for candidate in _candidate_path_types(path_type):
+            try:
+                return band_route.get_bandstructure_from_material_id(
+                    material_id,
+                    path_type=_mp_path_type(candidate),
+                )
+            except Exception as exc:
+                errors.append(f"{candidate}: {exc}")
+        raise MaterialsProjectUnavailable(
+            "No downloadable Materials Project bandstructure object found "
+            f"for {material_id}. Tried " + "; ".join(errors)
+        )
     if hasattr(mpr, "get_bandstructure_by_material_id"):
         return mpr.get_bandstructure_by_material_id(material_id)
-    materials = getattr(mpr, "materials", None)
-    electronic = getattr(materials, "electronic_structure", None) if materials is not None else None
-    band_route = getattr(electronic, "bandstructure", None) if electronic is not None else None
-    if band_route is not None and hasattr(band_route, "get_bandstructure_from_material_id"):
-        return band_route.get_bandstructure_from_material_id(material_id)
     raise MaterialsProjectUnavailable("Endpoint bandstructure Materials Project introuvable.")
+
+
+def _mp_path_type(path_type: str):
+    key = str(path_type or "setyawan_curtarolo").strip().lower()
+    try:
+        from emmet.core.electronic_structure import BSPathType
+        for item in BSPathType:
+            if item.value == key:
+                return item
+    except Exception:
+        pass
+    return key
+
+
+def _candidate_path_types(path_type: str) -> list[str]:
+    preferred = str(path_type or "setyawan_curtarolo").strip().lower()
+    known = ["setyawan_curtarolo", "hinuma", "latimer_munro"]
+    out = [preferred] if preferred else []
+    out.extend(x for x in known if x not in out)
+    return out
 
 
 def _get_formula(mpr, material_id: str) -> str:
@@ -308,7 +361,7 @@ def _get_formula(mpr, material_id: str) -> str:
             material_ids=[material_id],
             fields=["formula_pretty"],
         )
-        return str(docs[0].formula_pretty) if docs else ""
+        return str(_doc_get(docs[0], "formula_pretty", "")) if docs else ""
     except Exception:
         return ""
 
@@ -322,8 +375,8 @@ def _get_crystal_system(mpr, material_id: str) -> str:
         )
         if not docs:
             return ""
-        sym = getattr(docs[0], "symmetry", None)
-        cs = getattr(sym, "crystal_system", "") if sym else ""
+        sym = _doc_get(docs[0], "symmetry")
+        cs = _doc_get(sym, "crystal_system", "") if sym else ""
         return str(cs or "")
     except Exception:
         return ""

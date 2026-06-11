@@ -106,6 +106,33 @@ class FSController:
             self._draw_fs_tab()
             self._status(f"ZDB applied: {dialog.selected_key}")
 
+    def _edit_bz_labels(self):
+        """Open the HS label convention dialog and persist on the FS entry."""
+        if not hasattr(self, "_fs_controls"):
+            return
+        entry = self._current_entry()
+        if entry is None:
+            self._status("BZ labels: load an FS file first.")
+            return
+        from arpes.ui.widgets.dialogs.bz_labels_dialog import BZLabelsDialog
+        p = self._fs_controls.params()
+        dialog = BZLabelsDialog(
+            self._parent,
+            shape=p.bz_shape, half_x=p.bz_half_x, half_y=p.bz_half_y,
+            angle_deg=p.bz_angle_deg,
+            current_overrides=getattr(entry, "fs_bz_label_overrides", {}) or {},
+            current_preset=getattr(entry, "fs_bz_label_preset", "") or "",
+        )
+        if not dialog.exec():
+            return
+        entry.fs_bz_label_overrides = dialog.overrides()
+        entry.fs_bz_label_preset = dialog.preset_key()
+        self._session.save()
+        self._fs_controls.set_bz_label_overrides(entry.fs_bz_label_overrides, emit=False)
+        self._draw_fs_tab()
+        renames = ", ".join(f"{k}→{v}" for k, v in entry.fs_bz_label_overrides.items())
+        self._status(f"BZ labels: {renames or 'standard'}")
+
     def _save_current_fs_center(self):
         if self._raw_data is None or not self._current_path or not self._current_is_fs():
             return
@@ -129,6 +156,13 @@ class FSController:
             return
         # Inject the entry's MP lattice into metadata before draw (canvas reads it).
         self._inject_fs_lattice_into_raw()
+        # Sync the entry's HS label convention into the panel (silent: a
+        # params_changed emit here would loop back into this redraw).
+        entry_lbl = self._current_entry()
+        if entry_lbl is not None and hasattr(self._fs_controls, "set_bz_label_overrides"):
+            self._fs_controls.set_bz_label_overrides(
+                getattr(entry_lbl, "fs_bz_label_overrides", {}) or {}, emit=False,
+            )
         # GF redteam : applique distortion BM au volume FS si opt-in actif.
         propagated = self._apply_distortion_to_fs_volume_if_enabled()
         fs_params = self._fs_controls.params()
