@@ -21,8 +21,10 @@ class MultiFilePoint:
     kF_sigma: float
     m_star: float
     m_star_sigma: float
-    gamma_zero: float
-    gamma_zero_sigma: float
+    vF: float = float("nan")        # Fermi velocity (eV·π/a)
+    vF_sigma: float = float("nan")
+    gamma_zero: float = float("nan")
+    gamma_zero_sigma: float = float("nan")
     direction: str = ""
 
 
@@ -107,6 +109,8 @@ def _point_from_entry(
         kF_sigma=float(branch.kF_at_EF_sigma),
         m_star=float(branch.m_star_over_me),
         m_star_sigma=float(branch.m_star_sigma),
+        vF=float(branch.vF_eV_pi_a),
+        vF_sigma=float(branch.vF_sigma),
         gamma_zero=float(gamma.gamma_zero) if gamma is not None else float("nan"),
         gamma_zero_sigma=float(gamma.gamma_zero_sigma) if gamma is not None else float("nan"),
         direction=str(entry.meta.direction or ""),

@@ -49,7 +49,7 @@ class MultiFileAnalysisDialog(QDialog):
         mid = QHBoxLayout()
         self._list = QListWidget()
         mid.addWidget(self._list, stretch=1)
-        self._canvas = MplCanvas(figsize=(7, 6), toolbar=True, nrows=3)
+        self._canvas = MplCanvas(figsize=(7, 6), toolbar=True, nrows=4)
         mid.addWidget(self._canvas, stretch=3)
         root.addLayout(mid, stretch=1)
 
@@ -161,7 +161,7 @@ class MultiFileAnalysisDialog(QDialog):
             return
         point = self._series.points[idx]
         x = float(point.x_value)
-        ys = (point.kF, point.m_star, point.gamma_zero)
+        ys = (point.kF, point.vF, point.m_star, point.gamma_zero)
         for ax, y in zip(self._canvas.axes, ys):
             try:
                 if y == y:  # not NaN
@@ -185,6 +185,7 @@ class MultiFileAnalysisDialog(QDialog):
         labels = [p.x_label for p in series.points]
         panels = [
             ("kF (π/a)", [p.kF for p in series.points], [p.kF_sigma for p in series.points]),
+            ("vF (eV·π/a)", [p.vF for p in series.points], [p.vF_sigma for p in series.points]),
             ("m*/me", [p.m_star for p in series.points], [p.m_star_sigma for p in series.points]),
             ("Γ0 (π/a)", [p.gamma_zero for p in series.points], [p.gamma_zero_sigma for p in series.points]),
         ]
