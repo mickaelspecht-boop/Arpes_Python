@@ -206,11 +206,12 @@ class ResultsPanel(QWidget):
         self._split = split
         lay.addWidget(split)
 
-    def showEvent(self, event):  # noqa: N802 (Qt API)
-        super().showEvent(event)
-        # Apply the 65/35 split once the real width is known; doing it at
-        # build time lets the tables' size hints crush the plots.
-        if not getattr(self, "_split_initialized", False) and self.width() > 400:
+    def resizeEvent(self, event):  # noqa: N802 (Qt API)
+        super().resizeEvent(event)
+        # Apply the 65/35 split once the widget has its REAL width: showEvent
+        # fires before the final layout pass (width ~650), which froze tiny
+        # plot panes. resizeEvent with a realistic width is the reliable hook.
+        if not getattr(self, "_split_initialized", False) and self.width() > 900:
             self._split_initialized = True
             w = self.width()
             self._split.setSizes([int(w * 0.65), int(w * 0.35)])

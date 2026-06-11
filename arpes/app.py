@@ -350,6 +350,10 @@ class ArpesExplorer(QMainWindow):
         # 0=BM, 1=MDC Fit, 2=Results, 3=FS, 4=KZ, 5=Notes, 6=Help, 7=Start
         if hasattr(self, "_right_stack"):
             self._right_stack.setCurrentIndex(2 if index == 4 else (1 if index == 3 else 0))
+            # Results/Notes/Help/Start have no side controls: hiding the stack
+            # gives the whole width back to the content (it stole ~500 px of
+            # dead space on the Results tab).
+            self._right_stack.setVisible(index in (0, 1, 3, 4))
         if index == 0:
             self._params.set_context("bm")
         elif index == 1:
