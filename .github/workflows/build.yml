@@ -20,8 +20,8 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -50,16 +50,19 @@ jobs:
             artifact: ARPES_Explorer-windows-x86_64
           - os: macos-14            # Apple Silicon (arm64)
             artifact: ARPES_Explorer-macos-arm64
-          - os: macos-13            # Intel (x86_64)
-            artifact: ARPES_Explorer-macos-x86_64
+          # No Intel macOS target: GitHub retired the free macos-13 (x86_64)
+          # runners, jobs queue forever. Intel Macs must run from source.
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
+      - name: Install Qt runtime libraries (for the smoke test)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
       - name: Build with PyInstaller
         run: pyinstaller arpes.spec --noconfirm
       - name: Smoke test (binary imports and exits)
@@ -84,7 +87,7 @@ jobs:
           else
             tar czf "../${{ matrix.artifact }}.tar.gz" ARPES_Explorer
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -99,11 +102,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
           generate_release_notes: true

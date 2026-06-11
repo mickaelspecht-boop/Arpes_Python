@@ -70,8 +70,9 @@ pyinstaller arpes.spec --noconfirm
 
 ## 5. Release / patch workflow (the normal path)
 
-No build machine needed — GitHub Actions builds all four targets
-(Linux x86_64, Windows x86_64, macOS arm64, macOS Intel):
+No build machine needed — GitHub Actions builds all three targets
+(Linux x86_64, Windows x86_64, macOS arm64). No Intel macOS binary:
+GitHub retired the free macos-13 runners; Intel Macs run from source.
 
 ```bash
 # 1. fix/commit as usual
