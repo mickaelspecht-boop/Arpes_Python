@@ -8,3 +8,7 @@ __pycache__/
 **/.arpes_theory_cache/
 Capture d*.png
 .claude/settings.local.json
+
+# PyInstaller build output
+build/
+dist/

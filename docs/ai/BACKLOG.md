@@ -61,3 +61,6 @@ résultat → item ici, puis `DECISIONS.md`.
 - Colonne n_Luttinger dans Results (NO-GO conseil 2026-06-10 tant que la
   dimensionnalité du compte n'est pas définie — kF²/π 2D vs autre; lié au
   Luttinger des poches FS qui lui existe déjà).
+- Binaire PyInstaller ~940 MB : réductible (collect_submodules("scipy") prend
+  tout ; cibler les sous-modules réellement importés + exclure pandas.tests
+  etc.). Non bloquant — optimisation au besoin.

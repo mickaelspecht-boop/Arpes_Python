@@ -1,0 +1,109 @@
+# Build standalone executables for Windows / macOS / Linux.
+#
+# - Every push to main and every PR: run the test suite (Linux, headless Qt).
+# - Every tag `v*` (e.g. v1.0.0): build the three binaries with PyInstaller
+#   and attach them to a GitHub Release.
+#
+# Patching workflow: fix the code, commit, then
+#     git tag v1.0.1 && git push origin v1.0.1
+# -> CI rebuilds and publishes the three executables automatically.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt pytest
+          sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+      - name: Run test suite (headless Qt)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest tests/ \
+            --ignore=tests/test_annotations.py \
+            --ignore=tests/test_local_dft_loaders.py -q
+
+  build:
+    # Binaries only for tagged releases (and manual runs) — keeps CI cheap.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04        # oldest LTS -> binary runs on newer glibc
+            artifact: ARPES_Explorer-linux-x86_64
+          - os: windows-latest
+            artifact: ARPES_Explorer-windows-x86_64
+          - os: macos-14            # Apple Silicon (arm64)
+            artifact: ARPES_Explorer-macos-arm64
+          - os: macos-13            # Intel (x86_64)
+            artifact: ARPES_Explorer-macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+      - name: Build with PyInstaller
+        run: pyinstaller arpes.spec --noconfirm
+      - name: Smoke test (binary imports and exits)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          # The app must at least boot its Python and reach Qt init.
+          timeout 30 ./dist/ARPES_Explorer/ARPES_Explorer --help || code=$?
+          # Qt apps without --help handling may exit non-zero; only a crash
+          # before Qt init (import error) exits 1 instantly — tolerate the
+          # timeout (124) and clean exits.
+          if [ "${code:-0}" != "0" ] && [ "${code}" != "124" ]; then exit 1; fi
+      - name: Package artifact
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            7z a "../${{ matrix.artifact }}.zip" ARPES_Explorer
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            zip -qry "../${{ matrix.artifact }}.zip" ARPES_Explorer.app
+          else
+            tar czf "../${{ matrix.artifact }}.tar.gz" ARPES_Explorer
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

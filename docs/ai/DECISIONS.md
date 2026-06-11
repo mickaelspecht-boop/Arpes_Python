@@ -9,6 +9,21 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-11 — Packaging : exécutables Win/macOS/Linux via GitHub Actions
+Demande : binaires 3 OS, robustes, patchables. Pas de cross-compilation
+possible (PyInstaller) → CI = la seule voie robuste sans 3 machines. Livré :
+`arpes.spec` (recette PyInstaller : hiddenimports scipy + pandas/openpyxl
+lazy ; datas = arpes/docs (Help runtime) + arpes_plots.py ; **erlab EXCLU**
+= backend optionnel gardé, en le bundlant on tirerait un arbre énorme),
+`requirements.txt` (majors épinglés depuis l'env peaks : PyQt6 6.10, numpy
+2.3, scipy 1.17, mpl 3.10, pandas, openpyxl, PyYAML), CI
+`.github/workflows/build.yml` : tests headless à chaque push ; sur tag `v*`
+→ 4 binaires (Linux x86_64 sur Ubuntu 22.04 pour glibc large, Win x86_64,
+macOS arm64 + Intel) attachés à une GitHub Release. Patcher = committer puis
+`git tag v1.0.x && git push origin v1.0.x` — tout est rebuildé tout seul.
+macOS non signé → premier lancement clic-droit→Open (doc). dist/build
+gitignorés. Spec validée par build local macOS réel.
+
 ## 2026-06-11 — Band Analysis : layout 2 colonnes, courbe TB persistée, branch lisible
 Retour user après la passe tooltips : « toujours pareil » — les vrais problèmes
 étaient (1) courbe TB INVISIBLE : `restore_all` rappelait `show_tb_result`
