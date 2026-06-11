@@ -9,6 +9,20 @@ Historique détaillé pré-2026-06-06 archivé :
 
 ---
 
+## 2026-06-11 — Band Analysis : layout 2 colonnes, courbe TB persistée, branch lisible
+Retour user après la passe tooltips : « toujours pareil » — les vrais problèmes
+étaient (1) courbe TB INVISIBLE : `restore_all` rappelait `show_tb_result`
+sans k/E/E_fit → plot vide après tout refresh/changement de fichier. Fix :
+courbe persistée dans `ba["tb"]["curve"]` au fit, fallback dans le render.
+(2) Canvases écrasés : les 3 tabs TB/Kink/Gap empilaient form+boutons+summary
+AU-DESSUS du canvas → refonte 2 colonnes (rail params 340 px à gauche, canvas
+toute la largeur restante). (3) Sélection de bande cryptique : combo branch
+affiche « kF− (left branch, k<0) » mais garde la VALEUR `kF_minus` via
+currentData (le texte sert de clé dans fit_result → prereq passé de findText
+à findData, sinon autofill silencieusement cassé). (4) MDC Results : cap dur
+350 px droite remplacé par QSplitter draggable (plots prennent tout l'écran,
+défaut 1100/380). 868 OK / 9 skip, app réelle vérifiée.
+
 ## 2026-06-11 — Results compréhensibles : tooltips physiques + seuils honnêtes
 Plainte : résultats « difficiles à comprendre et utiliser ». Conseil 4 voix,
 plan 6 étapes indépendantes, livrées 1-5 (6 = polish marginal, skip) :

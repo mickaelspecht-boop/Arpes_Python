@@ -207,9 +207,16 @@ class BandAnalysisController:
             "branch": branch,
             "pair_index": pair,
         }
-        panel.show_tb_result(ba["tb"], k=k, E=E,
-                             E_fit=tb_fit.evaluate_tb_model(res, k,
-                                  ky=np.zeros_like(k) if res.lattice_type != "chain" else None))
+        E_fit = tb_fit.evaluate_tb_model(
+            res, k, ky=np.zeros_like(k) if res.lattice_type != "chain" else None)
+        # Persist the fitted curve so restore_all (file switch, tab refresh)
+        # can redraw it — without this the plot silently went blank.
+        ba["tb"]["curve"] = {
+            "k": np.asarray(k, dtype=float).tolist(),
+            "E": np.asarray(E, dtype=float).tolist(),
+            "E_fit": np.asarray(E_fit, dtype=float).tolist(),
+        }
+        panel.show_tb_result(ba["tb"], k=k, E=E, E_fit=E_fit)
         self._after_run_refresh(entry)
 
     # ------------------------------------------------------------------

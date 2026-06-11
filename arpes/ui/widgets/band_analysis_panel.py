@@ -188,7 +188,8 @@ class BandAnalysisPanel(QWidget):
 
     def _branch_combo(self) -> QComboBox:
         c = QComboBox()
-        c.addItems(["kF_minus", "kF_plus"])
+        c.addItem("kF−  (left branch, k<0)", "kF_minus")
+        c.addItem("kF+  (right branch, k>0)", "kF_plus")
         c.setToolTip(
             "MDC fit branch to analyze:\n"
             "  kF_minus = k < 0 side (toward negative Γ)\n"
@@ -232,7 +233,7 @@ class BandAnalysisPanel(QWidget):
 
     def _build_tb_tab(self) -> QWidget:
         w = QWidget()
-        outer = QVBoxLayout(w)
+        outer = QVBoxLayout()
         outer.setContentsMargins(2, 2, 2, 2)
 
         outer.addWidget(self._header(
@@ -301,11 +302,16 @@ class BandAnalysisPanel(QWidget):
         outer.addWidget(self.tb_summary)
 
         self.tb_canvas = self._make_canvas()
-        outer.addWidget(self.tb_canvas, 1)
-
         self.tb_notes = QTextBrowser()
         self.tb_notes.setMaximumHeight(80)
         outer.addWidget(self.tb_notes)
+        outer.addStretch(1)
+        # Two-column layout: parameters in a fixed left rail, the plot gets
+        # the whole remaining width (the stacked layout crushed the canvas).
+        lw = QWidget(); lw.setLayout(outer); lw.setMaximumWidth(340)
+        hl = QHBoxLayout(w); hl.setContentsMargins(0, 0, 0, 0)
+        hl.addWidget(lw)
+        hl.addWidget(self.tb_canvas, 1)
         return w
 
     def tb_options(self) -> dict:
@@ -313,7 +319,7 @@ class BandAnalysisPanel(QWidget):
             "lattice_type": self.tb_lattice.currentText(),
             "a": self.tb_a.value(),
             "b": self.tb_b.value() if self.tb_lattice.currentText() == "rect" else None,
-            "branch": self.tb_branch.currentText(),
+            "branch": self.tb_branch.currentData(),
             "pair": self.tb_pair.value(),
         }
 
@@ -327,7 +333,7 @@ class BandAnalysisPanel(QWidget):
 
     def _build_kink_tab(self) -> QWidget:
         w = QWidget()
-        outer = QVBoxLayout(w)
+        outer = QVBoxLayout()
         outer.setContentsMargins(2, 2, 2, 2)
 
         outer.addWidget(self._header(
@@ -397,16 +403,21 @@ class BandAnalysisPanel(QWidget):
         outer.addWidget(self.kink_summary)
 
         self.kink_canvas = self._make_canvas(nrows=2)
-        outer.addWidget(self.kink_canvas, 1)
-
         self.kink_notes = QTextBrowser()
         self.kink_notes.setMaximumHeight(80)
         outer.addWidget(self.kink_notes)
+        outer.addStretch(1)
+        # Two-column layout: parameters in a fixed left rail, the plot gets
+        # the whole remaining width (the stacked layout crushed the canvas).
+        lw = QWidget(); lw.setLayout(outer); lw.setMaximumWidth(340)
+        hl = QHBoxLayout(w); hl.setContentsMargins(0, 0, 0, 0)
+        hl.addWidget(lw)
+        hl.addWidget(self.kink_canvas, 1)
         return w
 
     def kink_options(self) -> dict:
         return {
-            "branch": self.kink_branch.currentText(),
+            "branch": self.kink_branch.currentData(),
             "pair": self.kink_pair.value(),
             "bare": self.kink_bare.currentText(),
             "window_lo": self.kink_win_lo.value(),
@@ -425,7 +436,7 @@ class BandAnalysisPanel(QWidget):
 
     def _build_gap_tab(self) -> QWidget:
         w = QWidget()
-        outer = QVBoxLayout(w)
+        outer = QVBoxLayout()
         outer.setContentsMargins(2, 2, 2, 2)
 
         outer.addWidget(self._header(
@@ -483,16 +494,21 @@ class BandAnalysisPanel(QWidget):
         outer.addWidget(self.gap_summary)
 
         self.gap_canvas = self._make_canvas()
-        outer.addWidget(self.gap_canvas, 1)
-
         self.gap_notes = QTextBrowser()
         self.gap_notes.setMaximumHeight(80)
         outer.addWidget(self.gap_notes)
+        outer.addStretch(1)
+        # Two-column layout: parameters in a fixed left rail, the plot gets
+        # the whole remaining width (the stacked layout crushed the canvas).
+        lw = QWidget(); lw.setLayout(outer); lw.setMaximumWidth(340)
+        hl = QHBoxLayout(w); hl.setContentsMargins(0, 0, 0, 0)
+        hl.addWidget(lw)
+        hl.addWidget(self.gap_canvas, 1)
         return w
 
     def gap_options(self) -> dict:
         return {
-            "branch": self.gap_branch.currentText(),
+            "branch": self.gap_branch.currentData(),
             "pair": self.gap_pair.value(),
             "n_gaps": self.gap_n_gaps.value(),
             "resolution_meV": self.gap_resolution.value(),

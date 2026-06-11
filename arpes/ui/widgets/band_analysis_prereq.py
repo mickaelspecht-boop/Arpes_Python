@@ -43,7 +43,7 @@ def apply_autofill(panel, target: str, defaults: dict) -> None:
         if "a" in defaults:
             panel.tb_a.setValue(float(defaults["a"]))
         if "branch" in defaults:
-            idx = panel.tb_branch.findText(str(defaults["branch"]))
+            idx = panel.tb_branch.findData(str(defaults["branch"]))
             if idx >= 0:
                 panel.tb_branch.setCurrentIndex(idx)
     elif target == "kink":
@@ -54,7 +54,7 @@ def apply_autofill(panel, target: str, defaults: dict) -> None:
         if "window_hi" in defaults:
             panel.kink_win_hi.setValue(float(defaults["window_hi"]))
         if "branch" in defaults:
-            idx = panel.kink_branch.findText(str(defaults["branch"]))
+            idx = panel.kink_branch.findData(str(defaults["branch"]))
             if idx >= 0:
                 panel.kink_branch.setCurrentIndex(idx)
     elif target == "gap":
@@ -63,6 +63,6 @@ def apply_autofill(panel, target: str, defaults: dict) -> None:
         if "omega_max_meV" in defaults:
             panel.gap_omega_max.setValue(float(defaults["omega_max_meV"]))
         if "branch" in defaults:
-            idx = panel.gap_branch.findText(str(defaults["branch"]))
+            idx = panel.gap_branch.findData(str(defaults["branch"]))
             if idx >= 0:
                 panel.gap_branch.setCurrentIndex(idx)

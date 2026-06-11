@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -56,7 +57,6 @@ class ResultsPanel(QWidget):
         canvases.addWidget(self._canvas, stretch=3)
         canvases.addWidget(self._canvas_gamma, stretch=2)
         cw = QWidget(); cw.setLayout(canvases)
-        lay.addWidget(cw, stretch=2)
 
         # droite : table + boutons
         right = QVBoxLayout()
@@ -194,8 +194,16 @@ class ResultsPanel(QWidget):
         right.addLayout(row1); right.addLayout(row2)
 
         rw = QWidget(); rw.setLayout(right)
-        rw.setMaximumWidth(350)
-        lay.addWidget(rw, stretch=1)
+        rw.setMinimumWidth(320)
+        # User-draggable split instead of a hard 350 px cap: the plots take
+        # the whole remaining screen and the divider can be moved at will.
+        split = QSplitter(Qt.Orientation.Horizontal)
+        split.addWidget(cw)
+        split.addWidget(rw)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 0)
+        split.setSizes([1100, 380])
+        lay.addWidget(split)
 
     def refresh(self):
         self._sync_file_filter()

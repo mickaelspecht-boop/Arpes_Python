@@ -9,6 +9,15 @@ import numpy as np
 
 
 def show_tb_result(p, tb: dict, *, k=None, E=None, E_fit=None) -> None:
+    # Restore path (file switch / refresh) passes no arrays: fall back to the
+    # curve persisted at fit time so the plot never silently goes blank.
+    if k is None and isinstance(tb.get("curve"), dict):
+        cur = tb["curve"]
+        k = np.asarray(cur.get("k") or [], dtype=float)
+        E = np.asarray(cur.get("E") or [], dtype=float)
+        E_fit = np.asarray(cur.get("E_fit") or [], dtype=float)
+        if k.size == 0:
+            k = E = E_fit = None
     params = tb.get("params", {})
     per = tb.get("perr", {})
     parts = [f"<b>Model:</b> {tb.get('model', '')}"]
