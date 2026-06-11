@@ -61,7 +61,7 @@ def aggregate_session_entries(
             if norm_filter not in direction:
                 skipped += 1
                 continue
-        sample = sample_for_entry(session, entry)
+        sample = sample_for_entry(session, entry, name)
         if crystal_a_default and not sample.has_lattice_a:
             sample = sample.merge_missing_from(type(sample)(a_angstrom=float(crystal_a_default)))
         try:

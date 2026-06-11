@@ -36,6 +36,8 @@ from arpes.io.logbook import (
 class FileBrowserPanel(QWidget):
     file_selected = pyqtSignal(str)   # émet le chemin complet
     session_reloaded = pyqtSignal()   # émet après chargement .arpes_session.json depuis disque
+    folder_opened = pyqtSignal()      # émet à CHAQUE set_folder (même dossier neuf sans session)
+    sample_setup_requested = pyqtSignal()  # bouton "Sample setup..."
 
     STATUS_ICONS = {"unloaded": "[ ]", "loaded": "[L]", "fitted": "[F]"}
     STATUS_COLORS = {"unloaded": "#888", "loaded": "#f0c040", "fitted": "#60e080"}
@@ -68,6 +70,14 @@ class FileBrowserPanel(QWidget):
         btn_refresh.setToolTip("Refresh the file list")
         btn_refresh.clicked.connect(self.refresh)
         top.addWidget(btn_refresh)
+        btn_samples = QPushButton("Samples\u2026")
+        btn_samples.setFixedWidth(82)
+        btn_samples.setToolTip(
+            "Edit the work function \u03c6 and lattice parameter a\n"
+            "for each sample subfolder."
+        )
+        btn_samples.clicked.connect(self.sample_setup_requested)
+        top.addWidget(btn_samples)
         self._lbl_folder = QLabel("—")
         self._lbl_folder.setWordWrap(True)
         self._lbl_folder.setStyleSheet("font-size:10px; color:#aaa;")
@@ -219,6 +229,7 @@ class FileBrowserPanel(QWidget):
         # de fit…) soient remis aux valeurs par défaut de la session vide.
         if (loaded or fresh) and hasattr(self, "session_reloaded"):
             self.session_reloaded.emit()
+        self.folder_opened.emit()
 
     def refresh(self):
         self._items_cache = None
@@ -238,23 +249,12 @@ class FileBrowserPanel(QWidget):
             self._tag_filter_model.setStringList(tags)
 
     def _is_cls_dataset_dir(self, p: Path) -> bool:
-        if not p.is_dir():
-            return False
-        for param_file in p.glob("*_param.txt"):
-            prefix = param_file.name.removesuffix("_param.txt")
-            if any(p.glob(f"{prefix}_Cycle_*_Step_*.txt")):
-                return True
-        return False
+        from arpes.io.scan_utils import is_scan_dataset_dir
+        return is_scan_dataset_dir(p)
 
     def _is_data_file(self, p: Path) -> bool:
-        if not p.is_file():
-            return False
-        if p.name.endswith("_param.txt"):
-            return False
-        if p.suffix.lower() in {".pxt", ".ibw", ".zip"}:
-            return True
-        # CLS BM: extensionless file with a sibling <name>_param.txt file.
-        return p.suffix == "" and (p.parent / f"{p.name}_param.txt").exists()
+        from arpes.io.scan_utils import is_data_file
+        return is_data_file(p)
 
     def _discover_items(self) -> list[Path]:
         if self._items_cache is not None:

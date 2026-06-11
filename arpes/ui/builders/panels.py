@@ -629,3 +629,8 @@ def wire_param_signals(window) -> None:
     p.batch_fit_requested.connect(window._batch_fit_folder)
     if hasattr(window, "_browser") and hasattr(window._browser, "session_reloaded"):
         window._browser.session_reloaded.connect(window._on_browser_session_reloaded)
+    if hasattr(window, "_browser") and hasattr(window._browser, "folder_opened"):
+        window._browser.folder_opened.connect(
+            lambda: window._sample_setup_action("folder_opened"))
+        window._browser.sample_setup_requested.connect(
+            lambda: window._sample_setup_action("open_dialog"))

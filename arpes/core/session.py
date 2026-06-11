@@ -297,6 +297,11 @@ class Session:
         self.fit_panel_preset: str = "Custom"
         self.session_notes: str = ""
         self.current_sample: dict = {}
+        # Per-top-level-subfolder sample parameters (folder-load setup dialog).
+        # key = first component of the file's session key ("" = root files),
+        # value = SampleConfig.to_dict(). Resolution: file meta ->
+        # sample_configs[key] -> current_sample (see core/sample.py).
+        self.sample_configs: dict = {}
         # P2.6a: angle sign conventions frozen by beamline (geometric key ->
         # dict BeamlineAngleConvention). Empty = all UNCALIBRATED (data-driven).
         self.convention_registry: dict = {}
@@ -341,6 +346,7 @@ class Session:
             "fit_panel_preset": str(self.fit_panel_preset or "Custom"),
             "session_notes": str(self.session_notes or ""),
             "current_sample": _to_serial(self.current_sample),
+            "sample_configs": _to_serial(self.sample_configs),
             "convention_registry": _to_serial(self.convention_registry),
             "files": {
                 name: _to_serial(asdict(entry))
@@ -404,6 +410,11 @@ class Session:
         self.current_sample = SampleConfig.from_dict(
             raw.get("current_sample", {}) or {}
         ).to_dict()
+        # Absent on pre-feature sessions -> empty (current_sample fallback).
+        self.sample_configs = {
+            str(k): SampleConfig.from_dict(v or {}).to_dict()
+            for k, v in (raw.get("sample_configs", {}) or {}).items()
+        }
         # v2->v3: absent field -> empty dict (all conventions data-driven).
         self.convention_registry = dict(raw.get("convention_registry", {}) or {})
         self.files = {}

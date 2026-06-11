@@ -31,15 +31,20 @@ class FSController:
                 "if the parent attribute is legitimate."
             )
 
+    def _entry_key(self) -> str | None:
+        return self._session.key_for_path(self._current_path) if getattr(self, "_current_path", None) else None
+
     def _work_func(self) -> float:
         return work_function_for_entry(
             self._session,
             self._current_entry(),
             fallback=float(getattr(self._session, "work_func", 0.0) or 0.0),
+            entry_key=self._entry_key(),
         )
 
     def _lattice_a(self) -> float:
-        return lattice_a_for_entry(self._session, self._current_entry(), fallback=0.0)
+        return lattice_a_for_entry(self._session, self._current_entry(), fallback=0.0,
+                                   entry_key=self._entry_key())
 
     def _current_is_fs(self) -> bool:
         meta = (self._raw_data or {}).get("metadata", {}) or {}

@@ -227,6 +227,7 @@ class PairingController:
                 self._session,
                 fs_entry,
                 fallback=fallback,
+                entry_key=fs_path,
             )
         if float(work_func or 0.0) <= 0.0:
             # Fail loud instead of silently drawing nothing (was the #1 reason
@@ -235,7 +236,8 @@ class PairingController:
                 "BM cuts: set the work function φ first (needed to convert angles to k)."
             )
         if float(a_lattice or 0.0) <= 0.0:
-            a_lattice = lattice_a_for_entry(self._session, fs_entry, fallback=0.0)
+            a_lattice = lattice_a_for_entry(self._session, fs_entry, fallback=0.0,
+                                            entry_key=fs_path)
         if float(a_lattice or 0.0) <= 0.0:
             raise ValueError("BM cuts: set the lattice parameter a first.")
         criteria = criteria or self._user_criteria()

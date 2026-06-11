@@ -84,6 +84,92 @@ class LoadController:
         """Backward-compatible wrapper around the shared cache helper."""
         return path_signature(path, self._parent)
 
+    # --------------------------------------------------- sample setup dialog
+    def _sample_setup_action(self, verb: str, payload: dict | None = None):
+        """Verb dispatch (PROXY_MAP budget): "folder_opened" | "open_dialog".
+
+        folder_opened: auto-prompt once per folder — skipped when the session
+        already has sample_configs (resume case). open_dialog: manual edit via
+        the browser "Samples…" button, always opens.
+        """
+        if verb == "folder_opened":
+            if getattr(self._session, "sample_configs", None):
+                self._warn_orphan_sample_keys()
+                return
+            return self._open_sample_setup(auto=True)
+        if verb == "open_dialog":
+            return self._open_sample_setup(auto=False)
+
+    def _open_sample_setup(self, *, auto: bool) -> None:
+        folder = getattr(self._session, "folder", None)
+        if not folder:
+            if not auto:
+                self._status("Sample setup: open a data folder first.")
+            return
+        if getattr(self._parent, "_sample_dialog_open", False):
+            return  # modal already showing (double folder-open guard)
+        from arpes.core.sample_layout import detect_sample_layout
+        layout = detect_sample_layout(folder)
+        if auto and layout.mode == "single" and layout.n_root_files == 0:
+            return  # nothing loadable yet — don't nag on empty folders
+        from arpes.ui.widgets.dialogs.sample_setup_dialog import SampleSetupDialog
+        self._parent._sample_dialog_open = True
+        try:
+            dialog = SampleSetupDialog(
+                self._parent,
+                folder_name=Path(folder).name,
+                subfolders=[(s.key, s.n_files) for s in layout.subfolders],
+                n_root_files=layout.n_root_files,
+                detected_mode=layout.mode,
+                existing=getattr(self._session, "sample_configs", {}) or {},
+                session_default=getattr(self._session, "current_sample", {}) or {},
+            )
+            accepted = bool(dialog.exec())
+        finally:
+            self._parent._sample_dialog_open = False
+        if not accepted:
+            self._status("Sample setup skipped — φ/a will be requested at fit time.")
+            return
+        configs = dialog.result_configs()
+        whole = configs.pop("", None)
+        if whole is not None:
+            # Whole-folder sample = the session-wide default (merge, keep
+            # logbook-provided fields the dialog left untouched).
+            merged = dict(getattr(self._session, "current_sample", {}) or {})
+            merged.update(whole)
+            self._session.current_sample = merged
+        if configs or whole is not None:
+            existing = dict(getattr(self._session, "sample_configs", {}) or {})
+            for key, cfg in configs.items():
+                base = dict(existing.get(key) or {})
+                base.update(cfg)
+                existing[key] = base
+            self._session.sample_configs = existing
+            self._session.save()
+            n = len(configs)
+            self._status(
+                f"✓ Sample setup applied — {n} subfolder(s) configured"
+                if n else "✓ Sample setup applied — folder-wide sample set"
+            )
+        else:
+            self._status("Sample setup: no values entered — nothing saved.")
+
+    def _warn_orphan_sample_keys(self) -> None:
+        """Resume case: warn when a saved sample key no longer matches a folder."""
+        folder = getattr(self._session, "folder", None)
+        configs = getattr(self._session, "sample_configs", {}) or {}
+        if not folder or not configs:
+            return
+        root = Path(folder)
+        orphans = [k for k in configs
+                   if k and not (root / k).is_dir()]
+        if orphans:
+            self._status(
+                "⚠ Sample config for "
+                + ", ".join(f"'{k}'" for k in orphans)
+                + " refers to subfolder(s) not found in this folder (renamed?)."
+            )
+
     # ------------------------------------------------------------ public
     def load(self, path: str, *, force_reload: bool = False) -> None:
         """Complete pipeline, the single entry point called by the file browser.

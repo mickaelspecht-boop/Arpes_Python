@@ -102,11 +102,24 @@ class SampleConfig:
         return self.work_function_eV > 0
 
 
-def sample_for_entry(session: Any, entry: Any) -> SampleConfig:
-    """Resolve sample metadata with per-file values before session defaults."""
+def sample_for_entry(session: Any, entry: Any, entry_key: str | None = None) -> SampleConfig:
+    """Resolve sample metadata: file meta → per-subfolder config → session default.
+
+    ``entry_key`` is the session file key (folder-relative path); when given,
+    the per-subfolder ``session.sample_configs`` of its top-level folder takes
+    priority over ``session.current_sample``. Callers without a key keep the
+    historical two-level resolution.
+    """
     file_sample = SampleConfig.from_meta(getattr(entry, "meta", None))
+    folder_sample = SampleConfig()
+    if entry_key:
+        from arpes.core.sample_layout import sample_key_for_entry_key
+        configs = getattr(session, "sample_configs", {}) or {}
+        raw = configs.get(sample_key_for_entry_key(entry_key))
+        if raw:
+            folder_sample = SampleConfig.from_dict(raw)
     session_sample = SampleConfig.from_dict(getattr(session, "current_sample", {}) or {})
-    return file_sample.merge_missing_from(session_sample)
+    return file_sample.merge_missing_from(folder_sample).merge_missing_from(session_sample)
 
 
 def require_lattice_a(sample: SampleConfig, *, context: str = "sample") -> float:
@@ -120,17 +133,19 @@ def require_lattice_a(sample: SampleConfig, *, context: str = "sample") -> float
     )
 
 
-def work_function_for_entry(session: Any, entry: Any, *, fallback: float) -> float:
+def work_function_for_entry(session: Any, entry: Any, *, fallback: float,
+                            entry_key: str | None = None) -> float:
     """Resolve work function with SampleConfig before transitional UI fallback."""
-    sample = sample_for_entry(session, entry)
+    sample = sample_for_entry(session, entry, entry_key)
     if sample.has_work_function:
         return float(sample.work_function_eV)
     return float(fallback)
 
 
-def lattice_a_for_entry(session: Any, entry: Any, *, fallback: float = 0.0) -> float:
+def lattice_a_for_entry(session: Any, entry: Any, *, fallback: float = 0.0,
+                        entry_key: str | None = None) -> float:
     """Resolve lattice a with SampleConfig before explicit caller fallback."""
-    sample = sample_for_entry(session, entry)
+    sample = sample_for_entry(session, entry, entry_key)
     if sample.has_lattice_a:
         return float(sample.a_angstrom)
     return float(fallback)

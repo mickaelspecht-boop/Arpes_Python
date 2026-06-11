@@ -100,14 +100,18 @@ class GammaController:
                 fallback = float(self._params.sp_phi.value())
         except Exception:
             pass
+        ek = self._session.key_for_path(self._current_path) if getattr(self, "_current_path", None) else None
         return work_function_for_entry(
             self._session,
             self._current_entry(),
             fallback=fallback,
+            entry_key=ek,
         )
 
     def _lattice_a(self) -> float:
-        return lattice_a_for_entry(self._session, self._current_entry(), fallback=0.0)
+        ek = self._session.key_for_path(self._current_path) if getattr(self, "_current_path", None) else None
+        return lattice_a_for_entry(self._session, self._current_entry(), fallback=0.0,
+                                   entry_key=ek)
 
     def _store_fs_center_reference(self, kx: float, ky: float, *, source: str):
         if self._raw_data is None:
