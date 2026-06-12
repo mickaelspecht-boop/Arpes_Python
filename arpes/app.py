@@ -59,6 +59,7 @@ from arpes.io.logbook import (
 )
 from arpes.ui.controllers.logbook_controller import LogbookIngestController
 from arpes.ui.controllers.load_controller import LoadController
+from arpes.ui.controllers.sample_setup_controller import SampleSetupController
 from arpes.ui.controllers.plot_controller import PlotController
 from arpes.ui.controllers.distortion_controller import DistortionController
 from arpes.ui.controllers.gamma_controller import GammaController
@@ -212,6 +213,7 @@ class ArpesExplorer(QMainWindow):
 
         self._logbook_ctrl = LogbookIngestController(self)
         self._load_ctrl = LoadController(self)
+        self._sample_setup_ctrl = SampleSetupController(self)
         self._plot_ctrl = PlotController(self)
         self._gamma_ctrl = GammaController(self)
         self._norm_ctrl = NormController(self)

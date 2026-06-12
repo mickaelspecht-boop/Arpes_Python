@@ -121,7 +121,7 @@ PROXY_MAP = {
     "_refresh_helper_buttons": "_fit_runner_ctrl",
     "_copy_params": "_fit_runner_ctrl",
     "_on_work_function_changed": "_load_ctrl",
-    "_sample_setup_action": "_load_ctrl",
+    "_sample_setup_action": "_sample_setup_ctrl",
     "_on_file_tags_changed": "_load_ctrl",
     # KzController
     "_open_kz_folder": "_kz_ctrl",

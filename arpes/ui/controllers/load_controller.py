@@ -60,6 +60,7 @@ class _PreparedEntry:
     hv_from_logbook: bool
     angle_offsets: dict | None
     logbook_hit: bool
+    hv_placeholder: bool = False
 
 
 class LoadController:
@@ -83,135 +84,6 @@ class LoadController:
     def _path_signature(self, path: Path) -> tuple:
         """Backward-compatible wrapper around the shared cache helper."""
         return path_signature(path, self._parent)
-
-    # --------------------------------------------------- sample setup dialog
-    def _sample_setup_action(self, verb: str, payload: dict | None = None):
-        """Verb dispatch (PROXY_MAP budget): "folder_opened" | "open_dialog".
-
-        folder_opened: auto-prompt once per folder — skipped when the session
-        already has sample_configs (resume case). open_dialog: manual edit via
-        the browser "Samples…" button, always opens.
-        """
-        if verb == "folder_opened":
-            if getattr(self._session, "browse_only", False):
-                return  # user chose Browse only for this session
-            if getattr(self._session, "sample_configs", None):
-                self._warn_orphan_sample_keys()
-                return
-            return self._open_sample_setup(auto=True)
-        if verb == "open_dialog":
-            # Manual open always clears Browse only (arbiter decision: the
-            # "Samples…" button is the way back out of browse-only mode).
-            if getattr(self._session, "browse_only", False):
-                self._session.browse_only = False
-                self._session.save()
-            return self._open_sample_setup(auto=False)
-
-    def _open_sample_setup(self, *, auto: bool) -> None:
-        folder = getattr(self._session, "folder", None)
-        if not folder:
-            if not auto:
-                self._status("Sample setup: open a data folder first.")
-            return
-        if getattr(self._parent, "_sample_dialog_open", False):
-            return  # modal already showing (double folder-open guard)
-        from arpes.core.sample_layout import detect_sample_layout
-        layout = detect_sample_layout(folder)
-        if auto and layout.mode == "single" and layout.n_root_files == 0:
-            return  # nothing loadable yet — don't nag on empty folders
-        from arpes.ui.widgets.dialogs.sample_setup_dialog import SampleSetupDialog
-        self._parent._sample_dialog_open = True
-        try:
-            dialog = SampleSetupDialog(
-                self._parent,
-                folder_name=Path(folder).name,
-                subfolders=[(s.key, s.n_files) for s in layout.subfolders],
-                n_root_files=layout.n_root_files,
-                detected_mode=layout.mode,
-                existing=getattr(self._session, "sample_configs", {}) or {},
-                session_default=getattr(self._session, "current_sample", {}) or {},
-                folder_path=str(folder),
-                existing_logbooks=getattr(self._session, "scoped_logbooks", {}) or {},
-            )
-            accepted = bool(dialog.exec())
-        finally:
-            self._parent._sample_dialog_open = False
-        if not accepted:
-            if getattr(dialog, "browse_only_requested", False):
-                self._session.browse_only = True
-                self._session.save()
-                self._status(
-                    "⚠ Browse only — sample setup and logbook prompts disabled "
-                    "for this session. Use “Samples…” to configure later."
-                )
-            else:
-                self._status("Sample setup skipped — φ/a will be requested at fit time.")
-            return
-        configs = dialog.result_configs()
-        whole = configs.pop("", None)
-        if whole is not None:
-            # Whole-folder sample = the session-wide default (merge, keep
-            # logbook-provided fields the dialog left untouched).
-            merged = dict(getattr(self._session, "current_sample", {}) or {})
-            merged.update(whole)
-            self._session.current_sample = merged
-        if configs or whole is not None:
-            existing = dict(getattr(self._session, "sample_configs", {}) or {})
-            for key, cfg in configs.items():
-                base = dict(existing.get(key) or {})
-                base.update(cfg)
-                existing[key] = base
-            self._session.sample_configs = existing
-            self._session.save()
-        n_logbooks = self._apply_dialog_logbooks(dialog.result_logbooks())
-        n = len(configs)
-        if configs or whole is not None or n_logbooks:
-            self._status(
-                f"✓ Sample setup — {n} subfolder(s) configured"
-                + (f", {n_logbooks} logbook(s) attached" if n_logbooks else "")
-            )
-        else:
-            self._status("Sample setup: no values entered — nothing saved.")
-
-    def _apply_dialog_logbooks(self, wanted: list[dict]) -> int:
-        """Attach each (rel, path, sheet) chosen in the dialog. Loud failures."""
-        n_ok = 0
-        ctrl = getattr(self._parent, "_logbook_ctrl", None)
-        if ctrl is None or not wanted:
-            return 0
-        for item in wanted:
-            rel, path, sheet = item["rel"], item["path"], item["sheet"]
-            saved = (getattr(self._session, "scoped_logbooks", {}) or {}).get(rel) or {}
-            mapping = saved.get("mapping") if (
-                str(saved.get("path", "")) == str(path)
-                and str(saved.get("sheet", "")) == str(sheet)
-            ) else None
-            try:
-                ctrl.attach_scoped_silent(path, sheet, [rel],
-                                          mapping_override=mapping)
-                n_ok += 1
-            except Exception as exc:
-                self._status(
-                    f"⚠ Logbook {Path(path).name} [{sheet}] → "
-                    f"{rel or 'session'} failed: {exc}"
-                )
-        return n_ok
-
-    def _warn_orphan_sample_keys(self) -> None:
-        """Resume case: warn when a saved sample key no longer matches a folder."""
-        folder = getattr(self._session, "folder", None)
-        configs = getattr(self._session, "sample_configs", {}) or {}
-        if not folder or not configs:
-            return
-        root = Path(folder)
-        orphans = [k for k in configs
-                   if k and not (root / k).is_dir()]
-        if orphans:
-            self._status(
-                "⚠ Sample config for "
-                + ", ".join(f"'{k}'" for k in orphans)
-                + " refers to subfolder(s) not found in this folder (renamed?)."
-            )
 
     # ------------------------------------------------------------ public
     def load(self, path: str, *, force_reload: bool = False) -> None:
@@ -339,6 +211,17 @@ class LoadController:
     def _dispatch_loader(self, path: str, prepared: _PreparedEntry, *, force_reload: bool = False):
         orchestrator = LoaderOrchestrator(load_arpes_file, loader_label)
         cache_key = self._load_cache_key(path, prepared)
+        hv_for_loader = float(prepared.hv_for_load or 0.0)
+        if (
+            getattr(self._session, "browse_only", False)
+            and hv_for_loader <= 0
+            and str(prepared.fmt_guess or "") == "cls_txt"
+        ):
+            # CLS refuses hv=None. Browse-only loads it with a placeholder;
+            # the flag lets _maybe_apply_raw_axes strip the fake hv and the
+            # consistency warnings it triggers before anything is shown/saved.
+            hv_for_loader = 21.2
+            prepared.hv_placeholder = True
         cache = getattr(self._parent, "_raw_load_cache", None)
         session_folder = getattr(getattr(self._parent, "_session", None), "folder", None)
         disk_cache_enabled = bool(getattr(self._parent, "_raw_disk_cache_enabled", False))
@@ -397,6 +280,15 @@ class LoadController:
         self._parent._current_raw_load_cache_key = cache_key
         a_lattice = self._lattice_a_for_load(prepared.entry)
         work_func = self._work_function_for_load(path, prepared)
+        if getattr(self._session, "browse_only", False):
+            # Browse-only: load with neutral placeholders when φ/a are
+            # missing. The k axis they produce is NEVER displayed — the view
+            # swaps to raw θ/E axes (see _maybe_apply_raw_axes) and every
+            # physics feature is guarded against axes_raw_view.
+            if work_func <= 0:
+                work_func = 4.5
+            if a_lattice is None:
+                a_lattice = 1.0
         if work_func <= 0:
             raise ValueError(
                 "Work function φ missing. "
@@ -414,7 +306,7 @@ class LoadController:
             work_func=work_func,
             ef_offset=self._params.sp_ef.value(),
             a_lattice=a_lattice,
-            hv=prepared.hv_for_load,
+            hv=hv_for_loader,
             angle_offsets=prepared.angle_offsets,
             bessy_energy_reference=self._parent._bessy_energy_reference_mode(),
             best_angle_load_func=self._parent._load_with_best_angle_offsets,
@@ -466,6 +358,7 @@ class LoadController:
             str(getattr(entry.meta, "polarization", "") or ""),
             freeze_cache_value(prepared.angle_offsets or {}),
             self._parent._bessy_energy_reference_mode(),
+            bool(getattr(self._session, "browse_only", False)),
         )
 
     def _lattice_a_for_load(self, entry) -> float | None:
@@ -552,7 +445,62 @@ class LoadController:
                 return float(phi)
         return None
 
+    def _maybe_apply_raw_axes(self, d, prepared) -> None:
+        """Browse-only raw view: swap k/E−EF axes for instrument θ/E axes.
+
+        Active only when session.browse_only is set AND at least one of
+        φ/a/hν is unknown. The swapped arrays come from loader metadata
+        (theta_par_deg / energy_raw) so no physics is recomputed — the
+        meta flag ``axes_raw_view`` tells every physics feature to refuse.
+        """
+        meta = d.get("metadata", {}) or {}
+        meta.pop("axes_raw_view", None)
+        if not getattr(self._session, "browse_only", False):
+            return
+        phi_known = self._work_function_for_load("", prepared) > 0
+        a_known = self._lattice_a_for_load(prepared.entry) is not None
+        hv_known = float(prepared.hv_for_load or 0.0) > 0
+        if phi_known and a_known and hv_known:
+            return  # everything calibrated: normal axes even in browse-only
+        theta = meta.get("theta_par_deg")
+        e_raw = meta.get("energy_raw")
+        data = d.get("data")
+        if theta is None or e_raw is None or data is None:
+            raise ValueError(
+                "Browse-only raw axes unavailable for this loader (no θ/E "
+                "axes stored in the file metadata). Set φ, a and hν to load "
+                "with calibrated axes."
+            )
+        theta = np.asarray(theta, dtype=float)
+        e_raw = np.asarray(e_raw, dtype=float)
+        if data.shape[0] != len(theta) or data.shape[-1] != len(e_raw):
+            raise ValueError(
+                f"Browse-only raw axes shape mismatch: data {data.shape} vs "
+                f"θ[{len(theta)}] × E[{len(e_raw)}] — loader metadata bug."
+            )
+        d["kpar"] = theta
+        d["ev_arr"] = e_raw
+        scale = str(meta.get("energy_axis_original", "kinetic") or "kinetic")
+        meta["axes_raw_view"] = True
+        meta["axes_raw_xlabel"] = "θ (°) [raw, instrument frame]"
+        meta["axes_raw_ylabel"] = (
+            "E binding (eV) [raw]" if scale.startswith("bind")
+            else "E kinetic (eV) [raw]"
+        )
+        if prepared.hv_placeholder:
+            # Strip the CLS placeholder hν: never display, never persist
+            # (resolve_hv_after_load runs after this and reads d["hv"]),
+            # and drop the consistency warnings the fake value triggered.
+            d["hv"] = None
+            meta["hv_warning"] = None
+            meta["loader_warnings"] = [
+                w for w in (meta.get("loader_warnings") or [])
+                if "hν" not in str(w)
+            ]
+        d["metadata"] = meta
+
     def _apply_post_load(self, d, prepared, load_result, orchestrator, path):
+        self._maybe_apply_raw_axes(d, prepared)
         entry = prepared.entry
         if entry.ef_correction.get("mode") == "poly":
             d, ef_info = apply_ef_correction_to_dict(d, entry.ef_correction)
@@ -740,10 +688,19 @@ class LoadController:
                 results.refresh()
         hv_txt = f"{d['hv']:.0f} eV" if d.get("hv") is not None else "—"
         lb_txt = "  |  logbook" if prepared.logbook_hit else ""
+        if md_now.get("axes_raw_view"):
+            axes_txt = (
+                f"θ {d['kpar'].min():.2f}→{d['kpar'].max():.2f} °  |  "
+                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV (raw)"
+                "  |  ⚠ browse-only raw axes"
+            )
+        else:
+            axes_txt = (
+                f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
+                f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV"
+            )
         self._status(
-            f"Loaded: {Path(path).name}  hν={hv_txt}  |  "
-            f"k {d['kpar'].min():.2f}→{d['kpar'].max():.2f} π/a  |  "
-            f"E {d['ev_arr'].min():.3f}→{d['ev_arr'].max():.3f} eV"
+            f"Loaded: {Path(path).name}  hν={hv_txt}  |  {axes_txt}"
             f"{lb_txt}{cache_note}{grid_note}{gamma_note}{loader_note}"
         )
         if hasattr(self._params, "mark_action_done"):

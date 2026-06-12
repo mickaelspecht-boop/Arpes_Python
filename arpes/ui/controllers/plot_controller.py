@@ -102,6 +102,13 @@ class PlotController:
         d    = self._raw_data
         raw  = d["data"]
         mode = self._cmb_view.currentText()
+        if mode in ("SecDev", "Curvature") and (d.get("metadata", {}) or {}).get("axes_raw_view"):
+            # Derivative smoothing scales are in eV / Å⁻¹: meaningless on raw
+            # θ/E axes. Refuse loudly and fall back to Raw display.
+            self._status(
+                f"{mode} not available in browse-only mode (raw θ/E axes) — showing Raw."
+            )
+            mode = "Raw"
 
         entry = self._current_entry()
         grid_cfg_active = entry.grid_correction if entry and entry.grid_correction.get("enabled") else None
@@ -227,6 +234,18 @@ class PlotController:
                 cache.popitem(last=False)
         return cmap, ckw
 
+    @staticmethod
+    def _raw_axes_info(d) -> tuple[tuple[str, str] | None, str | None]:
+        """Browse-only raw view: (xlabel, ylabel) + physicist note, else (None, None)."""
+        meta = (d or {}).get("metadata", {}) or {}
+        if not meta.get("axes_raw_view"):
+            return None, None
+        labels = (
+            str(meta.get("axes_raw_xlabel") or "θ (°) [raw]"),
+            str(meta.get("axes_raw_ylabel") or "E (eV) [raw]"),
+        )
+        return labels, "raw axes — θ is non-linear in k// beyond ±15°"
+
     def _draw_fit_roi_overlay(self, ax):
         _plot_draw_fit_roi_overlay(ax, self._fit_roi_bounds())
 
@@ -346,6 +365,7 @@ class PlotController:
             state = BandmapAxesState()
         plot_key = getattr(self._parent, "_disp_cache_key", None)
         reset_limits = plot_key != getattr(self._parent, "_bm_plot_data_key", None)
+        raw_labels, raw_note = self._raw_axes_info(d)
         self._parent._bm_plot_state = _plot_draw_bandmap_axes(
             ax,
             kpar=kpar, ev=ev, disp=disp,
@@ -357,6 +377,7 @@ class PlotController:
             show_k_zero=True,
             state=state,
             reset_limits=reset_limits,
+            axis_labels=raw_labels, axis_note=raw_note,
         )
         self._parent._bm_plot_data_key = plot_key
 
@@ -388,6 +409,7 @@ class PlotController:
             state = BandmapAxesState()
         plot_key = getattr(self._parent, "_disp_cache_key", None)
         reset_limits = plot_key != getattr(self._parent, "_mdc_map_plot_data_key", None)
+        raw_labels, raw_note = self._raw_axes_info(d)
         self._parent._mdc_map_plot_state = _plot_draw_bandmap_axes(
             ax,
             kpar=kpar, ev=ev, disp=disp,
@@ -399,6 +421,7 @@ class PlotController:
             show_k_zero=False,
             state=state,
             reset_limits=reset_limits,
+            axis_labels=raw_labels, axis_note=raw_note,
         )
         self._parent._mdc_map_plot_data_key = plot_key
         before = self._axis_artist_snapshot(ax)
@@ -473,7 +496,15 @@ class PlotController:
     def _draw_mdc_waterfall(self):
         if not hasattr(self, "_waterfall_canvas") or self._raw_data is None:
             return
-        data, kpar, ev = self._get_work_data()
+        d_raw = self._raw_data
+        if (d_raw.get("metadata", {}) or {}).get("axes_raw_view"):
+            # Allowed in browse-only (pure display), but the k/E windows of
+            # the spinboxes are now θ°/E kinetic — warn so nobody fits by eye
+            # against a window meant for π/a.
+            data, kpar, ev = d_raw["data"], d_raw["kpar"], d_raw["ev_arr"]
+            self._status("Waterfall on raw θ/E axes (browse-only) — windows are θ° / eV.")
+        else:
+            data, kpar, ev = self._get_work_data()
         if data is None:
             return
 

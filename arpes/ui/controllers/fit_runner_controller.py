@@ -112,6 +112,12 @@ class FitRunnerController:
         if p._raw_data is None:
             return None, None, None
         d = p._raw_data
+        if (d.get("metadata", {}) or {}).get("axes_raw_view"):
+            self._status(
+                "Fitting not available in browse-only mode (raw θ/E axes). "
+                "Set φ, a and hν via Samples… to fit."
+            )
+            return None, None, None
         view_mode = p._cmb_view.currentText()
         entry = p._current_entry() if hasattr(p, "_current_entry") else None
         from arpes.physics.distortion import is_distortion_active
@@ -450,6 +456,12 @@ class FitRunnerController:
             self._status("Warning: no data loaded")
             return
         d = p._raw_data
+        if (d.get("metadata", {}) or {}).get("axes_raw_view"):
+            self._status(
+                "EF calibration not available in browse-only mode (raw θ/E "
+                "axes). Set φ, a and hν via Samples… first."
+            )
+            return
         entry_now = p._current_entry()
         T_md = (d.get("metadata", {}) or {}).get("temperature")
         try:

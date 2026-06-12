@@ -375,6 +375,8 @@ def draw_bandmap_axes(
     show_k_zero: bool = True,
     state: BandmapAxesState | None = None,
     reset_limits: bool = False,
+    axis_labels: tuple[str, str] | None = None,
+    axis_note: str | None = None,
 ):
     """Dessine le fond commun d'une carte BM sur un axe Matplotlib."""
     c_arr = np.asarray(disp).T
@@ -452,8 +454,18 @@ def draw_bandmap_axes(
         state_out.base_artists = base_artists
 
     ax.format_coord = make_bandmap_format_coord(kpar, ev, c_arr)
-    ax.set_xlabel("k// (π/a)", fontsize=label_size, color="w")
-    ax.set_ylabel("E − EF (eV)", fontsize=label_size, color="w")
+    xlabel, ylabel = axis_labels or ("k// (π/a)", "E − EF (eV)")
+    ax.set_xlabel(xlabel, fontsize=label_size, color="w")
+    ax.set_ylabel(ylabel, fontsize=label_size, color="w")
+    if axis_note:
+        note = ax.text(
+            0.99, 0.01, axis_note,
+            transform=ax.transAxes, ha="right", va="bottom",
+            color="#fbbf24", fontsize=max(6, label_size - 3), zorder=30,
+        )
+        base_artists.append(note)
+        if state_out is not None:
+            state_out.base_artists = base_artists
     ax.set_title(title, fontsize=title_size, color="w")
     if tick_label_size is None:
         ax.tick_params(colors="w")

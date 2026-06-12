@@ -159,6 +159,14 @@ class FSController:
             return
         if not hasattr(self, "_fs_controls") or FSControlPanel is None:
             return
+        raw = getattr(self._parent, "_raw_data", None)
+        if raw is not None and (raw.get("metadata", {}) or {}).get("axes_raw_view"):
+            # FS extraction integrates around E−EF=0: undefined on raw axes.
+            self._status(
+                "Fermi surface not available in browse-only mode (raw θ/E "
+                "axes). Set φ, a and hν via Samples… first."
+            )
+            return
         # Inject the entry's MP lattice into metadata before draw (canvas reads it).
         self._inject_fs_lattice_into_raw()
         # Sync the entry's HS label convention into the panel (silent: a
