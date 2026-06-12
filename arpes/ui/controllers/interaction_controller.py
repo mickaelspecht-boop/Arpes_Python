@@ -38,8 +38,9 @@ class InteractionController:
             return
         if hasattr(p, "_draw_bm"):
             p._draw_bm()
+        from arpes.ui.tab_index import IDX_MDC
         tabs = getattr(p, "_tabs", None)
-        if include_curves and tabs is not None and tabs.currentIndex() == 1 and hasattr(p, "_draw_mdc_edc"):
+        if include_curves and tabs is not None and tabs.currentIndex() == IDX_MDC and hasattr(p, "_draw_mdc_edc"):
             p._draw_mdc_edc()
 
     # ---------------------------------------------------------------- callbacks
@@ -135,8 +136,9 @@ class InteractionController:
         self._draw_current_view()
 
     def _on_fit_only_changed(self, _=None):
+        from arpes.ui.tab_index import IDX_MDC
         p = self._parent
-        if p._tabs.currentIndex() != 1:
+        if p._tabs.currentIndex() != IDX_MDC:
             return
         p._draw_mdc_edc()
         if hasattr(p, "_mdc_fit_tabs") and p._mdc_fit_tabs.currentIndex() == 1:
@@ -166,8 +168,9 @@ class InteractionController:
             else:
                 canv.canvas.unsetCursor()
         if active:
-            if p._tabs.currentIndex() not in (0, 1):
-                p._tabs.setCurrentIndex(1)
+            from arpes.ui.tab_index import IDX_BM, IDX_MDC
+            if p._tabs.currentIndex() not in (IDX_BM, IDX_MDC):
+                p._tabs.setCurrentIndex(IDX_MDC)
             self._status("Fit-zone selection: click and drag a rectangle on the map.")
 
     def _on_fit_roi_press(self, event):

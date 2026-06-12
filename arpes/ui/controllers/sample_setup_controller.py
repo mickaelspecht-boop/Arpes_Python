@@ -82,6 +82,7 @@ class SampleSetupController:
                 n = self._save_dialog_configs(dialog)
                 self._session.browse_only = True
                 self._session.save()
+                self._refresh_loaded_params()
                 self._status(
                     "⚠ Browse only — raw-axis display, setup prompts disabled"
                     + (f" ({n} sample(s) φ/a saved)" if n else "")
@@ -97,6 +98,7 @@ class SampleSetupController:
                 f"✓ Sample setup — {n} sample(s) configured"
                 + (f", {n_logbooks} logbook(s) attached" if n_logbooks else "")
             )
+            self._refresh_loaded_params()
         else:
             self._status("Sample setup: no values entered — nothing saved.")
 
@@ -142,6 +144,37 @@ class SampleSetupController:
                     f"{rel or 'session'} failed: {exc}"
                 )
         return n_ok
+
+    def _refresh_loaded_params(self) -> None:
+        """Mirror freshly saved φ/a into the visible parameter spinboxes.
+
+        Without this, the dialog saves the values but the φ/Lattice fields in
+        the side panel keep showing their old content — misleading. If a file
+        is currently displayed, reload it so the saved φ/a actually apply to
+        the axes on screen.
+        """
+        p = self._parent
+        path = getattr(p, "_current_path", None)
+        params = getattr(p, "_params", None)
+        if not path or params is None:
+            return
+        from arpes.core.sample import sample_for_entry
+        key = self._session.key_for_path(path)
+        entry = self._session.get_or_create(key)
+        sample = sample_for_entry(self._session, entry, entry_key=key)
+        if sample.has_work_function:
+            params.sp_phi.blockSignals(True)
+            params.sp_phi.setValue(float(sample.work_function_eV))
+            params.sp_phi.blockSignals(False)
+        if sample.has_lattice_a:
+            params.sp_crystal_a.blockSignals(True)
+            params.sp_crystal_a.setValue(float(sample.a_angstrom))
+            params.sp_crystal_a.blockSignals(False)
+        if getattr(p, "_raw_data", None) is not None and (
+            sample.has_work_function or sample.has_lattice_a
+        ):
+            self._status("Sample setup applied — recomputing axes with the new φ/a.")
+            p._load_ctrl.load(path, force_reload=True)
 
     def _warn_orphan_sample_keys(self) -> None:
         """Resume case: warn when a saved sample key no longer matches a folder."""

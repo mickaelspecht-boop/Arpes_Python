@@ -351,21 +351,23 @@ class ArpesExplorer(QMainWindow):
         wire_ui_signals(self)
 
     def _on_tab_changed(self, index: int):
-        # 0=BM, 1=MDC Fit, 2=Results, 3=FS, 4=FS Explorer, 5=KZ, 6=Notes,
-        # 7=Help, 8=Start
+        from arpes.ui.tab_index import (
+            IDX_BM, IDX_FS, IDX_KZ, IDX_MDC, IDX_RESULTS,
+        )
         if hasattr(self, "_right_stack"):
-            self._right_stack.setCurrentIndex(2 if index == 5 else (1 if index == 3 else 0))
+            self._right_stack.setCurrentIndex(
+                2 if index == IDX_KZ else (1 if index == IDX_FS else 0))
             # Results/FS Explorer/Notes/Help/Start have no side controls:
             # hiding the stack gives the whole width back to the content (it
             # stole ~500 px of dead space on the Results tab).
-            self._right_stack.setVisible(index in (0, 1, 3, 5))
-        if index == 0:
+            self._right_stack.setVisible(index in (IDX_BM, IDX_MDC, IDX_FS, IDX_KZ))
+        if index == IDX_BM:
             self._params.set_context("bm")
-        elif index == 1:
+        elif index == IDX_MDC:
             self._params.set_context("mdc")
             if hasattr(self, "_mdc_fit_tabs"):
                 self._params.set_waterfall_controls_visible(self._mdc_fit_tabs.currentIndex() == 1)
-        elif index == 5:
+        elif index == IDX_KZ:
             self._params.set_context("other")
             self._set_fit_roi_pick_mode(False)
             self._set_fs_center_pick_mode(False)
@@ -373,23 +375,25 @@ class ArpesExplorer(QMainWindow):
         else:
             self._params.set_context("other")
             self._set_fit_roi_pick_mode(False)
-        if index == 2:
+        if index == IDX_RESULTS:
             self._set_fs_center_pick_mode(False)
             self._results.refresh()
-        elif index == 3:
+        elif index == IDX_FS:
             self._draw_fs_tab()
-        elif index == 1:
+        elif index == IDX_MDC:
             self._set_fs_center_pick_mode(False)
             self._draw_mdc_energy_map()
             self._draw_mdc_edc()
-        elif index == 0:
+        elif index == IDX_BM:
             self._draw_bm()
         else:
             self._set_fs_center_pick_mode(False)
 
     def _on_mdc_fit_subtab_changed(self, index: int):
+        from arpes.ui.tab_index import IDX_MDC
         if hasattr(self, "_params"):
-            self._params.set_waterfall_controls_visible(index == 1 and self._tabs.currentIndex() == 1)
+            self._params.set_waterfall_controls_visible(
+                index == 1 and self._tabs.currentIndex() == IDX_MDC)
         if index == 0:
             self._draw_mdc_energy_map()
             self._draw_mdc_edc()

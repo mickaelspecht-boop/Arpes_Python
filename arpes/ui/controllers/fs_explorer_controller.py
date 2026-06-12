@@ -22,6 +22,8 @@ from arpes.physics.fs_explorer_compute import (
 
 _ANIM_INTERVAL_MS = 66    # ~15 fps
 _DRAG_SUBSAMPLE = 4       # k-space subsampling while dragging/animating
+_DRAG_E_SUBSAMPLE = 2     # energy-axis subsampling while dragging/animating
+_DRAG_THROTTLE_MS = 40    # cap live cut redraws at ~25 fps during drag
 _CUT_N_PTS = 400
 
 
@@ -40,6 +42,13 @@ class FSExplorerController:
         self._anim_timer = QTimer()
         self._anim_timer.setInterval(_ANIM_INTERVAL_MS)
         self._anim_timer.timeout.connect(self._animation_step)
+        # Mouse-move events arrive faster than we can extract+draw a cut:
+        # keep only the latest line and apply it at most every 40 ms.
+        self._pending_line = None
+        self._throttle = QTimer()
+        self._throttle.setSingleShot(True)
+        self._throttle.setInterval(_DRAG_THROTTLE_MS)
+        self._throttle.timeout.connect(self._apply_pending_line)
 
     # ----------------------------------------------------- proxies parent
     def _status(self, msg: str) -> None:
@@ -74,15 +83,20 @@ class FSExplorerController:
         if self._resolve_volume() is None:
             return None
         if verb == "line_changed":
-            self._line = [p["cx"], p["cy"], p["angle"], p["length"]]
-            if self._mode == "native":
-                self._snap_line_native()
-            self._sync_bar_from_line()
-            return self._draw_cut(fast=self._dragging)
+            self._pending_line = [p["cx"], p["cy"], p["angle"], p["length"]]
+            if self._dragging:
+                if not self._throttle.isActive():
+                    self._throttle.start()
+                return None
+            return self._apply_pending_line()
         if verb == "drag_state":
             self._dragging = bool(p.get("dragging"))
             if not self._dragging:
-                self._draw_cut(fast=False)
+                self._throttle.stop()
+                if self._pending_line is not None:
+                    self._apply_pending_line()   # full-res (dragging False)
+                else:
+                    self._draw_cut(fast=False)
             return None
         if verb == "energy_changed":
             return self._draw_all(keep_line=True)
@@ -227,6 +241,16 @@ class FSExplorerController:
         self._line[3] = float(abs(kx[-1] - kx[0]))
         self._push_line_to_map()
 
+    def _apply_pending_line(self):
+        if self._pending_line is None:
+            return
+        self._line = self._pending_line
+        self._pending_line = None
+        if self._mode == "native":
+            self._snap_line_native()
+        self._sync_bar_from_line()
+        return self._draw_cut(fast=self._dragging)
+
     def _draw_cut(self, *, fast: bool):
         out = self._resolve_volume()
         if out is None or self._cut_view is None:
@@ -236,14 +260,20 @@ class FSExplorerController:
         _xl, _yl, cut_xl = self._axis_labels(meta)
         bar = self._bar
         e_cur = bar.current_energy() if bar is not None else None
+        e_used = e_ax[::_DRAG_E_SUBSAMPLE] if fast else e_ax
         if self._mode == "native":
             idx = snap_to_native(ky, cy)
             cut = native_cut(vol, kx, e_ax, idx)
+            if fast:
+                cut.image = cut.image[::2, ::_DRAG_E_SUBSAMPLE]
+                cut.k_along = cut.k_along[::2]
             title = f"native BM — step {idx + 1}/{ky.size} @ {ky[idx]:+.3f}"
         else:
             v, kxs, kys = (downsample_volume(vol, kx, ky, _DRAG_SUBSAMPLE)
                            if fast else (vol, kx, ky))
-            cut = extract_bm_cut(v, kxs, kys, e_ax, cx=cx, cy=cy,
+            if fast:
+                v = v[:, :, ::_DRAG_E_SUBSAMPLE]
+            cut = extract_bm_cut(v, kxs, kys, e_used, cx=cx, cy=cy,
                                  angle_deg=ang, length=length,
                                  n_pts=_CUT_N_PTS // (2 if fast else 1))
             if cut is None:
@@ -255,7 +285,7 @@ class FSExplorerController:
             elif cut.nan_fraction > 0:
                 title += f"  ({cut.nan_fraction:.0%} outside volume)"
         self._cut_view.draw_cut(
-            _robust_norm(cut.image), cut.k_along, e_ax, e_current=e_cur,
+            _robust_norm(cut.image), cut.k_along, e_used, e_current=e_cur,
             xlabel=cut_xl, ylabel="E − EF (eV)", title=title,
         )
 

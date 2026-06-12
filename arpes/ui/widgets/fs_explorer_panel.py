@@ -26,6 +26,13 @@ from arpes.ui.widgets.canvas import MplCanvas
 _HANDLE_PX = 12  # pick radius in screen pixels
 
 
+def _axis_is_uniform(ax_arr) -> bool:
+    d = np.diff(np.asarray(ax_arr, dtype=float))
+    if d.size == 0:
+        return True
+    return bool(np.all(np.abs(d - d.mean()) <= 1e-3 * abs(d.mean()) + 1e-12))
+
+
 class FSExplorerMapView(QWidget):
     """Iso-E FS map with a draggable/orientable cut line."""
 
@@ -42,11 +49,13 @@ class FSExplorerMapView(QWidget):
         self._mesh = None
         self._line_artists = []
         self._drag = None  # None | "move" | "end0" | "end1"
+        self._bg = None    # blit background (map without the line artists)
         mpl = self.canvas.canvas
         self._cids = [
             mpl.mpl_connect("button_press_event", self._on_press),
             mpl.mpl_connect("motion_notify_event", self._on_motion),
             mpl.mpl_connect("button_release_event", self._on_release),
+            mpl.mpl_connect("draw_event", self._on_draw),
         ]
 
     # ------------------------------------------------------------- drawing
@@ -64,8 +73,15 @@ class FSExplorerMapView(QWidget):
         ax.set_title(title, color="w", fontsize=9)
         ax.set_facecolor("#1a1a1a")
         ax.tick_params(colors="w", labelsize=8)
+        # Freeze limits on the volume footprint: the line/handle artists must
+        # NEVER autoscale the axes (each angle change would expand the view
+        # and shrink the map a bit more).
+        ax.set_xlim(float(np.min(kx)), float(np.max(kx)))
+        ax.set_ylim(float(np.min(ky)), float(np.max(ky)))
+        ax.set_autoscale_on(False)
         self._line_artists = []
-        self._redraw_line()
+        self._bg = None  # captured by the next draw_event
+        self._redraw_line(blit=False)
         self.canvas.redraw()
 
     def show_placeholder(self, text: str) -> None:
@@ -77,6 +93,7 @@ class FSExplorerMapView(QWidget):
         ax.set_xticks([]); ax.set_yticks([])
         self._mesh = None
         self._line_artists = []
+        self._bg = None
         self.canvas.redraw()
 
     def set_line(self, cx, cy, angle_deg, length) -> None:
@@ -84,7 +101,6 @@ class FSExplorerMapView(QWidget):
         self.cx, self.cy = float(cx), float(cy)
         self.angle_deg, self.length = float(angle_deg), float(length)
         self._redraw_line()
-        self.canvas.redraw()
 
     def _endpoints(self):
         a = np.deg2rad(self.angle_deg)
@@ -92,23 +108,58 @@ class FSExplorerMapView(QWidget):
         dy = 0.5 * self.length * np.sin(a)
         return (self.cx - dx, self.cy - dy), (self.cx + dx, self.cy + dy)
 
-    def _redraw_line(self) -> None:
+    def _make_line_artists(self) -> None:
+        """Create the 3 animated artists (excluded from regular draws)."""
         ax = self.canvas.ax
+        ln, = ax.plot([], [], color="#22d3ee", lw=1.6, zorder=20,
+                      animated=True)
+        ends = ax.scatter([], [], s=45, marker="o", facecolor="#22d3ee",
+                          edgecolor="w", zorder=21, animated=True)
+        ctr = ax.scatter([], [], s=60, marker="D", facecolor="#fbbf24",
+                         edgecolor="k", zorder=22, animated=True)
+        self._line_artists = [ln, ends, ctr]
+
+    def _update_line_artists(self) -> None:
+        (x0, y0), (x1, y1) = self._endpoints()
+        ln, ends, ctr = self._line_artists
+        ln.set_data([x0, x1], [y0, y1])
+        ends.set_offsets([[x0, y0], [x1, y1]])
+        ctr.set_offsets([[self.cx, self.cy]])
+
+    def _blit_line(self) -> None:
+        mpl = self.canvas.canvas
+        mpl.restore_region(self._bg)
         for art in self._line_artists:
-            try:
-                art.remove()
-            except Exception:
-                pass
-        self._line_artists = []
+            self.canvas.ax.draw_artist(art)
+        mpl.blit(self.canvas.ax.bbox)
+
+    def _redraw_line(self, *, blit: bool = True) -> None:
+        """Move the line. Blit path = restore cached map + 3 artists (~ms);
+        full-canvas pcolormesh re-render per mouse move was the drag lag."""
+        if self._mesh is None:
+            for art in self._line_artists:
+                try:
+                    art.remove()
+                except Exception:
+                    pass
+            self._line_artists = []
+            return
+        if not self._line_artists:
+            self._make_line_artists()
+        self._update_line_artists()
+        if blit and self._bg is not None:
+            self._blit_line()
+        else:
+            self.canvas.redraw()
+
+    def _on_draw(self, _event) -> None:
+        """Any full canvas render: recapture the line-free background
+        (animated artists are skipped by draw), then paint the line on top."""
         if self._mesh is None:
             return
-        (x0, y0), (x1, y1) = self._endpoints()
-        ln, = ax.plot([x0, x1], [y0, y1], color="#22d3ee", lw=1.6, zorder=20)
-        ends = ax.scatter([x0, x1], [y0, y1], s=45, marker="o",
-                          facecolor="#22d3ee", edgecolor="w", zorder=21)
-        ctr = ax.scatter([self.cx], [self.cy], s=60, marker="D",
-                         facecolor="#fbbf24", edgecolor="k", zorder=22)
-        self._line_artists = [ln, ends, ctr]
+        self._bg = self.canvas.canvas.copy_from_bbox(self.canvas.ax.bbox)
+        for art in self._line_artists:
+            self.canvas.ax.draw_artist(art)
 
     # ---------------------------------------------------------------- drag
     def _hit(self, event) -> str | None:
@@ -150,7 +201,6 @@ class FSExplorerMapView(QWidget):
             if self._drag == "end0":
                 self.angle_deg = (self.angle_deg + 180.0) % 360.0
         self._redraw_line()
-        self.canvas.redraw()
         self.line_changed.emit(self.cx, self.cy, self.angle_deg, self.length)
 
     def _on_release(self, event) -> None:
@@ -170,19 +220,92 @@ class FSExplorerCutView(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.canvas)
+        self._mesh = None
+        self._mesh_sig = None
+        self._e_line = None
+        self._title = None
+        self._bg = None  # blit background (axes/labels without the image)
+        self.canvas.canvas.mpl_connect("draw_event", self._on_draw)
+
+    def _animated_artists(self):
+        return [a for a in (self._mesh, self._e_line, self._title)
+                if a is not None and a.get_animated()]
+
+    def _on_draw(self, _event) -> None:
+        """Full render: recapture background, repaint animated artists."""
+        if self._mesh is None or not self._mesh.get_animated():
+            return
+        self._bg = self.canvas.canvas.copy_from_bbox(self.canvas.ax.bbox)
+        for art in self._animated_artists():
+            self.canvas.ax.draw_artist(art)
 
     def draw_cut(self, image, k_along, e_ax, *, e_current: float | None,
                  xlabel: str, ylabel: str, title: str) -> None:
         ax = self.canvas.ax
+        arr = np.asarray(image).T
+        # The cut grid is uniform by construction (k_along is a linspace and
+        # the loader energy axes are regular): imshow renders it as one image
+        # — orders of magnitude faster than a 200k-quad pcolormesh per frame.
+        k0, k1 = float(k_along[0]), float(k_along[-1])
+        e0, e1 = float(e_ax[0]), float(e_ax[-1])
+        if e0 > e1:
+            arr, e0, e1 = arr[::-1], e1, e0
+        if k0 > k1:
+            arr, k0, k1 = arr[:, ::-1], k1, k0
+        extent = (k0, k1, e0, e1)
+        # imshow needs uniform axes: true for free cuts (linspace + regular
+        # loader E axis). A k-converted native kx axis can be slightly
+        # non-linear → pcolormesh fallback, never a silently distorted image.
+        uniform = _axis_is_uniform(k_along) and _axis_is_uniform(e_ax)
+        sig = (arr.shape, extent, uniform)
+        finite = np.isfinite(arr)
+        if self._mesh is not None and sig == self._mesh_sig:
+            # In-place update during drag/animation: no artist rebuild, and
+            # blit (restore static background + repaint image/title/E-line)
+            # instead of a full ~100 ms tight-layout figure render.
+            if uniform:
+                self._mesh.set_data(arr)
+            else:
+                # pcolormesh was built on the unflipped grid: feed it the
+                # unflipped array (it handles descending axes natively).
+                self._mesh.set_array(np.asarray(image).T.ravel())
+            if finite.any():
+                self._mesh.set_clim(float(np.nanmin(arr)), float(np.nanmax(arr)))
+            if self._title is not None:
+                self._title.set_text(title)
+            if self._e_line is not None and e_current is not None:
+                self._e_line.set_ydata([float(e_current)] * 2)
+            if self._bg is not None and self._mesh.get_animated():
+                mpl = self.canvas.canvas
+                mpl.restore_region(self._bg)
+                for art in self._animated_artists():
+                    ax.draw_artist(art)
+                mpl.blit(ax.bbox)
+            else:
+                self.canvas.redraw()
+            return
         ax.cla()
-        ax.pcolormesh(k_along, e_ax, np.asarray(image).T, cmap="magma",
-                      shading="auto")
+        self._bg = None  # recaptured by the next full draw
+        if uniform:
+            self._mesh = ax.imshow(
+                arr, origin="lower", aspect="auto", extent=extent,
+                cmap="magma", interpolation="nearest", animated=True,
+            )
+        else:
+            self._mesh = ax.pcolormesh(k_along, e_ax, np.asarray(image).T,
+                                       cmap="magma", shading="auto")
+        if finite.any():
+            self._mesh.set_clim(float(np.nanmin(arr)), float(np.nanmax(arr)))
+        self._mesh_sig = sig
+        self._e_line = None
         if e_current is not None:
-            ax.axhline(float(e_current), color="#22d3ee", lw=1.0, ls="--",
-                       alpha=0.85)
+            self._e_line = ax.axhline(float(e_current), color="#22d3ee",
+                                      lw=1.0, ls="--", alpha=0.85)
+            self._e_line.set_animated(self._mesh.get_animated())
         ax.set_xlabel(xlabel, color="w", fontsize=9)
         ax.set_ylabel(ylabel, color="w", fontsize=9)
-        ax.set_title(title, color="w", fontsize=9)
+        self._title = ax.set_title(title, color="w", fontsize=9)
+        self._title.set_animated(self._mesh.get_animated())
         ax.set_facecolor("#1a1a1a")
         ax.tick_params(colors="w", labelsize=8)
         self.canvas.redraw()
@@ -194,6 +317,11 @@ class FSExplorerCutView(QWidget):
         ax.text(0.5, 0.5, text, transform=ax.transAxes, ha="center",
                 va="center", color="#9ca3af", fontsize=10, wrap=True)
         ax.set_xticks([]); ax.set_yticks([])
+        self._mesh = None
+        self._mesh_sig = None
+        self._e_line = None
+        self._title = None
+        self._bg = None
         self.canvas.redraw()
 
 

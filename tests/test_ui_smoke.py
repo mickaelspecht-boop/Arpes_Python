@@ -80,13 +80,13 @@ class TestUiSmoke(unittest.TestCase):
     def test_window_instantiates(self):
         win = self._make_window()
         self.assertIsNotNone(win)
-        self.assertEqual(win._tabs.count(), 9)
+        from arpes.ui.tab_index import IDX_FS, TAB_TITLES
+        self.assertEqual(win._tabs.count(), len(TAB_TITLES))
         self.assertEqual(
             [win._tabs.tabText(i) for i in range(win._tabs.count())],
-            ["BM", "MDC Fit", "Results", "FS", "FS Explorer", "KZ", "Notes",
-             "Help", "Start"],
+            TAB_TITLES,
         )
-        fs_tabs = win._tabs.widget(3)
+        fs_tabs = win._tabs.widget(IDX_FS)
         self.assertEqual(
             [fs_tabs.tabText(i) for i in range(fs_tabs.count())],
             ["FS map"],  # "Compare pol" tab removed (commit 4d98163)
@@ -95,15 +95,16 @@ class TestUiSmoke(unittest.TestCase):
 
     def test_tab_right_panel_mapping(self):
         win = self._make_window()
+        from arpes.ui import tab_index as ti
         expected = {
-            0: 0,  # BM controls
-            1: 0,  # MDC controls
-            2: 0,  # Results: no dedicated right panel
-            3: 1,  # FS controls
-            4: 0,  # FS Explorer: own control bar, no right panel
-            5: 2,  # KZ controls
-            6: 0,  # Notes
-            7: 0,  # Help
+            ti.IDX_BM: 0,           # BM controls
+            ti.IDX_MDC: 0,          # MDC controls
+            ti.IDX_RESULTS: 0,      # Results: no dedicated right panel
+            ti.IDX_FS: 1,           # FS controls
+            ti.IDX_FS_EXPLORER: 0,  # FS Explorer: own control bar
+            ti.IDX_KZ: 2,           # KZ controls
+            ti.IDX_NOTES: 0,
+            ti.IDX_HELP: 0,
         }
         for index, right_index in expected.items():
             win._on_tab_changed(index)
@@ -157,6 +158,50 @@ class TestUiSmoke(unittest.TestCase):
         win._fs_explorer_ctrl._animation_step()
         win._fs_explorer_action("play_toggle", {"play": False})
         self.assertFalse(win._fs_explorer_ctrl._anim_timer.isActive())
+
+    def _fs_explorer_window_with_volume(self):
+        win = self._make_window()
+        kx = np.linspace(-1, 1, 12)
+        ky = np.linspace(-0.5, 0.5, 8)
+        e_ax = np.linspace(-0.3, 0.1, 5)
+        vol = np.random.default_rng(0).random((8, 12, 5)).astype(np.float32)
+        win._raw_data = {"metadata": {
+            "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": e_ax,
+            "fs_kind": "kxky",
+        }}
+        win._fs_explorer_action("draw", {})
+        return win
+
+    def test_fs_explorer_line_never_autoscales_map(self):
+        win = self._fs_explorer_window_with_volume()
+        ax = win._fs_explorer_map.canvas.ax
+        xlim0, ylim0 = ax.get_xlim(), ax.get_ylim()
+        win._fs_explorer_map.set_line(5.0, 5.0, 30.0, 10.0)  # far outside
+        self.assertEqual(ax.get_xlim(), xlim0)
+        self.assertEqual(ax.get_ylim(), ylim0)
+
+    def test_fs_explorer_drag_throttles_cut_redraw(self):
+        win = self._fs_explorer_window_with_volume()
+        ctrl = win._fs_explorer_ctrl
+        win._fs_explorer_action("drag_state", {"dragging": True})
+        win._fs_explorer_action(
+            "line_changed", {"cx": 0.1, "cy": 0.0, "angle": 10.0, "length": 1.0})
+        self.assertTrue(ctrl._throttle.isActive())
+        self.assertIsNotNone(ctrl._pending_line)
+        # release flushes the pending line at full resolution
+        win._fs_explorer_action("drag_state", {"dragging": False})
+        self.assertIsNone(ctrl._pending_line)
+        self.assertEqual(ctrl._line[2], 10.0)
+
+    def test_fs_explorer_cut_mesh_reused_during_drag(self):
+        win = self._fs_explorer_window_with_volume()
+        cut_view = win._fs_explorer_cut
+        mesh0 = cut_view._mesh
+        self.assertIsNotNone(mesh0)
+        win._fs_explorer_action(
+            "line_changed", {"cx": 0.05, "cy": 0.0, "angle": 0.0,
+                             "length": win._fs_explorer_ctrl._line[3]})
+        self.assertIs(cut_view._mesh, mesh0)  # updated in place, not rebuilt
 
     def test_fs_explorer_non_kxky_forces_native(self):
         win = self._make_window()

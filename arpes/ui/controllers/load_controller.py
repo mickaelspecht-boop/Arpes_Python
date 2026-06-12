@@ -688,7 +688,8 @@ class LoadController:
             self._session.save()
         self._parent._browser.select_file(path)
         self._parent._browser.refresh_item(self._session.key_for_path(path))
-        if getattr(self._parent, "_tabs", None) is not None and self._parent._tabs.currentIndex() == 2:
+        from arpes.ui.tab_index import IDX_RESULTS
+        if getattr(self._parent, "_tabs", None) is not None and self._parent._tabs.currentIndex() == IDX_RESULTS:
             results = getattr(self._parent, "_results", None)
             if results is not None and hasattr(results, "refresh"):
                 results.refresh()

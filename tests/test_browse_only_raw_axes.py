@@ -224,6 +224,34 @@ class TestBrowseOnlySavesConfigs:
         assert session.browse_only is False
         assert any("Browse only disabled" in s for s in statuses)
 
+    def test_refresh_loaded_params_mirrors_phi_a(self):
+        from arpes.ui.controllers.sample_setup_controller import SampleSetupController
+
+        class _Spin:
+            def __init__(self):
+                self.value_set = None
+            def blockSignals(self, _b):
+                return False
+            def setValue(self, v):
+                self.value_set = v
+
+        entry = SimpleNamespace(meta=SimpleNamespace())
+        session = SimpleNamespace(
+            key_for_path=lambda p: "BNO/f1",
+            get_or_create=lambda k: entry,
+            sample_configs={"BNO": {"work_function_eV": 4.3, "a_angstrom": 4.14}},
+            current_sample={},
+        )
+        params = SimpleNamespace(sp_phi=_Spin(), sp_crystal_a=_Spin())
+        parent = SimpleNamespace(
+            _session=session, _params=params, _status=lambda m: None,
+            _current_path="/data/BNO/f1", _raw_data=None,
+        )
+        ctrl = SampleSetupController(parent)
+        ctrl._refresh_loaded_params()
+        assert params.sp_phi.value_set == pytest.approx(4.3)
+        assert params.sp_crystal_a.value_set == pytest.approx(4.14)
+
     def test_folder_opened_skipped_in_browse_only(self, monkeypatch):
         from arpes.ui.controllers.sample_setup_controller import SampleSetupController
         session = self._session()

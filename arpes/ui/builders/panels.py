@@ -102,12 +102,13 @@ def _build_tabs(window) -> QTabWidget:
         "QTabBar::tab{background:#333;color:#ccc;padding:5px 12px;}"
         "QTabBar::tab:selected{background:#2a6099;color:white;}"
     )
+    # Order = arpes/ui/tab_index.py (single source of truth — keep in sync).
     window._tabs.addTab(_build_carte_tab(window), "BM")
-    window._tabs.addTab(_build_mdc_tab(window), "MDC Fit")
-    window._tabs.addTab(_build_results_tab(window), "Results")
     window._tabs.addTab(_build_fs_tab(window), "FS")
     window._tabs.addTab(_build_fs_explorer_tab(window), "FS Explorer")
     window._tabs.addTab(_build_kz_tab(window), "KZ")
+    window._tabs.addTab(_build_results_tab(window), "Results")
+    window._tabs.addTab(_build_mdc_tab(window), "MDC Fit")
     window._tabs.addTab(_build_notes_tab(window), "Notes")
     window._tabs.addTab(_build_help_tab(window), "Help")
     window._tabs.addTab(_build_quickstart_tab(window), "Start")
@@ -298,9 +299,6 @@ def _build_mdc_tab(window) -> QWidget:
     window._edc_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
     window._mdc_fit_tabs.addTab(window._edc_canvas, "EDC")
 
-    # Created here (MDC tab builds before Results) but DISPLAYED in the
-    # Results tab: TB fit / kink / gap are results, not fitting controls.
-    window._band_panel = BandAnalysisPanel()
     _moved = QLabel("Band Analysis has moved to the Results tab →")
     _moved.setAlignment(Qt.AlignmentFlag.AlignCenter)
     _moved.setStyleSheet("color:#888;")
@@ -321,6 +319,9 @@ def _build_results_tab(window) -> QWidget:
         "QTabBar::tab:selected{background:#444;color:white;}"
     )
     tabs.addTab(window._results, "MDC Results")
+    # TB fit / kink / gap are results, not fitting controls: the panel lives
+    # here (the MDC tab only shows a "moved →" pointer).
+    window._band_panel = BandAnalysisPanel()
     tabs.addTab(window._band_panel, "Band Analysis")
     return tabs
 

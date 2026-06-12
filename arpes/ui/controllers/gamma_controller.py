@@ -201,8 +201,9 @@ class GammaController:
             else:
                 self._fs_canvas.canvas.unsetCursor()
         if active:
-            if self._tabs.currentIndex() != 3:
-                self._tabs.setCurrentIndex(3)
+            from arpes.ui.tab_index import IDX_FS
+            if self._tabs.currentIndex() != IDX_FS:
+                self._tabs.setCurrentIndex(IDX_FS)
             self._status("Manual Γ centering: click the target center in the FS map.")
 
     def _sync_current_fs_gamma_to_bm_center(self, kx: float) -> None:
