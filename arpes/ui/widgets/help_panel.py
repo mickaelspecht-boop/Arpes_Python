@@ -22,6 +22,7 @@ class HelpSection:
 
 DEFAULT_SECTIONS = (
     HelpSection("Workflow", "workflow.md"),
+    HelpSection("Features", "features.md"),
     HelpSection("Shortcuts", "shortcuts.md"),
     HelpSection("Physics", "physics.md"),
 )

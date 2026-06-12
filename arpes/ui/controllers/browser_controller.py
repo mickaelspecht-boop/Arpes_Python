@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QListWidgetItem
 
 
 class BrowserController:
-    # P3.1: writes to the panel are allow-listed (fail-loud on typo).
+    # Writes to the wrapped panel must be explicit.
     _OWN_ATTRS = frozenset({"_panel"})
     _PARENT_WRITES = frozenset()
 

@@ -5,7 +5,7 @@ Free-electron final-state model :
 with hν, V0, W in eV. W = analyzer work function (~4.5 eV typical).
 Constant 0.5123 = sqrt(2·m_e) / ħ expressed to give 1/Å from eV.
 
-No PyQt. CLAUDE.md layering rule 2 respected.
+No PyQt dependency.
 """
 from __future__ import annotations
 

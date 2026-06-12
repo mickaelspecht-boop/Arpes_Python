@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 import importlib.util
+import os
 
 import numpy as np
 
@@ -15,6 +16,14 @@ from arpes.io.loaders import (
     register_loader,
     registered_loaders,
 )
+
+
+def _real_data_path(*parts: str) -> Path | None:
+    """Return a private test-data path when ARPES_TEST_DATA is configured."""
+    root = os.environ.get("ARPES_TEST_DATA")
+    if not root:
+        return None
+    return Path(root).joinpath(*parts)
 
 
 class TestARPESIOValidation(unittest.TestCase):
@@ -132,9 +141,9 @@ class TestARPESIOValidation(unittest.TestCase):
         self.assertEqual(ds.data.shape, (2, 3))
 
     def test_bessy_fixture_if_available(self):
-        path = Path("/Users/alexandrespecht/Documents/Stage_M2/code/Ba122/Ba1220009w_Band Map B122_009.ibw")
-        if not path.exists():
-            self.skipTest("fixture BESSY Ba122 absente")
+        path = _real_data_path("Ba122", "Ba1220009w_Band Map B122_009.ibw")
+        if path is None or not path.exists():
+            self.skipTest("BESSY BM fixture unavailable; set ARPES_TEST_DATA")
 
         self.assertEqual(detect_format(path), "bessy_ses_ibw")
         self.assertEqual(detect_scan_kind(path), "BM")
@@ -160,9 +169,9 @@ class TestARPESIOValidation(unittest.TestCase):
         self.assertEqual(ds_hv.metadata["hv_policy"], "used_for_EF")
 
     def test_bessy_fs_fixture_if_available(self):
-        path = Path("/Users/alexandrespecht/Documents/Stage_M2/code/Ba122/Ba1220003w_Ba122_003.ibw")
-        if not path.exists():
-            self.skipTest("fixture BESSY FS Ba122 absente")
+        path = _real_data_path("Ba122", "Ba1220003w_Ba122_003.ibw")
+        if path is None or not path.exists():
+            self.skipTest("BESSY FS fixture unavailable; set ARPES_TEST_DATA")
 
         self.assertEqual(detect_format(path), "bessy_ses_ibw")
         self.assertEqual(detect_scan_kind(path), "FS")
@@ -180,28 +189,28 @@ class TestARPESIOValidation(unittest.TestCase):
         cases = [
             (
                 "bessy_bm",
-                Path("/Users/alexandrespecht/Documents/Stage_M2/code/Ba122/Ba1220009w_Band Map B122_009.ibw"),
+                _real_data_path("Ba122", "Ba1220009w_Band Map B122_009.ibw"),
                 {"work_func": 4.031, "hv": 47.031},
                 "bessy_ses_ibw",
                 "BM",
             ),
             (
                 "bessy_fs",
-                Path("/Users/alexandrespecht/Documents/Stage_M2/code/Ba122/Ba1220003w_Ba122_003.ibw"),
+                _real_data_path("Ba122", "Ba1220003w_Ba122_003.ibw"),
                 {"work_func": 4.031, "hv": 64.665},
                 "bessy_ses_ibw",
                 "FS",
             ),
             (
                 "cls_bm",
-                Path("/Users/alexandrespecht/Documents/Stage_M2/code/Ba122_C05_2/BM1"),
+                _real_data_path("Ba122_C05_2", "BM1"),
                 {"work_func": 4.031, "hv": 60.0},
                 "cls_txt",
                 "BM",
             ),
             (
                 "cls_fs",
-                Path("/Users/alexandrespecht/Documents/Stage_M2/code/Ba122_C05_2/FS1"),
+                _real_data_path("Ba122_C05_2", "FS1"),
                 {"work_func": 4.031, "hv": 60.0},
                 "cls_txt",
                 "FS",
@@ -210,7 +219,7 @@ class TestARPESIOValidation(unittest.TestCase):
 
         ran = 0
         for name, path, kwargs, fmt, kind in cases:
-            if not path.exists():
+            if path is None or not path.exists():
                 continue
             with self.subTest(name=name):
                 self.assertEqual(detect_format(path), fmt)
@@ -221,14 +230,14 @@ class TestARPESIOValidation(unittest.TestCase):
                 self.assertEqual(ds.metadata["scan_kind"], kind)
             ran += 1
         if ran == 0:
-            self.skipTest("no real BESSY/CLS fixture available")
+            self.skipTest("no real BESSY/CLS fixture available; set ARPES_TEST_DATA")
 
     def test_solaris_fixture_uses_common_loader_if_erlab_available(self):
         if importlib.util.find_spec("erlab") is None:
             self.skipTest("erlab missing: Solaris/DA30 loader not executable in this environment")
-        path = Path("/Users/alexandrespecht/Documents/Stage_M2/code/BaNi2As2_/BaNi2As2_0012.pxt")
-        if not path.exists():
-            self.skipTest("fixture Solaris/DA30 absente")
+        path = _real_data_path("BaNi2As2_", "BaNi2As2_0012.pxt")
+        if path is None or not path.exists():
+            self.skipTest("Solaris/DA30 fixture unavailable; set ARPES_TEST_DATA")
 
         self.assertEqual(detect_format(path), "solaris_da30")
         ds = load_arpes(path, work_func=4.031)

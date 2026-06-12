@@ -1,7 +1,5 @@
 """Shared linear dispersion fit E(k) near E_F.
 
-Single implementation for P2.2 quantitative rigor (vF/kF/m*):
-
 * ``linear_dispersion_fit``: E ~= slope*k + intercept with 2x2 covariance.
   Uses orthogonal regression (total least squares) when a per-point k
   uncertainty is provided because both k and E carry noise near E_F; vertical

@@ -12,8 +12,3 @@ Capture d*.png
 # PyInstaller build output
 build/
 dist/
-
-# AI-assistant working files (local only, not published)
-.claude/
-CLAUDE.md
-docs/ai/

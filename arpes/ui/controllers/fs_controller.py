@@ -9,7 +9,7 @@ from arpes.physics.kz import kz_from_hv_kpar, fold_kz_to_1bz
 
 
 class FSController:
-    # P3.1: writes through to parent are allow-listed (fail-loud on typo).
+    # Writes to the parent window must be explicit.
     _OWN_ATTRS = frozenset({"_parent"})
     _PARENT_WRITES = frozenset({"_fs_distortion_cache"})
 

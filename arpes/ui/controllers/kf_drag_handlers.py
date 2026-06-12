@@ -1,8 +1,7 @@
-"""kF drag-handler helpers extracted from plot_controller.
+"""kF drag-handler helpers for the MDC/EDC view.
 
-Same delegation pattern as fit_overlay_drawer: free functions take the
-PlotController as ``ctrl`` and reach ``ctrl._mdc_edc / ctrl._params / ctrl._parent``.
-Plot controller keeps thin wrappers for back-compat.
+Free functions take the PlotController as ``ctrl`` and update the shared
+MDC/EDC canvas state.
 """
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ Accepted schema (npz):
 - ``a_lattice`` (scalar, optional): lattice parameter (Å) for conversion to
   π/a on the display side. If absent, the caller must provide a_lattice.
 
-No PyQt, no MP. CLAUDE.md layering rule 2 is respected.
+No PyQt dependency and no Materials Project dependency.
 """
 from __future__ import annotations
 

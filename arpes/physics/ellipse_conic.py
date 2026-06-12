@@ -4,7 +4,7 @@ Numerically stable variant of the Fitzgibbon-Pilu-Fisher 1999 direct
 least-squares fit (constraint 4ac-b^2=1). Unlike PCA, it works on open partial
 arcs: Fermi pockets extending beyond the scan are not closed artificially; the
 visible part is fitted and the ellipse is extrapolated, explicitly flagged as
-not publication-ready as-is (see P2.4).
+not publication-ready as-is.
 
 Guardrails:
 - explicit refusal (``PocketFitRefusedError``) if the arc is too short, points

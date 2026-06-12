@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""
-arpes_explorer.py — Interactive ARPES interface (BaNi2As2) v3
-═══════════════════════════════════════════════════════════════
-Features:
-  • File panel (folder browsing, unloaded/loaded/fitted status)
-  • JSON session (.arpes_session.json) — auto-saved after each fit
-  • Band map avec modes Raw / EDCnorm / SecDev / Curvature
-  • Live MDC (energy) + EDC (k) on click
-  • Pairwise Lorentzian model, real time
-  • Guess button (MDC fit at current energy)
-  • Full Fit button -> kF overlaid on the map
-  • Integrated sample-based EF calibration
-  • Results tab: overlaid dispersions + table + CSV/PDF export
-
-Launch:
-    /Users/alexandrespecht/.local/share/mamba/envs/peaks/bin/python3 arpes_explorer.py
-"""
+"""PyQt6 application entry point for ARPES Explorer."""
 
 from __future__ import annotations
 
@@ -108,10 +92,6 @@ def _load_ap():
             return mod
     return None
 
-# P3.6: the old try/except that forced 7 symbols to None + ERLAB_OK was
-# removed. Those names were not used by app.py, and loaders/fs_panel are
-# already imported (and fail loudly) by the controllers and builders that
-# depend on them, so there is no silent degradation path.
 from arpes.physics.plot_compute import apply_ef_correction_to_dict
 from arpes.ui.widgets.canvas import MplCanvas
 from arpes.ui.widgets.browsers import FileBrowserPanel
@@ -198,14 +178,7 @@ class ArpesExplorer(QMainWindow):
         self._status("Ready - open a folder or a file")
 
     def _install_controllers(self) -> None:
-        """Instantiate all controllers (P3.6d).
-
-        Order = weak dependencies first. Each controller reads the parent only
-        via __getattr__ forwarding, so the order has no functional effect; it
-        remains documented for readability. **Must run BEFORE any
-        QTimer.timeout.connect** (CLAUDE.md rule #5), otherwise a timer could
-        resolve through __getattr__ before its controller exists.
-        """
+        """Instantiate controllers before timers can resolve proxied methods."""
         from arpes.ui.controllers.batch_controller import BatchController
         from arpes.ui.controllers.band_analysis_controller import BandAnalysisController
         from arpes.ui.controllers.fit_zones_controller import FitZonesController
@@ -233,7 +206,7 @@ class ArpesExplorer(QMainWindow):
         self._fs_explorer_ctrl = FSExplorerController(self)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Proxy dispatch — delegates legacy methods to controllers.
+    # Proxy dispatch — delegates public window methods to controllers.
     #
     # Keeps ArpesExplorer's public API (used by Qt signals + internal calls)
     # without duplicating ~40 stubs like `def _x(self): return self._ctrl._x()`.

@@ -1,4 +1,4 @@
-"""Legacy method dispatch map for :class:`arpes.app.ArpesExplorer`."""
+"""Method dispatch map for :class:`arpes.app.ArpesExplorer`."""
 from __future__ import annotations
 
 
@@ -60,11 +60,11 @@ PROXY_MAP = {
     "_forget_gamma": "_gamma_ctrl",
     "_forget_gamma_with_confirm": "_gamma_ctrl",
     "_update_gamma_status_badge": "_gamma_ctrl",
-    # PairingController (A.4 — pin FS pour overlay BM cuts).
-    # Verb-dispatch unique : ctrl._pairing_action(verb, payload).
+    # PairingController.
+    # Single verb dispatch: ctrl._pairing_action(verb, payload).
     "_pairing_action": "_pairing_ctrl",
-    # FSExplorerController — verb-dispatch unique pour tout l'onglet
-    # FS Explorer (draw, line_changed, energy, play, file_changed, …).
+    # FSExplorerController.
+    # Single verb dispatch for draw, line changes, energy, play, and file changes.
     "_fs_explorer_action": "_fs_explorer_ctrl",
     # NormController
     "_load_grid_controls": "_norm_ctrl",

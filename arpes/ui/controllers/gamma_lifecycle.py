@@ -1,8 +1,4 @@
-"""Γ lifecycle (reset + state badge): free functions taking `ctrl` as arg.
-
-Extracted from `gamma_controller.py` to stay under the 700 LOC ceiling.
-Free-function + thin-wrapper pattern documented in CLAUDE.md.
-"""
+"""Γ lifecycle helpers for reset, persistence, and status-badge updates."""
 from __future__ import annotations
 
 import numpy as np

@@ -1,6 +1,6 @@
-"""ARPES Explorer package — modular refactor.
+"""ARPES Explorer package.
 
-Architecture (from the alpha-to-mu refactor):
+Main package layout:
 
     arpes/
       core/         session dataclasses, persistent models
@@ -12,13 +12,12 @@ Architecture (from the alpha-to-mu refactor):
       ui/
         app.py      ArpesExplorer (QMainWindow, orchestration)
         builders/   Qt construction (panels.py, menus.py)
-        controllers/ extracted controllers (load, plot, gamma,
+        controllers/ UI controllers (load, plot, gamma,
                       norm, fs, browser, logbook)
         widgets/
           plots/    plotting functions (split by category)
 
-CLI entry point: `python3 arpes_explorer.py` (root shim re-exporting
-`arpes.app.main`). Module `arpes.app` is canonical.
+CLI entry point: `python3 arpes_explorer.py`.
 
 Loader convention: see `arpes/io/loaders/__init__.py`.
 """

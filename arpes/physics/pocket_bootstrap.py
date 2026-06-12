@@ -1,8 +1,8 @@
-"""Bootstrap pocket characterization by jittering level/smoothing.
+"""Bootstrap pocket characterization by jittering level and smoothing.
 
-Extracted from ``pocket.py`` (700 LOC cap). Replays ``characterize_pocket`` with
-jittered iso-level and smoothing σ, aggregates median + σ by scalar. P2.4 flags
-(``is_extrapolated`` etc.) are aggregated outside ``_SCALAR_FIELDS``.
+Replays ``characterize_pocket`` with jittered iso-level and smoothing σ, then
+aggregates median and σ for scalar outputs. Boolean and categorical flags are
+aggregated separately.
 
 No PyQt. Pure numpy.
 """
@@ -20,9 +20,8 @@ from arpes.physics.pocket import (
     smooth_fs_image,
 )
 
-# Scalar fields aggregated by median/σ. Bool/str fields (P2.4 flags, topology,
-# hs_label) are aggregated separately; a bool median makes no sense
-# (arpes-redteam).
+# Scalar fields aggregated by median/σ. Bool and string fields are aggregated
+# separately because a median is not meaningful for categorical values.
 _SCALAR_FIELDS = (
     "centroid_kx", "centroid_ky", "area_inv_a2", "area_pct_bz",
     "kF_mean", "kF_a", "kF_b", "ellipse_angle_deg",

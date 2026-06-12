@@ -7,7 +7,7 @@ from arpes.physics.plot_compute import display_grid_config as _plot_display_grid
 
 
 class NormController:
-    # P3.1: writes through to parent are allow-listed (fail-loud on typo).
+    # Writes to the parent window must be explicit.
     _OWN_ATTRS = frozenset({"_parent"})
     _PARENT_WRITES = frozenset({"_grid_display_info"})
 

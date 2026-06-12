@@ -1,11 +1,4 @@
-"""Single-setter wrapper for entry.fit_result / fit_zones[*].fit_result.
-
-Background (architect audit): five sites mutate ``entry.fit_result``:
-fit_runner_controller, fit_zones_controller, interaction_controller. Each
-must remember to mirror the change into ``entry.fit_zones[active].fit_result``
-so the multi-zone view stays coherent. A single setter eliminates the
-"forgot to mirror" failure mode for any new consumer.
-"""
+"""Consistent writes for entry.fit_result and per-zone fit results."""
 from __future__ import annotations
 
 from typing import Any

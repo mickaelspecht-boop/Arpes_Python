@@ -57,7 +57,7 @@ reference for how it works.
 |---|---|
 | `arpes.spec` | PyInstaller recipe (hiddenimports scipy/pandas, datas arpes/docs + arpes_plots.py, excludes erlab/tkinter/PyQt5) |
 | `requirements.txt` | Runtime deps pinned to the validated majors |
-| `.github/workflows/build.yml` | CI: tests on every push; binaries (4 targets) on every `v*` tag, attached to a GitHub Release |
+| `.github/workflows/build.yml` | CI: tests on every push; binaries (3 targets) on every `v*` tag, attached to a GitHub Release |
 
 ## 4. Local build (any OS)
 
@@ -82,7 +82,7 @@ git tag v1.0.1
 git -c url."ssh://git@ssh.github.com:443/".insteadOf="git@github.com:" push origin v1.0.1
 ```
 
-→ The `build` workflow runs the test suite, builds the 4 binaries, and
+→ The `build` workflow runs the test suite, builds the 3 binaries, and
 publishes them on the repo's **Releases** page. Users download the archive
 for their OS, unzip, double-click `ARPES_Explorer`.
 

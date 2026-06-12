@@ -1,11 +1,8 @@
-"""Widget « BMs reliées à la FS active » — A.5 file tree minimaliste.
+"""Widget showing BMs linked to the active FS map.
 
-Au lieu de refactor le file browser principal, on expose la hiérarchie
-FS → BMs **dans l'onglet FS lui-même** (sous-panneau dédié). Double-click
-sur une BM → load via load_controller. Couleur par qualité de projection.
-
-Maintenu volontairement minimal : pas de drag-drop, pas de menu contextuel
-au-delà de pin/unpin via parent_fs_path (P3.bis ultérieur si besoin).
+The widget exposes the FS → BM relation inside the FS tab. Double-clicking a BM
+requests loading it through the main load controller. Row colors indicate the
+projection quality.
 """
 from __future__ import annotations
 
@@ -25,10 +22,10 @@ _QUALITY_COLOR = {
 
 
 class FsLinkedBmsList(QWidget):
-    """Liste plate des BMs rattachées à la FS active.
+    """Flat list of BMs attached to the active FS.
 
     Signals:
-        bm_load_requested(str) : double-click sur une BM → path à charger.
+        bm_load_requested(str): double-clicked BM path.
     """
     bm_load_requested = pyqtSignal(str)
 

@@ -28,10 +28,13 @@ class TestHelpPanel(unittest.TestCase):
     def test_help_panel_loads_markdown_sections(self):
         panel = HelpPanel()
 
-        self.assertEqual(panel._index.count(), 3)
+        self.assertEqual(panel._index.count(), 4)
         self.assertIn("Workflow", panel._viewer.toPlainText())
 
         panel._index.setCurrentRow(1)
+        self.assertIn("Features", panel._viewer.toPlainText())
+
+        panel._index.setCurrentRow(2)
         self.assertIn("Shortcuts", panel._viewer.toPlainText())
 
     def test_help_panel_has_missing_file_fallback(self):

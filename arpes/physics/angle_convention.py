@@ -1,16 +1,4 @@
-"""Angle/azi sign convention per beamline, pure and PyQt-free.
-
-P2.6a. A beamline angular sign convention (theta0, azi) cannot be frozen by Au
-calibration in the current workflow (Au is rarely measured). Stay
-**data-driven**: enumerate ±sign candidates (cf.
-``gamma.angle_offset_candidates_for_load``), score them, and keep the one that
-best centers Γ, BUT now expose a confidence measure and REPORT ambiguity
-instead of choosing silently.
-
-A ``ConventionRegistry`` will allow freezing a beamline convention and
-short-circuiting enumeration once a reference Au is available (future). While
-no convention is frozen (``UNCALIBRATED``), data-driven mode applies.
-"""
+"""Beamline angle-sign conventions, with data-driven fallback."""
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict, field

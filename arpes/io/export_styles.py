@@ -1,9 +1,4 @@
-"""Matplotlib presets for figure exports.
-
-P4.1: force a light background for exports (screen canvases are dark).
-P4.3: Nature/Science presets (normalized column widths, 7 pt sans-serif,
-vector PDF by default) plus matplotlib ``metadata`` passthrough (PDF/EXIF).
-"""
+"""Matplotlib presets for publication-oriented figure exports."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -13,7 +8,7 @@ from typing import Iterator
 import matplotlib.pyplot as plt
 
 
-# Normalized column widths (mm) - P4.3.
+# Normalized column widths (mm).
 NATURE_WIDTHS_MM = {"single": 89.0, "double": 183.0}
 SCIENCE_WIDTHS_MM = {"single": 55.0, "double": 121.0}
 

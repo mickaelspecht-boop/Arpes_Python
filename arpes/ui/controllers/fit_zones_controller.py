@@ -3,14 +3,13 @@
 Each zone owns a snapshot of FitParams (bounds + n_pairs + kF_init + Γ...)
 plus its own fit_result. Zones are persisted on FileEntry.fit_zones.
 
-Reads from / writes to:
+Reads from and writes to:
 - entry.fit_zones        list of dicts {id, label, color_idx, active, fit_params, fit_result}
 - entry.active_zone_id   str (UUID of currently selected zone in UI)
-- entry.fit_result       legacy single-fit payload — mirrors active zone for back-compat
-- entry.fit_params       legacy single-fit params — mirrors active zone bounds for UI sync
+- entry.fit_result       active zone result for existing result views
+- entry.fit_params       active zone parameters for UI sync
 
-Phase 1: synchronous loop; no per-zone gamma_center; no single_branch mode.
-Asymmetric-zone detection emits a status warning but no auto-switch.
+Asymmetric-zone detection emits a status warning but no automatic mode switch.
 """
 from __future__ import annotations
 

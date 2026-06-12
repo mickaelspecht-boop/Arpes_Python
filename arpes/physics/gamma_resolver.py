@@ -1,11 +1,7 @@
-"""Single source of truth for deciding how to apply Gamma.
+"""Pure Gamma application resolver.
 
-P2: pure function `resolve(raw, ref, hv, phi, entry_azi) -> ResolvedGamma`.
-It reads raw state and returns the decision to apply. No mutation, no side
-effects, headless-testable.
-
-The UI controller (`gamma_controller.GammaController`) delegates to this
-function and applies the result through one setter (`apply_gamma`).
+Reads raw state and returns the decision to apply. No mutation, no side
+effects, and suitable for headless tests.
 
 Provable idempotence invariant:
     apply(resolve(raw, ref, ...)) then resolve(raw, ref, ...) -> ResolvedGamma

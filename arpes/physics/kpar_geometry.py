@@ -1,14 +1,8 @@
 """ARPES k-parallel geometry: pure functions, no PyQt.
 
 Single source of truth for the angle→k conversion constant and scale factor
-``C·√(Ek)·a/π`` (previously duplicated in ``gamma.py``,
-``bm_cut_overlay.py`` et ``io/loaders/common.py``).
-
-Step P2.1a: tilt guard. The current angle→k projection only includes polar
-(cf. P2.1 audit). Until the Ishida & Shin 3-angle formula (RSI 89, 043903,
-2018) and per-lab sign calibration (P2.6) are delivered (P2.1b), reject the
-BM↔FS overlay if ``|tilt|`` exceeds ``TILT_GUARD_DEG`` and report residual ky
-error in the gray zone ``0 < |tilt| ≤ 2°``.
+``C·√(Ek)·a/π``. Includes guard rails for tilt-sensitive BM↔FS overlays and
+the full angle-to-k conversion used by calibrated views.
 """
 from __future__ import annotations
 
@@ -48,9 +42,8 @@ def kpar_scale(hv: float, work_func: float, a_lattice: float) -> float | None:
 def _coerce_tilt(tilt_deg) -> float:
     """Read a tilt (deg), tolerating ``None``/missing field → 0.0.
 
-    P2.1a convention: missing tilt means 0° (standard scan without tilt).
-    Loaders MUST populate ``FileMeta.tilt`` when the tilt motor is non-zero;
-    otherwise the guard protects nothing (cf. redteam finding #1).
+    Missing tilt means 0° (standard scan without tilt). Loaders must populate
+    ``FileMeta.tilt`` when the tilt motor is non-zero.
     """
     if tilt_deg is None:
         return 0.0
@@ -77,9 +70,8 @@ def kpar_from_angles(
 ) -> tuple[np.ndarray, np.ndarray]:
     """6-axis angle→(kx, ky) conversion in Å⁻¹ — Ishida & Shin RSI 89,043903 (2018).
 
-    P2.1b — full cumulative rotation-matrix formula (appendix A):
-    n̂_det rotated by R = R_φ·R_β·R_θ (azimuth·tilt·polar), then projected.
-    Replaces the 1-angle formula ``C·√Ek·sin(θ)`` that ignored tilt + azimuth.
+    Uses the cumulative rotation-matrix formula: n̂_det rotated by
+    R = R_φ·R_β·R_θ (azimuth·tilt·polar), then projected.
 
     Args:
         slit_deg: emission angle along the slit (α), vectorizable.

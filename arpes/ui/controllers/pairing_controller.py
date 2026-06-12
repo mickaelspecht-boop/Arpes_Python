@@ -283,12 +283,12 @@ class PairingController:
         )
 
     # ---------------------------------------------------------------
-    # Verb-dispatch unique pour le proxy (CLAUDE.md plafond 150).
+    # Single entry point used by the proxy map.
     # ---------------------------------------------------------------
     def _pairing_action(self, verb: str, payload: dict | None = None):
-        """Dispatch verb-based pour exposer plusieurs actions via 1 entrée PROXY_MAP.
+        """Dispatch pairing actions through one proxy-map entry.
 
-        Verbs supportés :
+        Supported verbs:
         - "pin"           payload={"path": str}        → _pin_fs_path
         - "unpin"         payload={}                   → _unpin_fs_path
         - "auto_pin_bm"   payload={}                   → _auto_pin_fs_for_current_bm

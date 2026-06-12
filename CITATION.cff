@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use ARPES Explorer in scientific work, please cite the repository version or commit used for the analysis."
+title: "ARPES Explorer"
+version: "1.0.2"
+date-released: "2026-06-12"
+authors:
+  - family-names: "Specht"
+    given-names: "Mickaël"
+repository-code: "https://github.com/mickaelspecht-boop/Arpes_Python"
+type: software
+abstract: "PyQt6 desktop application for ARPES visualization, calibration, MDC fitting, Fermi-surface analysis, KZ maps, DFT overlays, and reproducible result export."
+keywords:
+  - ARPES
+  - angle-resolved photoemission spectroscopy
+  - condensed matter physics
+  - data analysis
+  - PyQt6
+  - spectroscopy
