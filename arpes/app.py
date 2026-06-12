@@ -210,6 +210,7 @@ class ArpesExplorer(QMainWindow):
         from arpes.ui.controllers.band_analysis_controller import BandAnalysisController
         from arpes.ui.controllers.fit_zones_controller import FitZonesController
         from arpes.ui.controllers.pairing_controller import PairingController
+        from arpes.ui.controllers.fs_explorer_controller import FSExplorerController
 
         self._logbook_ctrl = LogbookIngestController(self)
         self._load_ctrl = LoadController(self)
@@ -229,6 +230,7 @@ class ArpesExplorer(QMainWindow):
         self._band_analysis_ctrl = BandAnalysisController(self)
         self._fit_zones_ctrl = FitZonesController(self)
         self._pairing_ctrl = PairingController(self)
+        self._fs_explorer_ctrl = FSExplorerController(self)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Proxy dispatch — delegates legacy methods to controllers.
@@ -349,20 +351,21 @@ class ArpesExplorer(QMainWindow):
         wire_ui_signals(self)
 
     def _on_tab_changed(self, index: int):
-        # 0=BM, 1=MDC Fit, 2=Results, 3=FS, 4=KZ, 5=Notes, 6=Help, 7=Start
+        # 0=BM, 1=MDC Fit, 2=Results, 3=FS, 4=FS Explorer, 5=KZ, 6=Notes,
+        # 7=Help, 8=Start
         if hasattr(self, "_right_stack"):
-            self._right_stack.setCurrentIndex(2 if index == 4 else (1 if index == 3 else 0))
-            # Results/Notes/Help/Start have no side controls: hiding the stack
-            # gives the whole width back to the content (it stole ~500 px of
-            # dead space on the Results tab).
-            self._right_stack.setVisible(index in (0, 1, 3, 4))
+            self._right_stack.setCurrentIndex(2 if index == 5 else (1 if index == 3 else 0))
+            # Results/FS Explorer/Notes/Help/Start have no side controls:
+            # hiding the stack gives the whole width back to the content (it
+            # stole ~500 px of dead space on the Results tab).
+            self._right_stack.setVisible(index in (0, 1, 3, 5))
         if index == 0:
             self._params.set_context("bm")
         elif index == 1:
             self._params.set_context("mdc")
             if hasattr(self, "_mdc_fit_tabs"):
                 self._params.set_waterfall_controls_visible(self._mdc_fit_tabs.currentIndex() == 1)
-        elif index == 4:
+        elif index == 5:
             self._params.set_context("other")
             self._set_fit_roi_pick_mode(False)
             self._set_fs_center_pick_mode(False)

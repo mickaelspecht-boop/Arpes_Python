@@ -644,6 +644,12 @@ class LoadController:
             self._parent._pairing_action("auto_pin_bm")
         except Exception:
             pass
+        # FS Explorer: stop any sweep animation on the old volume and refresh
+        # the tab if it is the one currently visible.
+        try:
+            self._parent._fs_explorer_action("file_changed")
+        except Exception:
+            pass
 
     def _refresh_ui(self, d, prepared, path, *, entry_dirty: bool = False):
         entry = prepared.entry

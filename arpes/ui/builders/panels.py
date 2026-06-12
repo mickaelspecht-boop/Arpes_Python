@@ -106,6 +106,7 @@ def _build_tabs(window) -> QTabWidget:
     window._tabs.addTab(_build_mdc_tab(window), "MDC Fit")
     window._tabs.addTab(_build_results_tab(window), "Results")
     window._tabs.addTab(_build_fs_tab(window), "FS")
+    window._tabs.addTab(_build_fs_explorer_tab(window), "FS Explorer")
     window._tabs.addTab(_build_kz_tab(window), "KZ")
     window._tabs.addTab(_build_notes_tab(window), "Notes")
     window._tabs.addTab(_build_help_tab(window), "Help")
@@ -348,6 +349,49 @@ def _build_fs_tab(window) -> QWidget:
     _lay.addWidget(window._fs_linked_bms, 1)
     fs_tabs.addTab(fs_map_container, "FS map")
     return fs_tabs
+
+
+def _build_fs_explorer_tab(window) -> QWidget:
+    """ARPEST-style FS browsing: iso-E map + cut line + extracted BM."""
+    from PyQt6.QtWidgets import QSplitter
+    from arpes.ui.widgets.fs_explorer_panel import (
+        FSExplorerControlBar,
+        FSExplorerCutView,
+        FSExplorerMapView,
+    )
+    window._fs_explorer_map = FSExplorerMapView()
+    window._fs_explorer_cut = FSExplorerCutView()
+    window._fs_explorer_bar = FSExplorerControlBar()
+    split = QSplitter(Qt.Orientation.Horizontal)
+    split.addWidget(window._fs_explorer_map)
+    split.addWidget(window._fs_explorer_cut)
+    split.setSizes([500, 500])
+    tab = QWidget()
+    lay = QVBoxLayout(tab)
+    lay.setContentsMargins(2, 2, 2, 2)
+    lay.addWidget(split, 1)
+    lay.addWidget(window._fs_explorer_bar, 0)
+    window._fs_explorer_tab = tab
+    act = window._fs_explorer_action
+    window._fs_explorer_map.line_changed.connect(
+        lambda cx, cy, a, ln: act("line_changed",
+                                  {"cx": cx, "cy": cy, "angle": a, "length": ln}))
+    window._fs_explorer_map.drag_state.connect(
+        lambda on: act("drag_state", {"dragging": on}))
+    window._fs_explorer_bar.energy_changed.connect(
+        lambda e: act("energy_changed", {"energy": e}))
+    window._fs_explorer_bar.line_params_changed.connect(
+        lambda a, ln: act("line_params", {"angle": a, "length": ln}))
+    window._fs_explorer_bar.mode_changed.connect(
+        lambda m: act("mode_changed", {"mode": m}))
+    window._fs_explorer_bar.play_toggled.connect(
+        lambda on: act("play_toggle", {"play": on}))
+    window._fs_explorer_bar.speed_changed.connect(
+        lambda v: act("speed_changed", {"speed": v}))
+    window._tabs.currentChanged.connect(
+        lambda _i: act("tab_activated",
+                       {"active": window._tabs.currentWidget() is tab}))
+    return tab
 
 
 def _build_kz_tab(window) -> QWidget:

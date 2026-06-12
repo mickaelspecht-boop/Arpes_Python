@@ -80,10 +80,11 @@ class TestUiSmoke(unittest.TestCase):
     def test_window_instantiates(self):
         win = self._make_window()
         self.assertIsNotNone(win)
-        self.assertEqual(win._tabs.count(), 8)
+        self.assertEqual(win._tabs.count(), 9)
         self.assertEqual(
             [win._tabs.tabText(i) for i in range(win._tabs.count())],
-            ["BM", "MDC Fit", "Results", "FS", "KZ", "Notes", "Help", "Start"],
+            ["BM", "MDC Fit", "Results", "FS", "FS Explorer", "KZ", "Notes",
+             "Help", "Start"],
         )
         fs_tabs = win._tabs.widget(3)
         self.assertEqual(
@@ -99,9 +100,10 @@ class TestUiSmoke(unittest.TestCase):
             1: 0,  # MDC controls
             2: 0,  # Results: no dedicated right panel
             3: 1,  # FS controls
-            4: 2,  # KZ controls
-            5: 0,  # Notes
-            6: 0,  # Help
+            4: 0,  # FS Explorer: own control bar, no right panel
+            5: 2,  # KZ controls
+            6: 0,  # Notes
+            7: 0,  # Help
         }
         for index, right_index in expected.items():
             win._on_tab_changed(index)
@@ -123,6 +125,51 @@ class TestUiSmoke(unittest.TestCase):
                 hasattr(win, attr),
                 f"controller {attr} missing on ArpesExplorer",
             )
+
+    def test_fs_explorer_no_data_no_crash(self):
+        win = self._make_window()
+        win._fs_explorer_action("draw", {})  # placeholder, no exception
+
+    def test_fs_explorer_axes_raw_view_refuses(self):
+        win = self._make_window()
+        win._raw_data = {"metadata": {"axes_raw_view": True}}
+        statuses = []
+        win._status = statuses.append
+        win._fs_explorer_action("draw", {})
+        self.assertTrue(any("raw axes" in s for s in statuses))
+
+    def test_fs_explorer_draws_synthetic_volume(self):
+        win = self._make_window()
+        kx = np.linspace(-1, 1, 12)
+        ky = np.linspace(-0.5, 0.5, 8)
+        e_ax = np.linspace(-0.3, 0.1, 5)
+        vol = np.random.default_rng(0).random((8, 12, 5)).astype(np.float32)
+        win._raw_data = {"metadata": {
+            "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": e_ax,
+            "fs_kind": "kxky",
+        }}
+        win._fs_explorer_action("draw", {})
+        self.assertIsNotNone(win._fs_explorer_map._mesh)
+        # native mode snaps + redraws without crash
+        win._fs_explorer_action("mode_changed", {"mode": "native"})
+        # animation step advances the line without crash, then stops cleanly
+        win._fs_explorer_action("play_toggle", {"play": True})
+        win._fs_explorer_ctrl._animation_step()
+        win._fs_explorer_action("play_toggle", {"play": False})
+        self.assertFalse(win._fs_explorer_ctrl._anim_timer.isActive())
+
+    def test_fs_explorer_non_kxky_forces_native(self):
+        win = self._make_window()
+        kx = np.linspace(-1, 1, 12)
+        ky = np.arange(8, dtype=float)
+        e_ax = np.linspace(-0.3, 0.1, 5)
+        vol = np.zeros((8, 12, 5), dtype=np.float32)
+        win._raw_data = {"metadata": {
+            "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": e_ax,
+            "fs_kind": "scan-kx-energy",
+        }}
+        win._fs_explorer_action("draw", {})
+        self.assertEqual(win._fs_explorer_ctrl._mode, "native")
 
     def test_mp_lattice_fetch_signal_is_wired_to_controller(self):
         win = self._make_window()

@@ -63,6 +63,9 @@ PROXY_MAP = {
     # PairingController (A.4 — pin FS pour overlay BM cuts).
     # Verb-dispatch unique : ctrl._pairing_action(verb, payload).
     "_pairing_action": "_pairing_ctrl",
+    # FSExplorerController — verb-dispatch unique pour tout l'onglet
+    # FS Explorer (draw, line_changed, energy, play, file_changed, …).
+    "_fs_explorer_action": "_fs_explorer_ctrl",
     # NormController
     "_load_grid_controls": "_norm_ctrl",
     "_display_grid_config": "_norm_ctrl",
