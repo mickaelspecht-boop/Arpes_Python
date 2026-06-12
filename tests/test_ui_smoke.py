@@ -203,6 +203,23 @@ class TestUiSmoke(unittest.TestCase):
                              "length": win._fs_explorer_ctrl._line[3]})
         self.assertIs(cut_view._mesh, mesh0)  # updated in place, not rebuilt
 
+    def test_fs_explorer_sweep_is_perpendicular_at_90deg(self):
+        win = self._fs_explorer_window_with_volume()
+        ctrl = win._fs_explorer_ctrl
+        ctrl._line = [0.0, 0.0, 90.0, 0.6]   # vertical line
+        win._fs_explorer_action("play_toggle", {"play": True})
+        ctrl._animation_step()
+        win._fs_explorer_action("play_toggle", {"play": False})
+        self.assertAlmostEqual(ctrl._line[1], 0.0, places=12)  # no vertical drift
+        self.assertGreater(abs(ctrl._line[0]), 1e-3)           # sweeps horizontally
+
+    def test_fs_explorer_spin_click_is_deferred_not_blocking(self):
+        win = self._fs_explorer_window_with_volume()
+        ctrl = win._fs_explorer_ctrl
+        win._fs_explorer_action("line_params", {"angle": 30.0, "length": 1.0})
+        self.assertEqual(ctrl._line[2], 30.0)     # geometry applied at once
+        self.assertTrue(ctrl._settle.isActive())  # full-res deferred to idle
+
     def test_fs_explorer_non_kxky_forces_native(self):
         win = self._make_window()
         kx = np.linspace(-1, 1, 12)

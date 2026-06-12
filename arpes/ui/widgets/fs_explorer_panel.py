@@ -382,6 +382,9 @@ class FSExplorerControlBar(QWidget):
         self.sp_length.setValue(1.0)
         lay.addWidget(self.sp_length)
         for sp in (self.sp_angle, self.sp_length):
+            # Emit on Enter/arrow only, not per typed digit ("90" must not
+            # fire an intermediate cut at 9°).
+            sp.setKeyboardTracking(False)
             sp.valueChanged.connect(self._emit_line_params)
 
         self.btn_play = QPushButton("▶ Play")

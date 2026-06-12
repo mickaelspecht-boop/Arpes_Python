@@ -24,6 +24,7 @@ _ANIM_INTERVAL_MS = 66    # ~15 fps
 _DRAG_SUBSAMPLE = 4       # k-space subsampling while dragging/animating
 _DRAG_E_SUBSAMPLE = 2     # energy-axis subsampling while dragging/animating
 _DRAG_THROTTLE_MS = 40    # cap live cut redraws at ~25 fps during drag
+_SETTLE_MS = 400          # idle delay before the one full-res redraw
 _CUT_N_PTS = 400
 
 
@@ -49,6 +50,14 @@ class FSExplorerController:
         self._throttle.setSingleShot(True)
         self._throttle.setInterval(_DRAG_THROTTLE_MS)
         self._throttle.timeout.connect(self._apply_pending_line)
+        # Spinbox clicks (angle/length) get a fast preview cut; the full-res
+        # cut renders once, after the user stops clicking. A synchronous
+        # full-res draw per click (~235 ms) queued up the clicks and kept
+        # "playing" them long after the last one.
+        self._settle = QTimer()
+        self._settle.setSingleShot(True)
+        self._settle.setInterval(_SETTLE_MS)
+        self._settle.timeout.connect(self._on_settle)
 
     # ----------------------------------------------------- proxies parent
     def _status(self, msg: str) -> None:
@@ -104,7 +113,11 @@ class FSExplorerController:
             self._line[2] = float(p["angle"])
             self._line[3] = float(p["length"])
             self._push_line_to_map()
-            return self._draw_cut(fast=False)
+            self._pending_line = list(self._line)
+            if not self._throttle.isActive():
+                self._throttle.start()
+            self._settle.start()
+            return None
         if verb == "mode_changed":
             return self._on_mode_changed(str(p.get("mode", "free")))
         if verb == "play_toggle":
@@ -249,7 +262,15 @@ class FSExplorerController:
         if self._mode == "native":
             self._snap_line_native()
         self._sync_bar_from_line()
-        return self._draw_cut(fast=self._dragging)
+        # Fast preview while the user is still interacting (drag in progress
+        # or settle window open); the settle timeout does the full-res pass.
+        return self._draw_cut(fast=self._dragging or self._settle.isActive())
+
+    def _on_settle(self):
+        if self._dragging or self._anim_timer.isActive():
+            return  # still interacting / sweeping: stay on fast frames
+        self._apply_pending_line()
+        self._draw_cut(fast=False)
 
     def _draw_cut(self, *, fast: bool):
         out = self._resolve_volume()
