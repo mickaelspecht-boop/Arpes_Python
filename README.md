@@ -9,19 +9,23 @@ Desktop application for ARPES visualization, calibration, fitting, and data-anal
 
 ## Summary
 
-ARPES Explorer is a PyQt6 desktop application for working with angle-resolved photoemission spectroscopy data. It combines file loading, logbook metadata, band-map and Fermi-surface visualization, energy/momentum calibration, MDC fitting, result tables, and scientific export. The codebase separates pure numerical routines from the Qt interface so that loaders, physics helpers, and result calculations can be tested headlessly. The project is actively developed; several workflows are mature, while some beamline-specific loaders and advanced analyses should still be validated on new datasets before publication use.
+ARPES Explorer is a PyQt6 desktop application for angle-resolved photoemission spectroscopy data. It is intended for loading experimental files, attaching logbook metadata, inspecting band maps and Fermi-surface volumes, applying energy and momentum calibrations, fitting MDCs, and exporting figures or tables.
 
-## Why This Project?
+Many ARPES file formats do not store all metadata required for analysis. Photon energy, temperature, polarization, cut direction, manipulator angles, lattice constants, and work function may be provided by a separate logbook, commonly as an `.xlsx` file.
 
-ARPES datasets are often large, metadata-rich, and sensitive to calibration choices. A useful analysis tool needs more than plotting: it must keep track of photon energy, work function, lattice constants, EF offsets, momentum conventions, fit windows, rejected points, and export provenance.
+The codebase separates numerical routines from the Qt interface so that loaders, physics helpers, and result calculations can be tested without a graphical backend. Beamline-specific loaders and advanced analysis modules should be validated on the relevant datasets before use in quantitative work.
 
-ARPES Explorer focuses on an end-to-end workflow:
+## Scope
+
+ARPES datasets are sensitive to metadata and calibration choices. The same intensity map can lead to different physical axes or interpretations if the photon energy, sample geometry, work function, lattice constants, or cut direction are wrong. The application therefore keeps measurement files, logbook rows, sample metadata, calibration parameters, fit settings, and exported results in the same session.
+
+Typical operations include:
 
 - inspect band maps and Fermi-surface volumes;
 - keep file, logbook, and sample metadata together;
 - fit MDC peak pairs and review slice-level diagnostics;
 - compare fitted dispersions with optional DFT references;
-- export tables, figures, and provenance in a reproducible way.
+- export tables, figures, and provenance records.
 
 ## Features
 
@@ -39,6 +43,8 @@ ARPES Explorer focuses on an end-to-end workflow:
   - BESSY Scienta/SES R8000 Igor Binary Wave v5: `.ibw`;
   - CLS/LNLS text: individual BM files with `*_param.txt`, or FS folders with `*_Cycle_*_Step_*.txt`;
   - ALLS SpecsLab Prodigy Igor Text exports: `.itx`.
+- Logbook import from `.xlsx`, `.xls`, `.csv`, and `.tsv`, with automatic column detection for filenames, photon energy, temperature, polarization, direction, manipulator angles, sample formula, Materials Project ID, lattice constants, and work function.
+- Scoped Excel logbooks: one workbook can contain one sheet per measurement folder when each sheet declares a `Folder Name`.
 - Browse-only mode for incomplete metadata, keeping raw axes instead of forcing a momentum calibration.
 - Band-map display modes: Raw, EDC normalization, second derivative, curvature.
 - EF calibration tools, Gamma centering, BM/FS pairing, distortion preview/correction, and FFT grid-artifact display filtering.
@@ -51,7 +57,7 @@ ARPES Explorer focuses on an end-to-end workflow:
 - Optional theory overlay support:
   - local DFT imports from YAML/JSON, VASP `vasprun.xml`, and QE-style `.dat`/`.txt`;
   - optional Materials Project lookup/cache when the relevant API dependency and credentials are available.
-- Export of per-slice results, physical summaries, provenance sidecars, CSV/TXT/LaTeX tables, and publication-style figures.
+- Export of per-slice results, physical summaries, provenance sidecars, CSV/TXT/LaTeX tables, and figures.
 - PyInstaller build recipe and GitHub Actions workflow for tests and tagged release artifacts.
 
 ### Experimental or Limited
@@ -62,25 +68,7 @@ ARPES Explorer focuses on an end-to-end workflow:
 - Materials Project support is optional and network/API dependent.
 - KZ conversion uses a free-electron final-state model and depends on reliable photon energy, work function, lattice `c`, and inner potential `V0`.
 
-### Roadmap
-
-- Document beamline-specific loader assumptions with small public example files.
-- Add a dedicated EDC file loader if standalone EDC acquisition formats become part of the workflow.
-- Add screenshots and a short tutorial dataset that can be shared publicly.
-- Add packaging metadata (`pyproject.toml`) if the project is distributed as an installable Python package.
-- Add signed/notarized binaries if the release process needs production-grade desktop distribution.
-
-## Screenshots and Demos
-
-No application screenshots are currently committed.
-
-Suggested placeholders to add:
-
-- `docs/assets/bm-tab.png` — BM tab with raw and processed views.
-- `docs/assets/fs-explorer.png` — FS Explorer with a cut line and extracted BM.
-- `docs/assets/results-tab.png` — fitted dispersions and physical result table.
-
-Architecture overview:
+## Architecture Overview
 
 ![ARPES Explorer architecture diagram](docs/arpes_architecture.svg)
 
@@ -155,7 +143,34 @@ flowchart TD
     J --> K[Save session and notes]
 ```
 
-The key reproducibility rule is simple: calibration choices, sample constants, fit windows, rejected points, and export settings should stay in the session or Notes.
+For reproducibility, raw data should be loaded with the logbook row that describes the scan. Calibration choices, sample constants, fit windows, rejected points, notes, and export settings are stored in the session.
+
+## Logbook and XLSX Blueprints
+
+ARPES Explorer can load files without a logbook when the file metadata is sufficient. When metadata is incomplete, a logbook is used to provide photon energy, sample temperature, polarization, cut direction, manipulator angles, lattice constants, and work function. These values can affect momentum conversion, KZ conversion, BM/FS pairing, and comparison between scans.
+
+Two Excel blueprints are provided:
+
+- [docs/examples/arpes_logbook_blueprint_simple.xlsx](docs/examples/arpes_logbook_blueprint_simple.xlsx) — one sheet for a single data folder.
+- [docs/examples/arpes_logbook_blueprint_scoped.xlsx](docs/examples/arpes_logbook_blueprint_scoped.xlsx) — one workbook with several sheets, each sheet attached to a subfolder through `Folder Name`.
+
+Minimum required columns:
+
+| Column | Required | Meaning |
+|---|---:|---|
+| `File` | yes | Filename, scan number, or recognizable file token. Examples: `scan_0001.ibw`, `9`, `FS3`. |
+| `hv` | yes | Photon energy in eV. |
+| `Temp` | no | Sample temperature in K. |
+| `Pol` | no | Polarization such as `LH`, `LV`, `RC`, `LC`, `s`, or `p`. |
+| `Direction` | no | Cut direction such as `G-M`, `Gamma-X`, or `Γ-Σ`; labels are normalized by the app. |
+| `Azi`, `Polar`, `Tilt` | no | Manipulator angles in degrees when available. |
+| `Formula`, `MP-ID` | no | Sample formula and optional Materials Project identifier. |
+| `a`, `b`, `c` | no | Lattice constants in angstrom. |
+| `Work Function` | no | Work function in eV. |
+
+Common aliases are accepted (`Filename`, `Photon Energy`, `Sample Temperature`, `Light Polarization`, `High symmetry path`, etc.). The column names in the blueprints are the recommended names. Empty cells in `Direction`, `Pol`, and `Azi` inherit the previous non-empty value.
+
+For scoped workbooks, put `Folder Name` in the first rows of each sheet and the folder value in the cell to its right. The value should match the data subfolder name, for example `BNA_S1` or `data/BNA_S1`. The table header can start below that metadata block.
 
 ## Architecture
 
@@ -163,10 +178,10 @@ Simplified tree:
 
 ```text
 .
-├── arpes_explorer.py        # GUI entry-point shim
-├── arpes_plots.py           # compatibility shim
-├── arpes.spec               # PyInstaller recipe
-├── requirements.txt         # runtime dependencies
+├── arpes_explorer.py
+├── arpes_plots.py
+├── arpes.spec
+├── requirements.txt
 ├── arpes/
 │   ├── app.py               # PyQt6 main window and controller wiring
 │   ├── analysis/            # result aggregation, bootstrap, self-energy
@@ -187,6 +202,24 @@ Design constraints used in the codebase:
 - keep loader outputs validated through the shared `ARPESData` convention;
 - keep shared fit-result writes routed through `arpes/core/fit_result_store.py`;
 - prefer small controllers with one responsibility.
+
+Main Python entry points:
+
+| File or package | What it does |
+|---|---|
+| `arpes_explorer.py` | Starts the desktop application. It stays intentionally tiny and delegates to `arpes.app`. |
+| `arpes_plots.py` | Compatibility module for older imports that still expect plotting helpers at the repository root. |
+| `arpes/app.py` | Builds the main PyQt6 window and wires controllers, widgets, menus, and session state together. |
+| `arpes/core/*.py` | Defines durable data structures: sessions, file entries, sample metadata, fit-result storage, and undo support. |
+| `arpes/io/*.py` | Reads experimental files and logbooks, matches metadata to files, exports results, and manages cached artifacts. |
+| `arpes/io/loaders/*.py` | Contains one loader per supported data source or beamline format. |
+| `arpes/physics/*.py` | Runs numerical ARPES calculations with NumPy/SciPy and no Qt dependency. |
+| `arpes/analysis/*.py` | Turns fit outputs into physical summaries, aggregations, bootstrap estimates, and self-energy helpers. |
+| `arpes/theory/*.py` | Imports and aligns theory/DFT references used for comparison overlays. |
+| `arpes/ui/builders/*.py` | Assembles menus and panels from smaller widgets. |
+| `arpes/ui/controllers/*.py` | Handles user actions and coordinates between the GUI and the pure computation modules. |
+| `arpes/ui/widgets/*.py` | Defines reusable PyQt widgets, dialogs, plots, and parameter panels. |
+| `tools/*.py` | Contains local maintenance scripts, currently for auditing metadata on real data folders. |
 
 ## Data Formats
 
