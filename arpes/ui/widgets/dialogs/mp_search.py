@@ -25,6 +25,7 @@ from arpes.theory.materials_project import (
     MaterialsProjectUnavailable,
     search_by_formula,
 )
+from arpes.ui.app_settings import resolve_mp_api_key
 
 
 _ACTIVE_SEARCHES: set[tuple[QThread, QObject]] = set()
@@ -41,7 +42,8 @@ class _SearchWorker(QObject):
 
     def run(self) -> None:
         try:
-            results = search_by_formula(self._formula, max_results=self._max_results)
+            results = search_by_formula(self._formula, max_results=self._max_results,
+                                        api_key=resolve_mp_api_key())
             self.finished.emit(results)
         except MaterialsProjectUnavailable as exc:
             self.failed.emit(str(exc))

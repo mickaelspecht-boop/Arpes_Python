@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from arpes.ui.widgets._qt_helpers import compact_button, dspin, ispin
+from arpes.ui.app_settings import get_mp_api_key, set_mp_api_key
 
 
 def build_theory_section(panel, lay) -> None:
@@ -34,9 +35,24 @@ def build_theory_section(panel, lay) -> None:
     panel.txt_theory_mpid.setPlaceholderText("mp-149")
     panel.txt_theory_mpid.setToolTip(
         "Materials Project ID. Press Enter to import directly.\n"
-        "Requires mp-api + MP_API_KEY."
+        "Requires mp-api + a Materials Project API key (field below or MP_API_KEY env)."
     )
     panel.txt_theory_mpid.returnPressed.connect(panel.theory_import_requested)
+    # User-supplied Materials Project API key (masked). Persisted per-user via
+    # QSettings (never in the repo or session). Empty -> falls back to MP_API_KEY
+    # env var, so a developer's local key keeps working without typing it here.
+    panel.txt_mp_api_key = QLineEdit()
+    panel.txt_mp_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+    panel.txt_mp_api_key.setPlaceholderText("your Materials Project API key")
+    panel.txt_mp_api_key.setText(get_mp_api_key())
+    panel.txt_mp_api_key.setToolTip(
+        "Get a free key at materialsproject.org (Dashboard → API).\n"
+        "Stored locally for this user only; never uploaded or shared.\n"
+        "Leave empty to use the MP_API_KEY environment variable instead."
+    )
+    panel.txt_mp_api_key.editingFinished.connect(
+        lambda: set_mp_api_key(panel.txt_mp_api_key.text())
+    )
     panel.btn_theory_search = compact_button(QPushButton("Search MP"), max_width=130)
     panel.btn_theory_search.setToolTip(
         "Searches Materials Project by chemical formula (network).\n"
@@ -233,6 +249,7 @@ def build_theory_section(panel, lay) -> None:
     fl_th.addRow(_section("1 · Source DFT"))
     fl_th.addRow(panel.chk_theory)
     fl_th.addRow("MP-ID:", mpid_row)
+    fl_th.addRow("MP API key:", panel.txt_mp_api_key)
     fl_th.addRow("Convention:", panel.cmb_theory_convention)
     fl_th.addRow(source_btns)
     # 2 · Displayed Bands

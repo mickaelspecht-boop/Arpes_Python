@@ -238,6 +238,7 @@ class FSController:
         from arpes.theory.materials_project import (
             MaterialsProjectUnavailable, load_lattice,
         )
+        from arpes.ui.app_settings import resolve_mp_api_key
         if not hasattr(self, "_fs_controls"):
             return
         mp_id = self._fs_controls.ed_mp_id.text().strip()
@@ -257,7 +258,7 @@ class FSController:
         except Exception:
             cache_dir = None
         try:
-            lat = load_lattice(mp_id, cache_dir=cache_dir)
+            lat = load_lattice(mp_id, cache_dir=cache_dir, api_key=resolve_mp_api_key())
         except MaterialsProjectUnavailable as exc:
             self._status(f"✗ MP: {exc}")
             return

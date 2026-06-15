@@ -17,6 +17,7 @@ from arpes.theory.local_loaders import load_local_band_data
 from arpes.theory.materials_project import load_materials_project_band_data
 from arpes.theory.models import available_segments, compare_fit_to_theory, fit_mu_shift, parse_band_indices, segment_from_direction
 from arpes.theory.plot import draw_theory_overlay
+from arpes.ui.app_settings import resolve_mp_api_key
 
 
 class TheoryOverlayController:
@@ -123,6 +124,7 @@ class TheoryOverlayController:
                 mpid, cache_dir=cache_root,
                 with_projections=bool(cfg.get("with_projections", False)),
                 force_refresh=force_refresh,
+                api_key=resolve_mp_api_key(),
             )
             # Cache legacy (pré-branches) : re-fetch auto une seule fois
             # pour récupérer le vrai chemin MP au lieu d'afficher tout
@@ -132,6 +134,7 @@ class TheoryOverlayController:
                     mpid, cache_dir=cache_root,
                     with_projections=bool(cfg.get("with_projections", False)),
                     force_refresh=True,
+                    api_key=resolve_mp_api_key(),
                 )
             entry = self._parent._current_entry()
             direction = entry.meta.direction if entry is not None else ""
