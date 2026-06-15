@@ -34,20 +34,38 @@ class TestSampleSetupDialog:
 
     def test_result_configs_only_nonzero(self):
         dlg = _dlg()
-        name, sp_phi, sp_a = dlg._row_spins[0]
+        name, sp_phi, sp_a, sp_b = dlg._row_spins[0]
         sp_phi.setValue(4.3)
         out = dlg.result_configs()
         assert out == {name: {"work_function_eV": 4.3}}
 
     def test_same_for_all(self):
         dlg = _dlg()
-        _, sp_phi, sp_a = dlg._row_spins[0]
+        _, sp_phi, sp_a, sp_b = dlg._row_spins[0]
         sp_phi.setValue(4.4)
         sp_a.setValue(4.14)
+        sp_b.setValue(4.20)
         dlg._apply_same_for_all()
         out = dlg.result_configs()
         assert out["BNO"]["a_angstrom"] == pytest.approx(4.14)
+        assert out["BNO"]["b_angstrom"] == pytest.approx(4.20)
         assert out["Au_ref"]["work_function_eV"] == pytest.approx(4.4)
+        assert out["Au_ref"]["b_angstrom"] == pytest.approx(4.20)
+
+    def test_result_configs_includes_b(self):
+        dlg = _dlg()
+        name, sp_phi, sp_a, sp_b = dlg._row_spins[0]
+        sp_a.setValue(3.96)
+        sp_b.setValue(4.10)
+        out = dlg.result_configs()
+        assert out[name] == {"a_angstrom": pytest.approx(3.96),
+                             "b_angstrom": pytest.approx(4.10)}
+
+    def test_prefill_b_from_existing(self):
+        dlg = _dlg(existing={"BNO": {"a_angstrom": 3.96, "b_angstrom": 4.10}})
+        _name, _phi, sp_a, sp_b = dlg._row_spins[0]
+        assert sp_a.value() == pytest.approx(3.96)
+        assert sp_b.value() == pytest.approx(4.10)
 
     def test_single_mode_returns_root_key(self):
         dlg = _dlg(subfolders=[], detected_mode="single", n_root_files=2)
@@ -60,20 +78,20 @@ class TestSampleSetupDialog:
 
     def test_prefill_from_existing_config(self):
         dlg = _dlg(existing={"BNO": {"work_function_eV": 4.3, "a_angstrom": 4.14}})
-        name, sp_phi, sp_a = dlg._row_spins[0]
+        name, sp_phi, sp_a, sp_b = dlg._row_spins[0]
         assert name == "BNO"
         assert sp_phi.value() == pytest.approx(4.3)
         assert "saved sample setup" in sp_phi.toolTip()
 
     def test_prefill_from_session_default(self):
         dlg = _dlg(session_default={"work_function_eV": 4.5})
-        _, sp_phi, _ = dlg._row_spins[0]
+        _, sp_phi, _, _ = dlg._row_spins[0]
         assert sp_phi.value() == pytest.approx(4.5)
         assert "session/logbook" in sp_phi.toolTip()
 
     def test_unusual_phi_highlighted(self):
         dlg = _dlg()
-        _, sp_phi, _ = dlg._row_spins[0]
+        _, sp_phi, _, _ = dlg._row_spins[0]
         sp_phi.setValue(12.0)
         assert "background" in sp_phi.styleSheet()
         sp_phi.setValue(4.4)
@@ -81,7 +99,7 @@ class TestSampleSetupDialog:
 
     def test_mode_switch_carries_values(self):
         dlg = _dlg()
-        _, sp_phi, _ = dlg._row_spins[0]
+        _, sp_phi, _, _ = dlg._row_spins[0]
         sp_phi.setValue(4.2)
         dlg.rb_single.setChecked(True)
         assert dlg.sp_phi_single.value() == pytest.approx(4.2)

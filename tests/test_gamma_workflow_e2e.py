@@ -386,6 +386,71 @@ class TestForgetGamma(unittest.TestCase):
         # Meta flags cleared.
         self.assertFalse(parent._raw_data["metadata"].get("bm_gamma_axis_centered"))
 
+    def test_forget_loader_baked_reloads_or_aborts(self):
+        """Loader-baked Γ cannot be undone by axis arithmetic; forget() must
+        clear the session refs and reload to rebuild a clean raw axis. Without a
+        path it must abort with a visible message (not lie about clearing)."""
+        reload_calls = []
+
+        class FakeSpin:
+            def setValue(self, v):
+                pass
+
+            def blockSignals(self, b):
+                return False
+
+        class FakeControls:
+            def set_center(self, kx, ky):
+                pass
+
+        class Parent:
+            def __init__(self, path):
+                self._raw_data = {
+                    "path": path,
+                    "hv": 60.0,
+                    "kpar": np.array([-1.0, 0.0, 1.0]),
+                    "metadata": {
+                        "scan_kind": "BM",
+                        "angle_offsets_applied": {"theta0_deg": 0.5},
+                    },
+                }
+                self._current_path = path
+                self._session = Session(Path("/tmp"))
+                self._session.gamma_reference = {"kx": 0.2, "ky": 0.0, "path": path}
+                self._session.angle_offsets = {"theta0_deg": 0.5}
+                self._fs_controls = FakeControls()
+                self._params = SimpleNamespace(sp_cx=FakeSpin())
+                self._status_msgs = []
+
+            def _current_entry(self):
+                if not self._current_path:
+                    return None
+                return self._session.get_or_create(
+                    self._session.key_for_path(self._current_path))
+
+            def _status(self, text):
+                self._status_msgs.append(text)
+
+            def _draw_current_view(self):
+                pass
+
+            def _reload_current_no_cache(self):
+                reload_calls.append(self._current_path)
+
+        # With a path: reload triggered, session refs cleared.
+        parent = Parent("/tmp/bm04")
+        GammaController(parent)._forget_gamma()
+        self.assertEqual(reload_calls, ["/tmp/bm04"])
+        self.assertEqual(parent._session.gamma_reference, {})
+        self.assertEqual(parent._session.angle_offsets, {})
+
+        # Without a path: no reload, explicit "cannot reload" status (no silent lie).
+        reload_calls.clear()
+        parent2 = Parent(None)
+        GammaController(parent2)._forget_gamma()
+        self.assertEqual(reload_calls, [])
+        self.assertTrue(any("cannot reload" in m.lower() for m in parent2._status_msgs))
+
 
 if __name__ == "__main__":
     unittest.main()

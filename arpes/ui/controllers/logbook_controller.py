@@ -157,6 +157,7 @@ class LogbookIngestController:
                 if isinstance(r, dict):
                     rc = dict(r)
                     rc["_subfolder_rel"] = rel
+                    rc["_sheet_name"] = sheet_name
                     added.append(rc)
             self._session.scoped_logbooks[rel] = {
                 "path": path, "sheet": sheet_name, "n": len(records),
@@ -256,6 +257,7 @@ class LogbookIngestController:
                 if isinstance(r, dict):
                     rc = dict(r)
                     rc["_subfolder_rel"] = rel
+                    rc["_sheet_name"] = sheet
                     self._session.logbook_records.append(rc)
             self._session.scoped_logbooks[rel] = {
                 "path": path, "sheet": sheet, "n": len(records),
@@ -598,6 +600,7 @@ class LogbookIngestController:
                     if isinstance(r, dict):
                         rc = dict(r)
                         rc["_subfolder_rel"] = rel
+                        rc["_sheet_name"] = sheet_name
                         added.append(rc)
                 self._session.scoped_logbooks[rel] = {
                     "path": str(path), "sheet": sheet_name, "n": len(records),
@@ -612,124 +615,19 @@ class LogbookIngestController:
         self._browser.refresh()
         return len(records)
 
+    # Interactive Excel choosers live in `logbook_excel_choose.py` (split to keep
+    # this file under the 700-LOC cap). Thin wrappers preserve callers/tests.
     def _choose_excel_sheet(self, sheet_names: list[str]) -> str:
-        if not sheet_names:
-            return ""
-        if len(sheet_names) == 1:
-            return sheet_names[0]
-        dlg = QDialog(self._parent)
-        dlg.setWindowTitle("Logbook sheet")
-        lay = QVBoxLayout(dlg)
-        label = QLabel("Choose the sheet that matches the compound / dataset.")
-        label.setWordWrap(True)
-        lay.addWidget(label)
-        cmb = QComboBox()
-        cmb.addItems(sheet_names)
-        preferred = ""
-        if self._session.folder is not None:
-            preferred = self._session.folder.name
-        preferred_norm = _norm_text(preferred)
-        if self._session.logbook_sheet in sheet_names:
-            cmb.setCurrentText(self._session.logbook_sheet)
-        elif preferred in sheet_names:
-            cmb.setCurrentText(preferred)
-        else:
-            for sheet in sheet_names:
-                sheet_norm = _norm_text(sheet)
-                if sheet_norm and sheet_norm in preferred_norm:
-                    cmb.setCurrentText(sheet)
-                    break
-        lay.addWidget(cmb)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return ""
-        return cmb.currentText()
+        from arpes.ui.controllers.logbook_excel_choose import choose_excel_sheet
+        return choose_excel_sheet(self, sheet_names)
 
     def _choose_excel_table(self, raw, candidates: list[int]):
-        from arpes.io.logbook_io import excel_table_from_header, _looks_like_title
-        if not candidates:
-            return None
-
-        def score_row(row_idx: int) -> float:
-            try:
-                df, m = excel_table_from_header(raw, row_idx)
-            except Exception:
-                return -10.0
-            s = int(bool(m.get("file"))) * 3 + int(bool(m.get("hv"))) * 3
-            s += int(bool(m.get("temperature"))) + int(bool(m.get("polarization")))
-            s += int(bool(m.get("direction"))) + int(bool(m.get("azi")))
-            s += int(bool(m.get("polar"))) + int(bool(m.get("tilt")))
-            if _looks_like_title(m.get("file", "")):
-                s -= 5
-            if _looks_like_title(m.get("hv", "")):
-                s -= 5
-            s += min(len(df), 30) / 1000
-            return s
-
-        scored = sorted(candidates, key=score_row, reverse=True)
-        dlg = QDialog(self._parent)
-        dlg.setWindowTitle("Logbook header row")
-        lay = QVBoxLayout(dlg)
-        label = QLabel(
-            "Choose the row that contains the real column names "
-            "(sorted by relevance - the best guess is at the top)."
-        )
-        label.setWordWrap(True)
-        lay.addWidget(label)
-        cmb = QComboBox()
-        for row_idx in scored:
-            values = [_cell_text(v) for v in raw.iloc[row_idx].tolist()]
-            preview = " | ".join(v for v in values if v)
-            score = score_row(row_idx)
-            tag = "✓" if score >= 6 else ("?" if score >= 3 else "✗")
-            cmb.addItem(f"{tag} Row {row_idx + 1}: {preview[:140]}", row_idx)
-        lay.addWidget(cmb)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return None
-        return excel_table_from_header(raw, int(cmb.currentData()))
+        from arpes.ui.controllers.logbook_excel_choose import choose_excel_table
+        return choose_excel_table(self, raw, candidates)
 
     def _choose_logbook_mapping(self, columns: list[str], mapping: dict[str, str]) -> dict[str, str]:
-        dlg = QDialog(self._parent)
-        dlg.setWindowTitle("Logbook columns")
-        lay = QFormLayout(dlg)
-        combos: dict[str, QComboBox] = {}
-        labels = {
-            "file": "File / scan:",
-            "hv": "hν:",
-            "temperature": "Temperature:",
-            "polarization": "Polarization:",
-            "direction": "Direction / chemin:",
-            "azi": "Azimut:",
-            "polar": "Polar / theta manip:",
-            "tilt": "Tilt / phi manip:",
-            "crystal_a_angstrom": "a lattice (Å):",
-            "crystal_b_angstrom": "b lattice (Å):",
-            "crystal_c_angstrom": "c lattice (Å):",
-            "work_function_eV": "φ work function (eV):",
-        }
-        choices = [""] + columns
-        for key, label in labels.items():
-            cmb = QComboBox()
-            cmb.addItems(choices)
-            current = mapping.get(key, "")
-            if current in choices:
-                cmb.setCurrentText(current)
-            lay.addRow(label, cmb)
-            combos[key] = cmb
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        lay.addRow(buttons)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return mapping
-        return {key: cmb.currentText() for key, cmb in combos.items()}
+        from arpes.ui.controllers.logbook_excel_choose import choose_logbook_mapping
+        return choose_logbook_mapping(self, columns, mapping)
 
     # ---------------------------------------------------------------- session
     def _manager(self) -> LogbookManager:
@@ -757,4 +655,20 @@ class LogbookIngestController:
             self._params.set_hv_value_with_source(values.hv, "logbook")
         if values.has_any():
             self._session.save()
-        return values.has_any()
+            # Provenance: surface which scoped sheet/subfolder fed the values.
+            if values.matched_subfolder:
+                self._status(
+                    f"Logbook: {Path(path).name} ← sheet "
+                    f"'{values.matched_sheet or '?'}' [{values.matched_subfolder}]"
+                )
+            return True
+        # No record matched. Stay SILENT for the global/no-logbook case (a file
+        # may legitimately sit outside the plan). Surface ONLY when the session
+        # has scoped records covering this file's subfolder yet none matched —
+        # a real gap the user must see (no silent fallback to another sheet).
+        if manager.has_scoped_records_for_path(path):
+            self._status(
+                f"Logbook: no record for {Path(path).name} in its scoped sheet "
+                "— values left uncalibrated (check the sheet's File column)."
+            )
+        return False

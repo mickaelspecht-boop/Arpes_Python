@@ -184,5 +184,58 @@ class TestMpIdLogbook(unittest.TestCase):
         self.assertEqual(values.sources["mp_id"], "logbook")
 
 
+class TestScopedProvenance(unittest.TestCase):
+    """Layer 2: scoped-record provenance + visible-vs-silent distinction."""
+
+    _MAP = {"file": "file", "hv": "hv"}
+
+    def test_has_scoped_records_for_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "BNA_S1").mkdir()
+            (root / "BNA_S2").mkdir()
+            p1 = root / "BNA_S1" / "BaNi2As2_0001fixed cut.ibw"
+            p2 = root / "BNA_S2" / "BaNi2As2_0002fixed cut.ibw"
+            p1.write_text("x"); p2.write_text("x")
+            recs = [{"file": "BaNi2As2_0001.ibw", "hv": "48",
+                     "_subfolder_rel": "BNA_S1", "_sheet_name": "YNiSn2_S1"}]
+            mgr = LogbookManager(recs, self._MAP, root,
+                                 scoped_mappings={"BNA_S1": self._MAP})
+            # scoped subfolder covered -> True (gap would be visible)
+            self.assertTrue(mgr.has_scoped_records_for_path(p1))
+            # no scoped record for BNA_S2 -> False (stay silent)
+            self.assertFalse(mgr.has_scoped_records_for_path(p2))
+            # global-only records -> never "scoped"
+            mgr_global = LogbookManager(
+                [{"file": "BaNi2As2_0001.ibw", "hv": "48"}], self._MAP, root)
+            self.assertFalse(mgr_global.has_scoped_records_for_path(p1))
+
+    def test_provenance_filled_from_scoped_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "BNA_S1").mkdir()
+            p1 = root / "BNA_S1" / "BaNi2As2_0001fixed cut.ibw"
+            p1.write_text("x")
+            recs = [{"file": "BaNi2As2_0001.ibw", "hv": "48",
+                     "_subfolder_rel": "BNA_S1", "_sheet_name": "YNiSn2_S1"}]
+            values = LogbookManager(recs, self._MAP, root,
+                                    scoped_mappings={"BNA_S1": self._MAP}
+                                    ).values_for_path(p1)
+            self.assertEqual(values.hv, 48.0)
+            self.assertEqual(values.matched_subfolder, "BNA_S1")
+            self.assertEqual(values.matched_sheet, "YNiSn2_S1")
+
+    def test_global_record_has_no_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            p = root / "BaNi2As2_0001fixed cut.ibw"
+            p.write_text("x")
+            values = LogbookManager(
+                [{"file": "BaNi2As2_0001.ibw", "hv": "48"}], self._MAP, root
+            ).values_for_path(p)
+            self.assertEqual(values.matched_subfolder, "")
+            self.assertEqual(values.matched_sheet, "")
+
+
 if __name__ == "__main__":
     unittest.main()

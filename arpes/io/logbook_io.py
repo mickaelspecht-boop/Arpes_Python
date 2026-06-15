@@ -209,12 +209,20 @@ def match_folder_to_subfolder(
         base = parts[-1] if parts else rel
         if _norm_text(base) == target_norm:
             return rel
-    # 5. substring (normalized) - cautious match: >=3 chars, avoids false positives
+    # 5. substring (normalized) - cautious match: >=3 chars, avoids false positives.
+    #    Ambiguity-safe: if the declared name substring-matches >=2 DISTINCT
+    #    subfolders (e.g. truncated "YNS" hitting both "YNS_S1" and "YNS_S6"),
+    #    refuse (return "") instead of first-winner — silently scoping another
+    #    sample's params onto this folder would corrupt Γ/φ/a downstream.
     if len(target_norm) >= 3:
-        for rel in candidate_subfolders:
-            rel_norm = _norm_text(rel)
-            if target_norm in rel_norm or rel_norm in target_norm:
-                return rel
+        hits = [
+            rel for rel in candidate_subfolders
+            if _norm_text(rel)
+            and (target_norm in _norm_text(rel) or _norm_text(rel) in target_norm)
+        ]
+        if len(hits) == 1:
+            return hits[0]
+        # 0 matches, or >=2 (ambiguous) -> no scoping (fail-loud at caller).
     return ""
 
 

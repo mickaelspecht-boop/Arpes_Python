@@ -119,6 +119,23 @@ def resolve(
     raw_path = raw_data.get("path")
     current_shift = _current_axis_shift(meta)
 
+    # Guard: a non-finite azimuth (empty/NaN logbook cell read by pandas)
+    # silently produced NaN in the azi projection -> resolver returned _NONE
+    # with no trace. Surface it and drop azi so downstream takes the explicit
+    # "unknown azi" path instead of a silent wrong/absent Γ.
+    if entry_azi is not None:
+        try:
+            azi_finite = np.isfinite(float(entry_azi))
+        except (TypeError, ValueError):
+            azi_finite = False
+        if not azi_finite:
+            if warn_collector is not None:
+                warn_collector.append(
+                    "Γ: azimuth is not finite (NaN/missing in logbook) — "
+                    "azi projection skipped, Γ left uncalibrated"
+                )
+            entry_azi = None
+
     # Cas 1 : loader-baked
     if meta.get("angle_offsets_applied"):
         return ResolvedGamma(
@@ -154,6 +171,11 @@ def resolve(
             )
             warn = ""
         if not np.isfinite(kx_target) or not np.isfinite(ky_target):
+            if warn_collector is not None:
+                warn_collector.append(
+                    "Γ FS: azimuth projection produced a non-finite center "
+                    "(check azimuth / Γ reference) — Γ left uncalibrated"
+                )
             return _NONE
         target_shift = float(kx_target)
         delta = target_shift - current_shift
@@ -176,6 +198,18 @@ def resolve(
         )
 
     # Cas BM
+    # Generic input check (no hard-coded φ/hv ranges — those regress on
+    # Solaris φ≈4.03, kz scans hv>100, soft-X-ray, etc.; gate only positivity).
+    if warn_collector is not None:
+        try:
+            wf_bad = work_func is None or not np.isfinite(float(work_func)) or float(work_func) <= 0.0
+        except (TypeError, ValueError):
+            wf_bad = True
+        if wf_bad:
+            warn_collector.append(
+                "Γ BM: work function φ not set (φ≤0) — polar correction may be "
+                "wrong; set φ via Samples… (Γ applied but uncalibrated)"
+            )
     gamma_bm, correction = gamma_reference_to_bm_center(
         ref,
         bm_metadata=meta,
@@ -185,6 +219,11 @@ def resolve(
         on_warn=(warn_collector.append if warn_collector is not None else None),
     )
     if not np.isfinite(gamma_bm):
+        if warn_collector is not None:
+            warn_collector.append(
+                "Γ BM: stored-Γ → BM projection produced a non-finite center "
+                "(check hv / φ / azimuth) — Γ left uncalibrated"
+            )
         return _NONE
     target_shift = float(gamma_bm)
     delta = target_shift - current_shift

@@ -74,10 +74,17 @@ def forget(ctrl, gamma_meta_keys: tuple) -> None:
     was_centered = bool(
         meta.get("bm_gamma_axis_centered") or meta.get("fs_gamma_axis_centered")
     )
+    # Loader-baked Γ (offset applied inside the loader at read time) cannot be
+    # undone by axis arithmetic here: it needs a reload (handled at the end).
+    loader_baked = bool(meta.get("angle_offsets_applied"))
 
     if ctrl._raw_data is not None and was_centered and abs(previous_shift) > 1e-12:
-        kpar = np.asarray(ctrl._raw_data.get("kpar"), dtype=float)
-        if kpar.size:
+        raw_kpar = ctrl._raw_data.get("kpar")
+        # Guard: np.asarray(None) yields a 0-d NaN array whose .size is 1, so the
+        # old `if kpar.size` corrupted kpar into a NaN scalar for FS-only / kpar-less
+        # raws. Only shift a real 1-D axis.
+        kpar = np.asarray(raw_kpar, dtype=float) if raw_kpar is not None else None
+        if kpar is not None and kpar.ndim >= 1 and kpar.size:
             ctrl._raw_data["kpar"] = kpar + previous_shift
         if meta.get("fs_data") is not None:
             fs_kx = meta.get("fs_kx")
@@ -131,6 +138,34 @@ def forget(ctrl, gamma_meta_keys: tuple) -> None:
         ctrl._session.save()
     except Exception as exc:
         ctrl._status(f"Warning: save after Γ reset failed: {exc}")
+
+    # Loader-baked Γ: the angular offset was applied inside the loader at read
+    # time, so the in-memory kpar is still shifted and `angle_offsets_applied`
+    # is still set — the axis-arithmetic path above cannot undo it and
+    # `_is_axis_locked` would stay True (permanent lock; "Forget Γ" was a no-op).
+    # The session refs are now cleared, so `angle_offsets_for_load` returns no
+    # offsets; reloading rebuilds a clean raw axis. (Bake source = stored Γ ref /
+    # session.angle_offsets, both cleared above — reload does NOT re-bake.)
+    if loader_baked:
+        path = (ctrl._raw_data or {}).get("path") if ctrl._raw_data else None
+        if not path:
+            ctrl._status(
+                "Γ reset: session refs cleared, but cannot reload to restore the "
+                "raw axis (no file path). Re-open the file to clear the loader offset."
+            )
+            update_badge(ctrl)
+            return
+        ctrl._status("Γ reset: reloading file to clear the loader angular offset…")
+        try:
+            ctrl._reload_current_no_cache()
+        except Exception as exc:
+            ctrl._status(
+                f"Γ reset: reload failed — loader offset NOT cleared: {exc}. "
+                "Re-open the file manually."
+            )
+            return
+        update_badge(ctrl)
+        return
 
     ctrl._status("Γ reset: session references, axes, and flags cleared.")
     update_badge(ctrl)

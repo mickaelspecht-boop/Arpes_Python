@@ -144,5 +144,79 @@ class TestIdempotence(unittest.TestCase):
         self.assertAlmostEqual(r2.axis_shift_target, r1.axis_shift_target)
 
 
+class TestNonFiniteAzi(unittest.TestCase):
+    """A non-finite azi (empty/NaN logbook cell) must fail loud, not silently."""
+
+    def test_nan_azi_warns_and_does_not_silently_drop_gamma(self):
+        raw = _raw_fs()  # path /tmp/fs1
+        ref = {
+            "kx": 0.2, "ky": 0.13, "path": "/other/fs0", "source": "fs_auto",
+            "azi": 10.0,
+        }
+        warns: list[str] = []
+        # Before the guard: entry_azi=NaN -> project_gamma_by_azi yields (NaN,NaN)
+        # -> resolve returns _NONE with no warning (silent skip).
+        r = resolve(raw, ref, work_func=4.5, entry_azi=float("nan"),
+                    warn_collector=warns)
+        self.assertTrue(any("not finite" in w for w in warns),
+                        msg="non-finite azi must push a visible warning")
+        self.assertNotEqual(r.mode, "none",
+                            msg="NaN azi must fall back to unprojected ref, not silent _NONE")
+        self.assertTrue(np.isfinite(r.axis_shift_target))
+
+    def test_finite_azi_unaffected(self):
+        raw = _raw_fs()
+        ref = {"kx": 0.2, "ky": 0.0, "path": "/other/fs0", "source": "fs_auto",
+               "azi": 0.0}
+        warns: list[str] = []
+        r = resolve(raw, ref, work_func=4.5, entry_azi=0.0, warn_collector=warns)
+        self.assertFalse(any("not finite" in w for w in warns))
+        self.assertEqual(r.mode, "axis_shifted")
+
+
+class TestUncalibratedReasons(unittest.TestCase):
+    """Generic robustness: bad Γ inputs must surface a reason, never silent.
+    Valid inputs (BaNi2As2/Ba122-like) must NOT raise spurious warnings."""
+
+    def test_fs_nonfinite_projection_warns_then_none(self):
+        raw = _raw_fs()
+        ref = {"kx": float("nan"), "ky": 0.0, "path": "/other/fs0",
+               "source": "fs_auto", "azi": 0.0}
+        warns: list[str] = []
+        r = resolve(raw, ref, work_func=4.5, entry_azi=0.0, warn_collector=warns)
+        self.assertEqual(r.mode, "none")
+        self.assertTrue(any("uncalibrated" in w.lower() for w in warns),
+                        msg="non-finite FS projection must carry a reason, not silent _NONE")
+
+    def test_bm_zero_work_function_warns_but_applies(self):
+        raw = _raw_bm()
+        ref = {"kx": 0.12, "ky": 0.0, "path": "/tmp/bm04", "source": "bm",
+               "polar": 0.0, "polar_already_applied_to_kx": True, "azi": 0.0}
+        warns: list[str] = []
+        r = resolve(raw, ref, work_func=0.0, entry_azi=0.0, warn_collector=warns)
+        self.assertTrue(any("work function" in w.lower() for w in warns),
+                        msg="φ≤0 must warn (EC-1: silent wrong scale otherwise)")
+        # polar=0 → correction independent of φ → Γ still applies (no over-refusal).
+        self.assertEqual(r.mode, "axis_shifted")
+
+    def test_valid_bm_inputs_no_warning(self):
+        """No false positive on valid data (Solaris φ=4.03, normal hv)."""
+        raw = _raw_bm()
+        ref = {"kx": 0.12, "ky": 0.0, "path": "/tmp/bm04", "source": "bm",
+               "polar": 0.0, "polar_already_applied_to_kx": True, "azi": 0.0}
+        warns: list[str] = []
+        r = resolve(raw, ref, work_func=4.03, entry_azi=0.0, warn_collector=warns)
+        self.assertEqual(warns, [], msg="valid inputs must not raise spurious warnings")
+        self.assertEqual(r.mode, "axis_shifted")
+
+    def test_display_path_never_spams(self):
+        """warn_collector=None (display/redraw) must never raise (no spam)."""
+        raw = _raw_bm()
+        ref = {"kx": 0.12, "ky": 0.0, "path": "/tmp/bm04", "source": "bm",
+               "polar": 0.0, "polar_already_applied_to_kx": True, "azi": 0.0}
+        r = resolve(raw, ref, work_func=0.0, entry_azi=float("nan"))  # no warn_collector
+        self.assertIn(r.mode, ("axis_shifted", "none"))
+
+
 if __name__ == "__main__":
     unittest.main()

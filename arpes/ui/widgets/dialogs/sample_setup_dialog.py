@@ -106,8 +106,9 @@ class SampleSetupDialog(QDialog):
                     "look like scan datasets, so the whole folder is treated "
                     "as one sample.")
         intro = QLabel(
-            head + "\nFill the work function φ and lattice parameter a for "
-            "each sample.\nLeave a field on “—” (unknown): the app will ask "
+            head + "\nFill the work function φ and in-plane lattice parameters "
+            "a and b for each sample (leave b blank for tetragonal, b = a)."
+            "\nLeave a field on “—” (unknown): the app will ask "
             "when the value is actually needed."
         )
         intro.setWordWrap(True)
@@ -156,12 +157,14 @@ class SampleSetupDialog(QDialog):
         self._autodetect_global_logbook()
 
         # --- multi mode: one row per subfolder -----------------------------
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Sample", "φ (eV)", "a (Å)", "Files", "Logbook"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["Sample", "φ (eV)", "a (Å)", "b (Å)", "Files", "Logbook"])
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(160)
         self.table.setMaximumHeight(420)  # 40 samples: scroll, don't overflow screen
-        self._row_spins: list[tuple[str, QDoubleSpinBox, QDoubleSpinBox]] = []
+        self._row_spins: list[
+            tuple[str, QDoubleSpinBox, QDoubleSpinBox, QDoubleSpinBox]] = []
         rows = self._subfolders or []
         self.table.setRowCount(len(rows))
         for i, (name, n_files) in enumerate(rows):
@@ -170,25 +173,28 @@ class SampleSetupDialog(QDialog):
             self.table.setItem(i, 0, item)
             sp_phi = _spin(*_PHI_RANGE, 2)
             sp_a = _spin(*_A_RANGE, 4)
-            self._prefill(name, sp_phi, sp_a)
+            sp_b = _spin(*_A_RANGE, 4)
+            sp_b.setToolTip("In-plane lattice b (Å). Leave blank for tetragonal (b = a).")
+            self._prefill(name, sp_phi, sp_a, sp_b)
             sp_phi.valueChanged.connect(lambda _v, sp=sp_phi: self._tint_phi(sp))
             self._tint_phi(sp_phi)
             self.table.setCellWidget(i, 1, sp_phi)
             self.table.setCellWidget(i, 2, sp_a)
+            self.table.setCellWidget(i, 3, sp_b)
             cnt = QTableWidgetItem(str(n_files))
             cnt.setFlags(cnt.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(i, 3, cnt)
-            self._row_spins.append((name, sp_phi, sp_a))
+            self.table.setItem(i, 4, cnt)
+            self._row_spins.append((name, sp_phi, sp_a, sp_b))
             cmb = QComboBox()
             cmb.activated.connect(lambda _i, rel=name, c=None: self._on_logbook_combo(rel))
-            self.table.setCellWidget(i, 4, cmb)
+            self.table.setCellWidget(i, 5, cmb)
             self._row_logbooks.append((name, cmb))
         self._refresh_logbook_combos()
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setStretchLastSection(True)
         lay.addWidget(self.table)
 
-        self.btn_same = QPushButton("Same φ/a for all")
+        self.btn_same = QPushButton("Same φ/a/b for all")
         self.btn_same.setToolTip("Copy the first row's values to every sample.")
         self.btn_same.clicked.connect(self._apply_same_for_all)
         lay.addWidget(self.btn_same, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -203,8 +209,13 @@ class SampleSetupDialog(QDialog):
         srow.addWidget(QLabel("a (Å):"))
         self.sp_a_single = _spin(*_A_RANGE, 4)
         srow.addWidget(self.sp_a_single)
+        srow.addWidget(QLabel("b (Å):"))
+        self.sp_b_single = _spin(*_A_RANGE, 4)
+        self.sp_b_single.setToolTip(
+            "In-plane lattice b (Å). Leave blank for tetragonal (b = a).")
+        srow.addWidget(self.sp_b_single)
         srow.addStretch(1)
-        self._prefill("", self.sp_phi_single, self.sp_a_single)
+        self._prefill("", self.sp_phi_single, self.sp_a_single, self.sp_b_single)
         self.sp_phi_single.valueChanged.connect(
             lambda _v: self._tint_phi(self.sp_phi_single))
         self._tint_phi(self.sp_phi_single)
@@ -235,19 +246,24 @@ class SampleSetupDialog(QDialog):
         self._update_mode()
 
     # ------------------------------------------------------------------ utils
-    def _prefill(self, key: str, sp_phi: QDoubleSpinBox, sp_a: QDoubleSpinBox) -> None:
+    def _prefill(self, key: str, sp_phi: QDoubleSpinBox, sp_a: QDoubleSpinBox,
+                 sp_b: QDoubleSpinBox | None = None) -> None:
         """Pre-fill from existing per-folder config, else the session sample."""
         cfg = self._existing.get(key) or {}
         src = "saved sample setup" if cfg else "session/logbook default"
         base = cfg or self._default
         phi = float(base.get("work_function_eV", 0.0) or 0.0)
         a = float(base.get("a_angstrom", 0.0) or 0.0)
+        b = float(base.get("b_angstrom", 0.0) or 0.0)
         if phi > 0:
             sp_phi.setValue(phi)
             sp_phi.setToolTip(f"Pre-filled from {src}")
         if a > 0:
             sp_a.setValue(a)
             sp_a.setToolTip(f"Pre-filled from {src}")
+        if b > 0 and sp_b is not None:
+            sp_b.setValue(b)
+            sp_b.setToolTip(f"Pre-filled from {src}")
 
     @staticmethod
     def _tint_phi(sp: QDoubleSpinBox) -> None:
@@ -266,25 +282,30 @@ class SampleSetupDialog(QDialog):
             self._refresh_single_sheet_combo()
         # Carry values across modes so nothing typed is lost.
         if single and self._row_spins:
-            name, sp_phi, sp_a = self._row_spins[0]
+            name, sp_phi, sp_a, sp_b = self._row_spins[0]
             if self.sp_phi_single.value() == 0 and sp_phi.value() > 0:
                 self.sp_phi_single.setValue(sp_phi.value())
             if self.sp_a_single.value() == 0 and sp_a.value() > 0:
                 self.sp_a_single.setValue(sp_a.value())
+            if self.sp_b_single.value() == 0 and sp_b.value() > 0:
+                self.sp_b_single.setValue(sp_b.value())
         elif not single and self._row_spins:
-            for _name, sp_phi, sp_a in self._row_spins:
+            for _name, sp_phi, sp_a, sp_b in self._row_spins:
                 if sp_phi.value() == 0 and self.sp_phi_single.value() > 0:
                     sp_phi.setValue(self.sp_phi_single.value())
                 if sp_a.value() == 0 and self.sp_a_single.value() > 0:
                     sp_a.setValue(self.sp_a_single.value())
+                if sp_b.value() == 0 and self.sp_b_single.value() > 0:
+                    sp_b.setValue(self.sp_b_single.value())
 
     def _apply_same_for_all(self) -> None:
         if not self._row_spins:
             return
-        _n, first_phi, first_a = self._row_spins[0]
-        for _name, sp_phi, sp_a in self._row_spins[1:]:
+        _n, first_phi, first_a, first_b = self._row_spins[0]
+        for _name, sp_phi, sp_a, sp_b in self._row_spins[1:]:
             sp_phi.setValue(first_phi.value())
             sp_a.setValue(first_a.value())
+            sp_b.setValue(first_b.value())
 
     # ------------------------------------------------------------- logbook
     def _autodetect_global_logbook(self) -> None:
@@ -436,20 +457,23 @@ class SampleSetupDialog(QDialog):
 
         Single mode returns {"": {...}} (whole folder = session-wide sample).
         """
-        def cfg(phi: float, a: float) -> dict:
+        def cfg(phi: float, a: float, b: float) -> dict:
             out: dict = {}
             if phi > 0:
                 out["work_function_eV"] = float(phi)
             if a > 0:
                 out["a_angstrom"] = float(a)
+            if b > 0:
+                out["b_angstrom"] = float(b)
             return out
 
         if self.rb_single.isChecked():
-            c = cfg(self.sp_phi_single.value(), self.sp_a_single.value())
+            c = cfg(self.sp_phi_single.value(), self.sp_a_single.value(),
+                    self.sp_b_single.value())
             return {"": c} if c else {}
         out: dict[str, dict] = {}
-        for name, sp_phi, sp_a in self._row_spins:
-            c = cfg(sp_phi.value(), sp_a.value())
+        for name, sp_phi, sp_a, sp_b in self._row_spins:
+            c = cfg(sp_phi.value(), sp_a.value(), sp_b.value())
             if c:
                 out[name] = c
         return out

@@ -252,7 +252,7 @@ class GammaController:
         self._store_fs_center_reference(kx, ky, source="fs_manual")
         # P2.bis: single-setter, rebuild the decision from the new ref and
         # apply it (axis shift + sp_cx + center_init + save) in one pass.
-        self.apply_resolved_gamma(self._resolve_gamma_for_current(), save_entry=True)
+        self.apply_resolved_gamma(self._resolve_with_warnings(), save_entry=True)
         self._set_fs_center_pick_mode(False)
         self._draw_fs_tab()
         msg = f"Manual Gamma FS: kx={kx:+.4f}, ky={ky:+.4f} π/a"
@@ -278,7 +278,7 @@ class GammaController:
             self._fs_controls.set_center(res["kx"], res["ky"])
             self._store_fs_center_reference(res["kx"], res["ky"], source="fs_auto")
             # P2.bis: single-setter (see _on_fs_map_click).
-            self.apply_resolved_gamma(self._resolve_gamma_for_current(), save_entry=True)
+            self.apply_resolved_gamma(self._resolve_with_warnings(), save_entry=True)
             self._draw_fs_tab()
             score = res.get("symmetry_score")
             score_txt = ""
@@ -418,8 +418,14 @@ class GammaController:
     # ---------------------------------------------------------------
     # P2 — chemin resolver/single-setter
     # ---------------------------------------------------------------
-    def _resolve_gamma_for_current(self) -> ResolvedGamma:
-        """Pure : appelle le resolver Γ avec les attributs courants."""
+    def _resolve_gamma_for_current(self, *, warn_collector: list | None = None) -> ResolvedGamma:
+        """Pure : appelle le resolver Γ avec les attributs courants.
+
+        ``warn_collector`` reçoit les raisons "uncalibrated" du resolver. Le laisser
+        à None pour les appels d'affichage/redraw (sinon spam à chaque dessin sur
+        session UNCALIBRATED P2.6) ; passer une liste pour les actions Γ explicites
+        (cf `_resolve_with_warnings`).
+        """
         entry = self._current_entry()
         azi = entry.meta.azi if (entry and entry.meta.azi is not None) else None
         work_func = self._work_func()
@@ -429,7 +435,20 @@ class GammaController:
             work_func=work_func,
             bm_hv=self._raw_data.get("hv") if self._raw_data else None,
             entry_azi=azi,
+            warn_collector=warn_collector,
         )
+
+    def _resolve_with_warnings(self) -> ResolvedGamma:
+        """Resolve + surface les raisons uncalibrated dans la barre de statut.
+
+        À utiliser par les actions Γ explicites (auto BM/FS, click manuel, FS→BM)
+        — pas par l'affichage. Rend visible « pourquoi Γ n'a pas / mal été posé »
+        au lieu d'un Γ faux ou absent silencieux."""
+        warns: list[str] = []
+        resolved = self._resolve_gamma_for_current(warn_collector=warns)
+        for w in warns:
+            self._status(w)
+        return resolved
 
     def apply_resolved_gamma(self, resolved: ResolvedGamma, *, save_entry: bool = False) -> None:
         """Single-setter Γ : seul point qui mute `sp_cx`, `entry.fit_params.center_init`,
@@ -509,7 +528,38 @@ class GammaController:
         # 6. Feedback
         if resolved.reason:
             self._status(resolved.reason)
+        # Visible trace when a re-applied Γ remapped an existing fit (redteam
+        # case 1: kF was silently shifted to follow the new axis center).
+        if axis_was_shifted and abs(resolved.axis_shift_delta) > 1e-12:
+            entry_fr = getattr(entry, "fit_result", None) if entry is not None else None
+            if entry_fr:
+                self._status(
+                    f"Γ applied: fit kF remapped by Δ={resolved.axis_shift_delta:+.4f} "
+                    "π/a to match the new axis center."
+                )
         self._update_gamma_status_badge()
+        # Propagate the Γ change to every view, incl. the MDC Fit tab (its center
+        # reads sp_cx live). Centralized here so all Γ paths (auto BM/FS, manual
+        # pick, FS→BM, auto-apply on load) refresh consistently (bug: MDC Fit tab
+        # kept the stale Γ because only the badge was refreshed).
+        self._refresh_views_after_gamma()
+
+    def _refresh_views_after_gamma(self) -> None:
+        """Redraw the current view and the MDC Fit tab after a Γ change.
+
+        `_draw_mdc_edc` draws the MDC Fit tab and reads `sp_cx` live, so calling
+        it here makes a Γ change appear even when that tab is not the active view.
+        Both calls are display-only (no signal cascade: `sp_cx` was set under
+        blockSignals in `apply_resolved_gamma`).
+        """
+        try:
+            self._draw_current_view()
+        except Exception:
+            pass
+        try:
+            self._draw_mdc_edc()
+        except Exception:
+            pass
 
     def _format_gamma_badge_text(self) -> str:
         return _gamma_life.format_badge_text(self)
@@ -589,7 +639,7 @@ class GammaController:
                     self._session.angle_offsets = offsets
             # P2.bis : single-setter — pose sp_cx + center_init + shift axe
             # + remap fit_result + save en une fois via la décision resolver.
-            self.apply_resolved_gamma(self._resolve_gamma_for_current(), save_entry=True)
+            self.apply_resolved_gamma(self._resolve_with_warnings(), save_entry=True)
             self._params.lbl_res.setText(
                 f"Γ BM = {gamma:+.4f} π/a\n"
                 f"n={res['n']}  MAD={res['mad']:.4f}"
@@ -617,7 +667,7 @@ class GammaController:
             return
         if self._raw_data is None:
             return
-        resolved = self._resolve_gamma_for_current()
+        resolved = self._resolve_with_warnings()
         if resolved.mode == "none":
             QMessageBox.warning(self._parent, "Γ FS → BM", "The stored Γ reference is invalid.")
             return

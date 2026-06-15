@@ -111,3 +111,12 @@ class TestMatchFolder:
 
     def test_empty_target(self):
         assert match_folder_to_subfolder("", ["BNA_S1"]) == ""
+
+    def test_ambiguous_substring_refused(self):
+        # F6: a truncated declared name substring-matching >=2 distinct
+        # subfolders must refuse (return "") instead of first-winner —
+        # silently scoping the wrong sample's params would corrupt Γ/φ/a.
+        assert match_folder_to_subfolder("YNS", ["YNS_S1", "YNS_S6"]) == ""
+        # Distinct full names still match unambiguously (no regression).
+        assert match_folder_to_subfolder("YNS_S1", ["YNS_S1", "YNS_S6"]) == "YNS_S1"
+        assert match_folder_to_subfolder("YNS_S6", ["YNS_S1", "YNS_S6"]) == "YNS_S6"
