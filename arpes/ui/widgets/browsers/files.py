@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from arpes.core.session import Session, normalize_tags
+from arpes.ui.widgets._qt_helpers import compact_button
 from arpes.io.loaders import detect_format, detect_scan_kind, loader_label
 from arpes.io.logbook import (
     LogbookManager,
@@ -62,22 +63,18 @@ class FileBrowserPanel(QWidget):
         lay.setContentsMargins(4, 4, 4, 4)
 
         top = QHBoxLayout()
-        btn = QPushButton("Folder")
+        btn = compact_button(QPushButton("\U0001F4C1  Open folder"))
+        btn.setToolTip("Open an ARPES data folder.")
         btn.clicked.connect(self._open_folder)
         top.addWidget(btn)
-        btn_refresh = QPushButton("Refresh")
-        btn_refresh.setFixedWidth(78)
-        btn_refresh.setToolTip("Refresh the file list")
-        btn_refresh.clicked.connect(self.refresh)
-        top.addWidget(btn_refresh)
-        btn_samples = QPushButton("Samples\u2026")
-        btn_samples.setFixedWidth(82)
+        btn_samples = compact_button(QPushButton("\u2699  Samples\u2026"))
         btn_samples.setToolTip(
-            "Edit the work function \u03c6 and lattice parameter a\n"
+            "Edit the work function \u03c6 and lattice parameters a, b\n"
             "for each sample subfolder."
         )
         btn_samples.clicked.connect(self.sample_setup_requested)
         top.addWidget(btn_samples)
+        top.addStretch(1)
         self._lbl_folder = QLabel("—")
         self._lbl_folder.setWordWrap(True)
         self._lbl_folder.setStyleSheet("font-size:10px; color:#aaa;")

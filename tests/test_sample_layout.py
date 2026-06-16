@@ -135,12 +135,23 @@ class TestPerSubfolderResolution(unittest.TestCase):
         self.assertAlmostEqual(sample.work_function_eV, 4.3)
         self.assertAlmostEqual(sample.a_angstrom, 4.14)
 
-    def test_file_meta_wins_over_subfolder(self):
+    def test_subfolder_config_wins_over_file_meta(self):
+        # Explicit Samples-popup config is authoritative over file meta (which
+        # is often just an echo of a prior UI value or a logbook default).
         session = self._session()
         entry = FileEntry(meta=FileMeta(work_function_eV=4.8))
         sample = sample_for_entry(session, entry, "BNO/scan.zip")
+        self.assertAlmostEqual(sample.work_function_eV, 4.3)  # config beats meta
+        self.assertAlmostEqual(sample.a_angstrom, 4.14)
+
+    def test_file_meta_used_when_no_subfolder_config(self):
+        # Without an explicit per-subfolder config the file meta still wins over
+        # the session default (logbook-driven workflow preserved).
+        session = self._session()
+        entry = FileEntry(meta=FileMeta(work_function_eV=4.8, crystal_a_angstrom=3.9))
+        sample = sample_for_entry(session, entry, "Au_ref/scan.zip")
         self.assertAlmostEqual(sample.work_function_eV, 4.8)
-        self.assertAlmostEqual(sample.a_angstrom, 4.14)  # still from subfolder
+        self.assertAlmostEqual(sample.a_angstrom, 3.9)
 
     def test_other_subfolder_falls_back_to_session(self):
         session = self._session()

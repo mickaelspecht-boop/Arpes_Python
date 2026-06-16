@@ -278,7 +278,7 @@ class LoadController:
         self._parent._last_load_cache_hit = False
         self._parent._last_load_cache_source = ""
         self._parent._current_raw_load_cache_key = cache_key
-        a_lattice = self._lattice_a_for_load(prepared.entry)
+        a_lattice = self._lattice_a_for_load(prepared.entry, prepared.key)
         work_func = self._work_function_for_load(path, prepared)
         if getattr(self._session, "browse_only", False):
             # Browse-only: load with neutral placeholders when φ/a are
@@ -344,7 +344,7 @@ class LoadController:
     def _load_cache_key(self, path: str, prepared: _PreparedEntry) -> tuple:
         entry = prepared.entry
         work_func = self._work_function_for_load(path, prepared)
-        a_lattice = self._lattice_a_for_load(entry)
+        a_lattice = self._lattice_a_for_load(entry, prepared.key)
         return (
             f"raw-loader-v{RAW_LOAD_CACHE_VERSION}",
             str(prepared.fmt_guess or ""),
@@ -361,8 +361,10 @@ class LoadController:
             bool(getattr(self._session, "browse_only", False)),
         )
 
-    def _lattice_a_for_load(self, entry) -> float | None:
-        sample = sample_for_entry(self._session, entry)
+    def _lattice_a_for_load(self, entry, entry_key: str | None = None) -> float | None:
+        # entry_key is required for the per-subfolder Samples popup config to be
+        # honored (without it sample_for_entry skips session.sample_configs).
+        sample = sample_for_entry(self._session, entry, entry_key=entry_key)
         if sample.has_lattice_a:
             return float(sample.a_angstrom)
         try:
@@ -458,7 +460,7 @@ class LoadController:
         if not getattr(self._session, "browse_only", False):
             return
         phi_known = self._work_function_for_load("", prepared) > 0
-        a_known = self._lattice_a_for_load(prepared.entry) is not None
+        a_known = self._lattice_a_for_load(prepared.entry, prepared.key) is not None
         hv_known = float(prepared.hv_for_load or 0.0) > 0
         if phi_known and a_known and hv_known:
             return  # everything calibrated: normal axes even in browse-only

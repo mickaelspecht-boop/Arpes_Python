@@ -17,12 +17,13 @@ def _make_ctrl(browse_only=True, phi=0.0, a=None, statuses=None):
     )
     ctrl = LoadController(parent)
     ctrl._work_function_for_load = lambda path, prepared: phi
-    ctrl._lattice_a_for_load = lambda entry: a
+    ctrl._lattice_a_for_load = lambda entry, entry_key=None: a
     return ctrl
 
 
 def _prepared(hv=0.0, placeholder=False):
-    return SimpleNamespace(entry=object(), hv_for_load=hv, hv_placeholder=placeholder)
+    return SimpleNamespace(entry=object(), key="", hv_for_load=hv,
+                           hv_placeholder=placeholder)
 
 
 def _d(n_theta=8, n_e=10, scale="kinetic", with_meta=True):
@@ -138,10 +139,11 @@ def test_cache_key_distinguishes_browse_only(tmp_path):
         )
         ctrl = LoadController(parent)
         ctrl._work_function_for_load = lambda path, prepared: 0.0
-        ctrl._lattice_a_for_load = lambda entry: None
+        ctrl._lattice_a_for_load = lambda entry, entry_key=None: None
         prepared = SimpleNamespace(
             entry=SimpleNamespace(meta=SimpleNamespace(
                 temperature=0.0, azi=0.0, polarization="")),
+            key="x.txt",
             fmt_guess="cls_txt",
             hv_for_load=0.0,
             angle_offsets=None,
@@ -224,33 +226,42 @@ class TestBrowseOnlySavesConfigs:
         assert session.browse_only is False
         assert any("Browse only disabled" in s for s in statuses)
 
-    def test_refresh_loaded_params_mirrors_phi_a(self):
+    def test_refresh_loaded_params_mirrors_phi_a_b(self):
         from arpes.ui.controllers.sample_setup_controller import SampleSetupController
 
         class _Spin:
-            def __init__(self):
+            def __init__(self, v=0.0):
                 self.value_set = None
+                self._v = v
             def blockSignals(self, _b):
                 return False
+            def value(self):
+                return self._v if self.value_set is None else self.value_set
             def setValue(self, v):
                 self.value_set = v
+                self._v = v
 
         entry = SimpleNamespace(meta=SimpleNamespace())
         session = SimpleNamespace(
             key_for_path=lambda p: "BNO/f1",
             get_or_create=lambda k: entry,
-            sample_configs={"BNO": {"work_function_eV": 4.3, "a_angstrom": 4.14}},
+            sample_configs={"BNO": {"work_function_eV": 4.3,
+                                    "a_angstrom": 4.14, "b_angstrom": 5.2}},
             current_sample={},
         )
         params = SimpleNamespace(sp_phi=_Spin(), sp_crystal_a=_Spin())
+        fs = SimpleNamespace(sp_a=_Spin(), sp_b=_Spin())
         parent = SimpleNamespace(
             _session=session, _params=params, _status=lambda m: None,
-            _current_path="/data/BNO/f1", _raw_data=None,
+            _current_path="/data/BNO/f1", _raw_data=None, _fs_controls=fs,
         )
         ctrl = SampleSetupController(parent)
         ctrl._refresh_loaded_params()
         assert params.sp_phi.value_set == pytest.approx(4.3)
         assert params.sp_crystal_a.value_set == pytest.approx(4.14)
+        # b entered in the popup must reach the FS Brillouin-zone spinboxes.
+        assert fs.sp_a.value_set == pytest.approx(4.14)
+        assert fs.sp_b.value_set == pytest.approx(5.2)
 
     def test_folder_opened_skipped_in_browse_only(self, monkeypatch):
         from arpes.ui.controllers.sample_setup_controller import SampleSetupController

@@ -106,9 +106,11 @@ def sample_for_entry(session: Any, entry: Any, entry_key: str | None = None) -> 
     """Resolve sample metadata: file meta → per-subfolder config → session default.
 
     ``entry_key`` is the session file key (folder-relative path); when given,
-    the per-subfolder ``session.sample_configs`` of its top-level folder takes
-    priority over ``session.current_sample``. Callers without a key keep the
-    historical two-level resolution.
+    the per-subfolder ``session.sample_configs`` of its top-level folder is the
+    user's explicit override and takes priority over the file meta and over
+    ``session.current_sample``. Priority: per-subfolder config → file meta →
+    session default. Callers without a key keep the historical two-level
+    resolution (file meta → session default), since ``folder_sample`` is empty.
     """
     file_sample = SampleConfig.from_meta(getattr(entry, "meta", None))
     folder_sample = SampleConfig()
@@ -119,7 +121,10 @@ def sample_for_entry(session: Any, entry: Any, entry_key: str | None = None) -> 
         if raw:
             folder_sample = SampleConfig.from_dict(raw)
     session_sample = SampleConfig.from_dict(getattr(session, "current_sample", {}) or {})
-    return file_sample.merge_missing_from(folder_sample).merge_missing_from(session_sample)
+    # Explicit per-subfolder setup wins over file meta (which is often just an
+    # echo of a previous UI value or a logbook default); without an explicit
+    # config the file meta still wins over the session-wide default.
+    return folder_sample.merge_missing_from(file_sample).merge_missing_from(session_sample)
 
 
 def require_lattice_a(sample: SampleConfig, *, context: str = "sample") -> float:

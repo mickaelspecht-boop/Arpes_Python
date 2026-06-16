@@ -170,6 +170,24 @@ class SampleSetupController:
             params.sp_crystal_a.blockSignals(True)
             params.sp_crystal_a.setValue(float(sample.a_angstrom))
             params.sp_crystal_a.blockSignals(False)
+        # Mirror the resolved lattice into the FS / kz crystal spinboxes so the
+        # Brillouin-zone overlay and kz tools pick up the a/b entered in the
+        # popup. FS spinboxes are set with signals live so the BZ redraws; kz
+        # spinboxes just store the values.
+        fs = getattr(p, "_fs_controls", None)
+        for name, value in (("sp_a", sample.a_angstrom),
+                            ("sp_b", sample.b_angstrom or sample.a_angstrom)):
+            sp = getattr(fs, name, None) if fs is not None else None
+            if sp is not None and float(value or 0.0) > 0 and \
+                    abs(float(sp.value()) - float(value)) > 1e-9:
+                sp.setValue(float(value))
+        kz = getattr(p, "_kz_controls", None)
+        for name, value in (("sp_a", sample.a_angstrom), ("sp_c", sample.c_angstrom)):
+            sp = getattr(kz, name, None) if kz is not None else None
+            if sp is not None and float(value or 0.0) > 0:
+                sp.blockSignals(True)
+                sp.setValue(float(value))
+                sp.blockSignals(False)
         if getattr(p, "_raw_data", None) is not None and (
             sample.has_work_function or sample.has_lattice_a
         ):
