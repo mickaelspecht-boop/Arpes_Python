@@ -40,7 +40,7 @@ FS Explorer is disabled on raw Browse-only axes. Free cuts need calibrated k axe
 
 Move to MDC Fit once the BM cut, EF, and Gamma are in good shape. Define the energy and k window first. Pick the number of Lorentzian peak pairs, run an estimate at the current energy, and check whether the initial peaks sit on the visible bands.
 
-Fit zones are for files that need several independent windows, branches, or parameter sets. Each zone keeps its own parameters and result. The active zone is the one shown by legacy plots and exports.
+Fit zones are for files that need several independent windows, branches, or parameter sets. In the Zones MDC table, add a zone from the current range, then select its row to load and edit its parameters; the selected zone follows your analysis range as you adjust it, so refining a window updates that zone in place. Run all fits every active zone in one pass. Each zone keeps its own parameters and result, and the active zone is the one shown by legacy plots and exports.
 
 Run the full fit after the estimate looks sane. Then check Waterfall and EDC views to see whether the model follows the data slice by slice. Bad points can be selected, deleted, undone, redone, and annotated.
 

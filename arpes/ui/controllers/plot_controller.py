@@ -425,22 +425,9 @@ class PlotController:
         )
         self._parent._mdc_map_plot_data_key = plot_key
         before = self._axis_artist_snapshot(ax)
-        bounds = self._fit_roi_bounds()
-        if bounds is not None:
-            k0, k1, e0, e1 = bounds
-            ax.set_xlim(k0, k1)
-            ax.set_ylim(e0, e1)
-            info = f"Fenetre fit: k {k0:+.3f} -> {k1:+.3f} pi/a | E {e0:+.3f} -> {e1:+.3f} eV"
-            ax.text(
-                0.01, 0.02, info,
-                transform=ax.transAxes,
-                ha="left", va="bottom",
-                color="white", fontsize=7,
-                bbox={"facecolor": "#111827", "edgecolor": "#38bdf8", "alpha": 0.72, "pad": 3},
-                zorder=30,
-            )
-            if hasattr(self, "_lbl_fit_view_info"):
-                self._lbl_fit_view_info.setText("Plage d'analyse")
+        from arpes.ui.controllers.fit_overlay_drawer import apply_mdc_map_view
+        # Full map when ≥1 zone exists (every zone visible); else legacy ROI zoom.
+        apply_mdc_map_view(self, ax)
         self._draw_fit_roi_overlay(ax)
         self._draw_theory_overlay(ax)
         self._draw_kf_overlay(ax)

@@ -13,6 +13,7 @@ Asymmetric-zone detection emits a status warning but no automatic mode switch.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import asdict
 from typing import Any
@@ -64,6 +65,22 @@ class FitZonesController:
                 return i
         return len(zones) % len(ZONE_PALETTE)
 
+    def _next_zone_label(self, zones: list[dict]) -> str:
+        """Next free "Z<n>" label.
+
+        Counts from the highest existing index instead of ``len + 1`` so that
+        removing then re-adding does not produce a duplicate label.
+        """
+        used = set()
+        for z in zones:
+            m = re.fullmatch(r"Z(\d+)", str(z.get("label", "")).strip())
+            if m:
+                used.add(int(m.group(1)))
+        n = 1
+        while n in used:
+            n += 1
+        return f"Z{n}"
+
     # ----------------------------------------------------------- public verb
     def fit_zone_action(self, verb: str, payload: dict | None = None) -> dict:
         """Single dispatch for zone CRUD ; keeps PROXY_MAP footprint to 1."""
@@ -87,7 +104,7 @@ class FitZonesController:
                 fp_src = FitParams()
         zone = {
             "id": _new_zone_id(),
-            "label": str(payload.get("label") or f"Z{len(entry.fit_zones) + 1}"),
+            "label": str(payload.get("label") or self._next_zone_label(entry.fit_zones)),
             "color_idx": self._next_color_idx(entry.fit_zones),
             "active": True,
             "fit_params": _params_to_dict(fp_src),
@@ -148,6 +165,27 @@ class FitZonesController:
 
     def _v_list(self, entry, payload: dict) -> dict:
         return {"ok": True, "zones": list(entry.fit_zones), "active_id": entry.active_zone_id}
+
+    def _v_update_active_from_params(self, entry, payload: dict) -> dict:
+        """Auto-bind: rewrite the active zone's fit_params from current spinboxes.
+
+        Lets the user refine a zone's k/E window (and any fit param) by editing
+        the panel or dragging the ROI while the zone is selected. Never touches
+        the active id or fit_result. No-op when no zone is active.
+        """
+        z = self.active_zone(entry)
+        if z is None:
+            return {"ok": False, "error": "no_active_zone"}
+        try:
+            fp = self._parent._params.get_fit_params()
+        except Exception:
+            return {"ok": False, "error": "no_params"}
+        z["fit_params"] = _params_to_dict(fp)
+        # Keep the legacy fit_params mirror coherent (stale detection) without
+        # touching fit_result — this is a pure geometry/param edit.
+        entry.fit_params = fp
+        self._save()
+        return {"ok": True, "zone_id": z.get("id")}
 
     # ---------------------------------------------------------- result update
     def store_result(self, zone_id: str, fr: dict) -> None:

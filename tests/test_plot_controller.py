@@ -466,5 +466,38 @@ class TestPlotController(unittest.TestCase):
         self.assertGreater(ylim[0], ylim[1])
 
 
+class MdcMapViewWindowTests(unittest.TestCase):
+    """D1: the MDC mini-map shows the full extent when ≥1 zone exists, else the
+    legacy ROI zoom."""
+
+    def _ctrl(self, *, zones, raw=True, bounds=(-0.4, 0.4, -0.3, -0.05)):
+        entry = SimpleNamespace(fit_zones=list(zones))
+        session = SimpleNamespace(
+            key_for_path=lambda p: "k",
+            get_or_create=lambda k: entry,
+        )
+        d = (
+            {"kpar": np.array([-1.0, 0.0, 1.0]),
+             "ev_arr": np.array([-0.5, -0.25, 0.0])}
+            if raw else None
+        )
+        parent = SimpleNamespace(_raw_data=d, _current_path="x.h5", _session=session)
+        return SimpleNamespace(_parent=parent, _fit_roi_bounds=lambda: bounds)
+
+    def test_zones_present_returns_full_extent(self):
+        from arpes.ui.controllers.fit_overlay_drawer import _mdc_map_view_window
+        win = _mdc_map_view_window(self._ctrl(zones=[{"id": "a", "fit_params": {}}]))
+        self.assertEqual(win, (-1.0, 1.0, -0.5, 0.0, False))
+
+    def test_no_zones_returns_roi_bounds(self):
+        from arpes.ui.controllers.fit_overlay_drawer import _mdc_map_view_window
+        win = _mdc_map_view_window(self._ctrl(zones=[]))
+        self.assertEqual(win, (-0.4, 0.4, -0.3, -0.05, True))
+
+    def test_no_data_returns_none(self):
+        from arpes.ui.controllers.fit_overlay_drawer import _mdc_map_view_window
+        self.assertIsNone(_mdc_map_view_window(self._ctrl(zones=[], raw=False)))
+
+
 if __name__ == "__main__":
     unittest.main()

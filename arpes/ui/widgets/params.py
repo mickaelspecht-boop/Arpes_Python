@@ -412,11 +412,19 @@ class FitParamsPanel(QScrollArea):
             sp.blockSignals(True)
             sp.setValue(val)
             sp.blockSignals(False)
+        # Block signals on every programmatic load: a zone switch must not emit
+        # fit_only_changed (which would trip the zone auto-bind / extra redraws).
+        self.chk_k0a.blockSignals(True)
+        self.sp_k0m.blockSignals(True)
         if fp.k0_max is not None:
             self.chk_k0a.setChecked(False)
             self.sp_k0m.setValue(fp.k0_max)
+            self.sp_k0m.setEnabled(True)
         else:
             self.chk_k0a.setChecked(True)
+            self.sp_k0m.setEnabled(False)
+        self.sp_k0m.blockSignals(False)
+        self.chk_k0a.blockSignals(False)
         # Migration : alias historique asymmetric → independent
         wm = "independent" if str(fp.width_mode) == "asymmetric" else str(fp.width_mode)
         idx_wm = self.cmb_wm.findData(wm)
@@ -424,7 +432,9 @@ class FitParamsPanel(QScrollArea):
             self.cmb_wm.blockSignals(True)
             self.cmb_wm.setCurrentIndex(idx_wm)
             self.cmb_wm.blockSignals(False)
+        self.cmb_sd.blockSignals(True)
         self.cmb_sd.setCurrentText(fp.scan_direction)
+        self.cmb_sd.blockSignals(False)
         if hasattr(self, "cmb_lineshape"):
             target = str(getattr(fp, "shape", "lorentzian") or "lorentzian")
             idx = self.cmb_lineshape.findData(target)

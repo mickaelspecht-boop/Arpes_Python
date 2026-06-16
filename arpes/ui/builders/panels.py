@@ -444,29 +444,8 @@ def wire_ui_signals(window) -> None:
                 window._export_band_analysis_csv
             )
 
-    if hasattr(window._params, "zones_strip"):
-        zs = window._params.zones_strip
-        zs.add_zone_requested.connect(
-            lambda: (window.fit_zone_action("add", {}), window._refresh_zones_strip())
-        )
-        zs.remove_zone_requested.connect(
-            lambda zid: (window.fit_zone_action("remove", {"zone_id": zid}),
-                         window._refresh_zones_strip())
-        )
-        zs.active_zone_changed.connect(
-            lambda zid: (window.fit_zone_action("set_active", {"zone_id": zid}),
-                         window._on_zone_activated(zid))
-        )
-        zs.toggle_zone_active.connect(
-            lambda zid, on: window.fit_zone_action(
-                "toggle_active", {"zone_id": zid, "value": on},
-            )
-        )
-        zs.run_all_zones_requested.connect(window._fit_run_all_zones)
-        zs.clear_zone_results.connect(
-            lambda: (window.fit_zone_action("clear_results", {}),
-                     window._refresh_zones_strip())
-        )
+    from arpes.ui.controllers.fit_zone_runner import wire_zones_strip
+    wire_zones_strip(window)
 
     if FSControlPanel is not None:
         window._fs_controls.params_changed.connect(window._schedule_fs_redraw)

@@ -69,6 +69,56 @@ def scatter_kf_with_chi2(ax, k_values, ev_f, bad_mask, color, marker,
                    zorder=6, alpha=0.95)
 
 
+def _mdc_map_view_window(ctrl):
+    """View limits for the MDC Fit mini-map.
+
+    Returns ``(k0, k1, e0, e1, show_info)`` or ``None``.
+
+    With ≥1 fit zone the window is the **full data extent** so every zone
+    rectangle stays visible (show_info=False). With no zone it falls back to the
+    legacy single-range ROI zoom (show_info=True). ``None`` when no data.
+    """
+    p = ctrl._parent
+    d = getattr(p, "_raw_data", None)
+    if d is None:
+        return None
+    entry = None
+    if getattr(p, "_current_path", None):
+        entry = p._session.get_or_create(p._session.key_for_path(p._current_path))
+    zones = getattr(entry, "fit_zones", None) or []
+    if zones:
+        kpar = np.asarray(d["kpar"], dtype=float)
+        ev = np.asarray(d["ev_arr"], dtype=float)
+        return (float(np.nanmin(kpar)), float(np.nanmax(kpar)),
+                float(np.nanmin(ev)), float(np.nanmax(ev)), False)
+    b = ctrl._fit_roi_bounds()
+    if b is None:
+        return None
+    return (b[0], b[1], b[2], b[3], True)
+
+
+def apply_mdc_map_view(ctrl, ax) -> None:
+    """Set the MDC mini-map limits + info text per ``_mdc_map_view_window``."""
+    win = _mdc_map_view_window(ctrl)
+    if win is None:
+        return
+    k0, k1, e0, e1, show_info = win
+    ax.set_xlim(k0, k1)
+    ax.set_ylim(e0, e1)
+    if show_info:
+        ax.text(
+            0.01, 0.02,
+            f"Fenetre fit: k {k0:+.3f} -> {k1:+.3f} pi/a | E {e0:+.3f} -> {e1:+.3f} eV",
+            transform=ax.transAxes, ha="left", va="bottom",
+            color="white", fontsize=7,
+            bbox={"facecolor": "#111827", "edgecolor": "#38bdf8", "alpha": 0.72, "pad": 3},
+            zorder=30,
+        )
+    lbl = getattr(ctrl, "_lbl_fit_view_info", None)
+    if lbl is not None:
+        lbl.setText("Plage d'analyse" if show_info else "Toutes les zones")
+
+
 def draw_zone_overlays(ctrl, ax) -> None:
     """Overlay kF for every zone's fit_result + colored rectangles."""
     p = ctrl._parent
@@ -99,10 +149,11 @@ def draw_zone_overlays(ctrl, ax) -> None:
                     continue
                 valid = np.isfinite(a[:n]) & np.isfinite(ev_f[:n])
                 if valid.any():
+                    # No legend label: the rectangle corner text already names
+                    # each zone, and per-scatter labels spam the legend.
                     ax.scatter(
                         a[:n][valid], ev_f[:n][valid], s=5, marker=marker,
                         color=color, alpha=0.65, zorder=4,
-                        label=f"{z.get('label')}" if marker == "o" else None,
                     )
     try:
         from matplotlib.patches import Rectangle

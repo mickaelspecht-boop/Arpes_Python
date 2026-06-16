@@ -60,7 +60,7 @@ Use it to choose cut directions before running full MDC fits. It requires calibr
 
 MDC Fit extracts dispersions by fitting k profiles at fixed energy. The model uses symmetric Lorentzian peak pairs around a center. Start with a single-energy estimate, check the peak placement, then run the full energy range.
 
-Fit zones let one file carry several independent analyses: different pockets, k windows, pair counts, or conservative versus broader fits.
+Fit zones let one file carry several independent analyses: different pockets, k windows, pair counts, or conservative versus broader fits. The Zones MDC table on the Fit tab lists each zone with its color, an active checkbox, its k/E window, and its fitted-point count. Add a zone from the current analysis range, then Run all to fit every active zone in one pass. As soon as a zone exists the Fit map stops zooming to a single range and shows the full band map, so every zone stays visible at once.
 
 Batch fitting applies the tuned MDC setup to multiple files. Use it only after one representative file fits cleanly.
 

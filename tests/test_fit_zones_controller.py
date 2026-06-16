@@ -238,3 +238,40 @@ class TestSaveErrorSurface:
         ctrl._save()
         assert any("session save failed" in m for m in messages)
         assert any("disk full" in m for m in messages)
+
+
+class TestUpdateActiveFromParams:
+    """Auto-bind: editing the panel rewrites the active zone's fit_params."""
+
+    def test_update_active_snapshots_current_params(self, parent_and_ctrl):
+        p, ctrl, key = parent_and_ctrl
+        ctrl.fit_zone_action("add", {"fit_params": FitParams(k_min=0.0, k_max=0.0)})
+        # Simulate the user editing the panel after the zone was created.
+        p._params._fp = FitParams(k_min=-0.7, k_max=0.7, n_pairs=2)
+        res = ctrl.fit_zone_action("update_active_from_params", {})
+        assert res["ok"]
+        entry = p._session.files[key]
+        assert entry.fit_zones[0]["fit_params"]["k_min"] == -0.7
+        assert entry.fit_zones[0]["fit_params"]["n_pairs"] == 2
+        # Legacy mirror updated; fit_result must stay untouched.
+        assert entry.fit_params.k_min == -0.7
+        assert entry.fit_zones[0]["fit_result"] is None
+
+    def test_update_active_noop_without_zone(self, parent_and_ctrl):
+        _, ctrl, _ = parent_and_ctrl
+        res = ctrl.fit_zone_action("update_active_from_params", {})
+        assert res["ok"] is False
+        assert res["error"] == "no_active_zone"
+
+
+class TestLabelNoCollision:
+    """D6: removing then re-adding must not duplicate a "Z<n>" label."""
+
+    def test_label_recycled_after_remove(self, parent_and_ctrl):
+        p, ctrl, key = parent_and_ctrl
+        z1 = ctrl.fit_zone_action("add", {})["zone_id"]   # Z1
+        ctrl.fit_zone_action("add", {})                   # Z2
+        ctrl.fit_zone_action("remove", {"zone_id": z1})   # drop Z1
+        ctrl.fit_zone_action("add", {})                   # should reuse Z1
+        entry = p._session.files[key]
+        assert sorted(z["label"] for z in entry.fit_zones) == ["Z1", "Z2"]
