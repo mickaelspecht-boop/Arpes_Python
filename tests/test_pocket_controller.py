@@ -65,6 +65,36 @@ class TestPocketController(unittest.TestCase):
         finally:
             pocket_controller_mod.PocketResultDialog = old_dialog
 
+    def test_manual_contour_persists_marked_pocket(self):
+        class FakeDialog:
+            def __init__(self, parent, pocket, **_kwargs):
+                self.pocket = pocket
+                self.delete_requested = False
+
+            def exec(self):
+                return 1
+
+        old_dialog = pocket_controller_mod.PocketResultDialog
+        pocket_controller_mod.PocketResultDialog = FakeDialog
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                parent = _Parent(Path(tmp))
+                ctrl = PocketController(parent)
+                theta = np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
+                points = np.column_stack([0.42 * np.cos(theta), 0.42 * np.sin(theta)])
+
+                pocket = ctrl._pocket_action(
+                    "manual_contour", {"points": points.tolist(), "snap": True}
+                )
+
+                self.assertIsNotNone(pocket)
+                self.assertEqual(pocket["algo"], "manual_contour")
+                self.assertEqual(pocket["processing"]["n_points"], 16)
+                self.assertEqual(len(parent._current_entry().fs_pockets), 1)
+                self.assertGreater(pocket["area_pct_bz"], 5.0)
+        finally:
+            pocket_controller_mod.PocketResultDialog = old_dialog
+
     def test_manual_level_show_and_clear(self):
         calls = []
 

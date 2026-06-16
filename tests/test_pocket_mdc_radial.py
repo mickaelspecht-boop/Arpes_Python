@@ -7,6 +7,7 @@ import numpy as np
 
 from arpes.physics.pocket_mdc_radial import (
     characterize_pocket_mdc_radial,
+    fit_electron_edge_mdc,
     fit_lorentzian_mdc,
     kf_radial_mdc,
     sample_radial_mdc,
@@ -56,6 +57,14 @@ class TestFitLorentzian(unittest.TestCase):
         kF, std, r2, n_used = fit_lorentzian_mdc(radii, ints)
         self.assertTrue(math.isnan(kF))
 
+    def test_electron_edge_recovers_falling_half_height(self):
+        radii = np.linspace(0.0, 1.0, 90)
+        ints = 0.15 + 0.8 / (1.0 + np.exp((radii - 0.43) / 0.025))
+        kF, std, conf, n_used = fit_electron_edge_mdc(radii, ints)
+        self.assertAlmostEqual(kF, 0.43, delta=0.03)
+        self.assertGreater(conf, 0.6)
+        self.assertEqual(n_used, 90)
+
 
 class TestKfRadialMDC(unittest.TestCase):
     def test_circle_kf_is_uniform(self):
@@ -64,6 +73,19 @@ class TestKfRadialMDC(unittest.TestCase):
             res = kf_radial_mdc(img, kx, ky, (0.0, 0.0), theta, r_max=0.9)
             self.assertTrue(res.ok)
             self.assertAlmostEqual(res.kF, 0.35, delta=0.03)
+
+    def test_filled_electron_pocket_uses_edge_fallback(self):
+        kx = np.linspace(-1.0, 1.0, 121)
+        ky = np.linspace(-1.0, 1.0, 121)
+        x, y = np.meshgrid(kx, ky, indexing="xy")
+        r = np.sqrt(x * x + y * y)
+        img = 0.10 + 0.85 / (1.0 + np.exp((r - 0.38) / 0.025))
+
+        res = kf_radial_mdc(img, kx, ky, (0.0, 0.0), 0.0, r_max=0.9, r2_min=0.5)
+
+        self.assertTrue(res.ok)
+        self.assertIn(res.method, {"lorentzian", "edge_half_height"})
+        self.assertAlmostEqual(res.kF, 0.38, delta=0.04)
 
 
 class TestCharacterizePocketMDC(unittest.TestCase):

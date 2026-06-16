@@ -369,6 +369,29 @@ class TestFermiSurfaceCanvas(unittest.TestCase):
         self.assertEqual(len(meshes), 1)
         self.assertIsNot(canvas._mesh, first_mesh)
 
+    def test_draw_fs_rebuilds_quadmesh_for_rotation_only_change(self):
+        kx, ky, ev, vol = _make_kxky_volume()
+        raw = {
+            "data": np.zeros((20, 12)), "kpar": kx, "ev_arr": ev,
+            "metadata": {
+                "fs_data": vol, "fs_kx": kx, "fs_ky": ky, "fs_energy": ev,
+                "fs_kind": "kxky", "fs_source": "synthetic",
+            },
+        }
+        canvas = FermiSurfaceCanvas()
+        p1 = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False,
+                      fs_rotation_deg=0.0)
+        p2 = FSParams(ef_window=0.030, smooth_sigma=0.0, normalize_profile=False,
+                      fs_rotation_deg=30.0)
+
+        canvas.draw_fs(raw, p1)
+        first_mesh = canvas._mesh
+        canvas.draw_fs(raw, p2)
+
+        self.assertIsNot(canvas._mesh, first_mesh)
+        pt = np.array([[0.4, -0.2]])
+        np.testing.assert_allclose(canvas.from_plot_points(canvas.to_plot_points(pt)), pt)
+
     def test_draw_fs_rebuilds_quadmesh_for_internal_axis_change(self):
         kx, ky, ev, vol = _make_kxky_volume()
         raw1 = {
@@ -452,10 +475,10 @@ class TestFermiSurfaceCanvas(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             png = str(Path(tmp) / "out.png")
             svg = str(Path(tmp) / "out.svg")
-            with patch("arpes.ui.widgets.fs_panel.QFileDialog.getSaveFileName",
+            with patch("arpes.ui.widgets.fs_canvas.QFileDialog.getSaveFileName",
                        return_value=(png, "PNG image, 300 dpi (*.png)")):
                 canvas.export_figure()
-            with patch("arpes.ui.widgets.fs_panel.QFileDialog.getSaveFileName",
+            with patch("arpes.ui.widgets.fs_canvas.QFileDialog.getSaveFileName",
                        return_value=(svg, "SVG vector (*.svg)")):
                 canvas.export_figure()
             self.assertGreater(Path(png).stat().st_size, 1000)

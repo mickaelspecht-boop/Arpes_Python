@@ -150,6 +150,7 @@ class FSController:
             p = self._fs_controls.params()
             entry.fs_center_kx = float(p.kx_center)
             entry.fs_center_ky = float(p.ky_center)
+            entry.fs_rotation_deg = float(p.fs_rotation_deg)
             self._session.save()
         except Exception:
             pass
@@ -659,35 +660,9 @@ class FSController:
             pass
 
     def _restore_fs_crystal_settings_from_entry(self, entry):
-        """Sync BZ-crystal widgets from FileEntry (on file load)."""
-        if not hasattr(self, "_fs_controls") or entry is None:
-            return
-        c = self._fs_controls
-        widgets = [c.sp_v0, c.cmb_kz_plane, c.sp_phi_c,
-                   c.chk_bz_xtal, c.chk_hs_xtal, c.ed_mp_id]
-        for w in widgets:
-            w.blockSignals(True)
-        try:
-            c.sp_v0.setValue(float(getattr(entry, "fs_v0", 12.0) or 12.0))
-            plane = str(getattr(entry, "fs_kz_plane", "Auto") or "Auto")
-            idx = c.cmb_kz_plane.findText(plane)
-            if idx >= 0:
-                c.cmb_kz_plane.setCurrentIndex(idx)
-            c.sp_phi_c.setValue(float(getattr(entry, "fs_phi_c_deg", 0.0) or 0.0))
-            c.chk_bz_xtal.setChecked(bool(getattr(entry, "fs_bz_crystal_visible", False)))
-            c.chk_hs_xtal.setChecked(bool(getattr(entry, "fs_hs_crystal_visible", False)))
-            lat = getattr(entry, "fs_lattice", None) or {}
-            c.ed_mp_id.setText(str(lat.get("mp_id", "") or ""))
-        finally:
-            for w in widgets:
-                w.blockSignals(False)
-        # Sync distortion propagation checkbox (distortion panel lives in _params).
-        if hasattr(self, "_params") and hasattr(self._params, "chk_distortion_fs_propagate"):
-            self._sync_distortion_fs_toggles(
-                bool(getattr(entry, "propagate_distortion_to_fs", False))
-            )
-        # Invalidate FS distortion cache (file changed).
-        self._fs_distortion_cache_invalidate()
+        from arpes.ui.controllers.fs_restore import restore_fs_crystal_settings_from_entry
+
+        restore_fs_crystal_settings_from_entry(self, entry)
 
     def _sync_distortion_fs_toggles(self, enabled: bool) -> None:
         for obj in (

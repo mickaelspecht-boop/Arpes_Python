@@ -39,9 +39,20 @@ def setup_pocket_lasso(canvas) -> None:
         act.setChecked(False)  # one-shot; also deactivates via _toggle
         if eclick.xdata is None or erelease.xdata is None:
             return
+        corners = np.array(
+            [
+                [float(eclick.xdata), float(eclick.ydata)],
+                [float(eclick.xdata), float(erelease.ydata)],
+                [float(erelease.xdata), float(eclick.ydata)],
+                [float(erelease.xdata), float(erelease.ydata)],
+            ],
+            dtype=float,
+        )
+        if hasattr(canvas, "from_plot_points"):
+            corners = canvas.from_plot_points(corners)
         canvas.pocket_lasso_requested.emit(
-            float(eclick.xdata), float(erelease.xdata),
-            float(eclick.ydata), float(erelease.ydata),
+            float(np.nanmin(corners[:, 0])), float(np.nanmax(corners[:, 0])),
+            float(np.nanmin(corners[:, 1])), float(np.nanmax(corners[:, 1])),
         )
 
     def _toggle(on: bool):
@@ -139,6 +150,116 @@ def setup_pocket_action_bar(canvas) -> None:
     canvas.layout().addWidget(bar)
 
 
+def setup_manual_contour_tool(canvas) -> None:
+    """Manual contour mode: left-click crosses, then validate a closed contour."""
+    from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QPushButton, QWidget
+
+    canvas._manual_contour_points = []
+    canvas._manual_contour_artists = []
+    canvas._manual_contour_active = False
+    act = canvas.toolbar.addAction("✚ Contour")
+    act.setCheckable(True)
+    act.setToolTip(
+        "Manual contour: left-click points around one pocket, then Validate. "
+        "Use this when nearby small pockets confuse automatic contours."
+    )
+
+    bar = QWidget()
+    lay = QHBoxLayout(bar)
+    lay.setContentsMargins(4, 2, 4, 2)
+    label = QLabel("Manual contour: 0 points")
+    chk_snap = QCheckBox("Snap")
+    chk_snap.setChecked(True)
+    chk_snap.setToolTip("Snap each cross to the strongest local edge before computing metrics.")
+    btn_undo = QPushButton("Undo")
+    btn_ok = QPushButton("Validate")
+    btn_no = QPushButton("Cancel")
+    lay.addWidget(label)
+    lay.addWidget(chk_snap)
+    lay.addWidget(btn_undo)
+    lay.addWidget(btn_ok)
+    lay.addWidget(btn_no)
+    lay.addStretch(1)
+    bar.setVisible(False)
+
+    def _clear_artists() -> None:
+        for art in list(canvas._manual_contour_artists):
+            try:
+                art.remove()
+            except Exception:
+                pass
+        canvas._manual_contour_artists = []
+
+    def _redraw() -> None:
+        _clear_artists()
+        pts = np.asarray(canvas._manual_contour_points, dtype=float)
+        label.setText(f"Manual contour: {len(pts)} points")
+        if pts.size:
+            plot = canvas.to_plot_points(pts) if hasattr(canvas, "to_plot_points") else pts
+            scat = canvas.ax.scatter(
+                plot[:, 0], plot[:, 1], marker="x", s=52, color="#ffffff",
+                linewidths=1.4, zorder=14,
+            )
+            canvas._manual_contour_artists.append(scat)
+            if plot.shape[0] >= 2:
+                line, = canvas.ax.plot(
+                    plot[:, 0], plot[:, 1], color="#ffffff", lw=0.9,
+                    ls=":", alpha=0.85, zorder=13,
+                )
+                canvas._manual_contour_artists.append(line)
+        canvas.canvas.draw_idle()
+
+    def _set_active(on: bool) -> None:
+        canvas._manual_contour_active = bool(on)
+        bar.setVisible(bool(on))
+        if not on:
+            canvas._manual_contour_points = []
+            _clear_artists()
+            canvas.canvas.draw_idle()
+        label.setText(f"Manual contour: {len(canvas._manual_contour_points)} points")
+
+    def _undo() -> None:
+        if canvas._manual_contour_points:
+            canvas._manual_contour_points.pop()
+            _redraw()
+
+    def _validate() -> None:
+        pts = np.asarray(canvas._manual_contour_points, dtype=float)
+        if pts.shape[0] >= 5:
+            canvas.pocket_manual_contour_requested.emit({
+                "points": pts.tolist(),
+                "snap": bool(chk_snap.isChecked()),
+            })
+        act.setChecked(False)
+
+    act.toggled.connect(_set_active)
+    btn_undo.clicked.connect(_undo)
+    btn_ok.clicked.connect(_validate)
+    btn_no.clicked.connect(lambda: act.setChecked(False))
+
+    canvas._act_manual_contour = act
+    canvas._redraw_manual_contour = _redraw
+    canvas.manual_contour_bar = bar
+    canvas.layout().addWidget(bar)
+
+
+def handle_manual_contour_click(canvas, event) -> bool:
+    if not bool(getattr(canvas, "_manual_contour_active", False)):
+        return False
+    if getattr(event, "button", None) != 1:
+        return True
+    if event.inaxes is not canvas.ax or event.xdata is None or event.ydata is None:
+        return True
+    x, y = float(event.xdata), float(event.ydata)
+    if hasattr(canvas, "from_plot_points"):
+        x, y = canvas.from_plot_points([[x, y]])[0]
+    canvas._manual_contour_points.append([float(x), float(y)])
+    redraw = getattr(canvas, "_redraw_manual_contour", None)
+    if redraw is not None:
+        redraw()
+    return True
+
+
 def handle_canvas_right_click(canvas, event) -> None:
     """Open right-click pocket menu and emit the selected canvas signal."""
     from PyQt6.QtWidgets import QMenu
@@ -161,6 +282,8 @@ def handle_canvas_right_click(canvas, event) -> None:
     act_clear = menu.addAction("Clear pockets")
     chosen = menu.exec(QCursor.pos())
     x, y = float(event.xdata), float(event.ydata)
+    if hasattr(canvas, "from_plot_points"):
+        x, y = canvas.from_plot_points([[x, y]])[0]
     if chosen == act:
         canvas.pocket_requested.emit(x, y)
     elif chosen == act_preview:
@@ -193,9 +316,9 @@ def draw_pocket_preview(canvas, contour) -> None:
     if arr.ndim != 2 or arr.shape[1] != 2 or arr.shape[0] < 3:
         canvas.canvas.draw_idle()
         return
-    cx, cy = getattr(canvas, "_bm_cut_center", (0.0, 0.0))
+    arr_plot = canvas.to_plot_points(arr) if hasattr(canvas, "to_plot_points") else arr
     pts = canvas.ax.scatter(
-        arr[:, 0] - cx, arr[:, 1] - cy,
+        arr_plot[:, 0], arr_plot[:, 1],
         s=16, marker="o", color="#00ffff", alpha=0.95,
         linewidths=0.0, zorder=12,
     )
@@ -219,8 +342,9 @@ def draw_pockets(canvas, pockets: list[dict] | None) -> None:
         if contour.ndim != 2 or contour.shape[1] != 2 or contour.shape[0] < 3:
             continue
         color = _pocket_color(idx - 1)
+        contour_plot = canvas.to_plot_points(contour) if hasattr(canvas, "to_plot_points") else contour
         pts = canvas.ax.scatter(
-            contour[:, 0], contour[:, 1],
+            contour_plot[:, 0], contour_plot[:, 1],
             s=18, marker="o", color=color, alpha=0.9,
             linewidths=0.0, zorder=10,
             picker=True,
@@ -233,6 +357,8 @@ def draw_pockets(canvas, pockets: list[dict] | None) -> None:
         if not (np.isfinite(cx) and np.isfinite(cy)):
             cx = float(np.nanmean(contour[:, 0]))
             cy = float(np.nanmean(contour[:, 1]))
+        if hasattr(canvas, "to_plot_points"):
+            cx, cy = canvas.to_plot_points([[cx, cy]])[0]
         ann = canvas.ax.annotate(
             label,
             (cx, cy),

@@ -6,30 +6,16 @@ arpes/physics/fs.py to keep the layering rule (no PyQt in physics/).
 """
 from __future__ import annotations
 
-from collections import OrderedDict
-from typing import Any
-
-import numpy as np
-
-from PyQt6.QtCore import QLocale, Qt, pyqtSignal
+from PyQt6.QtCore import QLocale, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
-    QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
+    QSpinBox, QVBoxLayout, QWidget,
 )
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavToolbar
-from matplotlib.figure import Figure
-
-from arpes.physics.bz import bz_high_symmetry_points, bz_polygon, resolve_bz_preset
-from arpes.physics.fs import (
-    FSParams,
-    _axis_signature,
-    _fs_cache_key,
-    detect_gamma_from_fs_map,
-    extract_fs_map,
-)
+from arpes.physics.bz import resolve_bz_preset
+from arpes.physics.fs import FSParams
 from arpes.ui.widgets._qt_helpers import compact_button
+from arpes.ui.widgets.fs_canvas import FermiSurfaceCanvas
 from arpes.ui.widgets.fs_panel_bz_controls import (
     build_bz_crystal_group,
     build_bz_theoretical_group,
@@ -162,6 +148,10 @@ class FSControlPanel(QScrollArea):
         self.sp_ref_hi.setToolTip("Upper reference bound for flux normalization.")
         self.sp_sm = self._dspin(1.0, 0.0, 8.0, 0.25, dec=2)
         self.sp_sm.setToolTip("Gaussian smoothing applied to the displayed FS map.")
+        self.sp_fs_rotation = self._dspin(0.0, -180.0, 180.0, 0.5, dec=1)
+        self.sp_fs_rotation.setToolTip(
+            "Display rotation of the full centered FS map, pockets, BM cuts and BZ overlays."
+        )
         self.cmb_cmap = QComboBox(); self.cmb_cmap.addItems(["inferno", "viridis", "cividis", "magma", "gray", "hot", "RdBu_r"])
         self.cmb_cmap.setToolTip("FS map color palette. cividis = color-blind safe (Nature); RdBu_r = self-energy/diff.")
         self.cmb_cmap.currentIndexChanged.connect(self.params_changed)
@@ -175,6 +165,7 @@ class FSControlPanel(QScrollArea):
         fl2.addRow("Norm ref min:", self.sp_ref_lo)
         fl2.addRow("Norm ref max:", self.sp_ref_hi)
         fl2.addRow("Smoothing σ:", self.sp_sm)
+        fl2.addRow("Rotation (°):", self.sp_fs_rotation)
         fl2.addRow("Colormap:", self.cmb_cmap)
         fl2.addRow(self.chk_norm)
         self._add_collapsible_group(lay, "FS Map", grp_fs, open_default=False)
@@ -355,6 +346,7 @@ class FSControlPanel(QScrollArea):
             ef_window=self.sp_win.value(),
             norm_ref_lo=self.sp_ref_lo.value(), norm_ref_hi=self.sp_ref_hi.value(),
             smooth_sigma=self.sp_sm.value(),
+            fs_rotation_deg=self.sp_fs_rotation.value(),
             klim=self.sp_klim.value(), kx_center=self.sp_kx0.value(), ky_center=self.sp_ky0.value(),
             bz_shape=self.cmb_bz_shape.currentText(),
             bz_half_x=self.sp_bzx.value(), bz_half_y=self.sp_bzy.value(),
@@ -460,305 +452,3 @@ class FSControlPanel(QScrollArea):
         if label is not None:
             label.setVisible(show)
         self.sp_bz_angle.setVisible(show)
-
-
-class FermiSurfaceCanvas(QWidget):
-    pocket_requested = pyqtSignal(float, float)
-    pocket_mdc_requested = pyqtSignal(float, float)
-    pairing_diagnose_requested = pyqtSignal()
-    pocket_level_requested = pyqtSignal(float, float)
-    pocket_preview_requested = pyqtSignal(float, float)
-    pocket_preview_validate_requested = pyqtSignal()
-    pocket_preview_cancel_requested = pyqtSignal()
-    pockets_clear_requested = pyqtSignal()
-    pockets_export_requested = pyqtSignal()
-    pocket_open_requested = pyqtSignal(int)
-    pocket_lasso_requested = pyqtSignal(float, float, float, float)  # kx0,kx1,ky0,ky1
-    pocket_preview_level_changed = pyqtSignal(float)  # inline action-bar slider
-
-    def __init__(self):
-        super().__init__()
-        self.setMinimumSize(80, 80)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored,
-                           QSizePolicy.Policy.Expanding)
-        self.fig = Figure(figsize=(7, 6), tight_layout=True)
-        self.canvas = FigureCanvas(self.fig)
-        self.canvas.setMinimumSize(80, 80)
-        self.canvas.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                  QSizePolicy.Policy.Expanding)
-        self.ax = self.fig.add_subplot(111)
-        self._fs_map_cache: OrderedDict[tuple, tuple[np.ndarray, np.ndarray, np.ndarray, str]] = OrderedDict()
-        self._fs_map_cache_max = 8
-        self._mesh = None
-        self._mesh_signature = None
-        self._overlay_artists: list = []
-        self._bm_cut_artists: list = []
-        self._pocket_artists: list = []
-        self._bm_cut_center = (0.0, 0.0)
-        self._pocket_preview_artists: list = []
-        self._pocket_preview_active = False
-        lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0)
-        self.toolbar = NavToolbar(self.canvas, self)
-        act = self.toolbar.addAction("⤢ Initial View")
-        act.setToolTip("Reset axes to data limits "
-                       "(the plot keeps its size).")
-        act.triggered.connect(self.reset_view)
-        act_exp = self.toolbar.addAction("Export figure…")
-        act_exp.setToolTip(
-            "Save the current FS map as PNG (300 dpi, publication quality) or "
-            "SVG (axes and labels stay vector; the map is embedded at 300 dpi). "
-            "The figure is exported as displayed — pockets and BZ overlays included."
-        )
-        act_exp.triggered.connect(self.export_figure)
-        from arpes.ui.widgets.fs_panel_pockets import (
-            setup_pocket_action_bar, setup_pocket_lasso,
-        )
-        setup_pocket_lasso(self)  # "▭ Pocket" toolbar toggle (box → seed+level)
-        lay.addWidget(self.toolbar); lay.addWidget(self.canvas)
-        setup_pocket_action_bar(self)  # inline Level/Validate/Cancel (preview)
-        self.canvas.mpl_connect("button_press_event", self._on_canvas_button_press)
-        self.canvas.mpl_connect("pick_event", self._on_pick_event)
-        # Map data kept for the toolbar hover readout (x, y, fs) — refreshed by
-        # draw_fs, never read for computation.
-        self._hover_data = None
-        # "Updating…" badge shown while the debounced redraw is pending, so the
-        # user never mistakes a stale frame for the current parameters.
-        self._pending_label = QLabel("Updating…", self.canvas)
-        self._pending_label.setStyleSheet(
-            "color: #ffb86c; background: rgba(43, 43, 43, 200);"
-            "padding: 2px 8px; border-radius: 3px; font-weight: bold;"
-        )
-        self._pending_label.move(8, 8)
-        self._pending_label.hide()
-        self._dark()
-
-    def set_pending(self, pending: bool) -> None:
-        """Show/hide the 'Updating…' badge (debounced redraw in flight)."""
-        try:
-            self._pending_label.setVisible(bool(pending))
-        except RuntimeError:
-            pass  # widget already destroyed
-
-    def export_figure(self) -> None:
-        """Export the current view as high-resolution PNG or SVG."""
-        path, selected = QFileDialog.getSaveFileName(
-            self, "Export figure", "fs_map.png",
-            "PNG image, 300 dpi (*.png);;SVG vector (*.svg)",
-        )
-        if not path:
-            return
-        if "SVG" in selected and not path.lower().endswith(".svg"):
-            path += ".svg"
-        elif "PNG" in selected and not path.lower().endswith(".png"):
-            path += ".png"
-        try:
-            self.canvas.draw()  # synchronous flush so savefig sees the final frame
-            self.fig.savefig(path, dpi=300, facecolor=self.fig.get_facecolor())
-        except Exception:
-            QMessageBox.critical(
-                self, "Export failed",
-                f"The figure could not be saved to:\n{path}\n\n"
-                "Check that the folder exists and is writable.",
-            )
-            return
-
-    def _format_coord(self, x, y) -> str:
-        """Toolbar hover readout: exact (kx, ky) plus the intensity of the
-        nearest data pixel from the true array. NaN shows as an em dash."""
-        base = f"kx = {x:.3f}   ky = {y:.3f}   (π/a)"
-        if self._hover_data is None:
-            return base
-        ax_x, ax_y, fs = self._hover_data
-        i = int(np.argmin(np.abs(ax_x - x)))
-        j = int(np.argmin(np.abs(ax_y - y)))
-        val = fs[j, i] if (j < fs.shape[0] and i < fs.shape[1]) else np.nan
-        ival = f"{val:.3f}" if np.isfinite(val) else "—"
-        return f"{base}   I = {ival}"
-
-    def reset_view(self):
-        try:
-            self.ax.set_aspect("auto")
-            self.ax.relim()
-            self.ax.autoscale(enable=True, axis="both", tight=False)
-        except Exception:
-            pass
-        try:
-            self.fig.set_layout_engine("tight")
-        except Exception:
-            pass
-        self.canvas.draw_idle()
-
-    def _dark(self):
-        self.fig.set_facecolor("#2b2b2b"); self.ax.set_facecolor("#1a1a1a")
-
-    def draw_fs(self, raw_data: dict[str, Any] | None, params: FSParams):
-        self._clear_bm_cut_artists()
-        if raw_data is None:
-            self.ax.cla(); self._dark()
-            self._mesh = None
-            self._mesh_signature = None
-            self._hover_data = None
-            self._overlay_artists = []
-            self._clear_pocket_artists()
-            self.ax.text(0.5, 0.5, "Load an FS", transform=self.ax.transAxes,
-                         ha="center", va="center", color="w")
-            self.canvas.draw_idle(); return "No data"
-        try:
-            key = _fs_cache_key(raw_data, params)
-            cached = self._fs_map_cache.pop(key, None)
-            if cached is None:
-                kx, ky, fs, title = extract_fs_map(raw_data, params)
-                self._fs_map_cache[key] = (kx, ky, fs, title)
-                while len(self._fs_map_cache) > self._fs_map_cache_max:
-                    self._fs_map_cache.popitem(last=False)
-            else:
-                kx, ky, fs, title = cached
-                self._fs_map_cache[key] = cached
-            meta = raw_data.get("metadata", {}) or {}
-            fs_kind = meta.get("fs_kind", "")
-            x = kx - params.kx_center
-            y = ky - params.ky_center
-            self._bm_cut_center = (float(params.kx_center), float(params.ky_center))
-            # Center explicitly in signature: redundant with _axis_signature(x/y),
-            # but collision-proof and explicit when rereading. Guarantees that a
-            # Γ change (via set_center / detect_gamma) always forces fresh_draw
-            # and reframes xlim/ylim on the new center.
-            signature = (
-                tuple(np.asarray(fs).shape),
-                _axis_signature(x),
-                _axis_signature(y),
-                round(float(params.kx_center), 8),
-                round(float(params.ky_center), 8),
-            )
-            for artist in list(self._overlay_artists):
-                try:
-                    artist.remove()
-                except Exception:
-                    pass
-            self._overlay_artists = []
-            self._clear_pocket_artists()
-            if self._mesh is not None and self._mesh_signature != signature:
-                try:
-                    self._mesh.remove()
-                except Exception:
-                    pass
-                self._mesh = None
-            fresh_draw = self._mesh is None
-            if fresh_draw:
-                self.ax.cla(); self._dark()
-                self._mesh = self.ax.pcolormesh(x, y, fs, cmap=params.cmap, shading="auto", vmin=0, vmax=1)
-                self._mesh_signature = signature
-            else:
-                self._mesh.set_array(np.asarray(fs).ravel())
-                self._mesh.set_cmap(params.cmap)
-                self._mesh.set_clim(0, 1)
-            has_kxky_axes = fs_kind == "kxky"
-            self.ax.set_aspect("equal" if has_kxky_axes else "auto")
-            self.ax.set_xlabel(r"$k_x$ (π/a)", color="w")
-            ylabel = r"$k_y$ (π/a)" if has_kxky_axes else "tilt (deg)"
-            self.ax.set_ylabel(ylabel, color="w")
-            self.ax.set_title(title, color="w", fontsize=10)
-            if has_kxky_axes:
-                self._overlay_bz(params)
-                if params.overlay_bz_crystal or params.overlay_hs_crystal:
-                    self._overlay_bz_crystal(params, raw_data)
-            # Apply data limits only on fresh_draw (new data / new file). On a
-            # simple refresh (overlay toggle, layout redraw), preserve current
-            # zoom so splitter resizes do not overwrite the user's zoom.
-            if fresh_draw:
-                self.ax.set_xlim(float(np.nanmin(x)), float(np.nanmax(x)))
-                self.ax.set_ylim(float(np.nanmin(y)), float(np.nanmax(y)))
-            self.ax.tick_params(colors="w")
-            for sp in self.ax.spines.values(): sp.set_edgecolor("#555")
-            self._hover_data = (np.asarray(x, dtype=float).ravel(),
-                                np.asarray(y, dtype=float).ravel(),
-                                np.asarray(fs))
-            self.ax.format_coord = self._format_coord
-            self.canvas.draw_idle()
-            return f"{title} | shape={fs.shape}"
-        except Exception as exc:
-            self.ax.cla(); self._dark()
-            self._mesh = None
-            self._mesh_signature = None
-            self._hover_data = None
-            self._overlay_artists = []
-            self._clear_pocket_artists()
-            self.ax.text(0.5, 0.5, str(exc), transform=self.ax.transAxes,
-                         ha="center", va="center", color="tomato", wrap=True)
-            self.canvas.draw_idle(); return f"FS error: {exc}"
-
-    def _on_canvas_button_press(self, event) -> None:
-        if getattr(event, "button", None) != 3:
-            return
-        if event.inaxes is not self.ax or event.xdata is None or event.ydata is None:
-            return
-        from arpes.ui.widgets.fs_panel_pockets import handle_canvas_right_click
-        handle_canvas_right_click(self, event)
-
-    def _on_pick_event(self, event) -> None:
-        artist = getattr(event, "artist", None)
-        idx = getattr(artist, "pocket_index", None)
-        if idx is None:
-            return
-        self.pocket_open_requested.emit(int(idx))
-
-    def _clear_pocket_artists(self) -> None:
-        from arpes.ui.widgets.fs_panel_pockets import clear_pocket_artists
-        clear_pocket_artists(self)
-
-    def draw_pockets(self, pockets: list[dict] | None) -> None:
-        from arpes.ui.widgets.fs_panel_pockets import draw_pockets
-        draw_pockets(self, pockets)
-
-    def draw_pocket_preview(self, contour) -> None:
-        from arpes.ui.widgets.fs_panel_pockets import draw_pocket_preview
-        draw_pocket_preview(self, contour)
-        self._pocket_preview_active = True
-
-    def clear_pocket_preview(self) -> None:
-        from arpes.ui.widgets.fs_panel_pockets import clear_pocket_preview
-        clear_pocket_preview(self)
-        self._pocket_preview_active = False
-
-    def _clear_bm_cut_artists(self) -> None:
-        from arpes.ui.widgets.fs_panel_bm_cuts import clear_bm_cut_artists
-        clear_bm_cut_artists(self)
-
-    def draw_bm_cuts(self, cuts: list) -> None:
-        from arpes.ui.widgets.fs_panel_bm_cuts import draw_bm_cuts
-        draw_bm_cuts(self, cuts)
-
-    def detect_gamma(self, raw_data: dict[str, Any] | None, params: FSParams):
-        kx, ky, fs, _ = extract_fs_map(raw_data, params)
-        if len(ky) < 3:
-            raise ValueError("FS Γ detection is impossible without a 2D FS volume.")
-        meta = raw_data.get("metadata", {}) or {}
-        if meta.get("fs_kind") != "kxky":
-            raise ValueError("FS Γ detection is available only with two axes in π/a.")
-        return detect_gamma_from_fs_map(kx, ky, fs, params).as_dict()
-
-    def _overlay_bz_crystal(self, p: FSParams, raw_data):
-        from arpes.ui.widgets.fs_panel_bz_crystal import overlay_bz_crystal
-        overlay_bz_crystal(self, p, raw_data)
-
-    def _overlay_bz(self, p: FSParams):
-        if not p.overlay_bz: return
-        bx, by = p.bz_half_x, p.bz_half_y
-        corners = bz_polygon(p.bz_shape, bx, by, p.bz_angle_deg)
-        line, = self.ax.plot(corners[:,0], corners[:,1], color="white", lw=1.2, ls="--", alpha=0.85)
-        self._overlay_artists.append(line)
-        self._overlay_artists.append(self.ax.axhline(0, color="white", lw=0.5, ls=":", alpha=0.5))
-        self._overlay_artists.append(self.ax.axvline(0, color="white", lw=0.5, ls=":", alpha=0.5))
-        if p.show_hsym:
-            def dot(x,y,name,color):
-                scat = self.ax.scatter([x],[y], c=color, s=35, zorder=5, linewidths=0)
-                ann = self.ax.annotate(name, (x,y), xytext=(4,4), textcoords="offset points", color=color, fontsize=9, fontweight="bold")
-                self._overlay_artists.extend([scat, ann])
-            for x, y, name, color in bz_high_symmetry_points(
-                p.bz_shape, bx, by, p.bz_angle_deg,
-                label_overrides=(getattr(p, "bz_label_overrides", None) or None),
-            ):
-                dot(x, y, name, color)
-        # NE PAS recadrer aux limites BZ : on garde le signal entier visible,
-        # le user zoome via la toolbar matplotlib si besoin. (Demandé par user
-        # après ajout du zoom — éviter perte de signal hors BZ théorique.)

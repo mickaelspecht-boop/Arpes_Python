@@ -63,6 +63,9 @@ class PocketController:
             return self._characterize_mdc_at(payload)
         if verb == "lasso":
             return self._lasso_characterize(payload)
+        if verb == "manual_contour":
+            from arpes.ui.controllers.pocket_controller_manual import characterize_manual_contour_at
+            return characterize_manual_contour_at(self, payload)
         if verb == "preview_start":
             return self._preview_start(payload)
         if verb == "preview_update":

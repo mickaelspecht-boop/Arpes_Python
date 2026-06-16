@@ -274,3 +274,43 @@ class TestBrowseOnlySavesConfigs:
                             lambda *, auto: opened.append(auto))
         ctrl._sample_setup_action("folder_opened")
         assert opened == []
+
+    def test_load_lattice_sync_updates_fs_and_kz_widgets(self):
+        from arpes.ui.controllers.load_lattice_sync import sync_lattice_widgets_for_entry
+
+        class _Spin:
+            def __init__(self):
+                self.value_set = None
+                self._v = 0.0
+
+            def value(self):
+                return self._v
+
+            def blockSignals(self, _blocked):
+                return False
+
+            def setValue(self, v):
+                self.value_set = v
+                self._v = v
+
+        entry = SimpleNamespace(meta=SimpleNamespace())
+        session = SimpleNamespace(
+            sample_configs={"BNO": {"a_angstrom": 4.14, "b_angstrom": 5.2, "c_angstrom": 13.1}},
+            current_sample={},
+        )
+        params = SimpleNamespace(sp_crystal_a=_Spin())
+        fs = SimpleNamespace(sp_a=_Spin(), sp_b=_Spin())
+        kz = SimpleNamespace(sp_a=_Spin(), sp_c=_Spin())
+        ctrl = SimpleNamespace(
+            _session=session,
+            _params=params,
+            _parent=SimpleNamespace(_fs_controls=fs, _kz_controls=kz),
+        )
+
+        sync_lattice_widgets_for_entry(ctrl, entry, "BNO/f1")
+
+        assert params.sp_crystal_a.value_set == pytest.approx(4.14)
+        assert fs.sp_a.value_set == pytest.approx(4.14)
+        assert fs.sp_b.value_set == pytest.approx(5.2)
+        assert kz.sp_a.value_set == pytest.approx(4.14)
+        assert kz.sp_c.value_set == pytest.approx(13.1)

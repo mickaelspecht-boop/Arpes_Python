@@ -48,19 +48,21 @@ def overlay_bz_crystal(canvas, p, raw_data) -> None:
         gamma_kx=0.0, gamma_ky=0.0,
     )
     if p.overlay_bz_crystal:
+        poly_plot = canvas.to_plot_points(poly) if hasattr(canvas, "to_plot_points") else poly
         line, = canvas.ax.plot(
-            poly[:, 0], poly[:, 1],
+            poly_plot[:, 0], poly_plot[:, 1],
             color="orange", lw=1.4, ls="-", alpha=0.85,
         )
         canvas._overlay_artists.append(line)
     if p.overlay_hs_crystal:
         for pt in proj:
+            xy = canvas.to_plot_points([[pt.kx, pt.ky]])[0] if hasattr(canvas, "to_plot_points") else (pt.kx, pt.ky)
             scat = canvas.ax.scatter(
-                [pt.kx], [pt.ky], c=pt.color or "orange",
+                [xy[0]], [xy[1]], c=pt.color or "orange",
                 s=45, zorder=6, edgecolors="black", linewidths=0.5,
             )
             ann = canvas.ax.annotate(
-                pt.label, (pt.kx, pt.ky), xytext=(5, 5),
+                pt.label, (xy[0], xy[1]), xytext=(5, 5),
                 textcoords="offset points",
                 color="orange", fontsize=10, fontweight="bold",
             )

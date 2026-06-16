@@ -3,7 +3,7 @@
 
 PyQt widgets (FSControlPanel, FermiSurfaceCanvas) moved to
 ``arpes/ui/widgets/fs_panel.py`` to respect the layering rule
-(no PyQt6 in arpes/physics/).
+(no GUI toolkit in arpes/physics/).
 """
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ class FSParams:
     norm_ref_lo: float = -0.60
     norm_ref_hi: float = -0.20
     smooth_sigma: float = 1.0
+    fs_rotation_deg: float = 0.0
     klim: float = 1.3
     kx_center: float = 0.0
     ky_center: float = 0.0

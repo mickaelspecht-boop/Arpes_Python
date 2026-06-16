@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 from PyQt6.QtWidgets import QApplication
 
-from arpes.core.sample import sample_for_entry, work_function_for_entry
+from arpes.core.sample import work_function_for_entry
 from arpes.core.session import DEFAULT_EF_OFFSET_EV, normalize_tags, session_tags
 from arpes.io.artifact_cache import (
     load_raw_artifact,
@@ -362,35 +362,9 @@ class LoadController:
         )
 
     def _lattice_a_for_load(self, entry, entry_key: str | None = None) -> float | None:
-        # entry_key is required for the per-subfolder Samples popup config to be
-        # honored (without it sample_for_entry skips session.sample_configs).
-        sample = sample_for_entry(self._session, entry, entry_key=entry_key)
-        if sample.has_lattice_a:
-            return float(sample.a_angstrom)
-        try:
-            ui_a = float(self._params.sp_crystal_a.value())
-        except Exception:
-            ui_a = 0.0
-        if ui_a <= 0:
-            try:
-                fs_controls = getattr(self._parent, "_fs_controls", None)
-                ui_a = float(getattr(fs_controls, "sp_a").value()) if fs_controls is not None else 0.0
-            except Exception:
-                ui_a = 0.0
-        if ui_a > 0:
-            entry.meta.crystal_a_angstrom = float(ui_a)
-            try:
-                self._params.sp_crystal_a.blockSignals(True)
-                self._params.sp_crystal_a.setValue(float(ui_a))
-                self._params.sp_crystal_a.blockSignals(False)
-            except Exception:
-                pass
-            try:
-                self._session.save()
-            except Exception:
-                pass
-            return float(ui_a)
-        return None
+        from arpes.ui.controllers.load_lattice_sync import lattice_a_for_load
+
+        return lattice_a_for_load(self, entry, entry_key=entry_key)
 
     def _work_function_for_load(self, path: str, prepared: _PreparedEntry) -> float:
         entry = prepared.entry
@@ -594,10 +568,8 @@ class LoadController:
             except Exception:
                 pass
 
-        a_val = float(getattr(entry.meta, "crystal_a_angstrom", 0.0) or 0.0)
-        self._params.sp_crystal_a.blockSignals(True)
-        self._params.sp_crystal_a.setValue(a_val)
-        self._params.sp_crystal_a.blockSignals(False)
+        from arpes.ui.controllers.load_lattice_sync import sync_lattice_widgets_for_entry
+        sync_lattice_widgets_for_entry(self, entry, prepared.key)
         self._parent._restore_theory_overlay_for_entry()
         # P1.1/P1.7 : restaure meta_gamma_state AVANT l'apply, et bloque les
         # signaux sp_cx pour éviter redraw partiel mid-load. L'apply voit

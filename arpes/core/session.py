@@ -147,6 +147,7 @@ class FileEntry:
     meta: FileMeta = field(default_factory=FileMeta)
     fs_center_kx: Optional[float] = None
     fs_center_ky: Optional[float] = None
+    fs_rotation_deg: float = 0.0             # display rotation of centered FS map (deg)
     fs_v0: float = 12.0                     # inner potential (eV) for kz calculation
     fs_kz_plane: str = "Auto"               # "Gamma" | "Z" | "Auto"
     fs_phi_c_deg: float = 0.0               # crystal/detector rotation (deg)
@@ -436,6 +437,7 @@ class Session:
                 meta=mt,
                 fs_center_kx=edict.get("fs_center_kx"),
                 fs_center_ky=edict.get("fs_center_ky"),
+                fs_rotation_deg=float(edict.get("fs_rotation_deg", 0.0) or 0.0),
                 fs_v0=float(edict.get("fs_v0", 12.0) or 12.0),
                 fs_kz_plane=str(edict.get("fs_kz_plane", "Auto") or "Auto"),
                 fs_phi_c_deg=float(edict.get("fs_phi_c_deg", 0.0) or 0.0),

@@ -74,6 +74,12 @@ def draw_bm_cuts(canvas, cuts: list) -> None:
             if norm > 1e-12:
                 kx_plot = kx_plot + (-dy / norm) * offset
                 ky_plot = ky_plot + (dx / norm) * offset
+        if hasattr(canvas, "to_plot_points"):
+            pts_plot = canvas.to_plot_points(
+                [[float(x), float(y)] for x, y in zip(kx_plot, ky_plot)]
+            )
+            kx_plot = pts_plot[:, 0]
+            ky_plot = pts_plot[:, 1]
         color = _COLOR.get(cut.quality, "white")
         linestyle = "--" if cut.quality == "scaled" else "-"
         line, = canvas.ax.plot(

@@ -25,6 +25,7 @@ class RadialMDCKf:
     fit_r2: float
     ok: bool
     n_samples: int
+    method: str = "lorentzian"
 
     def asdict(self) -> dict:
         return asdict(self)
@@ -123,6 +124,57 @@ def fit_lorentzian_mdc(
     return kF, std, r2, n
 
 
+def fit_electron_edge_mdc(
+    radii: np.ndarray,
+    intensities: np.ndarray,
+    *,
+    r_min: float = 0.0,
+) -> tuple[float, float, float, int]:
+    """Estimate kF for filled electron pockets from a falling radial edge.
+
+    Lorentzian MDCs work when the FS is a ridge. Electron pockets in noisy maps
+    are often filled disks: the profile is high near the seed and drops at kF,
+    so the Lorentzian maximum sits near r=0. This fallback uses the half-height
+    crossing of a descending profile and refuses flat/noisy traces.
+    """
+    r = np.asarray(radii, dtype=float)
+    y = np.asarray(intensities, dtype=float)
+    mask = np.isfinite(r) & np.isfinite(y) & (r >= float(r_min))
+    n = int(np.sum(mask))
+    if n < 8:
+        return float("nan"), float("nan"), float("nan"), n
+    r_use = r[mask]
+    y_use = y[mask]
+    span = float(np.nanmax(y_use) - np.nanmin(y_use))
+    if span <= 1e-12:
+        return float("nan"), float("nan"), float("nan"), n
+    n_edge = max(3, n // 5)
+    inside = float(np.nanmedian(y_use[:n_edge]))
+    outside = float(np.nanmedian(y_use[-n_edge:]))
+    contrast = inside - outside
+    noise = float(np.nanmedian(np.abs(np.diff(y_use)))) or 1e-12
+    if contrast <= max(0.08 * span, 3.0 * noise):
+        return float("nan"), float("nan"), float("nan"), n
+    level = outside + 0.5 * contrast
+    below = np.flatnonzero(y_use <= level)
+    below = below[below > 0]
+    if below.size:
+        i = int(below[0])
+        y0, y1 = float(y_use[i - 1]), float(y_use[i])
+        r0, r1 = float(r_use[i - 1]), float(r_use[i])
+        frac = 0.0 if abs(y1 - y0) <= 1e-12 else (level - y0) / (y1 - y0)
+        kf = r0 + float(np.clip(frac, 0.0, 1.0)) * (r1 - r0)
+    else:
+        grad = np.gradient(y_use, r_use)
+        i = int(np.nanargmin(grad))
+        kf = float(r_use[i])
+    if not np.isfinite(kf) or kf <= r_use[0] or kf >= r_use[-1]:
+        return float("nan"), float("nan"), float("nan"), n
+    confidence = float(np.clip(contrast / (contrast + 6.0 * noise), 0.0, 1.0))
+    dk = float(np.nanmedian(np.diff(r_use))) if r_use.size > 1 else float("nan")
+    return float(kf), dk, confidence, n
+
+
 def kf_radial_mdc(
     image: np.ndarray,
     kx: np.ndarray,
@@ -137,11 +189,20 @@ def kf_radial_mdc(
     """Extract kF along one radial direction via MDC Lorentzian fit."""
     radii, ints = sample_radial_mdc(image, kx, ky, center, theta_deg, r_max, n_points)
     kF, std, r2, n_used = fit_lorentzian_mdc(radii, ints)
+    method = "lorentzian"
     ok = bool(np.isfinite(kF) and np.isfinite(r2) and r2 >= float(r2_min))
+    near_center = bool(np.isfinite(kF) and kF <= 2.0 * float(r_max) / max(int(n_points) - 1, 1))
+    edge_kf, edge_std, edge_conf, edge_n = fit_electron_edge_mdc(radii, ints)
+    edge_ok = bool(np.isfinite(edge_kf) and np.isfinite(edge_conf) and edge_conf >= float(r2_min))
+    lorentzian_too_inner = bool(edge_ok and np.isfinite(kF) and kF < 0.65 * edge_kf)
+    if edge_ok and ((not ok) or near_center or lorentzian_too_inner):
+        kF, std, r2, n_used = edge_kf, edge_std, edge_conf, edge_n
+        ok = True
+        method = "edge_half_height"
     return RadialMDCKf(
         theta_deg=float(theta_deg),
         kF=float(kF), kF_std=float(std), fit_r2=float(r2),
-        ok=ok, n_samples=int(n_used),
+        ok=ok, n_samples=int(n_used), method=method,
     )
 
 

@@ -133,6 +133,18 @@ class TestSessionManager(unittest.TestCase):
             self.assertEqual(restored.files["FS1"].fs_pockets[0]["topology"], "electron")
             self.assertAlmostEqual(restored.files["FS1"].fs_pockets[0]["area_pct_bz"], 3.5)
 
+    def test_session_round_trip_preserves_fs_rotation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = Session(root)
+            entry = session.get_or_create("FS1")
+            entry.fs_rotation_deg = 17.5
+            session.save()
+
+            restored = Session(root)
+            restored.load(root / ".arpes_session.json")
+            self.assertAlmostEqual(restored.files["FS1"].fs_rotation_deg, 17.5)
+
     def test_session_round_trip_preserves_bz_mp_override(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

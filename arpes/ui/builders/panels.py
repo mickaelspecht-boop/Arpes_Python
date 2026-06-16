@@ -510,6 +510,10 @@ def wire_ui_signals(window) -> None:
                               "ky0": float(y0), "ky1": float(y1)}
                 )
             )
+        if hasattr(window._fs_canvas, "pocket_manual_contour_requested"):
+            window._fs_canvas.pocket_manual_contour_requested.connect(
+                lambda payload: window._pocket_action("manual_contour", dict(payload or {}))
+            )
         if hasattr(window._fs_canvas, "pairing_diagnose_requested"):
             window._fs_canvas.pairing_diagnose_requested.connect(
                 lambda: window._pairing_action("diagnose", {})
