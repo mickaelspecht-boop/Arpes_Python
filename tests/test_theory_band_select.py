@@ -145,6 +145,20 @@ class TestSelectBandsForView:
         assert np.allclose(curves[1][1], 2 * 0.1 - k0)
         assert not np.allclose(curves[1][1], -k0)
 
+    def test_mirror_prefers_manual_gamma_center(self):
+        cfg = TheoryOverlayConfig(
+            enabled=True, band_indices="0", mirror_gamma=True,
+            k_scale=2.0, k_shift=0.1, gamma_center=0.35,
+        )
+        curves = select_bands_for_view(
+            self._data_with_gamma(), cfg, xlim=(-5, 5), ylim=(-1, 1))
+        k0 = np.asarray(curves[0][1])
+        assert np.allclose(curves[1][1], 2 * 0.35 - k0)
+
+    def test_config_roundtrip_keeps_manual_gamma_center(self):
+        cfg = TheoryOverlayConfig(enabled=True, gamma_center=-0.12)
+        assert TheoryOverlayConfig.from_dict(cfg.to_dict()).gamma_center == pytest.approx(-0.12)
+
 
 class TestRealMpBranches:
     BR = [

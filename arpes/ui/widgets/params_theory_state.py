@@ -24,6 +24,7 @@ def theory_overlay_config(panel) -> dict:
         "color_by_band": bool(panel.chk_theory_color.isChecked()),
         "with_projections": bool(panel.chk_theory_projections.isChecked()),
         "crystal_a": float(panel.sp_crystal_a.value()),
+        "gamma_center": float(panel.sp_cx.value()),
     }
 
 

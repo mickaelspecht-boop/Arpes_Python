@@ -84,6 +84,7 @@ class TheoryOverlayConfig:
     color_by_band: bool = True
     crystal_a: float = 0.0
     path_convention: str = "mp_bulk"
+    gamma_center: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -102,6 +103,9 @@ class TheoryOverlayConfig:
             "color_by_band": bool(self.color_by_band),
             "crystal_a": float(self.crystal_a),
             "path_convention": str(self.path_convention or "mp_bulk"),
+            "gamma_center": (
+                None if self.gamma_center is None else float(self.gamma_center)
+            ),
         }
 
     @classmethod
@@ -126,6 +130,10 @@ class TheoryOverlayConfig:
             color_by_band=bool(data.get("color_by_band", True)),
             crystal_a=max(0.0, _finite_float(data.get("crystal_a"), 0.0)),
             path_convention=str(data.get("path_convention") or "mp_bulk"),
+            gamma_center=(
+                _finite_float(data.get("gamma_center"), 0.0)
+                if data.get("gamma_center") is not None else None
+            ),
         )
 
 

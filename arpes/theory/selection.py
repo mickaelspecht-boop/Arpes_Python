@@ -55,15 +55,16 @@ def displayed_k_axis(data: TheoryBandData | dict[str, Any], config: TheoryOverla
 def displayed_gamma_k(
     data: TheoryBandData | dict[str, Any], config: TheoryOverlayConfig | dict[str, Any]
 ) -> float | None:
-    """Displayed k (π/a) of the DFT Γ point, or None.
+    """Displayed k (π/a) of the active Γ center, or None.
 
-    ``Γ_display = local_k(Γ) * k_scale + k_shift`` — the same transform the bands
-    use. This is the physically correct pivot for the Γ mirror and, after
-    alignment, equals the manual Γ center placed on the BM. None when there is no
-    Γ label or it falls off the current branch.
+    The manual BM Γ center wins when present: users can drag/type that center
+    without changing the DFT path. Otherwise we fall back to the displayed DFT Γ:
+    ``Γ_display = local_k(Γ) * k_scale + k_shift``.
     """
     data = TheoryBandData.from_dict(data) if isinstance(data, dict) else data
     config = TheoryOverlayConfig.from_dict(config) if isinstance(config, dict) else config
+    if config.gamma_center is not None and np.isfinite(float(config.gamma_center)):
+        return float(config.gamma_center)
     raw = None
     for item in (data.labels or []):
         name = str(item.get("label") or "").strip().upper().replace("GAMMA", "Γ")
@@ -137,8 +138,8 @@ def select_bands_for_view(
             if finite.size and float(np.nanmin(finite)) <= win and float(np.nanmax(finite)) >= -win:
                 kept.append(idx)
         selected = kept
-    # Mirror about the DFT Γ position (= the manual Γ center once aligned), not
-    # about k=0 — otherwise a non-zero Γ reflects to the wrong side.
+    # Mirror about the active Γ center, not k=0. The active center is normally
+    # the BM manual center (sp_cx), falling back to displayed DFT Γ.
     pivot = 0.0
     if config.mirror_gamma:
         g = displayed_gamma_k(data, config)

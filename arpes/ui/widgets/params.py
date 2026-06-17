@@ -128,6 +128,7 @@ class FitParamsPanel(QScrollArea):
     theory_efalign_requested = pyqtSignal()
     theory_anchor_pick_toggled = pyqtSignal(bool)
     theory_anchor_apply_requested = pyqtSignal()
+    theory_anchor_center_requested = pyqtSignal()
     theory_anchor_clear_requested = pyqtSignal()
     work_function_changed = pyqtSignal()
     crystal_a_changed = pyqtSignal()

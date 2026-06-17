@@ -148,9 +148,8 @@ def build_theory_section(panel, lay) -> None:
         sig.connect(panel._schedule_theory_overlay_changed)
     panel.chk_theory_mirror = QCheckBox("Mirror Γ (k → -k)")
     panel.chk_theory_mirror.setToolTip(
-        "Duplicates DFT bands mirrored about Γ.\n"
-        "The mirror axis is the DFT Γ position — i.e. the manual Γ center placed\n"
-        "on the BM once aligned — not k=0, so an off-center Γ mirrors correctly.\n"
+        "Duplicates DFT bands mirrored about the manual BM Γ center.\n"
+        "If no manual center is available, falls back to the displayed DFT Γ.\n"
         "Useful for symmetric scans [-X, Γ, +X] where the Setyawan-Curtarolo path\n"
         "covers only the right half. Valid for centrosymmetric crystals\n"
         "(e.g. BaNi₂As₂ I4/mmm)."
@@ -215,6 +214,12 @@ def build_theory_section(panel, lay) -> None:
         "1 point anchors Δk only) and align the DFT onto them."
     )
     panel.btn_theory_anchor_apply.clicked.connect(panel.theory_anchor_apply_requested)
+    panel.btn_theory_anchor_center = QPushButton("Use Γ center")
+    panel.btn_theory_anchor_center.setToolTip(
+        "Replace the placed Γ point by the current BM Γ center, then align.\n"
+        "Use after dragging or typing Γ center so the DFT and mirror axis follow it."
+    )
+    panel.btn_theory_anchor_center.clicked.connect(panel.theory_anchor_center_requested)
     panel.btn_theory_anchor_clear = QPushButton("Clear pts")
     panel.btn_theory_anchor_clear.setToolTip("Remove all placed high-symmetry points.")
     panel.btn_theory_anchor_clear.clicked.connect(panel.theory_anchor_clear_requested)
@@ -303,7 +308,11 @@ def build_theory_section(panel, lay) -> None:
     apr_lay.addWidget(panel.cmb_theory_anchor_label, 1)
     apr_lay.addWidget(panel.btn_theory_anchor_pick)
     fl_th.addRow("HS point:", anchor_pick_row)
-    fl_th.addRow(_btn_grid([panel.btn_theory_anchor_apply, panel.btn_theory_anchor_clear]))
+    fl_th.addRow(_btn_grid([
+        panel.btn_theory_anchor_apply,
+        panel.btn_theory_anchor_center,
+        panel.btn_theory_anchor_clear,
+    ]))
     # 4 · Rendering & Diagnostics
     fl_th.addRow(_section("4 · Rendering & Diagnostics"))
     fl_th.addRow("Opacity:", panel.sp_theory_alpha)

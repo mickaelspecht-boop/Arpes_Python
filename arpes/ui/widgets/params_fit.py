@@ -268,6 +268,7 @@ def _build_constraint_section(panel, _fcl) -> None:
     panel.sp_cx.valueChanged.connect(
         lambda v: panel.gamma_center_preview.emit(float(v))
     )
+    panel.sp_cx.valueChanged.connect(lambda _v: panel._schedule_theory_overlay_changed())
     k0w = QWidget()
     k0l = QHBoxLayout(k0w)
     k0l.setContentsMargins(0, 0, 0, 0)

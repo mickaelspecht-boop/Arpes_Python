@@ -211,3 +211,15 @@ def test_placed_label_tinted_in_combo():
     tac.on_bm_click(w, _click(ax, -0.05))
     # Γ is index 0 and now placed → tinted green.
     assert 0 in w._params.cmb_theory_anchor_label.tinted
+
+
+def test_use_manual_gamma_center_replaces_gamma_anchor_and_aligns():
+    ov = _overlay()
+    ov["anchors"] = [{"label": "Γ", "k": -0.2}, {"label": "X", "k": 0.8}]
+    w, _ = _window(ov)
+    w._params.sp_cx.setValue(0.15)
+    tac.use_manual_gamma_center(w)
+    anchors = w._theory_overlay_ctrl._current_overlay()["anchors"]
+    assert {"label": "Γ", "k": 0.15} in anchors
+    assert {"label": "Γ", "k": -0.2} not in anchors
+    assert w._params.sp_theory_dk.value() == pytest.approx(0.15)

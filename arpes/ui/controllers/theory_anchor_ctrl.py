@@ -33,6 +33,7 @@ def wire(window) -> None:
         return
     p.theory_anchor_pick_toggled.connect(lambda on: set_pick_active(window, on))
     p.theory_anchor_apply_requested.connect(lambda: apply_calibration(window))
+    p.theory_anchor_center_requested.connect(lambda: use_manual_gamma_center(window))
     p.theory_anchor_clear_requested.connect(lambda: clear_anchors(window))
     bm = getattr(window, "_bm_canvas", None)
     if bm is not None:
@@ -192,6 +193,29 @@ def clear_anchors(window) -> None:
     populate_labels(window)  # clear the green "placed" tint
     _redraw(window)
     window._status("Cleared placed high-symmetry points.")
+
+
+def use_manual_gamma_center(window) -> None:
+    """Replace the Γ anchor with the current BM center, then fit alignment."""
+    sp_cx = getattr(window._params, "sp_cx", None)
+    if sp_cx is None:
+        window._status("No BM Γ center control available.")
+        return
+    try:
+        center = float(sp_cx.value())
+    except (TypeError, ValueError):
+        window._status("Invalid BM Γ center.")
+        return
+    overlay = _overlay(window)
+    anchors = [a for a in (overlay.get("anchors") or [])
+               if _norm_label(a.get("label")) != "Γ"]
+    anchors.append({"label": "Γ", "k": center})
+    overlay["anchors"] = anchors
+    ctrl = _theory_ctrl(window)
+    if ctrl is not None:
+        ctrl._save_overlay(overlay)
+    populate_labels(window)
+    apply_calibration(window)
 
 
 def track_gamma_center_delta(window, delta: float) -> None:
