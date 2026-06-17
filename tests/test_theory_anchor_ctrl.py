@@ -12,6 +12,7 @@ class _Combo:
     def __init__(self, text=""):
         self._t = text
         self._items = []
+        self.tinted = {}
 
     def currentText(self):
         return self._t
@@ -21,9 +22,13 @@ class _Combo:
 
     def clear(self):
         self._items = []
+        self.tinted = {}
 
     def addItems(self, xs):
         self._items = list(xs)
+
+    def setItemData(self, i, value, role):
+        self.tinted[i] = (value, role)
 
     def blockSignals(self, _b):
         return False
@@ -54,12 +59,13 @@ class _TheoryCtrl:
         self._overlay = overlay
 
 
-def _window(overlay, label="Γ"):
+def _window(overlay, label="Γ", *, enabled=False):
     params = SimpleNamespace(
         cmb_theory_anchor_label=_Combo(label),
         sp_theory_kscale=_Spin(1.0),
         sp_theory_dk=_Spin(0.0),
-        theory_overlay_config=lambda: {},
+        sp_cx=_Spin(0.0),
+        theory_overlay_config=lambda: {"enabled": bool(enabled)},
     )
     ax = object()
     bm = SimpleNamespace(fig=SimpleNamespace(axes=[ax]),
@@ -159,3 +165,49 @@ def test_populate_labels_fills_combo():
     w, _ = _window(_overlay())
     tac.populate_labels(w)
     assert w._params.cmb_theory_anchor_label._items == ["Γ", "X"]
+
+
+def test_apply_sets_manual_center_from_gamma_anchor():
+    ov = _overlay()
+    ov["anchors"] = [{"label": "Γ", "k": 0.12}]
+    w, _ = _window(ov)
+    tac.apply_calibration(w)
+    # Γ local-k is 0 → displayed Γ = shift = 0.12 → manual center locked to it.
+    assert w._params.sp_cx.value() == pytest.approx(0.12)
+
+
+def test_apply_without_gamma_anchor_leaves_center():
+    ov = _overlay()
+    ov["anchors"] = [{"label": "X", "k": 0.78}]
+    w, _ = _window(ov)
+    w._params.sp_cx.setValue(0.05)
+    tac.apply_calibration(w)
+    assert w._params.sp_cx.value() == pytest.approx(0.05)  # untouched
+
+
+def test_track_gamma_center_shifts_dk_when_overlay_enabled():
+    w, _ = _window(_overlay(), enabled=True)
+    w._params.sp_theory_dk.setValue(0.10)
+    tac.track_gamma_center_delta(w, 0.30)
+    assert w._params.sp_theory_dk.value() == pytest.approx(0.40)
+
+
+def test_track_gamma_center_noop_when_overlay_disabled():
+    w, _ = _window(_overlay(), enabled=False)
+    w._params.sp_theory_dk.setValue(0.10)
+    tac.track_gamma_center_delta(w, 0.30)
+    assert w._params.sp_theory_dk.value() == pytest.approx(0.10)
+
+
+def test_track_gamma_center_noop_on_zero_delta():
+    w, _ = _window(_overlay(), enabled=True)
+    w._params.sp_theory_dk.setValue(0.10)
+    tac.track_gamma_center_delta(w, 0.0)
+    assert w._params.sp_theory_dk.value() == pytest.approx(0.10)
+
+
+def test_placed_label_tinted_in_combo():
+    w, ax = _window(_overlay(), label="Γ")
+    tac.on_bm_click(w, _click(ax, -0.05))
+    # Γ is index 0 and now placed → tinted green.
+    assert 0 in w._params.cmb_theory_anchor_label.tinted

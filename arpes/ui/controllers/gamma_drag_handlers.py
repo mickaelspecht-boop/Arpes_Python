@@ -184,6 +184,7 @@ def _commit(window, k_center: float) -> None:
     if kpar.size:
         k_center = float(np.clip(k_center, np.nanmin(kpar), np.nanmax(kpar)))
     sp_cx = getattr(window._params, "sp_cx", None)
+    old_center = float(sp_cx.value()) if sp_cx is not None else 0.0
     if sp_cx is not None:
         # setValue fires valueChanged → gamma_center_preview (redraws the guide
         # line) + fit_only_changed (refreshes the fit overlay), same as a manual
@@ -199,4 +200,11 @@ def _commit(window, k_center: float) -> None:
             window._session.save()
         except Exception:
             pass
+    # The manual center is the master Γ reference: keep the DFT overlay glued to
+    # it so its bands and the Γ mirror axis follow the drag.
+    try:
+        from arpes.ui.controllers.theory_anchor_ctrl import track_gamma_center_delta
+        track_gamma_center_delta(window, float(k_center) - old_center)
+    except Exception:
+        pass
     window._status(f"Γ center set to {k_center:+.3f} π/a (signal unchanged)")

@@ -115,8 +115,35 @@ class TestSelectBandsForView:
         )
         curves = select_bands_for_view(self._data(), cfg, xlim=(-2, 2), ylim=(-1, 1))
         assert [c[0] for c in curves] == [1, 1]
-        # second = miroir k -> -k
+        # No Γ label here -> pivot defaults to 0, so mirror is k -> -k.
         assert np.allclose(curves[1][1], -np.asarray(curves[0][1]))
+
+    def _data_with_gamma(self):
+        return TheoryBandData(
+            source="materials_project", material_id="mp-1",
+            k_distance=[0.0, 0.5, 1.0],
+            bands=[[-0.2, 0.0, 0.2]],
+            labels=[{"label": "Γ", "k": 0.0}, {"label": "X", "k": 1.0}],
+        )
+
+    def test_displayed_gamma_k_applies_scale_shift(self):
+        from arpes.theory.selection import displayed_gamma_k
+        cfg = TheoryOverlayConfig(enabled=True, k_scale=2.0, k_shift=0.1)
+        # No branch: local_k(Γ) == raw 0.0 -> displayed = 0*2 + 0.1.
+        assert displayed_gamma_k(self._data_with_gamma(), cfg) == pytest.approx(0.1)
+
+    def test_mirror_pivots_about_gamma_not_zero(self):
+        cfg = TheoryOverlayConfig(
+            enabled=True, band_indices="0", mirror_gamma=True,
+            k_scale=2.0, k_shift=0.1,
+        )
+        curves = select_bands_for_view(
+            self._data_with_gamma(), cfg, xlim=(-5, 5), ylim=(-1, 1))
+        assert [c[0] for c in curves] == [0, 0]
+        k0 = np.asarray(curves[0][1])
+        # Mirror about displayed Γ (0.1): 2*0.1 - k, not -k.
+        assert np.allclose(curves[1][1], 2 * 0.1 - k0)
+        assert not np.allclose(curves[1][1], -k0)
 
 
 class TestRealMpBranches:

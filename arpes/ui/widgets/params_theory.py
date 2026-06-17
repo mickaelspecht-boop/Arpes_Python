@@ -148,7 +148,9 @@ def build_theory_section(panel, lay) -> None:
         sig.connect(panel._schedule_theory_overlay_changed)
     panel.chk_theory_mirror = QCheckBox("Mirror Γ (k → -k)")
     panel.chk_theory_mirror.setToolTip(
-        "Duplicates DFT bands mirrored around Γ (k → -k).\n"
+        "Duplicates DFT bands mirrored about Γ.\n"
+        "The mirror axis is the DFT Γ position — i.e. the manual Γ center placed\n"
+        "on the BM once aligned — not k=0, so an off-center Γ mirrors correctly.\n"
         "Useful for symmetric scans [-X, Γ, +X] where the Setyawan-Curtarolo path\n"
         "covers only the right half. Valid for centrosymmetric crystals\n"
         "(e.g. BaNi₂As₂ I4/mmm)."

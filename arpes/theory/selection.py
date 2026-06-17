@@ -52,6 +52,42 @@ def displayed_k_axis(data: TheoryBandData | dict[str, Any], config: TheoryOverla
     return k * float(config.k_scale) + float(config.k_shift)
 
 
+def displayed_gamma_k(
+    data: TheoryBandData | dict[str, Any], config: TheoryOverlayConfig | dict[str, Any]
+) -> float | None:
+    """Displayed k (π/a) of the DFT Γ point, or None.
+
+    ``Γ_display = local_k(Γ) * k_scale + k_shift`` — the same transform the bands
+    use. This is the physically correct pivot for the Γ mirror and, after
+    alignment, equals the manual Γ center placed on the BM. None when there is no
+    Γ label or it falls off the current branch.
+    """
+    data = TheoryBandData.from_dict(data) if isinstance(data, dict) else data
+    config = TheoryOverlayConfig.from_dict(config) if isinstance(config, dict) else config
+    raw = None
+    for item in (data.labels or []):
+        name = str(item.get("label") or "").strip().upper().replace("GAMMA", "Γ")
+        if name == "Γ" and item.get("k") is not None:
+            try:
+                raw = float(item["k"])
+            except (TypeError, ValueError):
+                raw = None
+            break
+    if raw is None:
+        return None
+    k_full = np.asarray(data.k_distance, dtype=float)
+    if k_full.size == 0:
+        return None
+    loc = _branch_local_k(data, config, k_full)
+    idx = int(np.argmin(np.abs(k_full - raw)))
+    if idx >= loc.size:
+        return None
+    u = float(loc[idx])
+    if not np.isfinite(u):
+        return None
+    return u * float(config.k_scale) + float(config.k_shift)
+
+
 def selected_segment_mask(data: TheoryBandData | dict[str, Any], config: TheoryOverlayConfig | dict[str, Any], n_k: int) -> np.ndarray:
     data = TheoryBandData.from_dict(data) if isinstance(data, dict) else data
     config = TheoryOverlayConfig.from_dict(config) if isinstance(config, dict) else config
@@ -101,13 +137,19 @@ def select_bands_for_view(
             if finite.size and float(np.nanmin(finite)) <= win and float(np.nanmax(finite)) >= -win:
                 kept.append(idx)
         selected = kept
+    # Mirror about the DFT Γ position (= the manual Γ center once aligned), not
+    # about k=0 — otherwise a non-zero Γ reflects to the wrong side.
+    pivot = 0.0
+    if config.mirror_gamma:
+        g = displayed_gamma_k(data, config)
+        pivot = g if g is not None else 0.0
     curves: list[tuple[int, np.ndarray, np.ndarray]] = []
     for idx in selected:
         band = bands[idx].copy()
         band[~segment_mask] = np.nan
         curves.append((idx, k, band))
         if config.mirror_gamma:
-            curves.append((idx, -k, band.copy()))
+            curves.append((idx, 2.0 * pivot - k, band.copy()))
     return curves
 
 
