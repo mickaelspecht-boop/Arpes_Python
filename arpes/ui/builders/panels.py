@@ -425,7 +425,7 @@ def wire_ui_signals(window) -> None:
     for _sp in (window._sp_deriv_sigma_e, window._sp_deriv_sigma_k, window._sp_deriv_c0):
         _sp.valueChanged.connect(window._on_deriv_params_changed)
 
-    _connect_map_canvas(window._bm_canvas, window)
+    _connect_map_canvas(window._bm_canvas, window, gamma_drag=True)
     _connect_map_canvas(window._mdc_map_canvas, window)
     if FermiSurfaceCanvas is not None and hasattr(window._fs_canvas, "canvas"):
         window._fs_canvas.canvas.mpl_connect("button_press_event", window._on_fs_map_click)
@@ -578,7 +578,12 @@ def wire_ui_signals(window) -> None:
     window._kz_controls.params_changed.connect(window._on_kz_params_changed)
 
 
-def _connect_map_canvas(canvas_widget, window) -> None:
+def _connect_map_canvas(canvas_widget, window, *, gamma_drag: bool = False) -> None:
+    if gamma_drag:
+        # Connect first so the press handler sets _gamma_drag_active before the
+        # map-click / fit-select handlers run and they can bail on it.
+        from arpes.ui.controllers.gamma_drag_handlers import wire_gamma_drag
+        wire_gamma_drag(canvas_widget, window)
     canvas_widget.canvas.mpl_connect("button_press_event", window._on_map_click)
     canvas_widget.canvas.mpl_connect("button_press_event", window._on_fit_annotate_press)
     canvas_widget.canvas.mpl_connect("button_press_event", window._on_fit_roi_press)
@@ -615,6 +620,10 @@ def wire_param_signals(window) -> None:
     p.copy_params_requested.connect(window._copy_params)
     p.ef_calib_requested.connect(window._ef_calibrate)
     p.ef_apply_reference_requested.connect(window._apply_ef_reference_to_current)
+    # Live EF offset: editing the spinbox rigidly shifts the binding-energy axis
+    # (no reload — the offset is a pure axis shift). Debounced redraw/save.
+    from arpes.ui.controllers.ef_offset_live import apply_live_ef_offset
+    p.sp_ef.valueChanged.connect(lambda v: apply_live_ef_offset(window, v))
     p.logbook_requested.connect(window._logbook_ctrl.open_dialog)
     p.gamma_bm_requested.connect(window._estimate_gamma_bm)
     p.gamma_ref_requested.connect(window._apply_gamma_reference_to_bm)
@@ -649,6 +658,10 @@ def wire_param_signals(window) -> None:
     p.theory_mu_fit_requested.connect(window._fit_theory_mu_auto)
     p.theory_align_requested.connect(window._align_theory_to_arpes)
     p.theory_efalign_requested.connect(window._align_theory_efermi)
+    # Manual DFT calibration from user-placed high-symmetry points (closures →
+    # no PROXY_MAP entry; BM click handler wired inside).
+    from arpes.ui.controllers.theory_anchor_ctrl import wire as _wire_theory_anchor
+    _wire_theory_anchor(window)
     p.work_function_changed.connect(window._on_work_function_changed)
     p.crystal_a_changed.connect(window._on_crystal_a_changed)
     p.fit_section_toggled.connect(window._on_fit_section_toggled)

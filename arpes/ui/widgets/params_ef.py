@@ -68,10 +68,11 @@ def build_ef_section(panel, lay) -> None:
     )
     panel.sp_ef = dspin(DEFAULT_EF_OFFSET_EV, -5.0, 5.0, 0.005)
     panel.sp_ef.setToolTip(
-        "Scalar EF offset in eV. Adjusts the energy zero.\n"
+        "Scalar EF offset in eV — shifts the energy zero live (raise/lower the\n"
+        "Fermi level). Applied instantly as a rigid binding-axis shift, no reload.\n"
         "Use 'Auto EF calibration' to compute it via Fermi-Dirac fit.\n"
-        "Ignored when a polynomial EF calibration (ef_correction) is active: "
-        "the polynomial takes precedence over the scalar."
+        "A polynomial EF calibration (ef_correction), if active, is applied on "
+        "top of this scalar."
     )
     btn_ef = compact_button(QPushButton("Auto EF calibration"))
     btn_ef.clicked.connect(panel.ef_calib_requested)

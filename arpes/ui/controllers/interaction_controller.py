@@ -105,8 +105,9 @@ class InteractionController:
         p = self._parent
         if getattr(p, "_raw_data", None) is None:
             return
+        from arpes.ui.tab_index import IDX_MDC
         tabs = getattr(p, "_tabs", None)
-        if tabs is not None and tabs.currentIndex() != 1:
+        if tabs is not None and tabs.currentIndex() != IDX_MDC:
             return
         t = getattr(self._parent, "_live_fit_timer", None)
         if t is not None:
@@ -120,8 +121,9 @@ class InteractionController:
         if live_chk is not None and not live_chk.isChecked():
             return
         # ne déclenche pas si l'onglet MDC fit n'est pas visible
+        from arpes.ui.tab_index import IDX_MDC
         tabs = getattr(p, "_tabs", None)
-        if tabs is not None and tabs.currentIndex() != 1:
+        if tabs is not None and tabs.currentIndex() != IDX_MDC:
             return
         fn = getattr(p, "_fit_guess", None)
         if callable(fn):
@@ -191,8 +193,8 @@ class InteractionController:
                 pass
         p._fit_roi_rect = Rectangle(
             p._fit_roi_start, 0.0, 0.0,
-            fill=False, edgecolor="#38bdf8", linewidth=1.4,
-            linestyle="-", alpha=0.95, zorder=20,
+            fill=True, facecolor="#38bdf8", edgecolor="#e0f2fe",
+            linewidth=1.8, linestyle="-", alpha=0.22, zorder=20,
         )
         event.inaxes.add_patch(p._fit_roi_rect)
         event.canvas.draw_idle()
@@ -248,6 +250,7 @@ class InteractionController:
         p._sel_ev = float((e0 + e1) * 0.5)
         self._sync_ev_spinbox()
         self._params.params_changed.emit()
+        self._params.fit_only_changed.emit()
         self._draw_current_view()
         self._status(
             f"Fit zone: k={k0:+.3f}->{k1:+.3f} pi/a, "
@@ -261,7 +264,8 @@ class InteractionController:
 
     def _on_fit_select_press(self, event):
         p = self._parent
-        if getattr(p, "_fit_roi_active", False):
+        if (getattr(p, "_fit_roi_active", False) or getattr(p, "_gamma_drag_active", False)
+                or getattr(p, "_theory_anchor_pick_active", False)):
             return
         if event.inaxes not in (
             getattr(p._bm_canvas, "ax", None),
@@ -395,7 +399,8 @@ class InteractionController:
 
     def _on_fit_select_motion(self, event):
         p = self._parent
-        if getattr(p, "_fit_roi_active", False):
+        if (getattr(p, "_fit_roi_active", False) or getattr(p, "_gamma_drag_active", False)
+                or getattr(p, "_theory_anchor_pick_active", False)):
             return
         start = getattr(p, "_fit_select_press_xy", None)
         ax = getattr(p, "_fit_select_press_ax", None)
@@ -427,7 +432,8 @@ class InteractionController:
 
     def _on_fit_select_release(self, event):
         p = self._parent
-        if getattr(p, "_fit_roi_active", False):
+        if (getattr(p, "_fit_roi_active", False) or getattr(p, "_gamma_drag_active", False)
+                or getattr(p, "_theory_anchor_pick_active", False)):
             return
         start = getattr(p, "_fit_select_press_xy", None)
         ax = getattr(p, "_fit_select_press_ax", None)
@@ -585,7 +591,8 @@ class InteractionController:
 
     def _on_map_click(self, event):
         p = self._parent
-        if p._fit_roi_active:
+        if (p._fit_roi_active or getattr(p, "_gamma_drag_active", False)
+                or getattr(p, "_theory_anchor_pick_active", False)):
             return
         if event.inaxes not in (p._bm_canvas.ax, p._mdc_map_canvas.ax):
             return

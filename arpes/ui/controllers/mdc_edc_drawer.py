@@ -70,7 +70,10 @@ def draw_mdc_edc(ctrl) -> None:
         xgr = params.sp_xg.value()
         ax_mdc.axvspan(cx - xgr, cx + xgr, alpha=0.08, color="cyan",
                        zorder=0, label=f"Gamma window +/-{xgr:.2f}")
-        ax_mdc.axvline(cx, color="cyan", lw=0.6, ls=":", alpha=0.45, zorder=1)
+        center_line = ax_mdc.axvline(
+            cx, color="cyan", lw=1.0, ls=":", alpha=0.75, zorder=5, picker=7,
+        )
+        center_line._kf_meta = ("center", 0)
 
         if not params.chk_k0a.isChecked():
             k0m = params.sp_k0m.value()

@@ -355,6 +355,13 @@ class TheoryOverlayController:
                 pass
         except Exception as exc:
             self._parent._status(f"Warning: DFT overlay not drawn: {exc}")
+        # Placed high-symmetry markers draw regardless of overlay enabled state,
+        # so the user sees their points while calibrating.
+        try:
+            from arpes.ui.controllers.theory_anchor_ctrl import draw_anchor_markers
+            draw_anchor_markers(self, ax)
+        except Exception:
+            pass
 
     def _search_theory_mp(self) -> None:
         """Open the MP formula-search dialog, prefilled from logbook when available."""
@@ -378,6 +385,20 @@ class TheoryOverlayController:
         self._params.txt_theory_mpid.setText(mpid)
         self._apply_mp_id(mpid, source="search", show_dialog_on_error=True)
 
+    def _manual_gamma_center(self) -> float:
+        """Manual Γ center marker (sp_cx, π/a); 0.0 if unavailable.
+
+        The manual center drag moves only this marker (no k// axis shift), so the
+        DFT overlay must be offset by it to align Γ_DFT onto the chosen center.
+        """
+        sp_cx = getattr(self._params, "sp_cx", None)
+        if sp_cx is None:
+            return 0.0
+        try:
+            return float(sp_cx.value())
+        except (TypeError, ValueError):
+            return 0.0
+
     def _align_theory_to_arpes(self) -> None:
         """Calcule scale + Δk pour mapper segment choisi sur [0, 1] (π/a).
 
@@ -397,6 +418,9 @@ class TheoryOverlayController:
         # [0,1] (Γ→0, bord de zone→1 en π/a). Recalculer depuis les
         # positions de label sur l'axe global double-transformerait
         # l'overlay (cause du hors-cadre). → scale=1, Δk=0.
+        # Manual Γ center (sp_cx, π/a): the BM axis is not shifted by the manual
+        # center drag, so the DFT Γ must land on that marker, not on k=0.
+        k_center = self._manual_gamma_center()
         branches = data_d.get("branches") or []
         if branches:
             from arpes.theory.models import _branch_index_for_segment
@@ -404,24 +428,25 @@ class TheoryOverlayController:
                 self._params.sp_theory_kscale.blockSignals(True)
                 self._params.sp_theory_dk.blockSignals(True)
                 self._params.sp_theory_kscale.setValue(1.0)
-                self._params.sp_theory_dk.setValue(0.0)
+                self._params.sp_theory_dk.setValue(float(k_center))
                 self._params.sp_theory_kscale.blockSignals(False)
                 self._params.sp_theory_dk.blockSignals(False)
                 self._on_theory_overlay_changed()
                 has_abs = bool(data_d.get("k_distance_abs"))
                 a_val = float(self._params.sp_crystal_a.value())
+                ctr = f"Gamma->{k_center:+.3f}" if abs(k_center) > 1e-9 else "Gamma->0"
                 if has_abs and a_val > 0:
                     msg = (
                         f"Aligned {segment}: PHYSICAL scale "
-                        f"(A^-1*a/pi, a={a_val:.4f} A). Gamma->0, X->1, M->sqrt(2). "
-                        f"scale=1, delta k=0. Mirror Gamma for symmetric scans. "
-                        f"mu still manual."
+                        f"(A^-1*a/pi, a={a_val:.4f} A). {ctr}, X->1, M->sqrt(2). "
+                        f"scale=1, delta k={k_center:+.3f}. Mirror Gamma for "
+                        f"symmetric scans. mu still manual."
                     )
                 else:
                     msg = (
-                        f"Aligned {segment} (MP path): Gamma->0, edge->1 "
-                        f"(normalized scale - enter crystal a "
-                        f"for the exact physical scale). scale=1, delta k=0."
+                        f"Aligned {segment} (MP path): {ctr}, edge offset by "
+                        f"the same delta k={k_center:+.3f} (normalized scale - "
+                        f"enter crystal a for the exact physical scale)."
                     )
                 self._parent._status(msg)
                 return
@@ -450,7 +475,9 @@ class TheoryOverlayController:
             self._parent._status(f"Warning: segment {segment} has zero width.")
             return
         scale = 1.0 / (pb_f - pa_f)
-        shift = -pa_f / (pb_f - pa_f)
+        # Map a->k_center, b->k_center+1 so the alignment is centered on the
+        # manual Γ marker (axis is not shifted by the manual center drag).
+        shift = -pa_f / (pb_f - pa_f) + k_center
         self._params.sp_theory_kscale.blockSignals(True)
         self._params.sp_theory_dk.blockSignals(True)
         self._params.sp_theory_kscale.setValue(float(scale))
@@ -460,7 +487,7 @@ class TheoryOverlayController:
         self._on_theory_overlay_changed()
         self._parent._status(
             f"Aligned {segment} to ARPES pi/a: scale={scale:.3f}, delta k={shift:+.3f} "
-            f"({a}->0, {b}->1). mu still manual."
+            f"({a}->{k_center:+.3f}, {b}->{k_center + 1:+.3f}). mu still manual."
         )
 
     def _on_crystal_a_changed(self) -> None:

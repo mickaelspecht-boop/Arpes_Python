@@ -143,6 +143,7 @@ def _build_roi_group(panel, _fcl) -> None:
     panel.sp_kmax = dspin(0.80, -5.0, 5.0, 0.05)
     for w in (panel.sp_evs, panel.sp_eve, panel.sp_kmin, panel.sp_kmax):
         w.valueChanged.connect(panel.params_changed)
+        w.valueChanged.connect(panel.fit_only_changed)
     panel.btn_fit_roi = compact_button(QPushButton("Select on map"), max_width=180)
     panel.btn_fit_roi.setCheckable(True)
     panel.btn_fit_roi.setToolTip(
@@ -231,6 +232,9 @@ def _build_constraint_section(panel, _fcl) -> None:
     panel.sp_cx.setToolTip(
         "Pair symmetry center (Γ position, in π/a).\n"
         "Dashed cyan halo on the BM map in real time while editing.\n"
+        "You can also drag that cyan Γ line directly on the BM map to place the\n"
+        "center by hand on the band (moves the center only; the signal and the\n"
+        "k// axis are left unchanged).\n"
         "Use 'Auto Γ BM' or 'Γ FS → BM' to compute it automatically."
     )
     panel.sp_k0m = dspin(0.0, 0.0, 2.0, 0.05)

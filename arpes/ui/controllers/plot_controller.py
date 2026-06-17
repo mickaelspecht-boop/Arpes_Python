@@ -262,18 +262,19 @@ class PlotController:
 
     def _draw_current_view(self, *, include_curves: bool = True,
                            overlays_only: bool = False):
+        from arpes.ui.tab_index import IDX_BM, IDX_FS, IDX_MDC
         tabs = getattr(self, "_tabs", None)
         index = tabs.currentIndex() if tabs is not None else 0
-        if index == 0:
+        if index == IDX_BM:
             self._draw_bm(overlays_only=overlays_only)
-        elif index == 1:
+        elif index == IDX_MDC:
             self._draw_mdc_energy_map()
             if include_curves:
                 if hasattr(self, "_mdc_fit_tabs") and self._mdc_fit_tabs.currentIndex() == 1:
                     self._draw_mdc_waterfall()
                 else:
                     self._draw_mdc_edc()
-        elif index == 3:
+        elif index == IDX_FS:
             self._draw_fs_tab()
 
     def _reset_bm_view(self):

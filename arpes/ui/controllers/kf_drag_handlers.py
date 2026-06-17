@@ -47,6 +47,9 @@ def on_kf_release(ctrl, event) -> None:
     ctrl._parent._kf_drag_active = None
     if event.inaxes is None or event.xdata is None:
         return
+    if pi == "center":
+        _apply_center_drag(ctrl, float(event.xdata))
+        return
     cx = float(ctrl._params.sp_cx.value())
     x_new = float(event.xdata)
     x_snap = snap_to_mdc_peak(ctrl, x_new)
@@ -55,6 +58,38 @@ def on_kf_release(ctrl, event) -> None:
     line.set_xdata([x_new, x_new])
     kf_new = max(0.0, sign * (x_new - cx))
     ctrl._params.kf_init_drag_changed.emit(int(pi), int(sign), float(kf_new))
+
+
+def _apply_center_drag(ctrl, x_new: float) -> None:
+    """Commit a dragged Γ/MDC center line to the UI and current entry."""
+    try:
+        raw = getattr(ctrl._parent, "_raw_data", None) or {}
+        kpar = np.asarray(raw.get("kpar", []), dtype=float)
+        if kpar.size:
+            x_new = float(np.clip(x_new, np.nanmin(kpar), np.nanmax(kpar)))
+    except Exception:
+        x_new = float(x_new)
+    sp = ctrl._params.sp_cx
+    try:
+        x_new = float(np.clip(x_new, float(sp.minimum()), float(sp.maximum())))
+    except Exception:
+        pass
+    sp.setValue(float(x_new))
+    try:
+        entry = ctrl._parent._current_entry()
+        if entry is not None:
+            entry.fit_params.center_init = float(x_new)
+            ctrl._parent._session.save()
+    except Exception:
+        pass
+    try:
+        ctrl._draw_mdc_edc()
+    except Exception:
+        pass
+    try:
+        ctrl._parent._schedule_live_guess()
+    except Exception:
+        pass
 
 
 def snap_to_mdc_peak(ctrl, x_target: float) -> float | None:

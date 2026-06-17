@@ -499,5 +499,135 @@ class MdcMapViewWindowTests(unittest.TestCase):
         self.assertIsNone(_mdc_map_view_window(self._ctrl(zones=[], raw=False)))
 
 
+class DrawCurrentViewRoutingTests(unittest.TestCase):
+    def test_mdc_tab_uses_tab_index_constant_not_hardcoded_one(self):
+        from arpes.ui.tab_index import IDX_MDC
+
+        calls = []
+
+        class _Tabs:
+            def currentIndex(self):
+                return IDX_MDC
+
+        class _SubTabs:
+            def currentIndex(self):
+                return 0
+
+        class _Controller(PlotController):
+            def _draw_mdc_energy_map(self):
+                calls.append("mdc_map")
+
+            def _draw_mdc_edc(self):
+                calls.append("mdc_edc")
+
+            def _draw_mdc_waterfall(self):
+                calls.append("waterfall")
+
+            def _draw_bm(self, **_kwargs):
+                calls.append("bm")
+
+            def _draw_fs_tab(self):
+                calls.append("fs")
+
+        parent = SimpleNamespace(_tabs=_Tabs(), _mdc_fit_tabs=_SubTabs())
+
+        _Controller(parent)._draw_current_view(include_curves=False)
+
+        self.assertEqual(calls, ["mdc_map"])
+
+
+class MdcCenterDragTests(unittest.TestCase):
+    def test_center_drag_updates_spinbox_entry_and_redraws(self):
+        from arpes.ui.controllers.kf_drag_handlers import _apply_center_drag
+
+        class _Spin:
+            def __init__(self):
+                self.value_seen = None
+
+            def minimum(self):
+                return -1.0
+
+            def maximum(self):
+                return 1.0
+
+            def setValue(self, value):
+                self.value_seen = float(value)
+
+        saved = []
+        redraws = []
+        live = []
+        entry = SimpleNamespace(fit_params=SimpleNamespace(center_init=0.0))
+        parent = SimpleNamespace(
+            _raw_data={"kpar": np.asarray([-0.25, 0.25])},
+            _session=SimpleNamespace(save=lambda: saved.append(True)),
+            _current_entry=lambda: entry,
+            _schedule_live_guess=lambda: live.append(True),
+        )
+        ctrl = SimpleNamespace(
+            _parent=parent,
+            _params=SimpleNamespace(sp_cx=_Spin()),
+            _draw_mdc_edc=lambda: redraws.append(True),
+        )
+
+        _apply_center_drag(ctrl, 0.8)
+
+        self.assertAlmostEqual(ctrl._params.sp_cx.value_seen, 0.25)
+        self.assertAlmostEqual(entry.fit_params.center_init, 0.25)
+        self.assertTrue(saved)
+        self.assertTrue(redraws)
+        self.assertTrue(live)
+
+
+class FitRoiSelectionTests(unittest.TestCase):
+    def test_apply_fit_roi_emits_model_and_fit_signals_after_blocked_spinbox_set(self):
+        from arpes.ui.controllers.interaction_controller import InteractionController
+
+        class _Signal:
+            def __init__(self):
+                self.count = 0
+
+            def emit(self):
+                self.count += 1
+
+        class _Spin:
+            def __init__(self):
+                self.value_seen = None
+                self.blocked = False
+
+            def blockSignals(self, blocked):
+                self.blocked = bool(blocked)
+
+            def setValue(self, value):
+                self.value_seen = float(value)
+
+        params = SimpleNamespace(
+            sp_kmin=_Spin(),
+            sp_kmax=_Spin(),
+            sp_evs=_Spin(),
+            sp_eve=_Spin(),
+            sp_ev=_Spin(),
+            params_changed=_Signal(),
+            fit_only_changed=_Signal(),
+        )
+        parent = SimpleNamespace(
+            _params=params,
+            _raw_data={
+                "kpar": np.asarray([-1.0, 0.0, 1.0]),
+                "ev_arr": np.asarray([-0.5, -0.25, 0.0]),
+            },
+            _sel_k=0.0,
+            _sel_ev=0.0,
+            _status=lambda _msg: None,
+            _draw_current_view=lambda *a, **k: None,
+        )
+
+        InteractionController(parent)._apply_fit_roi_from_bounds(-0.4, 0.6, -0.45, -0.05)
+
+        self.assertAlmostEqual(params.sp_kmin.value_seen, -0.4)
+        self.assertAlmostEqual(params.sp_kmax.value_seen, 0.6)
+        self.assertEqual(params.params_changed.count, 1)
+        self.assertEqual(params.fit_only_changed.count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

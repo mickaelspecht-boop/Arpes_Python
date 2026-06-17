@@ -159,13 +159,25 @@ def draw_zone_overlays(ctrl, ax) -> None:
         from matplotlib.patches import Rectangle
     except ImportError:
         return
+    # The active zone's window is edited live through the panel spinboxes, so
+    # draw its rectangle from the live ROI bounds (the panel IS its editor).
+    # Other zones use their stored snapshot. This makes the active rectangle
+    # track parameter edits immediately instead of waiting for the debounced
+    # auto-bind to persist them.
+    try:
+        active_bounds = ctrl._fit_roi_bounds()
+    except Exception:
+        active_bounds = None
     for z in zones:
-        fp = z.get("fit_params", {})
-        try:
-            k0 = float(fp.get("k_min")); k1 = float(fp.get("k_max"))
-            e0 = float(fp.get("ev_start")); e1 = float(fp.get("ev_end"))
-        except Exception:
-            continue
+        if z.get("id") == active_id and active_bounds is not None:
+            k0, k1, e0, e1 = active_bounds
+        else:
+            fp = z.get("fit_params", {})
+            try:
+                k0 = float(fp.get("k_min")); k1 = float(fp.get("k_max"))
+                e0 = float(fp.get("ev_start")); e1 = float(fp.get("ev_end"))
+            except Exception:
+                continue
         color = ZONE_PALETTE[int(z.get("color_idx", 0)) % len(ZONE_PALETTE)]
         lw = 1.8 if z.get("id") == active_id else 1.0
         ax.add_patch(Rectangle(

@@ -547,12 +547,24 @@ def draw_fit_roi_overlay(ax, bounds: tuple[float, float, float, float] | None):
     from matplotlib.patches import Rectangle
 
     k0, k1, e0, e1 = bounds
+    fill = Rectangle(
+        (k0, e0), k1 - k0, e1 - e0,
+        fill=True, facecolor="#38bdf8", edgecolor="none",
+        alpha=0.10, zorder=7,
+    )
+    ax.add_patch(fill)
     rect = Rectangle(
         (k0, e0), k1 - k0, e1 - e0,
-        fill=False, edgecolor="#7dd3fc", linewidth=1.1,
-        linestyle="--", alpha=0.95, zorder=8,
+        fill=False, edgecolor="#38bdf8", linewidth=1.8,
+        linestyle="-", alpha=0.98, zorder=8,
     )
     ax.add_patch(rect)
+    ax.plot(
+        [k0, k1], [e0, e1],
+        linestyle="none", marker="s", markersize=3.5,
+        markerfacecolor="#e0f2fe", markeredgecolor="#0ea5e9",
+        zorder=9,
+    )
     return rect
 
 

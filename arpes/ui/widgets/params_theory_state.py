@@ -84,6 +84,33 @@ def set_theory_overlay_state(panel, overlay: dict) -> None:
         str(config.get("band_indices", "") or ""),
     )
     panel.lbl_theory_status.setText(_theory_status_text(overlay, data, config))
+    _sync_anchor_picker(panel, data)
+
+
+def _sync_anchor_picker(panel, data: dict) -> None:
+    """Refresh the manual HS-point label list and disarm pick mode.
+
+    Called on every overlay state change (import / clear / file switch) so the
+    label combo always matches the current DFT and a new file never inherits an
+    armed picker (the unchecked button re-emits toggled → pick disarmed).
+    """
+    combo = getattr(panel, "cmb_theory_anchor_label", None)
+    if combo is not None:
+        names: list[str] = []
+        for item in data.get("labels") or []:
+            name = str(item.get("label") or "").strip()
+            if name and name not in names:
+                names.append(name)
+        current = combo.currentText()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItems(names)
+        if current in names:
+            combo.setCurrentText(current)
+        combo.blockSignals(False)
+    btn = getattr(panel, "btn_theory_anchor_pick", None)
+    if btn is not None and btn.isChecked():
+        btn.setChecked(False)  # emits toggled → set_pick_active(False)
 
 
 def _theory_status_text(overlay: dict, data: dict, config: dict) -> str:

@@ -107,7 +107,7 @@ class LoadController:
                 return
             md = orchestrator.apply_loaded_metadata(d, prepared.entry)
             self._apply_post_load(d, prepared, load_result, orchestrator, path)
-            self._restore_session(d, prepared.entry, md)
+            self._restore_session(d, prepared.entry, md, prepared.key)
             entry_dirty = self._entry_state_token(prepared.entry) != entry_state_before_load
             self._refresh_ui(d, prepared, path, entry_dirty=entry_dirty)
         except Exception as e:
@@ -486,6 +486,8 @@ class LoadController:
         # mutate dict slot in load_result for downstream consumers
         load_result.data = d
         self._parent._raw_data = d
+        # Offset currently baked into ev_arr — baseline for the live EF shift.
+        self._parent._ef_offset_applied = float(getattr(entry, "ef_offset", 0.0) or 0.0)
         self._parent._current_path = path
         self._parent._fit_res = None
         self._parent._data_disp = None
@@ -504,7 +506,7 @@ class LoadController:
         else:
             self._params.update_hv_source(None)
 
-    def _restore_session(self, d, entry, md):
+    def _restore_session(self, d, entry, md, entry_key=None):
         self._params.sp_ef.blockSignals(True)
         self._params.sp_ef.setValue(entry.ef_offset)
         self._params.sp_ef.blockSignals(False)
@@ -569,7 +571,7 @@ class LoadController:
                 pass
 
         from arpes.ui.controllers.load_lattice_sync import sync_lattice_widgets_for_entry
-        sync_lattice_widgets_for_entry(self, entry, prepared.key)
+        sync_lattice_widgets_for_entry(self, entry, entry_key)
         self._parent._restore_theory_overlay_for_entry()
         # P1.1/P1.7 : restaure meta_gamma_state AVANT l'apply, et bloque les
         # signaux sp_cx pour éviter redraw partiel mid-load. L'apply voit

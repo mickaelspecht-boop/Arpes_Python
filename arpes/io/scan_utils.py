@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_DATA_SUFFIXES = {".pxt", ".ibw", ".zip"}
+_DATA_SUFFIXES = {".pxt", ".ibw", ".zip", ".itx", ".pxp"}
 
 
 def is_scan_dataset_dir(path: Path) -> bool:
@@ -33,5 +33,9 @@ def is_data_file(path: Path) -> bool:
         return False
     if p.suffix.lower() in _DATA_SUFFIXES:
         return True
-    # CLS BM: extensionless file with a sibling <name>_param.txt file.
-    return p.suffix == "" and (p.parent / f"{p.name}_param.txt").exists()
+    if p.suffix != "":
+        return False
+    # CLS BM: extensionless file, normally with a sibling <name>_param.txt file.
+    # Older copied folders can be incomplete but still need their sample row in
+    # the setup popup.
+    return (p.parent / f"{p.name}_param.txt").exists() or p.name.upper().startswith("BM")

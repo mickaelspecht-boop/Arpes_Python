@@ -124,7 +124,12 @@ class FitZonesController:
         entry.fit_zones = [z for z in entry.fit_zones if z.get("id") != zid]
         if entry.active_zone_id == zid:
             entry.active_zone_id = entry.fit_zones[0]["id"] if entry.fit_zones else None
-            self._sync_legacy_from_active(entry)
+            if entry.active_zone_id:
+                self._sync_legacy_from_active(entry)
+            else:
+                # No zone left: drop the legacy result mirror so the deleted
+                # zone's kF overlay does not linger on the map.
+                clear_fit_result(entry)
         self._save()
         return {"ok": True, "removed": before - len(entry.fit_zones)}
 

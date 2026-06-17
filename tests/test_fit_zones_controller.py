@@ -73,6 +73,19 @@ class TestCRUD:
         assert len(entry.fit_zones) == 1
         assert entry.active_zone_id == z2
 
+    def test_remove_last_zone_clears_legacy_result(self, parent_and_ctrl):
+        # Removing the only zone must drop the legacy fit_result mirror, else the
+        # deleted zone's kF overlay lingers on the map.
+        p, ctrl, key = parent_and_ctrl
+        zid = ctrl.fit_zone_action("add", {})["zone_id"]
+        entry = p._session.files[key]
+        entry.fit_zones[0]["fit_result"] = {"e_fitted": [0.0], "kF_minus": [[0.1]]}
+        entry.fit_result = entry.fit_zones[0]["fit_result"]
+        ctrl.fit_zone_action("remove", {"zone_id": zid})
+        assert entry.fit_zones == []
+        assert entry.active_zone_id is None
+        assert entry.fit_result is None
+
     def test_toggle_active(self, parent_and_ctrl):
         p, ctrl, key = parent_and_ctrl
         zid = ctrl.fit_zone_action("add", {})["zone_id"]

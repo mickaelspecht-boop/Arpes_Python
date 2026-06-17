@@ -52,6 +52,18 @@ class TestScanUtils(unittest.TestCase):
             (root / "BM1_param.txt").write_text("p")
             self.assertTrue(is_data_file(root / "BM1"))
 
+    def test_cls_bm_extensionless_without_sidecar_still_data_like_for_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "BM1").write_text("data")
+            self.assertTrue(is_data_file(root / "BM1"))
+
+    def test_igor_project_data_like_for_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "sample.pxp").write_bytes(b"x")
+            self.assertTrue(is_data_file(root / "sample.pxp"))
+
 
 class TestDetectSampleLayout(unittest.TestCase):
     def test_two_sample_subfolders_multi(self):
@@ -105,6 +117,39 @@ class TestDetectSampleLayout(unittest.TestCase):
             (d / "x.zip").write_bytes(b"x")
             layout = detect_sample_layout(root)
             self.assertEqual(layout.mode, "single")
+
+    def test_onedrive_export_keeps_pxp_and_partial_bm_subfolders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for sample in ("Ba122Ru_C05", "Ba122Co_C01_3"):
+                d = root / sample
+                d.mkdir()
+                (d / f"{sample}.pxp").write_bytes(b"x")
+                (d / f"{sample}_raw.pdf").write_bytes(b"pdf")
+            d = root / "Ba122Mn_C14"
+            d.mkdir()
+            (d / "BM1").write_text("data")
+            for sample in ("Ba122_C05_2", "Ba122Co_C01", "Ba122Cr_C10", "Ba122Cu_C13"):
+                d = root / sample
+                d.mkdir()
+                (d / "BM1").write_text("data")
+                (d / "BM1_param.txt").write_text("p")
+
+            layout = detect_sample_layout(root)
+
+            self.assertEqual(layout.mode, "multi")
+            self.assertEqual(
+                {s.key for s in layout.subfolders},
+                {
+                    "Ba122Ru_C05",
+                    "Ba122Mn_C14",
+                    "Ba122Cu_C13",
+                    "Ba122Co_C01_3",
+                    "Ba122_C05_2",
+                    "Ba122Cr_C10",
+                    "Ba122Co_C01",
+                },
+            )
 
 
 class TestSampleKeyForEntryKey(unittest.TestCase):

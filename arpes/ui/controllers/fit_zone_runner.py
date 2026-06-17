@@ -27,29 +27,30 @@ def wire_zones_strip(window) -> None:
     if zs is None:
         return
     zs.add_zone_requested.connect(
-        lambda: (window.fit_zone_action("add", {}), window._refresh_zones_strip())
+        lambda: (window.fit_zone_action("add", {}), _post_mutation(window))
     )
     zs.remove_zone_requested.connect(
         lambda zid: (window.fit_zone_action("remove", {"zone_id": zid}),
-                     window._refresh_zones_strip())
+                     _post_mutation(window, reload_active=True))
     )
     zs.active_zone_changed.connect(
         lambda zid: (window.fit_zone_action("set_active", {"zone_id": zid}),
                      window._on_zone_activated(zid))
     )
     zs.toggle_zone_active.connect(
-        lambda zid, on: window.fit_zone_action(
-            "toggle_active", {"zone_id": zid, "value": on})
+        lambda zid, on: (window.fit_zone_action(
+            "toggle_active", {"zone_id": zid, "value": on}),
+            _post_mutation(window))
     )
     zs.rename_zone_requested.connect(
         lambda zid, label: (window.fit_zone_action(
             "rename", {"zone_id": zid, "label": label}),
-            window._refresh_zones_strip())
+            _post_mutation(window))
     )
     zs.run_all_zones_requested.connect(window._fit_run_all_zones)
     zs.clear_zone_results.connect(
         lambda: (window.fit_zone_action("clear_results", {}),
-                 window._refresh_zones_strip())
+                 _post_mutation(window, reload_active=True))
     )
 
     timer = QTimer(window)
@@ -67,6 +68,34 @@ def wire_zones_strip(window) -> None:
         sig = getattr(params, sig_name, None)
         if sig is not None:
             sig.connect(lambda *_, _t=timer: _t.start())
+
+
+def _post_mutation(window, *, reload_active: bool = False) -> None:
+    """Keep table AND plot overlays coherent after any zone CRUD.
+
+    The single source of the "zones don't refresh / don't delete on the map"
+    bugs was that the wiring refreshed only the table. Every mutation must also
+    redraw the fit views so rectangles/kF appear, move and disappear in step.
+
+    ``reload_active`` reloads the (possibly new) active zone's params + result
+    into the panel — needed after remove/clear, where the active selection or
+    the result changed. When no zone remains, the panel result is reset.
+    """
+    window._refresh_zones_strip()
+    if reload_active:
+        path = getattr(window, "_current_path", None)
+        entry = None
+        if path:
+            entry = window._session.get_or_create(window._session.key_for_path(path))
+        if entry is not None and entry.active_zone_id:
+            # on_zone_activated reloads the panel and redraws every fit view.
+            window._on_zone_activated(entry.active_zone_id)
+            return
+        # No active zone left: clear the legacy result mirror + panel labels.
+        runner = getattr(window, "_fit_runner_ctrl", None)
+        if runner is not None:
+            _show_zone_result_in_panel(runner, None)
+    window._redraw_all_fit_views()
 
 
 def _show_zone_result_in_panel(ctrl, fr) -> None:

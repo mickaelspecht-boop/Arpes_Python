@@ -194,6 +194,28 @@ def build_theory_section(panel, lay) -> None:
         "First segment label -> 0, second -> 1."
     )
     btn_theory_align.clicked.connect(panel.theory_align_requested)
+    # --- Manual high-symmetry-point calibration ---
+    panel.cmb_theory_anchor_label = QComboBox()
+    panel.cmb_theory_anchor_label.setToolTip(
+        "High-symmetry point to place on the BM map.\n"
+        "Pick it here, enable 'Pick on BM', then click where it sits on the band."
+    )
+    panel.btn_theory_anchor_pick = QPushButton("Pick on BM")
+    panel.btn_theory_anchor_pick.setCheckable(True)
+    panel.btn_theory_anchor_pick.setToolTip(
+        "Click on the BM map to place the selected high-symmetry point at that k.\n"
+        "Place ≥2 points (e.g. Γ and X), then 'Fit & align' to set scale + Δk."
+    )
+    panel.btn_theory_anchor_pick.toggled.connect(panel.theory_anchor_pick_toggled)
+    panel.btn_theory_anchor_apply = QPushButton("Fit & align")
+    panel.btn_theory_anchor_apply.setToolTip(
+        "Fit k_scale + Δk from the placed points (linear fit ≥2 points;\n"
+        "1 point anchors Δk only) and align the DFT onto them."
+    )
+    panel.btn_theory_anchor_apply.clicked.connect(panel.theory_anchor_apply_requested)
+    panel.btn_theory_anchor_clear = QPushButton("Clear pts")
+    panel.btn_theory_anchor_clear.setToolTip("Remove all placed high-symmetry points.")
+    panel.btn_theory_anchor_clear.clicked.connect(panel.theory_anchor_clear_requested)
     btn_theory_efalign = QPushButton("Force μ=0")
     btn_theory_efalign.setToolTip(
         "Resets the chemical shift to μ = 0.\n"
@@ -271,6 +293,15 @@ def build_theory_section(panel, lay) -> None:
     fl_th.addRow("Crystal a (Å):", panel.sp_crystal_a)
     fl_th.addRow(panel.chk_theory_mirror)
     fl_th.addRow(align_btns)
+    # Manual calibration from user-placed high-symmetry points.
+    anchor_pick_row = QWidget()
+    apr_lay = QHBoxLayout(anchor_pick_row)
+    apr_lay.setContentsMargins(0, 0, 0, 0)
+    apr_lay.setSpacing(4)
+    apr_lay.addWidget(panel.cmb_theory_anchor_label, 1)
+    apr_lay.addWidget(panel.btn_theory_anchor_pick)
+    fl_th.addRow("HS point:", anchor_pick_row)
+    fl_th.addRow(_btn_grid([panel.btn_theory_anchor_apply, panel.btn_theory_anchor_clear]))
     # 4 · Rendering & Diagnostics
     fl_th.addRow(_section("4 · Rendering & Diagnostics"))
     fl_th.addRow("Opacity:", panel.sp_theory_alpha)
