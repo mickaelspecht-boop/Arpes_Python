@@ -35,7 +35,7 @@ def wire_zones_strip(window) -> None:
     )
     zs.active_zone_changed.connect(
         lambda zid: (window.fit_zone_action("set_active", {"zone_id": zid}),
-                     window._on_zone_activated(zid))
+                     window._fit_runner_ctrl._on_zone_activated(zid))
     )
     zs.toggle_zone_active.connect(
         lambda zid, on: (window.fit_zone_action(
@@ -82,20 +82,24 @@ def _post_mutation(window, *, reload_active: bool = False) -> None:
     the result changed. When no zone remains, the panel result is reset.
     """
     window._refresh_zones_strip()
+    runner = getattr(window, "_fit_runner_ctrl", None)
     if reload_active:
         path = getattr(window, "_current_path", None)
         entry = None
         if path:
             entry = window._session.get_or_create(window._session.key_for_path(path))
-        if entry is not None and entry.active_zone_id:
+        if entry is not None and entry.active_zone_id and runner is not None:
             # on_zone_activated reloads the panel and redraws every fit view.
-            window._on_zone_activated(entry.active_zone_id)
+            runner._on_zone_activated(entry.active_zone_id)
             return
         # No active zone left: clear the legacy result mirror + panel labels.
-        runner = getattr(window, "_fit_runner_ctrl", None)
         if runner is not None:
             _show_zone_result_in_panel(runner, None)
-    window._redraw_all_fit_views()
+    # _redraw_all_fit_views lives on the fit-runner controller (not proxied on
+    # the window). Removing the last zone took this no-active-zone path and
+    # called it on the window → AttributeError.
+    if runner is not None:
+        runner._redraw_all_fit_views()
 
 
 def _show_zone_result_in_panel(ctrl, fr) -> None:

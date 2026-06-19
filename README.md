@@ -4,7 +4,7 @@ Desktop application for ARPES visualization, calibration, fitting, and data-anal
 
 [![CI](https://github.com/mickaelspecht-boop/Arpes_Python/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/mickaelspecht-boop/Arpes_Python/actions/workflows/build.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
-![Version](https://img.shields.io/badge/version-v1.4.1-informational)
+![Version](https://img.shields.io/badge/version-v1.4.2-informational)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 ## Summary

@@ -288,3 +288,43 @@ class TestLabelNoCollision:
         ctrl.fit_zone_action("add", {})                   # should reuse Z1
         entry = p._session.files[key]
         assert sorted(z["label"] for z in entry.fit_zones) == ["Z1", "Z2"]
+
+
+class TestPostMutationRedraw:
+    """Regression: removing the last MDC fit zone crashed because
+    ``_post_mutation`` called ``_redraw_all_fit_views`` / ``_on_zone_activated``
+    on the window (not proxied) instead of the fit-runner controller."""
+
+    @staticmethod
+    def _make_window(*, active_zone_id):
+        calls = {"redraw": 0}
+        runner = SimpleNamespace(
+            _parent=SimpleNamespace(_fit_res="x"),
+            _params=SimpleNamespace(lbl_res=SimpleNamespace(setText=lambda *_: None)),
+            _update_mdc_tab_label=lambda *_: None,
+            _redraw_all_fit_views=lambda: calls.__setitem__("redraw", calls["redraw"] + 1),
+        )
+        entry = SimpleNamespace(active_zone_id=active_zone_id)
+        sess = SimpleNamespace(key_for_path=lambda p: "k",
+                               get_or_create=lambda k: entry)
+        # NOTE: deliberately no _redraw_all_fit_views / _on_zone_activated on the
+        # window — that is exactly the real ArpesExplorer surface.
+        win = SimpleNamespace(_refresh_zones_strip=lambda: None,
+                              _current_path="f.h5", _session=sess,
+                              _fit_runner_ctrl=runner)
+        return win, calls, runner
+
+    def test_remove_last_zone_no_crash_and_redraws(self):
+        from arpes.ui.controllers.fit_zone_runner import _post_mutation
+        win, calls, _ = self._make_window(active_zone_id=None)
+        _post_mutation(win, reload_active=True)  # must not raise AttributeError
+        assert calls["redraw"] == 1
+
+    def test_active_zone_path_routes_through_runner(self):
+        from arpes.ui.controllers.fit_zone_runner import _post_mutation
+        win, calls, runner = self._make_window(active_zone_id="z1")
+        seen = {}
+        runner._on_zone_activated = lambda zid: seen.__setitem__("zid", zid)
+        _post_mutation(win, reload_active=True)  # must not raise
+        assert seen.get("zid") == "z1"
+        assert calls["redraw"] == 0  # activation path returns before redraw
