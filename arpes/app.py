@@ -184,6 +184,7 @@ class ArpesExplorer(QMainWindow):
         from arpes.ui.controllers.fit_zones_controller import FitZonesController
         from arpes.ui.controllers.pairing_controller import PairingController
         from arpes.ui.controllers.fs_explorer_controller import FSExplorerController
+        from arpes.ui.controllers.experience_log_controller import ExperienceLogController
 
         self._logbook_ctrl = LogbookIngestController(self)
         self._load_ctrl = LoadController(self)
@@ -204,6 +205,7 @@ class ArpesExplorer(QMainWindow):
         self._fit_zones_ctrl = FitZonesController(self)
         self._pairing_ctrl = PairingController(self)
         self._fs_explorer_ctrl = FSExplorerController(self)
+        self._experience_log_ctrl = ExperienceLogController(self)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Proxy dispatch — delegates public window methods to controllers.

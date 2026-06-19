@@ -254,9 +254,27 @@ class FitRunnerController:
                 "kF_minus": ens["kF_minus_med"],
                 "kF_plus": ens["kF_plus_med"],
                 "gamma_corrige": ens["gamma_med"],
-                "gamma_brut": ens["gamma_med"],  # référence (pas re-correction)
+                "gamma_brut": ens.get("gamma_brut_med", ens["gamma_med"]),
+                "sigma_kF_minus": ens.get("kF_minus_std", []),
+                "sigma_kF_plus": ens.get("kF_plus_std", []),
+                "sigma_gamma": ens.get("gamma_std", []),
                 "ensemble": ens,
             }
+            optional_keys = {
+                "gamma_min": "gamma_min_med",
+                "gamma_left_brut": "gamma_left_brut_med",
+                "gamma_right_brut": "gamma_right_brut_med",
+                "gamma_left_corrige": "gamma_left_corrige_med",
+                "gamma_right_corrige": "gamma_right_corrige_med",
+                "sigma_gamma_left": "gamma_left_corrige_std",
+                "sigma_gamma_right": "gamma_right_corrige_std",
+            }
+            for out_key, ens_key in optional_keys.items():
+                if ens_key in ens:
+                    fr[out_key] = ens[ens_key]
+            for meta_key in ("resolution", "width_mode", "shape", "eta", "fit_kpar", "kpar", "ev_arr", "n_pairs"):
+                if meta_key in ens:
+                    fr[meta_key] = ens[meta_key]
             p._fit_res = fr
             if p._current_path:
                 name = self._session.key_for_path(p._current_path)
@@ -320,10 +338,7 @@ class FitRunnerController:
         if not fr:
             self._status("Warning: run an MDC fit before Im Sigma.")
             return
-        try:
-            a = float(self._params.sp_crystal_a.value())
-        except Exception:
-            a = 0.0
+        a = self._lattice_a_for_current_fit()
         if a <= 0:
             self._status("Warning: enter crystal a (A) > 0 for Im Sigma.")
             return
@@ -346,7 +361,8 @@ class FitRunnerController:
             payload = imaginary_self_energy(fr, a, pair_index=0)
             ref = payload
         if ref["energy"].size == 0:
-            self._status("Warning: Im Sigma unavailable (missing vF/Gamma).")
+            reason = str(ref.get("error") or "missing vF/Gamma")
+            self._status(f"Warning: Im Sigma unavailable ({reason}).")
             return
         from arpes.ui.widgets.dialogs import ImagSelfEnergyDialog
         dlg = ImagSelfEnergyDialog(payload, parent=p)
@@ -356,6 +372,26 @@ class FitRunnerController:
         self._status(
             f"Im Σ med = {med:.1f} meV  |  vF = {ref['vF_eV_A']:.2f} eV·Å{suffix}"
         )
+
+    def _lattice_a_for_current_fit(self) -> float:
+        """Resolve lattice a from session/sample metadata, then UI fallback."""
+        p = self._parent
+        fallback = 0.0
+        try:
+            fallback = float(self._params.sp_crystal_a.value())
+        except Exception:
+            fallback = 0.0
+        try:
+            if getattr(p, "_current_path", None):
+                key = self._session.key_for_path(p._current_path)
+                entry = self._session.get_or_create(key)
+                from arpes.core.sample import lattice_a_for_entry
+                return lattice_a_for_entry(
+                    self._session, entry, fallback=fallback, entry_key=key,
+                )
+        except Exception:
+            pass
+        return fallback
 
     def _fit_full(self):
         p = self._parent

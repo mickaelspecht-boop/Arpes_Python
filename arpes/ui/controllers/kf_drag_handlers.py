@@ -27,14 +27,22 @@ def on_kf_pick(ctrl, event) -> None:
     if meta is None:
         return
     ctrl._parent._kf_drag_active = (meta[0], meta[1], art)
+    # Cache the MDC peak positions once at grab time so live snapping during the
+    # drag never recomputes the MDC on every mouse-move.
+    ctrl._parent._kf_snap_cache = _build_snap_cache(ctrl)
 
 
 def on_kf_motion(ctrl, event) -> None:
     active = getattr(ctrl._parent, "_kf_drag_active", None)
     if not active or event.inaxes is None or event.xdata is None:
         return
-    _pi, _sign, line = active
+    pi, _sign, line = active
     x = float(event.xdata)
+    if pi != "center":
+        # Snap live so the segment sticks to the MDC peak WHILE dragging: the
+        # displayed position is exactly where it will land on release (no more
+        # surprise jump). The Γ center line is never snapped.
+        x = _maybe_snap(ctrl, event, x)
     line.set_xdata([x, x])
     guide = getattr(line, "_kf_guide", None)
     if guide is not None:
@@ -48,19 +56,76 @@ def on_kf_release(ctrl, event) -> None:
         return
     pi, sign, line = active
     ctrl._parent._kf_drag_active = None
+    cache = getattr(ctrl._parent, "_kf_snap_cache", None)
+    ctrl._parent._kf_snap_cache = None
     if event.inaxes is None or event.xdata is None:
         return
     if pi == "center":
         _apply_center_drag(ctrl, float(event.xdata))
         return
     cx = float(ctrl._params.sp_cx.value())
-    x_new = float(event.xdata)
-    x_snap = snap_to_mdc_peak(ctrl, x_new)
-    if x_snap is not None:
-        x_new = x_snap
+    x_new = _maybe_snap(ctrl, event, float(event.xdata), cache=cache)
     line.set_xdata([x_new, x_new])
     kf_new = max(0.0, sign * (x_new - cx))
     ctrl._params.kf_init_drag_changed.emit(int(pi), int(sign), float(kf_new))
+
+
+def _snap_enabled(ctrl) -> bool:
+    chk = getattr(ctrl._params, "chk_snap_kf", None)
+    return chk is None or bool(chk.isChecked())
+
+
+def _shift_held(event) -> bool:
+    key = getattr(event, "key", None)
+    return bool(key) and "shift" in str(key).lower()
+
+
+def _maybe_snap(ctrl, event, x: float, *, cache=None) -> float:
+    """Snap x to the nearest cached MDC peak, unless disabled (checkbox) or
+    temporarily bypassed (Shift held). Returns x unchanged when no peak is in
+    range — so free placement away from peaks still works."""
+    if _shift_held(event) or not _snap_enabled(ctrl):
+        return x
+    if cache is None:
+        cache = getattr(ctrl._parent, "_kf_snap_cache", None)
+    if not cache:
+        return x
+    try:
+        gi = float(ctrl._params.sp_gi.value())
+    except Exception:
+        gi = 0.0
+    xs = _snap_cached(cache, x, max(gi * 2.0, 0.05))
+    return xs if xs is not None else x
+
+
+def _build_snap_cache(ctrl) -> dict | None:
+    res = ctrl._get_mdc()
+    if res is None:
+        return None
+    from scipy.signal import find_peaks
+    from scipy.ndimage import gaussian_filter1d
+    kpar, mdc = res
+    kpar = np.asarray(kpar, dtype=float)
+    try:
+        s = max(1, int(ctrl._params.sp_sfd.value()))
+    except Exception:
+        s = 1
+    m_sm = gaussian_filter1d(np.nan_to_num(mdc), sigma=s)
+    rng = float(np.nanmax(m_sm) - np.nanmin(m_sm))
+    if rng <= 0:
+        return {"peaks": np.array([])}
+    mn = (m_sm - np.nanmin(m_sm)) / rng
+    pk, _ = find_peaks(mn, height=0.3)
+    return {"peaks": kpar[pk] if pk.size else np.array([])}
+
+
+def _snap_cached(cache: dict, x_target: float, window: float) -> float | None:
+    peaks = np.asarray(cache.get("peaks", []), dtype=float)
+    if peaks.size == 0:
+        return None
+    d = np.abs(peaks - float(x_target))
+    i = int(np.argmin(d))
+    return float(peaks[i]) if d[i] <= float(window) else None
 
 
 def _apply_center_drag(ctrl, x_new: float) -> None:

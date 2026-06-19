@@ -54,11 +54,11 @@ def scatter_kf_with_chi2(ax, k_values, ev_f, bad_mask, color, marker,
         xerr_good = xerr[good]
         mask_finite_err = np.isfinite(xerr_good) & (xerr_good > 0)
         if mask_finite_err.any():
-            idx = np.where(good)[0][mask_finite_err]
+            idx = subtle_uncertainty_indices(np.where(good)[0][mask_finite_err])
             ax.errorbar(
                 k[idx], e[idx], xerr=xerr[idx],
-                fmt="none", ecolor=color, elinewidth=0.6,
-                capsize=1.2, alpha=0.55, zorder=4,
+                fmt="none", ecolor=color, elinewidth=0.45,
+                capsize=0.0, alpha=0.24, zorder=3,
             )
     if good.any():
         ax.scatter(k[good], e[good], s=7, color=color, marker=marker,
@@ -67,6 +67,39 @@ def scatter_kf_with_chi2(ax, k_values, ev_f, bad_mask, color, marker,
         ax.scatter(k[valid & bad], e[valid & bad], s=20, color="#fb923c",
                    marker=marker, edgecolors="black", linewidths=0.35,
                    zorder=6, alpha=0.95)
+
+
+def subtle_uncertainty_indices(indices, *, max_bars: int = 18) -> np.ndarray:
+    """Return a sparse, stable subset of indices for subtle BM uncertainty bars."""
+    idx = np.asarray(indices, dtype=int)
+    if idx.size <= int(max_bars):
+        return idx
+    keep = np.linspace(0, idx.size - 1, int(max_bars), dtype=int)
+    return idx[keep]
+
+
+def kf_sigma_arrays(fr: dict, branch: str):
+    """Return kF sigma arrays for a branch, supporting full and ensemble fits."""
+    direct = fr.get(f"sigma_{branch}") or []
+    if direct:
+        return direct
+    ensemble = fr.get("ensemble") or {}
+    return ensemble.get(f"{branch}_std") or []
+
+
+def smooth_kf_for_display(arr, *, smooth_on: bool, sigma: float):
+    """Smooth kF for display while keeping deleted/outlier gaps hidden."""
+    a = np.asarray(arr, dtype=float)
+    if not smooth_on or sigma <= 0 or a.size < 3:
+        return a
+    mask = np.isfinite(a)
+    if not mask.any():
+        return a
+    from scipy.ndimage import gaussian_filter1d
+    x = np.arange(a.size, dtype=float)
+    a_interp = np.interp(x, x[mask], a[mask])
+    smoothed = gaussian_filter1d(a_interp, sigma=float(sigma))
+    return np.where(mask, smoothed, np.nan)
 
 
 def _mdc_map_view_window(ctrl):
@@ -258,25 +291,12 @@ def draw_kf_overlay(ctrl, ax):
         if hasattr(params, "sp_chi2_threshold") else np.inf
     bad_mask = chi2 > threshold if chi2.size == ev_f.size \
         else np.zeros(ev_f.size, dtype=bool)
-    ensemble = fr.get("ensemble") or {}
-    km_std_all = ensemble.get("kF_minus_std") or []
-    kp_std_all = ensemble.get("kF_plus_std") or []
+    km_std_all = kf_sigma_arrays(fr, "kF_minus")
+    kp_std_all = kf_sigma_arrays(fr, "kF_plus")
     smooth_on = bool(getattr(params, "chk_smooth_kf", None)
                      and params.chk_smooth_kf.isChecked())
     sm_sigma = float(getattr(params, "sp_smooth_kf_sigma", None).value()
                      if hasattr(params, "sp_smooth_kf_sigma") else 0.0)
-
-    def _smooth(arr):
-        from scipy.ndimage import gaussian_filter1d
-        a = np.asarray(arr, dtype=float)
-        if not smooth_on or sm_sigma <= 0 or a.size < 3:
-            return a
-        mask = np.isfinite(a)
-        if not mask.any():
-            return a
-        x = np.arange(a.size, dtype=float)
-        a_interp = np.interp(x, x[mask], a[mask])
-        return gaussian_filter1d(a_interp, sigma=sm_sigma)
 
     for i in range(n):
         c = PAIR_COLORS[i % len(PAIR_COLORS)]
@@ -284,14 +304,20 @@ def draw_kf_overlay(ctrl, ax):
             xerr_m = (np.asarray(km_std_all[i], dtype=float)
                       if i < len(km_std_all) else None)
             scatter_kf_with_chi2(
-                ax, _smooth(fr["kF_minus"][i]), ev_f, bad_mask, c, "o",
+                ax,
+                smooth_kf_for_display(
+                    fr["kF_minus"][i], smooth_on=smooth_on, sigma=sm_sigma),
+                ev_f, bad_mask, c, "o",
                 kf_std=xerr_m,
             )
         if i < len(fr.get("kF_plus", [])):
             xerr_p = (np.asarray(kp_std_all[i], dtype=float)
                       if i < len(kp_std_all) else None)
             scatter_kf_with_chi2(
-                ax, _smooth(fr["kF_plus"][i]), ev_f, bad_mask, c, "^",
+                ax,
+                smooth_kf_for_display(
+                    fr["kF_plus"][i], smooth_on=smooth_on, sigma=sm_sigma),
+                ev_f, bad_mask, c, "^",
                 kf_std=xerr_p,
             )
     selected = list(getattr(ctrl._parent, "_fit_selected", []) or [])

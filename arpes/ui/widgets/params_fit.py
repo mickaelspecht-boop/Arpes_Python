@@ -419,6 +419,14 @@ def _build_slice_inspector_section(panel, _fcl) -> None:
         "Displays the parameter summary directly on the MDC plot."
     )
     panel.chk_fit_slice_inspector.stateChanged.connect(panel.fit_only_changed)
+    panel.chk_snap_kf = QCheckBox("Snap kF → MDC peak")
+    panel.chk_snap_kf.setChecked(True)
+    panel.chk_snap_kf.setToolTip(
+        "When dragging a kF segment on the MDC slice, snap it to the nearest\n"
+        "MDC peak (the segment sticks to the peak live while you drag).\n"
+        "Uncheck for free placement, or hold Shift to bypass snapping for one drag."
+    )
+    fl.addRow(panel.chk_snap_kf)
     panel.lbl_fit_slice_logic = QLabel("")
     panel.lbl_fit_slice_logic.setWordWrap(True)
     panel.lbl_fit_slice_logic.setFrameShape(QFrame.Shape.StyledPanel)
@@ -546,13 +554,37 @@ def _build_fit_buttons(panel, _fcl) -> None:
     )
     panel.btn_fit_ensemble.clicked.connect(panel.fit_ensemble_requested)
     advanced_lay.addWidget(panel.btn_fit_ensemble)
-    panel.btn_im_sigma = compact_button(QPushButton("Im Σ(E)"), max_width=140)
+    advanced_lay.addWidget(hsep())
+    _post_fit_hdr = QLabel("Post-fit analysis")
+    _post_fit_hdr.setStyleSheet("color:#9aa0a6;font-size:10px;font-weight:bold;")
+    advanced_lay.addWidget(_post_fit_hdr)
+    panel.btn_im_sigma = compact_button(
+        QPushButton("Im Σ(E) — scattering rate"), max_width=240)
+    # Greyed until a fit exists (enabled from update_fit_quality). The :disabled
+    # rule is explicit because a custom background overrides Fusion's dimming.
+    panel.btn_im_sigma.setStyleSheet(
+        "QPushButton{background:#0e7490;color:white;font-weight:bold;padding:6px;}"
+        "QPushButton:disabled{background:#2a2f35;color:#6b7280;}"
+    )
+    panel.btn_im_sigma.setEnabled(False)
     panel.btn_im_sigma.setToolTip(
-        "Computes Im Σ(E) = (vF/2)·Γ(E) from the corrected fit width.\n"
-        "Requires a full fit and a lattice parameter a > 0."
+        "Converts the fitted MDC width into the physical scattering rate.\n"
+        "Im Σ(E) = (vF/2)·Γ(E)  — Γ from the fit (π/a), vF from the dispersion.\n"
+        "Result is in eV: the electron lifetime τ = ħ/(2·Im Σ), comparable\n"
+        "across samples and to the literature (Fermi liquid ⇒ Im Σ ∝ E²).\n"
+        "\n"
+        "How to use: 1) run a Full fit, 2) set lattice a > 0, 3) click here —\n"
+        "opens an Im Σ vs E plot (median value + vF reported)."
     )
     panel.btn_im_sigma.clicked.connect(panel.im_self_energy_requested)
     advanced_lay.addWidget(panel.btn_im_sigma)
+    _im_sigma_help = QLabel(
+        "Turns the fit width Γ(E) into Im Σ(E) in eV (scattering rate / "
+        "lifetime). Needs a Full fit first and lattice a > 0."
+    )
+    _im_sigma_help.setWordWrap(True)
+    _im_sigma_help.setStyleSheet("color:#7f8896;font-size:9px;")
+    advanced_lay.addWidget(_im_sigma_help)
     btn_batch = compact_button(QPushButton("Batch fit folder"), max_width=200)
     btn_batch.setToolTip(
         "Runs Full fit on every folder file that does not yet have\n"

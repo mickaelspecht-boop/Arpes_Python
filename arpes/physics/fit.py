@@ -207,8 +207,9 @@ def imaginary_self_energy(
     """
     empty = {"energy": np.array([]), "im_sigma": np.array([]),
               "vF_eV_A": float("nan"), "pair_index": int(pair_index),
-              "side": str(side)}
+              "side": str(side), "error": ""}
     if not fit_result or crystal_a <= 0:
+        empty["error"] = "missing lattice parameter a"
         return empty
     e_raw = fit_result.get("e_fitted")
     e = np.asarray([] if e_raw is None else e_raw, dtype=float)
@@ -229,14 +230,17 @@ def imaginary_self_energy(
             g_all = cand
             break
     if g_all is None or not (0 <= pair_index < len(g_all)):
+        empty["error"] = "missing Gamma arrays"
         return empty
     g_pi_a = np.asarray(g_all[pair_index], dtype=float)
     if g_pi_a.size != e.size or g_pi_a.size == 0:
+        empty["error"] = "Gamma/E arrays misaligned"
         return empty
     vfd = compute_fermi_velocity_mstar(
         fit_result, crystal_a, pair_index=pair_index)
     vF = vfd.get("vF_eV_A", float("nan"))
     if not np.isfinite(vF) or vF <= 0:
+        empty["error"] = vfd.get("refused_reason") or "missing vF"
         return empty
     pi_over_a = np.pi / float(crystal_a)
     g_inv_A = g_pi_a * pi_over_a
@@ -257,6 +261,7 @@ def imaginary_self_energy(
         "vF_eV_A": float(vF),
         "pair_index": int(pair_index),
         "side": str(side),
+        "error": "",
     }
 
 
@@ -283,8 +288,8 @@ def ensemble_fit(
     - Renvoie dict ``ensemble`` à injecter dans fit_result :
       ``{n_runs, n_ok, jitter_pct, e_fitted,
          kF_minus_med/std, kF_plus_med/std,
-         gamma_corrige_med/std}`` + ``kF_minus``/``kF_plus``/``gamma_*``
-         écrasés par les médianes (consommé par pipeline aval).
+         gamma_brut_med, gamma_corrige_med/std}`` + side widths and resolution
+         metadata when provided by the per-run full fit.
     """
     from copy import deepcopy
 
@@ -350,12 +355,28 @@ def ensemble_fit(
 
     km = _stack("kF_minus")
     kp = _stack("kF_plus")
+    gb = _stack("gamma_brut")
     gc = _stack("gamma_corrige")
+    gm = _stack("gamma_min")
+    glb = _stack("gamma_left_brut")
+    grb = _stack("gamma_right_brut")
+    glc = _stack("gamma_left_corrige")
+    grc = _stack("gamma_right_corrige")
+    if np.all(np.isnan(gb)):
+        gb = _stack("gamma")
     if np.all(np.isnan(gc)):
-        gc = _stack("gamma_brut")
+        gc = gb
+    skm = _stack("sigma_kF_minus")
+    skp = _stack("sigma_kF_plus")
+    sgc = _stack("sigma_gamma")
+    sgl = _stack("sigma_gamma_left")
+    sgr = _stack("sigma_gamma_right")
 
     def _agg(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Median + std after MAD filtering (>3*MAD) per (pair, slice)."""
+        if np.all(np.isnan(stack)):
+            empty = np.full(stack.shape[1:], np.nan, dtype=float)
+            return empty, empty.copy()
         med = np.nanmedian(stack, axis=0)
         mad = np.nanmedian(np.abs(stack - med[np.newaxis, ...]), axis=0)
         # MAD * 1.4826 approximates sigma for a Gaussian distribution.
@@ -364,10 +385,31 @@ def ensemble_fit(
         filt = np.where(mask_ok, stack, np.nan)
         return np.nanmedian(filt, axis=0), np.nanstd(filt, axis=0)
 
+    def _combine_sigma(between: np.ndarray, within: np.ndarray) -> np.ndarray:
+        """Combine run-to-run spread with per-run optimizer covariance sigma."""
+        within = np.asarray(within, dtype=float)
+        finite = np.isfinite(within) & (within > 0)
+        if not finite.any():
+            return between
+        within_med = np.nanmedian(np.where(finite, within, np.nan), axis=0)
+        return np.sqrt(np.nan_to_num(between, nan=0.0) ** 2
+                       + np.nan_to_num(within_med, nan=0.0) ** 2)
+
     kF_minus_med, kF_minus_std = _agg(km)
     kF_plus_med, kF_plus_std = _agg(kp)
+    gamma_brut_med, gamma_brut_std = _agg(gb)
     gamma_med, gamma_std = _agg(gc)
-    return {
+    gamma_min_med, _ = _agg(gm)
+    gamma_left_brut_med, gamma_left_brut_std = _agg(glb)
+    gamma_right_brut_med, gamma_right_brut_std = _agg(grb)
+    gamma_left_corrige_med, gamma_left_corrige_std = _agg(glc)
+    gamma_right_corrige_med, gamma_right_corrige_std = _agg(grc)
+    kF_minus_std = _combine_sigma(kF_minus_std, skm)
+    kF_plus_std = _combine_sigma(kF_plus_std, skp)
+    gamma_std = _combine_sigma(gamma_std, sgc)
+    gamma_left_corrige_std = _combine_sigma(gamma_left_corrige_std, sgl)
+    gamma_right_corrige_std = _combine_sigma(gamma_right_corrige_std, sgr)
+    out = {
         "ensemble": True,
         "n_runs": int(n_runs),
         "n_ok": int(len(runs)),
@@ -377,9 +419,30 @@ def ensemble_fit(
         "kF_minus_std": [row.tolist() for row in kF_minus_std],
         "kF_plus_med": [row.tolist() for row in kF_plus_med],
         "kF_plus_std": [row.tolist() for row in kF_plus_std],
+        "gamma_brut_med": [row.tolist() for row in gamma_brut_med],
+        "gamma_brut_std": [row.tolist() for row in gamma_brut_std],
         "gamma_med": [row.tolist() for row in gamma_med],
         "gamma_std": [row.tolist() for row in gamma_std],
     }
+    if not np.all(np.isnan(gm)):
+        out["gamma_min_med"] = [row.tolist() for row in gamma_min_med]
+    if not np.all(np.isnan(glb)):
+        out["gamma_left_brut_med"] = [row.tolist() for row in gamma_left_brut_med]
+        out["gamma_left_brut_std"] = [row.tolist() for row in gamma_left_brut_std]
+    if not np.all(np.isnan(grb)):
+        out["gamma_right_brut_med"] = [row.tolist() for row in gamma_right_brut_med]
+        out["gamma_right_brut_std"] = [row.tolist() for row in gamma_right_brut_std]
+    if not np.all(np.isnan(glc)):
+        out["gamma_left_corrige_med"] = [row.tolist() for row in gamma_left_corrige_med]
+        out["gamma_left_corrige_std"] = [row.tolist() for row in gamma_left_corrige_std]
+    if not np.all(np.isnan(grc)):
+        out["gamma_right_corrige_med"] = [row.tolist() for row in gamma_right_corrige_med]
+        out["gamma_right_corrige_std"] = [row.tolist() for row in gamma_right_corrige_std]
+    first = runs[0]
+    for key in ("resolution", "width_mode", "shape", "eta", "fit_kpar", "kpar", "ev_arr", "n_pairs"):
+        if key in first:
+            out[key] = _sanitize(first[key])
+    return out
 
 
 def detect_n_pairs(
@@ -518,6 +581,19 @@ class MdcFitter:
                     f"\nΓ med = {float(np.nanmedian(gb)):.4f} raw / "
                     f"{float(np.nanmedian(gc)):.4f} corrected{warn}"
                 )
+        sigma_note = ""
+        sigma_k = fr.get("sigma_kF_plus") or fr.get("sigma_kF_minus") or []
+        sigma_g = fr.get("sigma_gamma") or []
+        if sigma_k:
+            sk = np.asarray(sigma_k[0], dtype=float)
+            sg = np.asarray(sigma_g[0], dtype=float) if sigma_g else np.asarray([], dtype=float)
+            parts = []
+            if np.isfinite(sk).any():
+                parts.append(f"σkF med = {float(np.nanmedian(sk)):.4g} π/a")
+            if sg.size and np.isfinite(sg).any():
+                parts.append(f"σΓ med = {float(np.nanmedian(sg)):.4g} π/a")
+            if parts:
+                sigma_note = "\n" + " | ".join(parts)
         vf_line = ""
         if float(crystal_a or 0.0) > 0:
             vfd = compute_fermi_velocity_mstar(fr, float(crystal_a))
@@ -530,9 +606,13 @@ class MdcFitter:
         label_text = (
             f"OK  Fit complet  {n_ok}/{n_e} points\n"
             f"xg = {xg_mean:.4f} π/a"
-            f"{gamma_note}{vf_line}"
+            f"{gamma_note}{sigma_note}{vf_line}"
         )
-        status_text = f"Fit OK — {n_ok}/{n_e}  xg={xg_mean:.4f}{gamma_note.replace(chr(10), ' | ')}"
+        status_text = (
+            f"Fit OK — {n_ok}/{n_e}  xg={xg_mean:.4f}"
+            f"{gamma_note.replace(chr(10), ' | ')}"
+            f"{sigma_note.replace(chr(10), ' | ')}"
+        )
         return FitSummary(
             n_points=n_e,
             n_ok=n_ok,

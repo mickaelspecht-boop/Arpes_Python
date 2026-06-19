@@ -149,6 +149,9 @@ def _branch_arrays(fit_result: dict, branch: str, pair_index: int) -> tuple[np.n
         return np.array([]), np.array([]), np.array([])
     k = np.asarray(arrays[pair_index], dtype=float)
     sigma_arrays = fit_result.get(f"sigma_{branch}") or []
+    if not sigma_arrays:
+        ensemble = fit_result.get("ensemble") or {}
+        sigma_arrays = ensemble.get(f"{branch}_std") or []
     if 0 <= pair_index < len(sigma_arrays):
         sk = np.asarray(sigma_arrays[pair_index], dtype=float)
     else:
@@ -294,6 +297,8 @@ def fit_gamma_fermi_liquid(
     e = np.asarray(fit_result.get("e_fitted", []), dtype=float)
     g_arrays = fit_result.get("gamma_corrige") or fit_result.get("gamma") or []
     sg_arrays = fit_result.get("sigma_gamma") or []
+    if not sg_arrays:
+        sg_arrays = (fit_result.get("ensemble") or {}).get("gamma_std") or []
     if not (0 <= pair_index < len(g_arrays)):
         return GammaFermiLiquid(pair_index=pair_index)
     g = np.asarray(g_arrays[pair_index], dtype=float)

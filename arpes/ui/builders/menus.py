@@ -24,6 +24,14 @@ def build_menubar(window) -> QMenuBar:
     act_compare.triggered.connect(window._compare_sessions)
     file_menu.addAction(act_compare)
 
+    act_log = QAction("Processing log...", window)
+    act_log.setToolTip(
+        "Show a readable per-signal trace of loaded metadata, corrections, "
+        "fit formulas, and FS/BM transformations."
+    )
+    act_log.triggered.connect(lambda: window._experience_log_ctrl.open_dialog())
+    file_menu.addAction(act_log)
+
     file_menu.addSeparator()
 
     recent_menu = file_menu.addMenu("Recent sessions")

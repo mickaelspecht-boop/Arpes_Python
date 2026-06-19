@@ -82,6 +82,21 @@ class TestExtractBranchResult:
         assert br.vF_sigma > 0
         assert br.n_points_used >= 5
 
+    def test_uses_ensemble_std_when_sigma_keys_missing(self):
+        fr = _synthetic_fit_result(slope=2.0, intercept=-0.5)
+        fr["ensemble"] = {
+            "kF_plus_std": fr.pop("sigma_kF_plus"),
+            "kF_minus_std": fr.pop("sigma_kF_minus"),
+            "gamma_std": fr.pop("sigma_gamma"),
+        }
+
+        br = extract_branch_result(fr, branch="kF_plus", pair_index=0,
+                                   e_window=0.10)
+        bundle = compute_results(fr, e_window_kF=0.10, e_window_gamma=0.30)
+
+        assert br.kF_at_EF_sigma > 0
+        assert bundle.gamma_fl[0].gamma_zero_sigma > 0
+
     def test_m_star_with_crystal_a(self):
         fr = _synthetic_fit_result(slope=2.0, intercept=-0.5)
         br = extract_branch_result(fr, branch="kF_plus", pair_index=0,

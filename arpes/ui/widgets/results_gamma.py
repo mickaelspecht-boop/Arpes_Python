@@ -83,6 +83,8 @@ def draw_gamma_panel(panel, colors) -> None:
         ev = np.asarray(fr.get("e_fitted", []), dtype=float)
         g_arrays = fr.get("gamma_corrige") or fr.get("gamma") or []
         sg_arrays = fr.get("sigma_gamma") or []
+        if not sg_arrays:
+            sg_arrays = (fr.get("ensemble") or {}).get("gamma_std") or []
         color = colors[ci]
         for i, g_raw in enumerate(g_arrays):
             g = np.asarray(g_raw, dtype=float)

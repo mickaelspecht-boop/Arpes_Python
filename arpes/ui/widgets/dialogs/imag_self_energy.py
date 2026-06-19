@@ -48,9 +48,9 @@ class ImagSelfEnergyDialog(QDialog):
         ax.cla()
         ax.set_facecolor("#1a1a1a")
         for label, result in self._results.items():
-            e = np.asarray(result.get("energy") or [], dtype=float)
-            im = np.asarray(result.get("im_sigma") or [], dtype=float)
-            std = np.asarray(result.get("im_sigma_std") or [], dtype=float)
+            e = _array_or_empty(result.get("energy"))
+            im = _array_or_empty(result.get("im_sigma"))
+            std = _array_or_empty(result.get("im_sigma_std"))
             if e.size == 0:
                 continue
             order = np.argsort(e)
@@ -83,3 +83,9 @@ class ImagSelfEnergyDialog(QDialog):
                 leg.set_zorder(8)
         self._canvas.fig.tight_layout(pad=0.6)
         self._canvas.redraw()
+
+
+def _array_or_empty(value) -> np.ndarray:
+    if value is None:
+        return np.asarray([], dtype=float)
+    return np.asarray(value, dtype=float)

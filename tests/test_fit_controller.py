@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 
 from arpes.physics.fit import MdcFitter
-from arpes.core.session import FileEntry, FitParams
+from arpes.core.session import FileEntry, FitParams, Session
 
 
 class FakeAP:
@@ -72,6 +72,18 @@ class TestFitController(unittest.TestCase):
         self.assertEqual(summary.n_ok, 1)
         self.assertTrue(summary.resolution_dominates)
         self.assertIn("Γ med", summary.label_text)
+
+    def test_summarize_reports_sigma_when_available(self):
+        fr = {
+            "e_fitted": [-0.1, 0.0],
+            "kF_minus": [[0.1, 0.2]],
+            "xg": [0.0, 0.02],
+            "sigma_kF_plus": [[0.003, 0.004]],
+            "sigma_gamma": [[0.005, 0.006]],
+        }
+        summary = MdcFitter.summarize(fr)
+        self.assertIn("σkF med", summary.label_text)
+        self.assertIn("σΓ med", summary.label_text)
 
     def test_update_entry_after_fit(self):
         entry = FileEntry()
@@ -200,6 +212,13 @@ class TestImSigma(unittest.TestCase):
         from arpes.physics.fit import imaginary_self_energy
         res = imaginary_self_energy({"e_fitted": [0.0]}, 4.0)
         self.assertEqual(res["energy"].size, 0)
+        self.assertEqual(res["error"], "missing Gamma arrays")
+
+    def test_error_when_missing_lattice_a(self):
+        from arpes.physics.fit import imaginary_self_energy
+        res = imaginary_self_energy({"e_fitted": [0.0], "gamma_corrige": [[0.1]]}, 0.0)
+        self.assertEqual(res["energy"].size, 0)
+        self.assertEqual(res["error"], "missing lattice parameter a")
 
 
 class TestEnsembleFit(unittest.TestCase):
@@ -245,6 +264,71 @@ class TestEnsembleFit(unittest.TestCase):
         med = float(np.nanmedian(ens["kF_plus_med"]))
         self.assertAlmostEqual(med, 0.30, delta=0.05)
         self.assertGreater(np.nanmean(ens["kF_plus_std"]), 0.0)
+
+    def test_ensemble_sigma_keeps_per_run_covariance_when_runs_identical(self):
+        from arpes.physics.fit import ensemble_fit
+
+        ev = np.linspace(-0.15, 0.05, 8)
+
+        class _AP:
+            def fit_mdc_peak_pairs(self, *args, **kwargs):
+                return {
+                    "e_fitted": ev.tolist(),
+                    "kF_minus": [np.full(ev.size, -0.30).tolist()],
+                    "kF_plus": [np.full(ev.size, 0.30).tolist()],
+                    "gamma_corrige": [np.full(ev.size, 0.05).tolist()],
+                    "gamma_brut": [np.full(ev.size, 0.05).tolist()],
+                    "sigma_kF_minus": [np.full(ev.size, 0.004).tolist()],
+                    "sigma_kF_plus": [np.full(ev.size, 0.005).tolist()],
+                    "sigma_gamma": [np.full(ev.size, 0.006).tolist()],
+                }
+
+        fp = FitParams(n_pairs=1, pairs=[{"kF_init": 0.30, "gamma_init": 0.08,
+                                             "gamma_max": 0.30}])
+        ens = ensemble_fit(MdcFitter(_AP()), np.zeros((10, ev.size)),
+                           np.linspace(-1, 1, 10), ev, fp,
+                           n_runs=5, jitter_pct=0.10, seed=1)
+
+        self.assertAlmostEqual(float(np.nanmedian(ens["kF_minus_std"])), 0.004)
+        self.assertAlmostEqual(float(np.nanmedian(ens["kF_plus_std"])), 0.005)
+        self.assertAlmostEqual(float(np.nanmedian(ens["gamma_std"])), 0.006)
+
+    def test_ensemble_preserves_full_fit_gamma_products(self):
+        from arpes.physics.fit import ensemble_fit
+
+        ev = np.linspace(-0.15, 0.05, 8)
+
+        class _AP:
+            def fit_mdc_peak_pairs(self, *args, **kwargs):
+                return {
+                    "e_fitted": ev.tolist(),
+                    "kF_minus": [np.full(ev.size, -0.30).tolist()],
+                    "kF_plus": [np.full(ev.size, 0.30).tolist()],
+                    "gamma_brut": [np.full(ev.size, 0.10).tolist()],
+                    "gamma_min": [np.full(ev.size, 0.08).tolist()],
+                    "gamma_corrige": [np.full(ev.size, 0.06).tolist()],
+                    "gamma_left_corrige": [np.full(ev.size, 0.05).tolist()],
+                    "gamma_right_corrige": [np.full(ev.size, 0.07).tolist()],
+                    "sigma_gamma": [np.full(ev.size, 0.006).tolist()],
+                    "resolution": {"dE_meV": 15.0, "dk_inv_a": 0.005},
+                    "width_mode": "independent",
+                    "shape": "lorentzian",
+                    "n_pairs": 1,
+                }
+
+        fp = FitParams(n_pairs=1, pairs=[{"kF_init": 0.30, "gamma_init": 0.08,
+                                             "gamma_max": 0.30}])
+        ens = ensemble_fit(MdcFitter(_AP()), np.zeros((10, ev.size)),
+                           np.linspace(-1, 1, 10), ev, fp,
+                           n_runs=3, jitter_pct=0.10, seed=2)
+
+        self.assertAlmostEqual(float(np.nanmedian(ens["gamma_brut_med"])), 0.10)
+        self.assertAlmostEqual(float(np.nanmedian(ens["gamma_med"])), 0.06)
+        self.assertAlmostEqual(float(np.nanmedian(ens["gamma_min_med"])), 0.08)
+        self.assertAlmostEqual(float(np.nanmedian(ens["gamma_left_corrige_med"])), 0.05)
+        self.assertAlmostEqual(float(np.nanmedian(ens["gamma_right_corrige_med"])), 0.07)
+        self.assertEqual(ens["resolution"]["dE_meV"], 15.0)
+        self.assertEqual(ens["width_mode"], "independent")
 
     def test_ensemble_zero_runs_returns_empty(self):
         from arpes.physics.fit import ensemble_fit
@@ -359,3 +443,46 @@ class TestImSigmaSide(unittest.TestCase):
         res = imaginary_self_energy(fr, 4.0, side="left")
         # Pas de gauche dispo → tombe sur gamma_corrige (mean)
         self.assertGreater(res["energy"].size, 0)
+
+
+class TestFitRunnerImSigmaLattice(unittest.TestCase):
+    def test_lattice_a_uses_session_sample_before_ui_fallback(self):
+        from types import SimpleNamespace
+        from arpes.ui.controllers.fit_runner_controller import FitRunnerController
+
+        session = Session()
+        session.current_sample = {"a_angstrom": 4.2}
+        entry = session.get_or_create("BM1")
+        parent = SimpleNamespace(
+            _current_path="BM1",
+            _session=session,
+            _params=SimpleNamespace(
+                sp_crystal_a=SimpleNamespace(value=lambda: 0.0),
+            ),
+        )
+
+        out = FitRunnerController(parent)._lattice_a_for_current_fit()
+
+        self.assertEqual(out, 4.2)
+
+
+class TestImagSelfEnergyDialog(unittest.TestCase):
+    def test_accepts_numpy_arrays(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PyQt6.QtWidgets import QApplication
+        from arpes.ui.widgets.dialogs.imag_self_energy import ImagSelfEnergyDialog
+
+        app = QApplication.instance() or QApplication([])
+        payload = {
+            "energy": np.array([-0.02, 0.0]),
+            "im_sigma": np.array([0.01, 0.02]),
+            "im_sigma_std": np.array([0.001, 0.002]),
+            "vF_eV_A": 2.0,
+            "pair_index": 0,
+            "side": "mean",
+        }
+
+        dlg = ImagSelfEnergyDialog(payload)
+
+        self.assertEqual(dlg.windowTitle(), "Self-energy Im Σ(E)")

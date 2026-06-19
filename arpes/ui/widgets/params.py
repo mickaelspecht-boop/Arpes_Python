@@ -567,6 +567,10 @@ class FitParamsPanel(QScrollArea):
 
     def update_fit_quality(self, fit_result: dict | None, chi2_threshold: float,
                            *, current_hash: str | None = None) -> None:
+        # Post-fit gate: the Im Σ(E) action only makes sense once a fit exists.
+        btn_im = getattr(self, "btn_im_sigma", None)
+        if btn_im is not None:
+            btn_im.setEnabled(bool(fit_result))
         if not hasattr(self, "lbl_fit_quality"):
             return
         if not fit_result:
