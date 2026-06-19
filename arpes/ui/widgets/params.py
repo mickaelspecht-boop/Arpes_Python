@@ -130,6 +130,7 @@ class FitParamsPanel(QScrollArea):
     theory_anchor_apply_requested = pyqtSignal()
     theory_anchor_center_requested = pyqtSignal()
     theory_anchor_clear_requested = pyqtSignal()
+    pkE_requested = pyqtSignal()  # P(k,E) polarization contrast (LH/LV)
     work_function_changed = pyqtSignal()
     crystal_a_changed = pyqtSignal()
     file_tags_changed = pyqtSignal()

@@ -53,6 +53,15 @@ class SampleSetupController:
             return
         if getattr(self._parent, "_sample_dialog_open", False):
             return  # modal already showing (double folder-open guard)
+        if getattr(self._parent, "_fit_busy", False) or getattr(
+            self._parent, "_batch_busy", False
+        ):
+            # A fit/batch pumps QApplication.processEvents(); opening a nested
+            # modal dialog mid-analysis re-enters the event loop and freezes the
+            # UI. Refuse loudly instead.
+            if not auto:
+                self._status("Analysis running — finish or cancel it before opening sample setup.")
+            return
         from arpes.core.sample_layout import detect_sample_layout
         layout = detect_sample_layout(folder)
         if auto and layout.mode == "single" and layout.n_root_files == 0:

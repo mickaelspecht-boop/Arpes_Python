@@ -66,7 +66,7 @@ def build_ef_section(panel, lay) -> None:
         "→ Solaris/DA30: read automatically from the file.\n"
         "→ BESSY/SES: kept for diagnostic/kz; E−EF uses Center Energy automatically."
     )
-    panel.sp_ef = dspin(DEFAULT_EF_OFFSET_EV, -5.0, 5.0, 0.005)
+    panel.sp_ef = dspin(DEFAULT_EF_OFFSET_EV, -50.0, 50.0, 0.005)
     panel.sp_ef.setToolTip(
         "Scalar EF offset in eV — shifts the energy zero live (raise/lower the\n"
         "Fermi level). Applied instantly as a rigid binding-axis shift, no reload.\n"

@@ -6,11 +6,11 @@ arpes/physics/fs.py to keep the layering rule (no PyQt in physics/).
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QLocale, pyqtSignal
+from PyQt6.QtCore import QLocale, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
-    QSpinBox, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSlider,
+    QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 from arpes.physics.bz import resolve_bz_preset
 from arpes.physics.fs import FSParams
@@ -40,6 +40,7 @@ class FSControlPanel(QScrollArea):
     bz_crystal_overlay_changed = pyqtSignal()   # toggles / V0 / plan / phi_c
     dft_grid_load_requested = pyqtSignal()      # "Load 3D DFT" button
     dft_grid_clear_requested = pyqtSignal()     # "Forget DFT" button
+    nesting_requested = pyqtSignal()            # "C(q) nesting" button
 
     def __init__(self):
         super().__init__()
@@ -65,6 +66,26 @@ class FSControlPanel(QScrollArea):
         sp.setKeyboardTracking(False)
         sp.valueChanged.connect(self.params_changed)
         return sp
+
+    def _wire_rotation_slider(self) -> None:
+        """Two-way sync between the rotation slider (×10 int) and the spinbox.
+
+        The slider drives the spinbox (which emits ``params_changed`` → debounced
+        redraw); the spinbox drives the slider back under ``blockSignals`` to
+        avoid a feedback loop. Programmatic spinbox writes (session restore) also
+        move the slider.
+        """
+        def _slider_to_spin(v: int) -> None:
+            self.sp_fs_rotation.setValue(v / 10.0)
+
+        def _spin_to_slider(v: float) -> None:
+            self.sl_fs_rotation.blockSignals(True)
+            self.sl_fs_rotation.setValue(int(round(float(v) * 10.0)))
+            self.sl_fs_rotation.blockSignals(False)
+
+        self.sl_fs_rotation.valueChanged.connect(_slider_to_spin)
+        self.sp_fs_rotation.valueChanged.connect(_spin_to_slider)
+        _spin_to_slider(self.sp_fs_rotation.value())
 
     def _ispin(self, value, lo, hi, step=1):
         sp = QSpinBox()
@@ -152,6 +173,19 @@ class FSControlPanel(QScrollArea):
         self.sp_fs_rotation.setToolTip(
             "Display rotation of the full centered FS map, pockets, BM cuts and BZ overlays."
         )
+        # Slider for smooth, live rotation (couples both ways with the spinbox).
+        # 0.1° resolution: int slider value = degrees × 10. Rotation only
+        # re-transforms the cached FS (no re-extraction) so dragging stays fluid.
+        self.sl_fs_rotation = QSlider(Qt.Orientation.Horizontal)
+        self.sl_fs_rotation.setRange(-1800, 1800)
+        self.sl_fs_rotation.setSingleStep(5)
+        self.sl_fs_rotation.setPageStep(100)
+        self.sl_fs_rotation.setToolTip("Drag to rotate the FS map and the theoretical BZ together (live).")
+        self._wire_rotation_slider()
+        self.btn_fs_rotation_reset = QToolButton()
+        self.btn_fs_rotation_reset.setText("⟲")
+        self.btn_fs_rotation_reset.setToolTip("Reset rotation to 0°.")
+        self.btn_fs_rotation_reset.clicked.connect(lambda: self.sp_fs_rotation.setValue(0.0))
         self.cmb_cmap = QComboBox(); self.cmb_cmap.addItems(["inferno", "viridis", "cividis", "magma", "gray", "hot", "RdBu_r"])
         self.cmb_cmap.setToolTip("FS map color palette. cividis = color-blind safe (Nature); RdBu_r = self-energy/diff.")
         self.cmb_cmap.currentIndexChanged.connect(self.params_changed)
@@ -165,9 +199,24 @@ class FSControlPanel(QScrollArea):
         fl2.addRow("Norm ref min:", self.sp_ref_lo)
         fl2.addRow("Norm ref max:", self.sp_ref_hi)
         fl2.addRow("Smoothing σ:", self.sp_sm)
-        fl2.addRow("Rotation (°):", self.sp_fs_rotation)
+        rot_row = QWidget()
+        rot_lay = QHBoxLayout(rot_row)
+        rot_lay.setContentsMargins(0, 0, 0, 0)
+        rot_lay.setSpacing(4)
+        rot_lay.addWidget(self.sl_fs_rotation, 1)
+        rot_lay.addWidget(self.sp_fs_rotation)
+        rot_lay.addWidget(self.btn_fs_rotation_reset)
+        fl2.addRow("Rotation (°):", rot_row)
         fl2.addRow("Colormap:", self.cmb_cmap)
         fl2.addRow(self.chk_norm)
+        self.btn_nesting = compact_button(QPushButton("C(q) nesting…"), max_width=200)
+        self.btn_nesting.setToolTip(
+            "Compute the FS autocorrelation C(q) = Σ_k A(k) A(k+q) of the current "
+            "map and mark the strongest off-Γ peaks (candidate nesting / folding "
+            "vectors). Geometric measure, not the susceptibility χ(q)."
+        )
+        self.btn_nesting.clicked.connect(self.nesting_requested)
+        fl2.addRow(self.btn_nesting)
         self._add_collapsible_group(lay, "FS Map", grp_fs, open_default=False)
 
         build_bz_theoretical_group(self, lay)

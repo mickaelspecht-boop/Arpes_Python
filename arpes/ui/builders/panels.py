@@ -311,7 +311,7 @@ def _build_mdc_tab(window) -> QWidget:
 def _build_results_tab(window) -> QWidget:
     from arpes.ui.widgets.results import ResultsPanel
 
-    window._results = ResultsPanel(window._session)
+    window._results = ResultsPanel(window._session, host=window)
     # Results = the analysis hub: MDC-fit physics tables + band analysis.
     tabs = QTabWidget()
     tabs.setStyleSheet(
@@ -450,6 +450,9 @@ def wire_ui_signals(window) -> None:
     if FSControlPanel is not None:
         window._fs_controls.params_changed.connect(window._schedule_fs_redraw)
         window._fs_controls.redraw_requested.connect(window._draw_fs_tab)
+        if hasattr(window._fs_controls, "nesting_requested"):
+            from arpes.ui.controllers.nesting_ctrl import show_cq as _show_cq
+            window._fs_controls.nesting_requested.connect(lambda: _show_cq(window))
         if hasattr(window._fs_controls, "gamma_requested"):
             window._fs_controls.gamma_requested.connect(window._detect_fs_gamma)
         if hasattr(window._fs_controls, "manual_center_requested"):
@@ -653,6 +656,8 @@ def wire_param_signals(window) -> None:
     p.theory_overlay_changed.connect(window._on_theory_overlay_changed)
     p.theory_compare_requested.connect(window._compare_theory_overlay)
     p.self_energy_requested.connect(window._calculate_self_energy)
+    from arpes.ui.controllers.polarization_ctrl import show_pkE as _show_pkE
+    p.pkE_requested.connect(lambda: _show_pkE(window))
     p.theory_search_requested.connect(window._search_theory_mp)
     p.theory_band_picker_requested.connect(window._open_theory_band_picker)
     p.theory_mu_fit_requested.connect(window._fit_theory_mu_auto)

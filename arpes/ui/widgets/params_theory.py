@@ -182,6 +182,13 @@ def build_theory_section(panel, lay) -> None:
         "against the current MDC fit, then opens a diagnostic plot."
     )
     btn_self_energy.clicked.connect(panel.self_energy_requested)
+    btn_pkE = QPushButton("P(k,E) LH/LV")
+    btn_pkE.setToolTip(
+        "Polarization contrast P(k,E) = (I_π − I_σ)/(I_π + I_σ) between this band\n"
+        "map and its orthogonal-polarization partner (auto-paired by geometry, or\n"
+        "captured manually: click once on LH, switch to LV, click again)."
+    )
+    btn_pkE.clicked.connect(panel.pkE_requested)
     btn_theory_mu_fit = QPushButton("Auto-fit μ")
     btn_theory_mu_fit.setToolTip(
         "Computes the μ that best aligns the selected DFT band to the\n"
@@ -258,7 +265,7 @@ def build_theory_section(panel, lay) -> None:
         btn_theory_refresh, btn_theory_local_import, btn_theory_clear,
     ])
     align_btns = _btn_grid([btn_theory_mu_fit, btn_theory_align, btn_theory_efalign])
-    diag_btns = _btn_grid([btn_theory_compare, btn_self_energy])
+    diag_btns = _btn_grid([btn_theory_compare, btn_self_energy, btn_pkE])
 
     panel.lbl_theory_status = QLabel("Visual guide only.")
     panel.lbl_theory_status.setWordWrap(True)

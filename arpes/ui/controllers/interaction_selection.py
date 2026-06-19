@@ -18,6 +18,7 @@ def handle_single_click_selection(ctrl, ax, click_disp, *, additive: bool) -> No
         if not additive and p._fit_selected:
             p._fit_selected = []
             ctrl._status("Selection cleared.")
+            _sync_results_link(ctrl)
         return
     if not additive:
         if nearest in p._fit_selected and len(p._fit_selected) == 1:
@@ -30,6 +31,7 @@ def handle_single_click_selection(ctrl, ax, click_disp, *, additive: bool) -> No
         else:
             p._fit_selected.append(nearest)
     ctrl._status(f"{len(p._fit_selected)} point(s) selected. Press Delete to remove.")
+    _sync_results_link(ctrl)
 
 
 def handle_rect_selection(ctrl, ax, xs, ys, *, additive: bool) -> None:
@@ -69,3 +71,18 @@ def handle_rect_selection(ctrl, ax, xs, ys, *, additive: bool) -> None:
                 existing.add(h)
         p._fit_selected = list(existing)
     ctrl._status(f"{len(p._fit_selected)} point(s) selected. Press Delete to remove.")
+    _sync_results_link(ctrl)
+
+
+def _sync_results_link(ctrl) -> None:
+    p = ctrl._parent
+    results = getattr(p, "_results", None)
+    current = getattr(p, "_current_path", None)
+    if results is None or not current:
+        return
+    try:
+        filename = p._session.key_for_path(current)
+        sel = (p._fit_selected[0] if len(p._fit_selected) == 1 else None)
+        results.sync_linked_fit_selection(filename, sel)
+    except Exception:
+        pass

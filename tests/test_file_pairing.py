@@ -230,6 +230,27 @@ class TestPseudoEntriesFromLogbook(unittest.TestCase):
             self.assertIsNotNone(bm_key, f"nested BM77 not discovered: {list(out)}")
             self.assertAlmostEqual(out[bm_key].meta.hv, 95.0)
 
+    def test_pseudo_entry_carries_direction(self):
+        """Regression: pseudo-entries must propagate the logbook cut direction.
+
+        Without it, unloaded BMs paired to an FS all projected as the same
+        horizontal cut (no azi rotation) because meta.direction stayed empty.
+        """
+        import tempfile
+        from arpes.io.file_pairing import build_pseudo_entries_from_logbook
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "BM50.pxt").write_text("")
+            records = [{"file": "BM50.pxt", "hv": "48", "dir": "GM", "P": "2.0"}]
+            mapping = {"file": "file", "hv": "hv", "direction": "dir", "polar": "P"}
+            s = self._stub_session(records, mapping, folder=tmp_path)
+            out = build_pseudo_entries_from_logbook(
+                s, scan_kind_resolver=lambda p: "BM",
+            )
+            bm_key = next((k for k in out if "BM50" in k), None)
+            self.assertIsNotNone(bm_key)
+            self.assertEqual(out[bm_key].meta.direction, "Γ-M")
+
     def test_skip_if_already_in_session_files(self):
         import tempfile
         from arpes.io.file_pairing import build_pseudo_entries_from_logbook

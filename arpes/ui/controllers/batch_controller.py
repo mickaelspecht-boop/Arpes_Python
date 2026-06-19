@@ -57,10 +57,36 @@ class BatchController:
             "Batch fit in progress...", "Cancel", 0, len(targets), self._parent,
         )
         progress.setWindowTitle("Batch fit folder")
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        # ApplicationModal: the loop pumps QApplication.processEvents() between
+        # files, so a WindowModal dialog still lets clicks reach sibling docks
+        # (e.g. the browser "Samples…" button), which opened a nested modal
+        # dialog mid-loop and froze the UI. ApplicationModal blocks all windows.
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
 
+        ok = 0
+        skipped = 0
+        self._parent._batch_busy = True
+        try:
+            ok, skipped = self._run_targets(targets, progress)
+        finally:
+            self._parent._batch_busy = False
+            progress.close()
+
+        results = getattr(self._parent, "_results", None)
+        if results is not None:
+            try:
+                results.refresh()
+            except Exception:
+                pass
+
+        msg = f"Batch done: {ok} fitted, {skipped} failed/skipped out of {len(targets)} targets."
+        self._status(msg)
+        QMessageBox.information(self._parent, "Batch fit", msg)
+
+    def _run_targets(self, targets, progress) -> tuple[int, int]:
+        session = self._session
         ok = 0
         skipped = 0
         for i, (name, full) in enumerate(targets):
@@ -81,15 +107,4 @@ class BatchController:
                 self._status(f"Batch: failed {name} ({exc})")
             progress.setValue(i + 1)
             QApplication.processEvents()
-        progress.close()
-
-        results = getattr(self._parent, "_results", None)
-        if results is not None:
-            try:
-                results.refresh()
-            except Exception:
-                pass
-
-        msg = f"Batch done: {ok} fitted, {skipped} failed/skipped out of {len(targets)} targets."
-        self._status(msg)
-        QMessageBox.information(self._parent, "Batch fit", msg)
+        return ok, skipped

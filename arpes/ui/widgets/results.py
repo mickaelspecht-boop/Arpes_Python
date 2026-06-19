@@ -43,9 +43,13 @@ from arpes.io.export_styles import PRESETS, savefig_with_preset
 from arpes.ui.widgets.canvas import MplCanvas
 
 class ResultsPanel(QWidget):
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, host=None):
         super().__init__()
         self._session = session
+        self._host = host
+        self._result_point_refs: list[dict] = []
+        self._linked_selection: dict | None = None
+        self._linked_result_artist = None
         self._build()
 
     def _build(self):
@@ -54,6 +58,10 @@ class ResultsPanel(QWidget):
         # Left: one plot at a time, full height — switch with the sub-tabs
         # (stacking both crushed each to half height).
         self._canvas = MplCanvas(figsize=(6, 4), toolbar=True)
+        from arpes.ui.widgets import results_link
+        self._canvas.canvas.mpl_connect(
+            "button_press_event", lambda ev: results_link.on_results_click(self, ev)
+        )
         self._canvas_gamma = MplCanvas(figsize=(6, 3), toolbar=True)
         cw = QTabWidget()
         cw.setStyleSheet(
@@ -230,6 +238,7 @@ class ResultsPanel(QWidget):
         self._table.setRowCount(0)
         self._table_phys.setRowCount(0)
         ax = self._canvas.ax
+        self._result_point_refs = []
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas.fig.set_facecolor("#2b2b2b")
 
@@ -256,6 +265,9 @@ class ResultsPanel(QWidget):
                 ax.scatter(kp, ev_f, s=8, color=c, marker="^", alpha=0.8)
                 self._plot_branch_segments(ax, km, ev_f, color=c, alpha=0.60)
                 self._plot_branch_segments(ax, kp, ev_f, color=c, alpha=0.60)
+                from arpes.ui.widgets.results_link import append_branch_refs
+                append_branch_refs(self, name, "kF_minus", i, km, ev_f)
+                append_branch_refs(self, name, "kF_plus", i, kp, ev_f)
 
             # Table row
             kf_ef = np.nan
@@ -315,8 +327,14 @@ class ResultsPanel(QWidget):
             self._canvas.fig.subplots_adjust(right=0.74)
         else:
             self._canvas.fig.subplots_adjust(right=0.97)
-        self._canvas.redraw()
+        from arpes.ui.widgets.results_link import highlight_results_selection
+        highlight_results_selection(self)
         self._draw_gamma_panel(colors)
+
+    def sync_linked_fit_selection(self, filename: str, selection) -> None:
+        """Highlight a BM-selected fit point on the Results kF plot when possible."""
+        from arpes.ui.widgets.results_link import sync_from_bm_selection
+        sync_from_bm_selection(self, filename, selection)
 
     @staticmethod
     def _plot_branch_segments(ax, k_values, e_values, *, color, alpha=0.6) -> None:

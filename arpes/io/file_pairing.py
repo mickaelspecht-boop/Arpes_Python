@@ -408,6 +408,7 @@ def build_pseudo_entries_from_logbook(
             polar=values.polar,
             tilt=values.tilt,
             polarization=str(values.polarization or ""),
+            direction=str(values.direction or ""),
             formula=str(values.formula or ""),
             mp_id=str(values.mp_id or ""),
             scan_kind=sk,
