@@ -5,6 +5,7 @@ Single free function ``draw_mdc_edc(ctrl)`` rendering the bottom canvas.
 from __future__ import annotations
 
 import numpy as np
+from matplotlib.lines import Line2D
 
 from arpes.ui.controllers.plot_model_helpers import build_model_pairs
 from arpes.ui.controllers.fit_overlay_drawer import PAIR_COLORS
@@ -84,6 +85,16 @@ def draw_mdc_edc(ctrl) -> None:
 
         n_p = params.sp_np.value()
         ctrl._kf_drag_lines = []
+        # Draggable kF handles are staggered into vertical bands so that two
+        # lines at the same k (small kF → +/- nearly coincide, or two pairs with
+        # similar kF) no longer fully overlap: each handle keeps its own grab
+        # zone and stays pickable. A faint full-height guide still marks the
+        # exact k position for reading.
+        blend = ax_mdc.get_xaxis_transform()
+        n_handles = max(1, 2 * n_p)
+        y_centers = np.linspace(0.90, 0.12, n_handles)
+        handle_h = min(0.13, 0.78 / n_handles + 0.02)
+        slot = 0
         logic_lines = [
             f"slice E={ctrl._sel_ev:+.3f} eV  int=±{params.sp_int_win.value()*1000:.0f} meV",
             f"fit k=[{kmin:+.3f},{kmax:+.3f}]  scan E=[{params.sp_evs.value():+.3f},{params.sp_eve.value():+.3f}]",
@@ -95,14 +106,21 @@ def draw_mdc_edc(ctrl) -> None:
         for pi, pp in enumerate(params._pair_params[:n_p]):
             kf = pp.get("kF_init", 0.30)
             pc = PAIR_COLORS[pi % len(PAIR_COLORS)]
-            ln_p = ax_mdc.axvline(cx + kf, color=pc, lw=1.2, ls="-.",
-                                   alpha=0.85, zorder=4, picker=6)
-            ln_m = ax_mdc.axvline(cx - kf, color=pc, lw=1.2, ls="-.",
-                                   alpha=0.85, zorder=4, picker=6)
-            ln_p._kf_meta = (pi, +1)
-            ln_m._kf_meta = (pi, -1)
-            ctrl._kf_drag_lines.append((pi, +1, ln_p))
-            ctrl._kf_drag_lines.append((pi, -1, ln_m))
+            for sign in (+1, -1):
+                xk = cx + sign * kf
+                guide = ax_mdc.axvline(xk, color=pc, lw=0.7, ls=":",
+                                       alpha=0.30, zorder=2)
+                yc = float(y_centers[slot % n_handles]); slot += 1
+                handle = Line2D(
+                    [xk, xk], [yc - handle_h / 2.0, yc + handle_h / 2.0],
+                    transform=blend, color=pc, lw=3.0, ls="-", alpha=0.95,
+                    solid_capstyle="round", marker="o", markersize=4,
+                    zorder=6, picker=6,
+                )
+                handle._kf_meta = (pi, sign)
+                handle._kf_guide = guide
+                ax_mdc.add_line(handle)
+                ctrl._kf_drag_lines.append((pi, sign, handle))
             pair_line_parts.append(f"P{pi+1}:kF0={float(kf):.3f}")
         ctrl._install_kf_drag_handlers()
         if pair_line_parts:

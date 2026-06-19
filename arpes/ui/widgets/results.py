@@ -69,10 +69,28 @@ class ResultsPanel(QWidget):
             "QTabBar::tab:selected{background:#444;color:white;}"
         )
         cw.addTab(self._canvas, "kF dispersion")
-        cw.addTab(self._canvas_gamma, "Γ(E) — lifetime")
+        # Γ(E) tab = a small trend-model selector above the canvas.
+        gamma_tab = QWidget()
+        gtl = QVBoxLayout(gamma_tab)
+        gtl.setContentsMargins(0, 0, 0, 0); gtl.setSpacing(2)
+        grow = QHBoxLayout()
+        grow.addWidget(QLabel("Trend fit:"))
+        self._cmb_gamma_model = QComboBox()
+        self._cmb_gamma_model.addItems(["Quadratic  Γ₀ + a·E²", "Linear  a + b·E"])
+        self._cmb_gamma_model.setToolTip(
+            "Overlay model for Γ(E):\n"
+            "• Quadratic Γ₀ + a·E² — Fermi-liquid scattering (default).\n"
+            "• Linear a + b·E — marginal-Fermi-liquid-like / quick trend.")
+        self._cmb_gamma_model.currentIndexChanged.connect(
+            lambda *_: self._draw_gamma_panel(getattr(self, "_gamma_colors", None)))
+        grow.addWidget(self._cmb_gamma_model)
+        grow.addStretch(1)
+        gtl.addLayout(grow)
+        gtl.addWidget(self._canvas_gamma)
+        cw.addTab(gamma_tab, "Γ(E) — lifetime")
         cw.setTabToolTip(0, "kF(E) points of every fitted file (both branches).")
-        cw.setTabToolTip(1, "MDC linewidth Γ(E) ± σ with the Fermi-liquid fit "
-                            "Γ(E) = Γ₀ + a·E².")
+        cw.setTabToolTip(1, "MDC linewidth Γ(E) ± σ with a selectable linear or "
+                            "Fermi-liquid (Γ₀ + a·E²) trend.")
 
         # droite : table + boutons
         right = QVBoxLayout()
@@ -430,80 +448,16 @@ class ResultsPanel(QWidget):
         colors = _plt.cm.plasma(np.linspace(0.1, 0.9, max(1, len(self._session.files))))
         self._draw_gamma_panel(colors)
 
+    def _fallback_colors(self):
+        import matplotlib.pyplot as plt
+        return plt.cm.plasma(np.linspace(0.1, 0.9, max(1, len(self._session.files))))
+
     def _draw_gamma_panel(self, colors) -> None:
-        from arpes.analysis.results import fit_gamma_fermi_liquid
-        visible = self._visible_files()
-        ax = self._canvas_gamma.ax
-        ax.cla(); ax.set_facecolor("#1a1a1a")
-        self._canvas_gamma.fig.set_facecolor("#2b2b2b")
-        plotted = 0
-        self._gamma_sigma_missing = False
-        for ci, (name, entry) in enumerate(self._session.files.items()):
-            if entry.fit_result is None:
-                continue
-            if name not in visible:
-                continue
-            fr = entry.fit_result
-            ev = np.asarray(fr.get("e_fitted", []), dtype=float)
-            g_arrays = fr.get("gamma_corrige") or fr.get("gamma") or []
-            sg_arrays = fr.get("sigma_gamma") or []
-            color = colors[ci]
-            for i, g_raw in enumerate(g_arrays):
-                g = np.asarray(g_raw, dtype=float)
-                n = min(len(ev), len(g))
-                if n == 0:
-                    continue
-                e_n, g_n = ev[:n], g[:n]
-                valid = np.isfinite(e_n) & np.isfinite(g_n)
-                if int(valid.sum()) < 3:
-                    continue
-                ax.plot(e_n[valid], g_n[valid], "o-", ms=3, lw=0.8, color=color,
-                        alpha=0.85, label=f"{name} P{i+1}" if plotted < 6 else "_")
-                if i < len(sg_arrays):
-                    sg = np.asarray(sg_arrays[i], dtype=float)[:n]
-                    band_valid = valid & np.isfinite(sg) & (sg > 0)
-                    if band_valid.any():
-                        ax.fill_between(e_n[band_valid],
-                                        g_n[band_valid] - sg[band_valid],
-                                        g_n[band_valid] + sg[band_valid],
-                                        color=color, alpha=0.18, lw=0)
-                        # The band alone is invisible when σ ≪ Γ (typical good
-                        # fit: σ ~1% of Γ): explicit capped error bars on a
-                        # subsample keep the uncertainty readable.
-                        idxs = np.flatnonzero(band_valid)[::max(1, int(band_valid.sum()) // 12)]
-                        ax.errorbar(e_n[idxs], g_n[idxs], yerr=sg[idxs],
-                                    fmt="none", ecolor=color, elinewidth=0.9,
-                                    capsize=2.5, alpha=0.9, zorder=3)
-                else:
-                    self._gamma_sigma_missing = True
-                fl = fit_gamma_fermi_liquid(fr, pair_index=i, e_window=0.30)
-                if np.isfinite(fl.gamma_zero) and np.isfinite(fl.coef_E2):
-                    e_grid = np.linspace(float(np.nanmin(e_n[valid])),
-                                         float(np.nanmax(e_n[valid])), 80)
-                    ax.plot(e_grid, fl.gamma_zero + fl.coef_E2 * e_grid ** 2,
-                            "--", color=color, lw=1.0, alpha=0.7)
-                plotted += 1
-        ax.set_xlabel(r"$E - E_F$ (eV)", fontsize=10, color="w")
-        ax.set_ylabel(r"$\Gamma_k$ (HWHM, π/a)", fontsize=10, color="w")
-        ax.set_title(r"$\Gamma_k(E)$ — bands ±σ and Fermi-liquid fit ($\Gamma_0 + aE^2$)",
-                     fontsize=10, color="w")
-        ax.tick_params(colors="w")
-        for sp in ax.spines.values(): sp.set_edgecolor("#555")
-        if self._gamma_sigma_missing:
-            ax.text(0.02, 0.97, "σ not stored in this fit — re-run the MDC fit "
-                    "to get uncertainty bars", transform=ax.transAxes,
-                    ha="left", va="top", color="#e6b35a", fontsize=8)
-        if plotted > 0:
-            handles, labels = ax.get_legend_handles_labels()
-            if len(labels) <= 8:
-                leg = ax.legend(
-                    fontsize=7, facecolor="#333", labelcolor="w",
-                    loc="best", frameon=True, framealpha=0.75,
-                )
-                leg.set_draggable(True)
-        else:
-            self._canvas_gamma.fig.subplots_adjust(right=0.97)
-        self._canvas_gamma.redraw()
+        from arpes.ui.widgets.results_gamma import draw_gamma_panel
+        if colors is None or len(colors) == 0:
+            colors = self._fallback_colors()
+        self._gamma_colors = colors
+        draw_gamma_panel(self, colors)
 
     @staticmethod
     def _fmt(value: float, sigma: float, *, dec: int = 4) -> str:

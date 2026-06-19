@@ -36,6 +36,9 @@ def on_kf_motion(ctrl, event) -> None:
     _pi, _sign, line = active
     x = float(event.xdata)
     line.set_xdata([x, x])
+    guide = getattr(line, "_kf_guide", None)
+    if guide is not None:
+        guide.set_xdata([x, x])
     ctrl._mdc_edc.canvas.draw_idle()
 
 
