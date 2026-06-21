@@ -43,6 +43,13 @@ class KzController:
             return None
         return session.get_or_create(session.key_for_path(path))
 
+    def _current_entry_key(self):
+        path = getattr(self._parent, "_current_path", None)
+        session = getattr(self._parent, "_session", None)
+        if not path or session is None:
+            return None
+        return session.key_for_path(path)
+
     def _work_func(self) -> float:
         fallback = float(getattr(self._parent._session, "work_func", 0.0) or 0.0)
         try:
@@ -68,7 +75,9 @@ class KzController:
         if typed > 0:
             return typed
         try:
-            return float(sample_for_entry(self._parent._session, self._current_entry()).a_angstrom)
+            return float(sample_for_entry(
+                self._parent._session, self._current_entry(),
+                self._current_entry_key()).a_angstrom)
         except Exception:
             return 0.0
 
@@ -255,7 +264,9 @@ class KzController:
 
     def _autofill_lattice(self, controls) -> None:
         try:
-            sample = sample_for_entry(self._parent._session, self._current_entry())
+            sample = sample_for_entry(
+                self._parent._session, self._current_entry(),
+                self._current_entry_key())
         except Exception:
             return
         controls.autofill_lattice(sample.a_angstrom, sample.c_angstrom)

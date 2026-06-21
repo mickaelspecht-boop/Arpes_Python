@@ -165,7 +165,7 @@ def export_provenance(
     names = sorted(file_names if file_names is not None else files)
     input_hash, inputs = input_fingerprint(session, names)
     samples = {
-        name: sample_for_entry(session, entry).to_dict()
+        name: sample_for_entry(session, entry, name).to_dict()
         for name, entry in sorted(files.items())
         if name in names
     }
@@ -213,7 +213,7 @@ def physics_rows(session, *, e_window_kF: float = 0.10, e_window_gamma: float = 
         if entry.fit_result is None:
             continue
         meta = entry.meta
-        sample = sample_for_entry(session, entry)
+        sample = sample_for_entry(session, entry, name)
         a_val = require_lattice_a(sample, context=name)
         bundle = compute_results(
             entry.fit_result,

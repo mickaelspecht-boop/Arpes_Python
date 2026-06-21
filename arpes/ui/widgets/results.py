@@ -398,7 +398,8 @@ class ResultsPanel(QWidget):
     def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
         entry = self._session.files.get(filename)
         try:
-            a_val = require_lattice_a(sample_for_entry(self._session, entry), context=filename)
+            a_val = require_lattice_a(
+                sample_for_entry(self._session, entry, filename), context=filename)
         except ValueError as exc:
             row = self._table_phys.rowCount()
             self._table_phys.insertRow(row)
@@ -598,7 +599,7 @@ class ResultsPanel(QWidget):
                 "formula": str(getattr(m, "formula", "") or ""),
                 "mp_id": str(getattr(m, "mp_id", "") or ""),
                 "crystal_a_angstrom": float(getattr(m, "crystal_a_angstrom", 0.0) or 0.0),
-                "sample_config": sample_for_entry(self._session, entry).to_dict(),
+                "sample_config": sample_for_entry(self._session, entry, name).to_dict(),
                 "ef_offset": float(getattr(entry, "ef_offset", 0.0) or 0.0),
                 "fitted": bool(entry.fit_result),
             })
