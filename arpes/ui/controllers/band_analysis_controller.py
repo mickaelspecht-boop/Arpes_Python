@@ -42,11 +42,28 @@ class BandAnalysisController:
 
     def _crystal_a(self) -> float:
         p = self._parent
+        # The live theory-panel spinbox is the app-wide source of truth for a
+        # (fit_runner_controller / fit_zone_runner read it the same way). Band
+        # analysis used to ignore it and only consult the sample/meta, so a value
+        # the user had set "from the start" in the spinbox was invisible here →
+        # the π/a → Å⁻¹ conversion divided by zero and aborted the app.
+        params = getattr(p, "_params", None)
+        if params is not None:
+            try:
+                a = float(params.sp_crystal_a.value())
+                if a > 0:
+                    return a
+            except Exception:
+                pass
         a = 0.0
         entry = self._current_entry()
         if entry is not None:
             try:
-                sample = sample_for_entry(self._session, entry)
+                # Pass the entry key so the user's per-subfolder SampleConfig
+                # override is honoured (sample_for_entry ignores it otherwise).
+                path = getattr(p, "_current_path", None)
+                key = self._session.key_for_path(path) if path else None
+                sample = sample_for_entry(self._session, entry, key)
                 a = sample.a_angstrom if sample.has_lattice_a else 0.0
             except Exception:
                 a = 0.0
@@ -72,6 +89,10 @@ class BandAnalysisController:
         """
         e_raw = fit_result.get("e_fitted")
         if e_raw is None:
+            return np.array([]), np.array([]), None
+        if not (float(crystal_a) > 0):
+            # No lattice a → cannot convert π/a to Å⁻¹. Bail instead of dividing
+            # by zero (was an app-killing ZeroDivisionError on un-set a).
             return np.array([]), np.array([]), None
         E = np.asarray(e_raw, float)
         branches = fit_result.get(branch)
@@ -170,6 +191,13 @@ class BandAnalysisController:
             return
         opts = panel.tb_options()  # dict: lattice_type, a, b, branch, pair
         crystal_a = float(opts.get("a") or self._crystal_a())
+        if not (crystal_a > 0):
+            self._warn(
+                "Lattice constant a is not set, so kF (π/a) cannot be converted "
+                "to Å⁻¹ for the TB fit. Enter a in the TB panel 'a' field, or set "
+                "it in the Theory panel / sample, then re-run."
+            )
+            return
         branch = opts.get("branch", "kF_minus")
         pair = int(opts.get("pair", 0))
         E, k, _g = self._extract_dispersion(fr, crystal_a, branch, pair)
@@ -232,6 +260,14 @@ class BandAnalysisController:
             return
         opts = panel.kink_options()  # {branch, pair, bare, window_lo, window_hi, lambda_window, E_F}
         crystal_a = self._crystal_a()
+        if not (crystal_a > 0):
+            self._warn(
+                "Lattice constant a is not set, so kF (π/a) cannot be converted "
+                "to Å⁻¹ for the kink analysis. Set a in the Theory panel "
+                "(Crystal lattice parameter a) or load it from the sample / "
+                "Materials Project, then re-run."
+            )
+            return
         E, k, g = self._extract_dispersion(
             fr, crystal_a, opts.get("branch", "kF_minus"),
             int(opts.get("pair", 0))

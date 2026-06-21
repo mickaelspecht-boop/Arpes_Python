@@ -568,7 +568,8 @@ class MdcFitter:
         n_e = len(e_fitted)
         kf0 = np.asarray((fr.get("kF_minus") or [[np.nan]])[0], dtype=float)
         n_ok = int(np.isfinite(kf0).sum())
-        xg_mean = float(np.nanmean(fr.get("xg", [np.nan])))
+        xg_arr = np.asarray(fr.get("xg") or [], dtype=float)
+        xg_mean = float(np.nanmean(xg_arr)) if np.isfinite(xg_arr).any() else float("nan")
         gamma_note = ""
         resolution_dominates = False
         if fr.get("gamma_brut") and fr.get("gamma_corrige"):
