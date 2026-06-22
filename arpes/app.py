@@ -320,9 +320,17 @@ class ArpesExplorer(QMainWindow):
         self._gamma_status_label = _QLabel("Γ ∅")
         self._gamma_status_label.setToolTip("Current Γ state (reference + axis).")
         self.statusBar().addPermanentWidget(self._gamma_status_label)
-        # Live processing-log dock (provenance journal), available from the start.
+        # Processing-log: the live dock is created but hidden so it never steals
+        # work-area space; a tiny always-on status-bar badge (event count + last
+        # action) keeps it discoverable and one click away.
         try:
-            self._experience_log_ctrl.ensure_dock()
+            dock = self._experience_log_ctrl.ensure_dock()
+            dock.setVisible(False)
+            from arpes.ui.widgets.processing_log_dock import ProcessingLogBadge
+            self._proc_log_badge = ProcessingLogBadge(
+                self, on_click=self._experience_log_ctrl.toggle_dock
+            )
+            self.statusBar().addPermanentWidget(self._proc_log_badge)
         except Exception:
             pass
 

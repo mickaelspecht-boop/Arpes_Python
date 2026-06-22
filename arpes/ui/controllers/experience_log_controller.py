@@ -77,9 +77,13 @@ class ExperienceLogController:
 
     def toggle_dock(self) -> None:
         dock = self.ensure_dock()
-        dock.setVisible(not dock.isVisible())
-        if dock.isVisible():
+        # isHidden() reflects the explicit hide flag regardless of whether the
+        # main window is shown yet (isVisible() would lie before show()).
+        show = dock.isHidden()
+        dock.setVisible(show)
+        if show:
             dock.refresh()
+            dock.raise_()
 
     def refresh_dock(self) -> None:
         if self._dock is not None:

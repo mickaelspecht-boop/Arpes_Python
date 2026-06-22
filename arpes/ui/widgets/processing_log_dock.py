@@ -19,8 +19,9 @@ from PyQt6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
-    QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -73,10 +74,26 @@ class ProcessingLogDock(QDockWidget):
         lay.setContentsMargins(6, 6, 6, 6)
         lay.setSpacing(4)
 
+        header = QHBoxLayout()
         self._title = QLabel("No signal")
         self._title.setStyleSheet("font-weight:600; color:#e5e7eb;")
         self._title.setWordWrap(True)
-        lay.addWidget(self._title)
+        header.addWidget(self._title, 1)
+        # Report / export / clear live in a compact overflow menu so the panel
+        # stays light and never grows a heavy button row in the work window.
+        self._menu_btn = QToolButton()
+        self._menu_btn.setText("⋯")
+        self._menu_btn.setToolTip("Report / export / clear")
+        self._menu_btn.setAutoRaise(True)
+        self._menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(self._menu_btn)
+        menu.addAction("Full report…", self._open_report)
+        menu.addAction("Export .md", self._export)
+        menu.addSeparator()
+        menu.addAction("Clear log", self._clear)
+        self._menu_btn.setMenu(menu)
+        header.addWidget(self._menu_btn)
+        lay.addLayout(header)
 
         filt = QHBoxLayout()
         filt.addWidget(QLabel("Filter:"))
@@ -97,20 +114,6 @@ class ProcessingLogDock(QDockWidget):
             " QListWidget::item:alternate { background:#1c1c1c; }"
         )
         lay.addWidget(self._list, 1)
-
-        btns = QHBoxLayout()
-        self._btn_report = QPushButton("Full report…")
-        self._btn_report.setToolTip("Open the full per-signal report (timeline + state) dialog.")
-        self._btn_report.clicked.connect(self._open_report)
-        self._btn_export = QPushButton("Export .md")
-        self._btn_export.setToolTip("Save this signal's timeline + state snapshot as Markdown.")
-        self._btn_export.clicked.connect(self._export)
-        self._btn_clear = QPushButton("Clear")
-        self._btn_clear.setToolTip("Erase the recorded journal for this signal (cannot be undone).")
-        self._btn_clear.clicked.connect(self._clear)
-        for b in (self._btn_report, self._btn_export, self._btn_clear):
-            btns.addWidget(b)
-        lay.addLayout(btns)
 
         self.setWidget(body)
 
@@ -208,3 +211,53 @@ class ProcessingLogDock(QDockWidget):
         except Exception:
             pass
         self._render()
+
+
+class ProcessingLogBadge(QToolButton):
+    """Tiny always-on status-bar indicator: event count + last action.
+
+    Stays visible without stealing work-area space; clicking toggles the live
+    dock. Polls the current entry so it updates even while the dock is hidden.
+    """
+
+    def __init__(self, window, *, on_click):
+        super().__init__()
+        self._window = window
+        self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.setAutoRaise(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setText("Log: 0")
+        self.clicked.connect(on_click)
+        self._timer = QTimer(self)
+        self._timer.setInterval(700)
+        self._timer.timeout.connect(self._poll)
+        self._timer.start()
+        self._poll()
+
+    def _poll(self) -> None:
+        w = self._window
+        entry = None
+        try:
+            path = getattr(w, "_current_path", None)
+            if path:
+                key = w._session.key_for_path(path)
+                entry = w._session.files.get(key)
+        except Exception:
+            entry = None
+        hist = getattr(entry, "processing_history", None) or []
+        n = len(hist)
+        self.setText(f"Log: {n}")
+        if hist:
+            last = hist[-1]
+            detail = last.get("summary") or last.get("action", "")
+            self.setToolTip(
+                f"Processing log — {n} event(s)\n"
+                f"last: {last.get('action', '')}"
+                + (f" — {detail}" if detail and detail != last.get('action', '') else "")
+                + "\nClick to open/close the live panel."
+            )
+        else:
+            self.setToolTip(
+                "Processing log — no events yet.\n"
+                "Click to open/close the live panel."
+            )
