@@ -50,6 +50,19 @@ class TestImSigmaConvention(unittest.TestCase):
         np.testing.assert_allclose(s_h, 2.0 * s_l, rtol=1e-6)
 
 
+class TestFitGeometryGuard(unittest.TestCase):
+    def test_center_in_window_no_warning(self):
+        from arpes.ui.controllers.fit_runner_controller import FitRunnerController
+        fp = FitParams(center_init=0.0, k_min=-0.8, k_max=0.25)
+        self.assertEqual(FitRunnerController._geometry_warning(fp), "")
+
+    def test_center_outside_window_warns(self):
+        from arpes.ui.controllers.fit_runner_controller import FitRunnerController
+        fp = FitParams(center_init=-0.40, k_min=-0.35, k_max=0.55)
+        msg = FitRunnerController._geometry_warning(fp)
+        self.assertIn("hors fenêtre", msg)
+
+
 class TestGammaHwhmMigration(unittest.TestCase):
     def test_legacy_fit_scaled_and_tagged(self):
         from arpes.physics.fit import gamma_to_hwhm_factor, migrate_fit_result_to_hwhm

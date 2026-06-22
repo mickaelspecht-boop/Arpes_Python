@@ -477,48 +477,8 @@ class ResultsPanel(QWidget):
                     color=color, alpha=alpha, zorder=2)
 
     def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
-        entry = self._session.files.get(filename)
-        try:
-            a_val = require_lattice_a(
-                sample_for_entry(self._session, entry, filename), context=filename)
-        except ValueError as exc:
-            row = self._table_phys.rowCount()
-            self._table_phys.insertRow(row)
-            for col, val in enumerate([filename, "missing a", str(exc), "—", "—", "—"]):
-                self._table_phys.setItem(row, col, QTableWidgetItem(val))
-            return
-        g_lo, g_hi = self._gamma_e_range()
-        bundle = compute_results(
-            fr, e_window_kF=0.10, e_window_gamma=0.30,
-            crystal_a_angstrom=a_val,
-            gamma_max=getattr(getattr(entry, "fit_params", None), "gamma_max", None),
-            gamma_e_lo=g_lo, gamma_e_hi=g_hi,
-        )
-        if self._chk_bootstrap.isChecked():
-            from arpes.analysis.bootstrap import bootstrap_branch_result
-            from arpes.analysis.results import _pair_center
-            bs_branches = []
-            for br in bundle.branches:
-                bs_branches.append(bootstrap_branch_result(
-                    fr, branch=br.branch, pair_index=br.pair_index,
-                    e_window=0.10, crystal_a_angstrom=a_val, n_iter=500,
-                    center=_pair_center(fr, br.pair_index),
-                ))
-            branches = bs_branches
-        else:
-            branches = bundle.branches
-        gamma_by_pair = {g.pair_index: g for g in bundle.gamma_fl}
-        for br in branches:
-            row = self._table_phys.rowCount()
-            self._table_phys.insertRow(row)
-            label = f"P{br.pair_index + 1} {br.branch.replace('kF_', '')}"
-            kf = self._fmt(br.kF_at_EF, br.kF_at_EF_sigma, dec=4)
-            vf = self._fmt(br.vF_eV_pi_a, br.vF_sigma, dec=2)
-            mstar = self._fmt(br.m_star_over_me, br.m_star_sigma, dec=2)
-            g_fl = gamma_by_pair.get(br.pair_index)
-            g0 = self._fmt(g_fl.gamma_zero, g_fl.gamma_zero_sigma, dec=4) if g_fl else "—"
-            for col, val in enumerate([filename, label, kf, vf, mstar, g0]):
-                self._table_phys.setItem(row, col, QTableWidgetItem(val))
+        from arpes.ui.widgets.results_physics_table import populate_physics_rows
+        populate_physics_rows(self, filename, fr, n_pairs, meta)
 
     def refresh_physics_only(self) -> None:
         """Repopulate the physics table and redraw Gamma(E) without touching dispersion."""

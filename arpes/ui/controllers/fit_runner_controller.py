@@ -107,6 +107,25 @@ class FitRunnerController:
     def _status(self, msg: str) -> None:
         self._parent._status(msg)
 
+    @staticmethod
+    def _geometry_warning(fp) -> str:
+        """Warn when the pair centre Γ sits outside the fit k window.
+
+        That guarantees a meaningless symmetric pair (the band is not in the
+        window) — the exact failure on off-centre bands. Non-blocking.
+        """
+        try:
+            c, lo, hi = float(fp.center_init), float(fp.k_min), float(fp.k_max)
+        except Exception:
+            return ""
+        if lo > hi:
+            lo, hi = hi, lo
+        if not (lo <= c <= hi):
+            return (f"⚠ centre Γ ({c:+.3f}) hors fenêtre k [{lo:+.2f}, {hi:+.2f}] : "
+                    "la paire symétrique ne peut pas tomber sur la bande — "
+                    "élargis la fenêtre k ou recale le centre.")
+        return ""
+
     # ----------------------------------------------------------------- helpers
     def _get_work_data(self):
         p = self._parent
@@ -329,9 +348,9 @@ class FitRunnerController:
                 )
             self._update_mdc_tab_label(fr)
             self._redraw_all_fit_views()
-            self._status(
-                f"Ensemble fit OK - {n_ok}/{n} runs converged."
-            )
+            geo = self._geometry_warning(fp)
+            base = f"Ensemble fit OK - {n_ok}/{n} runs converged."
+            self._status(f"{geo}  |  {base}" if geo else base)
         except Exception as e:
             self._status(f"Warning: Fit ensemble : {e}")
             traceback.print_exc()
@@ -484,7 +503,8 @@ class FitRunnerController:
                 )
             self._update_mdc_tab_label(fr)
             self._redraw_all_fit_views()
-            self._status(summary.status_text)
+            geo = self._geometry_warning(fp)
+            self._status(f"{geo}  |  {summary.status_text}" if geo else summary.status_text)
             if hasattr(self._params, "mark_action_done"):
                 self._params.mark_action_done("full fit completed")
         except Exception as e:
