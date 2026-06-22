@@ -82,8 +82,10 @@ def build_scientific_export_figure(panel):
             finite = np.isfinite(e_n) & np.isfinite(g[:n])
             if int(finite.sum()) < 3:
                 continue
-            reliable = gamma_reliability_mask(fr, pair_index=i, gamma_max=gmax)[:n] & finite
-            unreliable = finite & ~reliable
+            # Export shows ONLY the chosen lifetime fit window [g_lo, g_hi].
+            inrange = (e_n >= min(g_lo, g_hi)) & (e_n <= max(g_lo, g_hi))
+            reliable = gamma_reliability_mask(fr, pair_index=i, gamma_max=gmax)[:n] & finite & inrange
+            unreliable = finite & inrange & ~reliable
             if reliable.any():
                 ax_g.plot(e_n[reliable], g[:n][reliable], "o-", ms=3.2, lw=0.9, color=color,
                           alpha=0.90, label=f"{label_base} Γ P{i+1}" if plotted_g < 8 else "_")
@@ -132,6 +134,8 @@ def build_scientific_export_figure(panel):
     ax_g.set_xlabel(r"$E - E_F$ (eV)")
     ax_g.set_ylabel(r"$\Gamma_k$ (HWHM, π/a)")
     ax_g.set_title(r"Lifetime $\Gamma_k(E)$")
+    if plotted_g:
+        ax_g.set_xlim(min(g_lo, g_hi), max(g_lo, g_hi))  # only the chosen fit window
     for ax in (ax_d, ax_g):
         handles, labels = ax.get_legend_handles_labels()
         if labels:
