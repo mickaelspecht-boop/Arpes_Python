@@ -255,10 +255,12 @@ class BandAnalysisController:
             "E_fit": np.asarray(E_fit, dtype=float).tolist(),
         }
         panel.show_tb_result(ba["tb"], k=k, E=E, E_fit=E_fit)
+        def _fmt(v, unit=""):
+            return f"{v:.3f}{unit}" if isinstance(v, (int, float)) else "n/a"
         self._log(
             "TB fit", entry,
-            summary=f"{res.model}: m*/m={res.m_eff_over_me:.3f}, "
-                    f"bandwidth={res.bandwidth_eV:.3f} eV",
+            summary=f"{res.model}: m*/m={_fmt(res.m_eff_over_me)}, "
+                    f"bandwidth={_fmt(res.bandwidth_eV, ' eV')}",
             branch=branch, pair=pair, a=crystal_a, chi2_red=res.chi2_red,
         )
         self._after_run_refresh(entry)
@@ -320,10 +322,16 @@ class BandAnalysisController:
             "notes": res.notes,
         }
         panel.show_kink_result(ba["kink"])
+        lam = res.lambda_coupling
+        lam_err = res.lambda_err
+        lam_txt = (
+            f"λ={lam:.3f}±{lam_err:.3f}"
+            if isinstance(lam, (int, float)) and isinstance(lam_err, (int, float))
+            else "λ=n/a"
+        )
         self._log(
             "kink analysis", entry,
-            summary=f"λ={res.lambda_coupling:.3f}±{res.lambda_err:.3f} "
-                    f"({res.bare_model} bare band)",
+            summary=f"{lam_txt} ({res.bare_model} bare band)",
             branch=opts.get("branch", "kF_minus"), pair=int(opts.get("pair", 0)),
         )
         self._after_run_refresh(entry)
