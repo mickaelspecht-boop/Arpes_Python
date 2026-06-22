@@ -283,16 +283,70 @@ def extract_branch_result(
     )
 
 
+def gamma_reliability_mask(
+    fit_result: dict,
+    *,
+    pair_index: int = 0,
+    gamma_max: float | None = None,
+    merge_factor: float = 1.0,
+) -> np.ndarray:
+    """Per-slice boolean mask: True where Γ(E) is physically reliable.
+
+    A slice is *unreliable* when:
+
+    * **peaks merged** — the ±kF Lorentzians overlap, i.e. their full width
+      exceeds their separation: ``2·Γ_HWHM ≥ merge_factor·|kF₊ − kF₋|``. This is
+      what happens near the band top / E_F: the single fitted width then
+      describes one blob, not a lifetime.
+    * **saturated** — Γ is pinned at the optimizer bound ``gamma_max`` (when
+      provided): the value is the constraint, not a measurement.
+
+    Returns a bool array aligned to ``e_fitted`` (all-False if inputs missing).
+    """
+    fr = fit_result or {}
+    e = np.asarray(fr.get("e_fitted", []), dtype=float)
+    n = e.size
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+
+    def _arr(key: str) -> np.ndarray:
+        a = fr.get(key) or []
+        if 0 <= pair_index < len(a):
+            v = np.asarray(a[pair_index], dtype=float)
+            if v.size >= n:
+                return v[:n]
+            return np.concatenate([v, np.full(n - v.size, np.nan)])
+        return np.full(n, np.nan)
+
+    g = _arr("gamma_corrige")
+    if not np.isfinite(g).any():
+        g = _arr("gamma")
+    sep = np.abs(_arr("kF_plus") - _arr("kF_minus"))
+    with np.errstate(invalid="ignore"):
+        resolved = np.isfinite(sep) & np.isfinite(g) & (sep > (2.0 * g / max(merge_factor, 1e-9)))
+    mask = resolved
+    if gamma_max is not None and float(gamma_max) > 0:
+        g_raw = _arr("gamma_brut")
+        if not np.isfinite(g_raw).any():
+            g_raw = g
+        with np.errstate(invalid="ignore"):
+            mask = mask & ~(g_raw >= 0.98 * float(gamma_max))
+    return mask
+
+
 def fit_gamma_fermi_liquid(
     fit_result: dict,
     *,
     pair_index: int,
     e_window: float = 0.30,
+    gamma_max: float | None = None,
 ) -> GammaFermiLiquid:
     """Fit Γ(E) = Γ₀ + a·E² by weighted regression on σ_gamma.
 
     Uses ``gamma_corrige`` if available (deconvolved resolution), otherwise raw
-    ``gamma``.
+    ``gamma``. The trend is fit only on the **reliable** slices
+    (``gamma_reliability_mask``): merged-peak / saturated slices are excluded so
+    Γ₀ is extrapolated from the resolved region, not the near-E_F blow-up.
     """
     e = np.asarray(fit_result.get("e_fitted", []), dtype=float)
     g_arrays = fit_result.get("gamma_corrige") or fit_result.get("gamma") or []
@@ -305,7 +359,9 @@ def fit_gamma_fermi_liquid(
     sg = np.asarray(sg_arrays[pair_index], dtype=float) if 0 <= pair_index < len(sg_arrays) else np.full_like(g, np.nan)
     n = min(len(e), len(g), len(sg))
     e, g, sg = e[:n], g[:n], sg[:n]
-    valid = np.isfinite(e) & np.isfinite(g) & (np.abs(e) <= float(e_window))
+    reliable = gamma_reliability_mask(
+        fit_result, pair_index=pair_index, gamma_max=gamma_max)[:n]
+    valid = np.isfinite(e) & np.isfinite(g) & (np.abs(e) <= float(e_window)) & reliable
     if int(valid.sum()) < 3:
         return GammaFermiLiquid(pair_index=pair_index, n_points_used=int(valid.sum()))
     x = (e[valid]) ** 2
@@ -357,8 +413,13 @@ def compute_results(
     e_window_kF: float = 0.10,
     e_window_gamma: float = 0.30,
     crystal_a_angstrom: float = 0.0,
+    gamma_max: float | None = None,
 ) -> ResultsBundle:
-    """Compute all physical results and uncertainties from a fit."""
+    """Compute all physical results and uncertainties from a fit.
+
+    ``gamma_max`` (the fit's width bound) lets the Γ₀ trend flag saturated
+    slices; pass it from the entry's fit_params when available.
+    """
     if not fit_result:
         return ResultsBundle()
     n_pairs = int(fit_result.get("n_pairs", 0) or 0)
@@ -372,7 +433,8 @@ def compute_results(
                 e_window=e_window_kF, crystal_a_angstrom=crystal_a_angstrom,
             ))
     gamma_fl = tuple(
-        fit_gamma_fermi_liquid(fit_result, pair_index=i, e_window=e_window_gamma)
+        fit_gamma_fermi_liquid(
+            fit_result, pair_index=i, e_window=e_window_gamma, gamma_max=gamma_max)
         for i in range(n_pairs)
     )
     asym = tuple(

@@ -93,7 +93,10 @@ def _point_from_entry(
     a_val: float,
     category_map: dict[str, int],
 ) -> MultiFilePoint | None:
-    bundle = compute_results(entry.fit_result, crystal_a_angstrom=a_val)
+    bundle = compute_results(
+        entry.fit_result, crystal_a_angstrom=a_val,
+        gamma_max=getattr(getattr(entry, "fit_params", None), "gamma_max", None),
+    )
     branch = next((br for br in bundle.branches if np.isfinite(br.kF_at_EF)), None)
     if branch is None:
         return None

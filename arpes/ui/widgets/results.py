@@ -200,17 +200,6 @@ class ResultsPanel(QWidget):
         )
         self._chk_bootstrap.toggled.connect(self.refresh)
         right.addWidget(self._chk_bootstrap)
-
-        self._chk_curvature = QCheckBox("Curvature cross-check (Zhang) overlay")
-        self._chk_curvature.setToolTip(
-            "Overlays the independent kF(E) from the curvature maxima (open\n"
-            "markers) on top of the Lorentzian dispersion, for files where it\n"
-            "was computed (MDC Fit → 'Curvature dispersion'). Agreement validates\n"
-            "kF; divergence flags where the Lorentzian pair has merged.\n"
-            "Positions only — carries no Γ/lifetime."
-        )
-        self._chk_curvature.toggled.connect(self.refresh)
-        right.addWidget(self._chk_curvature)
         right.addWidget(QLabel("Physical results ± σ — the quantities to report"))
         self._table_phys = QTableWidget(0, 6)
         self._table_phys.setHorizontalHeaderLabels([
@@ -303,9 +292,6 @@ class ResultsPanel(QWidget):
         self._table_phys.setRowCount(0)
         ax = self._canvas.ax
         self._result_point_refs = []
-        self._curv_legend_done = False
-        self._curvature_overlay_available = 0
-        self._curvature_overlay_plotted = 0
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas.fig.set_facecolor("#2b2b2b")
 
@@ -337,9 +323,6 @@ class ResultsPanel(QWidget):
                 from arpes.ui.widgets.results_link import append_branch_refs
                 append_branch_refs(self, name, "kF_minus", i, km_p, ev_p)
                 append_branch_refs(self, name, "kF_plus", i, kp_p, ev_p)
-
-            if self._chk_curvature.isChecked():
-                self._overlay_curvature(ax, name, entry, c)
 
             # Table row
             kf_ef = np.nan
@@ -399,15 +382,6 @@ class ResultsPanel(QWidget):
                 )
                 leg.set_draggable(True)
             self._canvas.fig.subplots_adjust(right=0.74)
-            if self._chk_curvature.isChecked() and self._curvature_overlay_plotted == 0:
-                ax.text(
-                    0.02, 0.02,
-                    "Curvature non calculee pour les fichiers visibles.\n"
-                    "MDC Fit -> Curvature dispersion, puis cocher l'overlay.",
-                    transform=ax.transAxes, ha="left", va="bottom",
-                    color="#e6b35a", fontsize=8,
-                    bbox={"facecolor": "#222", "edgecolor": "#805500", "alpha": 0.85},
-                )
         else:
             self._canvas.fig.subplots_adjust(right=0.97)
         from arpes.ui.widgets.results_link import highlight_results_selection
@@ -486,39 +460,6 @@ class ResultsPanel(QWidget):
             ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
                     color=color, alpha=alpha, zorder=2)
 
-    def _overlay_curvature(self, ax, filename: str, entry, color) -> None:
-        """Overlay the curvature kF(E) cross-check (open markers) for one file."""
-        cd = getattr(entry, "curvature_dispersion", None)
-        if not cd:
-            return
-        ev_raw = cd.get("e_fitted")
-        if ev_raw is None:
-            return
-        self._curvature_overlay_available += 1
-        ev_c = np.asarray(ev_raw, dtype=float)
-        if ev_c.size == 0:
-            return
-        km_all = cd.get("kF_minus") or []
-        kp_all = cd.get("kF_plus") or []
-        n = max(len(km_all), len(kp_all))
-        for i in range(n):
-            km = np.asarray(km_all[i]) if i < len(km_all) else np.array([])
-            kp = np.asarray(kp_all[i]) if i < len(kp_all) else np.array([])
-            km_p, ev_p = self._aligned_dispersion_values(filename, entry, km, ev_c)
-            kp_p, _ = self._aligned_dispersion_values(filename, entry, kp, ev_c)
-            lbl = "_"
-            if not self._curv_legend_done and (km_p.size or kp_p.size):
-                lbl = "curvature (Zhang)"
-                self._curv_legend_done = True
-            ax.scatter(km_p, ev_p, s=28, facecolors="none", edgecolors=color,
-                       marker="o", linewidths=0.9, alpha=0.85, zorder=3, label=lbl)
-            ax.scatter(kp_p, ev_p, s=28, facecolors="none", edgecolors=color,
-                       marker="o", linewidths=0.9, alpha=0.85, zorder=3)
-            self._plot_branch_segments(ax, km_p, ev_p, color=color, alpha=0.35)
-            self._plot_branch_segments(ax, kp_p, ev_p, color=color, alpha=0.35)
-            if km_p.size or kp_p.size:
-                self._curvature_overlay_plotted += 1
-
     def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
         entry = self._session.files.get(filename)
         try:
@@ -533,6 +474,7 @@ class ResultsPanel(QWidget):
         bundle = compute_results(
             fr, e_window_kF=0.10, e_window_gamma=0.30,
             crystal_a_angstrom=a_val,
+            gamma_max=getattr(getattr(entry, "fit_params", None), "gamma_max", None),
         )
         if self._chk_bootstrap.isChecked():
             from arpes.analysis.bootstrap import bootstrap_branch_result
@@ -739,130 +681,5 @@ class ResultsPanel(QWidget):
         dialog.exec()
 
     def _export_fig(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export figure", str(self._session.folder or Path.home()),
-            "PDF (*.pdf);;PNG (*.png)")
-        if path:
-            fig = self._build_scientific_export_figure()
-            fig.savefig(path, bbox_inches="tight", facecolor="white", transparent=False)
-            plt.close(fig)
-            self._write_figure_metadata_sidecar(path)
-
-    def _build_scientific_export_figure(self):
-        visible = self._visible_files()
-        fig, (ax_d, ax_g) = plt.subplots(1, 2, figsize=(11.0, 4.6), constrained_layout=True)
-        fig.patch.set_facecolor("white")
-        for ax in (ax_d, ax_g):
-            ax.set_facecolor("white")
-            ax.grid(True, color="#d0d0d0", lw=0.6, alpha=0.85)
-            ax.tick_params(colors="black")
-            for sp in ax.spines.values():
-                sp.set_color("black")
-        colors = plt.cm.tab10(np.linspace(0, 1, max(1, len(self._session.files))))
-        plotted_d = 0
-        plotted_g = 0
-        for ci, (name, entry) in enumerate(self._session.files.items()):
-            if entry.fit_result is None or name not in visible:
-                continue
-            fr = entry.fit_result
-            ev = np.asarray(fr.get("e_fitted", []), dtype=float)
-            color = colors[ci % len(colors)]
-            label_base = f"{name}"
-            for i in range(int(fr.get("n_pairs") or entry.fit_params.n_pairs or 1)):
-                km = np.asarray((fr.get("kF_minus") or [])[i], dtype=float) if i < len(fr.get("kF_minus") or []) else np.array([])
-                kp = np.asarray((fr.get("kF_plus") or [])[i], dtype=float) if i < len(fr.get("kF_plus") or []) else np.array([])
-                km_p, ev_p = self._aligned_dispersion_values(name, entry, km, ev)
-                kp_p, _ = self._aligned_dispersion_values(name, entry, kp, ev)
-                lbl = f"{label_base} P{i+1}" if i == 0 else "_"
-                ax_d.plot(km_p, ev_p, "o-", ms=3.2, lw=0.9, color=color, alpha=0.90, label=lbl)
-                ax_d.plot(kp_p, ev_p, "^-", ms=3.2, lw=0.9, color=color, alpha=0.90, label="_")
-                plotted_d += 1
-            g_arrays = fr.get("gamma_corrige") or fr.get("gamma") or []
-            sg_arrays = fr.get("sigma_gamma") or []
-            if not sg_arrays:
-                sg_arrays = (fr.get("ensemble") or {}).get("gamma_std") or []
-            for i, g_raw in enumerate(g_arrays):
-                g = np.asarray(g_raw, dtype=float)
-                n = min(ev.size, g.size)
-                if n < 3:
-                    continue
-                e_n = ev[:n]
-                valid = np.isfinite(e_n) & np.isfinite(g[:n])
-                if int(valid.sum()) < 3:
-                    continue
-                ax_g.plot(e_n[valid], g[:n][valid], "o-", ms=3.2, lw=0.9, color=color,
-                          alpha=0.90, label=f"{label_base} Γ P{i+1}" if plotted_g < 8 else "_")
-                if i < len(sg_arrays):
-                    sg = np.asarray(sg_arrays[i], dtype=float)[:n]
-                    bv = valid & np.isfinite(sg) & (sg > 0)
-                    if bv.any():
-                        ax_g.errorbar(e_n[bv], g[:n][bv], yerr=sg[bv], fmt="none",
-                                      ecolor=color, elinewidth=0.7, capsize=2, alpha=0.7)
-                plotted_g += 1
-        ax_d.axhline(0, color="black", lw=0.8, ls="--", alpha=0.55)
-        ax_d.axvline(0, color="black", lw=0.8, ls="--", alpha=0.55)
-        ax_d.set_xlabel(r"$k_\parallel$ (π/a)")
-        ax_d.set_ylabel(r"$E - E_F$ (eV)")
-        ax_d.set_title("Dispersion kF(E)" + (" — centrée sur Γ" if self._chk_align_gamma.isChecked() else ""))
-        ax_g.set_xlabel(r"$E - E_F$ (eV)")
-        ax_g.set_ylabel(r"$\Gamma_k$ (HWHM, π/a)")
-        ax_g.set_title(r"Lifetime $\Gamma_k(E)$")
-        for ax in (ax_d, ax_g):
-            handles, labels = ax.get_legend_handles_labels()
-            if labels:
-                ax.legend(fontsize=7, frameon=True, facecolor="white", edgecolor="#888", loc="best")
-        if plotted_d == 0:
-            ax_d.text(0.5, 0.5, "Aucune dispersion fitte visible", ha="center", va="center",
-                      transform=ax_d.transAxes)
-        if plotted_g == 0:
-            ax_g.text(0.5, 0.5, "Aucune Γ(E) disponible", ha="center", va="center",
-                      transform=ax_g.transAxes)
-        return fig
-
-    def _write_figure_metadata_sidecar(self, fig_path: str) -> None:
-        import json
-        meta_path = Path(fig_path).with_suffix(".meta.json")
-        visible = sorted(self._visible_files())
-        files_meta = []
-        for name in visible:
-            entry = self._session.files.get(name)
-            if entry is None:
-                continue
-            m = entry.meta
-            files_meta.append({
-                "file": name,
-                "hv": float(getattr(m, "hv", 0.0) or 0.0),
-                "T_K": float(getattr(m, "temperature", 0.0) or 0.0),
-                "direction": str(getattr(m, "direction", "") or ""),
-                "polarization": str(getattr(m, "polarization", "") or ""),
-                "formula": str(getattr(m, "formula", "") or ""),
-                "mp_id": str(getattr(m, "mp_id", "") or ""),
-                "crystal_a_angstrom": float(getattr(m, "crystal_a_angstrom", 0.0) or 0.0),
-                "sample_config": sample_for_entry(self._session, entry, name).to_dict(),
-                "ef_offset": float(getattr(entry, "ef_offset", 0.0) or 0.0),
-                "fitted": bool(entry.fit_result),
-            })
-        payload = {
-            "figure": Path(fig_path).name,
-            "provenance": export_provenance(
-                self._session,
-                content="figure",
-                file_names=visible,
-            ),
-            "export_style": "scientific_white_dispersion_gamma",
-            "dispersion_alignment": {
-                "auto_gamma_center": bool(self._chk_align_gamma.isChecked()),
-                "manual_offsets": {
-                    name: {"dk_pi_a": dk, "dE_eV": de}
-                    for name, (dk, de) in sorted(self._dispersion_offsets.items())
-                },
-            },
-            "session_folder": str(self._session.folder) if self._session.folder else "",
-            "n_files_visible": len(files_meta),
-            "files": files_meta,
-            "session_notes": str(getattr(self._session, "session_notes", "") or "")[:500],
-        }
-        try:
-            meta_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-        except Exception:
-            pass
+        from arpes.ui.widgets import results_export
+        results_export.export_fig(self)

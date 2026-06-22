@@ -569,24 +569,6 @@ def _build_fit_buttons(panel, _fcl) -> None:
     )
     panel.btn_fit_ensemble.clicked.connect(panel.fit_ensemble_requested)
     advanced_lay.addWidget(panel.btn_fit_ensemble)
-
-    panel.btn_curvature_disp = compact_button(
-        QPushButton("Curvature dispersion (cross-check)"), max_width=260)
-    panel.btn_curvature_disp.setStyleSheet(
-        "background:#b45309;color:white;font-weight:bold;padding:6px;"
-    )
-    panel.btn_curvature_disp.setToolTip(
-        "Independent kF(E) from the Zhang curvature maxima (RSI 82, 043712),\n"
-        "an alternative to the Lorentzian fit for broad/incoherent bands.\n"
-        "Uses the current k/E window + the Curvature C0 (BM tuning bar).\n"
-        "Overlaid on the Results dispersion as a cross-check (open markers).\n"
-        "\n"
-        "Positions only — never a lifetime: the curvature distorts widths, so\n"
-        "Γ/Im Σ must still come from the Lorentzian fit. Where the two agree,\n"
-        "kF is trustworthy; where they diverge, the Lorentzian pair has merged."
-    )
-    panel.btn_curvature_disp.clicked.connect(panel.curvature_dispersion_requested)
-    advanced_lay.addWidget(panel.btn_curvature_disp)
     advanced_lay.addWidget(hsep())
     _post_fit_hdr = QLabel("Post-fit analysis")
     _post_fit_hdr.setStyleSheet("color:#9aa0a6;font-size:10px;font-weight:bold;")

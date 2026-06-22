@@ -67,6 +67,7 @@ def _apply_robust_limits(ax, xs, ys) -> None:
 
 
 def draw_gamma_panel(panel, colors) -> None:
+    from arpes.analysis.results import gamma_reliability_mask
     visible = panel._visible_files()
     model = _trend_model(panel)
     ax = panel._canvas_gamma.ax
@@ -74,8 +75,10 @@ def draw_gamma_panel(panel, colors) -> None:
     panel._canvas_gamma.fig.set_facecolor("#2b2b2b")
     plotted = 0
     panel._gamma_sigma_missing = False
+    panel._gamma_unreliable_shown = False
     xs: list = []
     ys: list = []
+    unreliable_labeled = False
     for ci, (name, entry) in enumerate(panel._session.files.items()):
         if entry.fit_result is None or name not in visible:
             continue
@@ -85,6 +88,7 @@ def draw_gamma_panel(panel, colors) -> None:
         sg_arrays = fr.get("sigma_gamma") or []
         if not sg_arrays:
             sg_arrays = (fr.get("ensemble") or {}).get("gamma_std") or []
+        gmax = getattr(getattr(entry, "fit_params", None), "gamma_max", None)
         color = colors[ci]
         for i, g_raw in enumerate(g_arrays):
             g = np.asarray(g_raw, dtype=float)
@@ -92,17 +96,29 @@ def draw_gamma_panel(panel, colors) -> None:
             if n == 0:
                 continue
             e_n, g_n = ev[:n], g[:n]
-            valid = np.isfinite(e_n) & np.isfinite(g_n)
-            if int(valid.sum()) < 3:
+            finite = np.isfinite(e_n) & np.isfinite(g_n)
+            if int(finite.sum()) < 3:
                 continue
-            ax.plot(e_n[valid], g_n[valid], "o-", ms=3, lw=0.8, color=color,
-                    alpha=0.85, label=f"{name} P{i+1}" if plotted < 6 else "_")
-            xs.append(e_n[valid]); ys.append(g_n[valid])
+            # Reliable = peaks resolved AND not saturated (gamma_reliability_mask).
+            reliable = gamma_reliability_mask(fr, pair_index=i, gamma_max=gmax)[:n] & finite
+            unreliable = finite & ~reliable
+            # Reliable points: solid line + markers, framed by the y-limits.
+            if reliable.any():
+                ax.plot(e_n[reliable], g_n[reliable], "o-", ms=3, lw=0.8, color=color,
+                        alpha=0.85, label=f"{name} P{i+1}" if plotted < 6 else "_")
+                xs.append(e_n[reliable]); ys.append(g_n[reliable])
+            # Unreliable points: grey crosses, no line — visible but flagged.
+            if unreliable.any():
+                ax.plot(e_n[unreliable], g_n[unreliable], "x", ms=4, color="#777",
+                        alpha=0.55, label=("unreliable (peaks merged / saturated)"
+                                           if not unreliable_labeled else "_"))
+                unreliable_labeled = True
+                panel._gamma_unreliable_shown = True
             sg_i = None
             if i < len(sg_arrays):
                 sg = np.asarray(sg_arrays[i], dtype=float)[:n]
                 sg_i = sg
-                band_valid = valid & np.isfinite(sg) & (sg > 0)
+                band_valid = reliable & np.isfinite(sg) & (sg > 0)
                 if band_valid.any():
                     ax.fill_between(e_n[band_valid],
                                     g_n[band_valid] - sg[band_valid],
@@ -114,7 +130,9 @@ def draw_gamma_panel(panel, colors) -> None:
                                 capsize=2.5, alpha=0.9, zorder=3)
             else:
                 panel._gamma_sigma_missing = True
-            trend = _gamma_trend(e_n, g_n, sg_i, model=model)
+            # Trend fit only on the reliable region (Γ₀ extrapolated from there).
+            sg_rel = sg_i[reliable] if sg_i is not None else None
+            trend = _gamma_trend(e_n[reliable], g_n[reliable], sg_rel, model=model)
             if trend is not None:
                 ax.plot(trend[0], trend[1], "--", color=color, lw=1.3, alpha=0.85)
             plotted += 1

@@ -15,8 +15,38 @@ from arpes.analysis.results import (
     compute_results,
     extract_branch_result,
     fit_gamma_fermi_liquid,
+    gamma_reliability_mask,
     weighted_linear_fit,
 )
+
+
+def test_gamma_reliability_mask_flags_merged_and_saturated():
+    e = [-0.15, -0.10, -0.05, 0.0]
+    kp = [0.30, 0.05, 0.20, 0.20]   # sep = 0.60, 0.10, 0.40, 0.40
+    km = [-k for k in kp]
+    g = [0.05, 0.05, 0.05, 0.30]    # last pinned at gamma_max
+    fr = {
+        "e_fitted": e,
+        "kF_plus": [kp], "kF_minus": [km],
+        "gamma_corrige": [g], "gamma_brut": [g],
+    }
+    m = gamma_reliability_mask(fr, pair_index=0, gamma_max=0.30)
+    # 0.60>2·0.05 True ; 0.10 not > 0.10 merged False ; 0.40>0.10 True ;
+    # last saturated (0.30 ≥ 0.98·0.30) False
+    np.testing.assert_array_equal(m, [True, False, True, False])
+
+
+def test_gamma_zero_uses_reliable_region_only():
+    # Flat Γ=0.05 where resolved; a near-EF blow-up that must be ignored.
+    e = np.linspace(-0.15, 0.0, 16)
+    sep = 0.5 - 2.0 * (e + 0.15)                      # shrinks toward EF
+    kp = (sep / 2).tolist(); km = (-sep / 2).tolist()
+    g = np.where(e > -0.03, 0.30, 0.05).tolist()     # blow-up in last slices
+    fr = {"e_fitted": e.tolist(), "kF_plus": [kp], "kF_minus": [km],
+          "gamma_corrige": [g], "gamma_brut": [g]}
+    res = fit_gamma_fermi_liquid(fr, pair_index=0, e_window=0.30, gamma_max=0.30)
+    # Γ₀ extrapolates the resolved 0.05 plateau, not the 0.30 blow-up.
+    assert res.gamma_zero < 0.12
 
 
 def _synthetic_fit_result(*, slope=2.0, intercept=-0.5, sigma_k=0.003, n=25, seed=0):
