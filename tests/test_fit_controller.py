@@ -4,8 +4,83 @@ import unittest
 
 import numpy as np
 
-from arpes.physics.fit import MdcFitter
+from arpes.physics.fit import MdcFitter, imaginary_self_energy
 from arpes.core.session import FileEntry, FitParams, Session
+
+
+class TestImSigmaConvention(unittest.TestCase):
+    """Im Σ = vF·HWHM. HWHM-tagged fits use vF·γ; legacy (FWHM) use (vF/2)·γ."""
+
+    def _linear_fit_result(self, gamma=0.05, **extra):
+        e = np.linspace(-0.05, 0.0, 11)
+        kF = 0.20 + 0.5 * e  # clean linear dispersion -> well-defined vF
+        fr = {
+            "e_fitted": e.tolist(),
+            "kF_minus": [(-kF).tolist()],
+            "kF_plus": [kF.tolist()],
+            "gamma_corrige": [np.full_like(e, gamma).tolist()],
+            "n_pairs": 1,
+        }
+        fr.update(extra)
+        return fr, e, gamma
+
+    def test_hwhm_tag_uses_vf_times_gamma(self):
+        a = 3.9
+        fr, e, gamma = self._linear_fit_result(width_convention="HWHM")
+        out = imaginary_self_energy(fr, a)
+        self.assertGreater(out["im_sigma"].size, 0)
+        vF = out["vF_eV_A"]
+        expected = vF * gamma * (np.pi / a)  # vF · HWHM[Å⁻¹]
+        np.testing.assert_allclose(out["im_sigma"], expected, rtol=1e-6)
+
+    def test_legacy_untagged_stays_fwhm_half(self):
+        a = 3.9
+        fr, e, gamma = self._linear_fit_result()  # no width_convention -> legacy FWHM
+        out = imaginary_self_energy(fr, a)
+        vF = out["vF_eV_A"]
+        expected = (vF / 2.0) * gamma * (np.pi / a)
+        np.testing.assert_allclose(out["im_sigma"], expected, rtol=1e-6)
+
+    def test_hwhm_is_twice_legacy(self):
+        a = 3.9
+        hwhm, _, _ = self._linear_fit_result(width_convention="HWHM")
+        legacy, _, _ = self._linear_fit_result()
+        s_h = imaginary_self_energy(hwhm, a)["im_sigma"]
+        s_l = imaginary_self_energy(legacy, a)["im_sigma"]
+        np.testing.assert_allclose(s_h, 2.0 * s_l, rtol=1e-6)
+
+
+class TestGammaHwhmMigration(unittest.TestCase):
+    def test_legacy_fit_scaled_and_tagged(self):
+        from arpes.physics.fit import gamma_to_hwhm_factor, migrate_fit_result_to_hwhm
+        fr = {
+            "e_fitted": [-0.1, 0.0],
+            "gamma_brut": [[0.10, 0.12]],
+            "gamma_corrige": [[0.08, 0.10]],
+            "gamma_min": [[0.02, 0.02]],
+            "sigma_gamma": [[0.01, 0.01]],
+            "kF_minus": [[-0.2, -0.21]],  # positions must NOT scale
+            "ensemble": {"gamma_std": [[0.02, 0.02]], "kF_minus_std": [[0.01, 0.01]]},
+        }
+        self.assertTrue(migrate_fit_result_to_hwhm(fr))
+        self.assertEqual(fr["width_convention"], "HWHM")
+        np.testing.assert_allclose(fr["gamma_brut"][0], [0.05, 0.06])
+        np.testing.assert_allclose(fr["gamma_corrige"][0], [0.04, 0.05])
+        np.testing.assert_allclose(fr["sigma_gamma"][0], [0.005, 0.005])
+        np.testing.assert_allclose(fr["ensemble"]["gamma_std"][0], [0.01, 0.01])
+        # positions untouched
+        np.testing.assert_allclose(fr["kF_minus"][0], [-0.2, -0.21])
+        np.testing.assert_allclose(fr["ensemble"]["kF_minus_std"][0], [0.01, 0.01])
+        self.assertEqual(gamma_to_hwhm_factor(fr), 1.0)
+        # idempotent
+        self.assertFalse(migrate_fit_result_to_hwhm(fr))
+        np.testing.assert_allclose(fr["gamma_brut"][0], [0.05, 0.06])
+
+    def test_already_hwhm_untouched(self):
+        from arpes.physics.fit import migrate_fit_result_to_hwhm
+        fr = {"gamma_brut": [[0.05]], "width_convention": "HWHM"}
+        self.assertFalse(migrate_fit_result_to_hwhm(fr))
+        np.testing.assert_allclose(fr["gamma_brut"][0], [0.05])
 
 
 class FakeAP:

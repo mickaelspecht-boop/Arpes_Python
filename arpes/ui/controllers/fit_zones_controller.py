@@ -117,6 +117,7 @@ class FitZonesController:
             "label": str(payload.get("label") or self._next_zone_label(entry.fit_zones)),
             "color_idx": self._next_color_idx(entry.fit_zones),
             "active": True,
+            "fit_model": str(payload.get("fit_model", "peak_pair") or "peak_pair"),
             "fit_params": _params_to_dict(fp_src),
             "fit_result": None,
         }
@@ -179,6 +180,22 @@ class FitZonesController:
                 self._save()
                 self._log("zone renamed", entry, summary=new_label)
                 return {"ok": True}
+        return {"ok": False, "error": "zone_not_found"}
+
+    def _v_set_model(self, entry, payload: dict) -> dict:
+        zid = payload.get("zone_id")
+        model = str(payload.get("fit_model", "peak_pair") or "peak_pair")
+        if model not in {"peak_pair", "free_region"}:
+            return {"ok": False, "error": f"unknown_fit_model:{model}"}
+        for z in entry.fit_zones:
+            if z.get("id") == zid:
+                z["fit_model"] = model
+                z["fit_result"] = None
+                if entry.active_zone_id == zid:
+                    clear_fit_result(entry)
+                self._save()
+                self._log("zone model changed", entry, summary=f"{z.get('label')} -> {model}")
+                return {"ok": True, "fit_model": model}
         return {"ok": False, "error": "zone_not_found"}
 
     def _v_clear_results(self, entry, payload: dict) -> dict:

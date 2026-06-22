@@ -10,6 +10,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -39,7 +40,6 @@ from arpes.io.export import (
     write_results_csv,
     write_results_txt,
 )
-from arpes.io.export_styles import PRESETS, savefig_with_preset
 from arpes.ui.widgets.canvas import MplCanvas
 
 class ResultsPanel(QWidget):
@@ -50,6 +50,8 @@ class ResultsPanel(QWidget):
         self._result_point_refs: list[dict] = []
         self._linked_selection: dict | None = None
         self._linked_result_artist = None
+        self._dispersion_offsets: dict[str, tuple[float, float]] = {}
+        self._loading_alignment_controls = False
         self._build()
 
     def _build(self):
@@ -115,6 +117,47 @@ class ResultsPanel(QWidget):
         self._file_filter.itemChanged.connect(self._on_file_filter_changed)
         self._file_filter_unchecked: set[str] = set()
         right.addWidget(self._file_filter)
+
+        right.addWidget(QLabel("Alignement dispersion (affichage/export)"))
+        self._chk_align_gamma = QCheckBox("Centrer chaque fichier sur Γ")
+        self._chk_align_gamma.setToolTip(
+            "Affichage non destructif: soustrait le centre Γ estimé par fichier "
+            "(xg du fit, sinon milieu kF−/kF+). Les données fit_result ne sont pas modifiées."
+        )
+        self._chk_align_gamma.toggled.connect(self.refresh)
+        right.addWidget(self._chk_align_gamma)
+        align_row = QHBoxLayout()
+        self._cmb_align_file = QComboBox()
+        self._cmb_align_file.currentTextChanged.connect(self._load_alignment_controls)
+        align_row.addWidget(self._cmb_align_file, stretch=1)
+        self._sp_align_dk = QDoubleSpinBox()
+        self._sp_align_dk.setRange(-5.0, 5.0)
+        self._sp_align_dk.setDecimals(4)
+        self._sp_align_dk.setSingleStep(0.005)
+        self._sp_align_dk.setPrefix("Δk ")
+        self._sp_align_dk.setSuffix(" π/a")
+        self._sp_align_dk.setToolTip("Offset manuel k ajouté après centrage Γ (affichage/export seulement).")
+        self._sp_align_dk.valueChanged.connect(self._on_alignment_offset_changed)
+        align_row.addWidget(self._sp_align_dk)
+        self._sp_align_de = QDoubleSpinBox()
+        self._sp_align_de.setRange(-5.0, 5.0)
+        self._sp_align_de.setDecimals(4)
+        self._sp_align_de.setSingleStep(0.005)
+        self._sp_align_de.setPrefix("ΔE ")
+        self._sp_align_de.setSuffix(" eV")
+        self._sp_align_de.setToolTip("Offset manuel énergie ajouté aux courbes (affichage/export seulement).")
+        self._sp_align_de.valueChanged.connect(self._on_alignment_offset_changed)
+        align_row.addWidget(self._sp_align_de)
+        right.addLayout(align_row)
+        align_btns = QHBoxLayout()
+        btn_align_reset = QPushButton("Reset offset")
+        btn_align_reset.setToolTip("Remet Δk=0 et ΔE=0 pour le fichier sélectionné.")
+        btn_align_reset.clicked.connect(self._reset_selected_alignment_offset)
+        align_btns.addWidget(btn_align_reset)
+        self._lbl_align_state = QLabel("")
+        self._lbl_align_state.setStyleSheet("color:#bbb;font-size:10px;")
+        align_btns.addWidget(self._lbl_align_state, stretch=1)
+        right.addLayout(align_btns)
 
         right.addWidget(QLabel("Per-slice diagnostics"))
         self._table = QTableWidget(0, 9)
@@ -220,18 +263,10 @@ class ResultsPanel(QWidget):
             "(CSV, aligned TXT, LaTeX booktabs)."
         )
         btn_export.clicked.connect(self._export_results)
-        style_row = QHBoxLayout()
-        style_row.addWidget(QLabel("Style export"))
-        self._cmb_export_style = QComboBox()
-        self._cmb_export_style.addItems(list(PRESETS.keys()))
-        self._cmb_export_style.setCurrentText("default")
-        self._cmb_export_style.setToolTip(
-            "Matplotlib style used for figure export.\n"
-            "PRB uses LaTeX if available, otherwise falls back without LaTeX."
-        )
-        style_row.addWidget(self._cmb_export_style, stretch=1)
-        right.addLayout(style_row)
         btn_pdf = QPushButton("Export figure")
+        btn_pdf.setToolTip(
+            "Export scientifique unique: dispersion + Γ(E), fond blanc, axes, grille, légende."
+        )
         btn_pdf.clicked.connect(self._export_fig)
         row1 = QHBoxLayout(); row1.addWidget(btn_ref); row1.addWidget(btn_recalc)
         row2 = QHBoxLayout(); row2.addWidget(btn_multi); row2.addWidget(btn_export)
@@ -269,6 +304,8 @@ class ResultsPanel(QWidget):
         ax = self._canvas.ax
         self._result_point_refs = []
         self._curv_legend_done = False
+        self._curvature_overlay_available = 0
+        self._curvature_overlay_plotted = 0
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas.fig.set_facecolor("#2b2b2b")
 
@@ -290,17 +327,19 @@ class ResultsPanel(QWidget):
             for i in range(n):
                 km = np.asarray(fr["kF_minus"][i]) if i < len(fr["kF_minus"]) else []
                 kp = np.asarray(fr["kF_plus"][i])  if i < len(fr["kF_plus"])  else []
-                ax.scatter(km, ev_f, s=8, color=c, marker="o", alpha=0.8,
+                km_p, ev_p = self._aligned_dispersion_values(name, entry, km, ev_f)
+                kp_p, _ = self._aligned_dispersion_values(name, entry, kp, ev_f)
+                ax.scatter(km_p, ev_p, s=8, color=c, marker="o", alpha=0.8,
                            label=label if i == 0 else "_")
-                ax.scatter(kp, ev_f, s=8, color=c, marker="^", alpha=0.8)
-                self._plot_branch_segments(ax, km, ev_f, color=c, alpha=0.60)
-                self._plot_branch_segments(ax, kp, ev_f, color=c, alpha=0.60)
+                ax.scatter(kp_p, ev_p, s=8, color=c, marker="^", alpha=0.8)
+                self._plot_branch_segments(ax, km_p, ev_p, color=c, alpha=0.60)
+                self._plot_branch_segments(ax, kp_p, ev_p, color=c, alpha=0.60)
                 from arpes.ui.widgets.results_link import append_branch_refs
-                append_branch_refs(self, name, "kF_minus", i, km, ev_f)
-                append_branch_refs(self, name, "kF_plus", i, kp, ev_f)
+                append_branch_refs(self, name, "kF_minus", i, km_p, ev_p)
+                append_branch_refs(self, name, "kF_plus", i, kp_p, ev_p)
 
             if self._chk_curvature.isChecked():
-                self._overlay_curvature(ax, entry, c)
+                self._overlay_curvature(ax, name, entry, c)
 
             # Table row
             kf_ef = np.nan
@@ -347,7 +386,8 @@ class ResultsPanel(QWidget):
         ax.axvline(0, color="w",    lw=0.5, ls="--", alpha=0.3)
         ax.set_xlabel(r"$k_\parallel$ (π/a)", fontsize=10, color="w")
         ax.set_ylabel(r"$E - E_F$ (eV)", fontsize=10, color="w")
-        ax.set_title("kF dispersions — all fitted files", fontsize=10, color="w")
+        title = "kF dispersions — aligned on Γ" if self._chk_align_gamma.isChecked() else "kF dispersions — all fitted files"
+        ax.set_title(title, fontsize=10, color="w")
         ax.tick_params(colors="w")
         for sp in ax.spines.values(): sp.set_edgecolor("#555")
         if row > 0:
@@ -359,11 +399,47 @@ class ResultsPanel(QWidget):
                 )
                 leg.set_draggable(True)
             self._canvas.fig.subplots_adjust(right=0.74)
+            if self._chk_curvature.isChecked() and self._curvature_overlay_plotted == 0:
+                ax.text(
+                    0.02, 0.02,
+                    "Curvature non calculee pour les fichiers visibles.\n"
+                    "MDC Fit -> Curvature dispersion, puis cocher l'overlay.",
+                    transform=ax.transAxes, ha="left", va="bottom",
+                    color="#e6b35a", fontsize=8,
+                    bbox={"facecolor": "#222", "edgecolor": "#805500", "alpha": 0.85},
+                )
         else:
             self._canvas.fig.subplots_adjust(right=0.97)
         from arpes.ui.widgets.results_link import highlight_results_selection
         highlight_results_selection(self)
         self._draw_gamma_panel(colors)
+
+    def _auto_gamma_center(self, entry) -> float:
+        fr = getattr(entry, "fit_result", None) or {}
+        xg_raw = fr.get("xg")
+        xg = np.asarray([] if xg_raw is None else xg_raw, dtype=float)
+        if xg.size and np.isfinite(xg).any():
+            return float(np.nanmedian(xg))
+        centers = []
+        for km_raw, kp_raw in zip(fr.get("kF_minus") or [], fr.get("kF_plus") or []):
+            km = np.asarray(km_raw, dtype=float)
+            kp = np.asarray(kp_raw, dtype=float)
+            n = min(km.size, kp.size)
+            if n:
+                mid = 0.5 * (km[:n] + kp[:n])
+                centers.extend(mid[np.isfinite(mid)].tolist())
+        return float(np.nanmedian(centers)) if centers else 0.0
+
+    def _alignment_for_file(self, name: str, entry) -> tuple[float, float, float]:
+        dk, de = self._dispersion_offsets.get(name, (0.0, 0.0))
+        center = self._auto_gamma_center(entry) if self._chk_align_gamma.isChecked() else 0.0
+        return center, float(dk), float(de)
+
+    def _aligned_dispersion_values(self, name: str, entry, k_values, e_values):
+        k = np.asarray(k_values, dtype=float)
+        e = np.asarray(e_values, dtype=float)
+        center, dk, de = self._alignment_for_file(name, entry)
+        return k - center + dk, e + de
 
     def sync_linked_fit_selection(self, filename: str, selection) -> None:
         """Highlight a BM-selected fit point on the Results kF plot when possible."""
@@ -410,28 +486,38 @@ class ResultsPanel(QWidget):
             ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
                     color=color, alpha=alpha, zorder=2)
 
-    def _overlay_curvature(self, ax, entry, color) -> None:
+    def _overlay_curvature(self, ax, filename: str, entry, color) -> None:
         """Overlay the curvature kF(E) cross-check (open markers) for one file."""
         cd = getattr(entry, "curvature_dispersion", None)
-        if not cd or not cd.get("e_fitted"):
+        if not cd:
             return
-        ev_c = np.asarray(cd["e_fitted"], dtype=float)
+        ev_raw = cd.get("e_fitted")
+        if ev_raw is None:
+            return
+        self._curvature_overlay_available += 1
+        ev_c = np.asarray(ev_raw, dtype=float)
+        if ev_c.size == 0:
+            return
         km_all = cd.get("kF_minus") or []
         kp_all = cd.get("kF_plus") or []
         n = max(len(km_all), len(kp_all))
         for i in range(n):
             km = np.asarray(km_all[i]) if i < len(km_all) else np.array([])
             kp = np.asarray(kp_all[i]) if i < len(kp_all) else np.array([])
+            km_p, ev_p = self._aligned_dispersion_values(filename, entry, km, ev_c)
+            kp_p, _ = self._aligned_dispersion_values(filename, entry, kp, ev_c)
             lbl = "_"
-            if not self._curv_legend_done and (km.size or kp.size):
+            if not self._curv_legend_done and (km_p.size or kp_p.size):
                 lbl = "curvature (Zhang)"
                 self._curv_legend_done = True
-            ax.scatter(km, ev_c, s=22, facecolors="none", edgecolors=color,
+            ax.scatter(km_p, ev_p, s=28, facecolors="none", edgecolors=color,
                        marker="o", linewidths=0.9, alpha=0.85, zorder=3, label=lbl)
-            ax.scatter(kp, ev_c, s=22, facecolors="none", edgecolors=color,
+            ax.scatter(kp_p, ev_p, s=28, facecolors="none", edgecolors=color,
                        marker="o", linewidths=0.9, alpha=0.85, zorder=3)
-            self._plot_branch_segments(ax, km, ev_c, color=color, alpha=0.35)
-            self._plot_branch_segments(ax, kp, ev_c, color=color, alpha=0.35)
+            self._plot_branch_segments(ax, km_p, ev_p, color=color, alpha=0.35)
+            self._plot_branch_segments(ax, kp_p, ev_p, color=color, alpha=0.35)
+            if km_p.size or kp_p.size:
+                self._curvature_overlay_plotted += 1
 
     def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
         entry = self._session.files.get(filename)
@@ -518,9 +604,11 @@ class ResultsPanel(QWidget):
             else:
                 current_unchecked.add(it.text())
         self._file_filter.clear()
+        align_names: list[str] = []
         for name, entry in self._session.files.items():
             if entry.fit_result is None:
                 continue
+            align_names.append(name)
             it = QListWidgetItem(name)
             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             it.setCheckState(
@@ -530,6 +618,7 @@ class ResultsPanel(QWidget):
             self._file_filter.addItem(it)
         self._file_filter_unchecked = current_unchecked
         self._file_filter.blockSignals(False)
+        self._sync_alignment_combo(align_names)
 
     def _visible_files(self) -> set[str]:
         out: set[str] = set()
@@ -550,6 +639,51 @@ class ResultsPanel(QWidget):
         self.refresh()
 
     def _on_file_filter_changed(self, _item) -> None:
+        self.refresh()
+
+    def _sync_alignment_combo(self, names: list[str]) -> None:
+        current = self._cmb_align_file.currentText() if hasattr(self, "_cmb_align_file") else ""
+        self._cmb_align_file.blockSignals(True)
+        self._cmb_align_file.clear()
+        self._cmb_align_file.addItems(names)
+        if current in names:
+            self._cmb_align_file.setCurrentText(current)
+        self._cmb_align_file.blockSignals(False)
+        self._load_alignment_controls(self._cmb_align_file.currentText())
+
+    def _load_alignment_controls(self, name: str) -> None:
+        if not hasattr(self, "_sp_align_dk"):
+            return
+        dk, de = self._dispersion_offsets.get(name, (0.0, 0.0))
+        entry = self._session.files.get(name)
+        center = self._auto_gamma_center(entry) if entry is not None and entry.fit_result else 0.0
+        self._loading_alignment_controls = True
+        self._sp_align_dk.setValue(float(dk))
+        self._sp_align_de.setValue(float(de))
+        self._loading_alignment_controls = False
+        if name:
+            self._lbl_align_state.setText(f"Γ auto={center:+.4f} π/a")
+        else:
+            self._lbl_align_state.setText("")
+
+    def _on_alignment_offset_changed(self, *_args) -> None:
+        if self._loading_alignment_controls:
+            return
+        name = self._cmb_align_file.currentText()
+        if not name:
+            return
+        self._dispersion_offsets[name] = (
+            float(self._sp_align_dk.value()),
+            float(self._sp_align_de.value()),
+        )
+        self.refresh()
+
+    def _reset_selected_alignment_offset(self) -> None:
+        name = self._cmb_align_file.currentText()
+        if not name:
+            return
+        self._dispersion_offsets.pop(name, None)
+        self._load_alignment_controls(name)
         self.refresh()
 
     def _export_results(self):
@@ -609,14 +743,81 @@ class ResultsPanel(QWidget):
             self, "Export figure", str(self._session.folder or Path.home()),
             "PDF (*.pdf);;PNG (*.png)")
         if path:
-            savefig_with_preset(
-                self._canvas.fig,
-                path,
-                self._cmb_export_style.currentText(),
-                bbox_inches="tight",
-                facecolor=self._canvas.fig.get_facecolor(),
-            )
+            fig = self._build_scientific_export_figure()
+            fig.savefig(path, bbox_inches="tight", facecolor="white", transparent=False)
+            plt.close(fig)
             self._write_figure_metadata_sidecar(path)
+
+    def _build_scientific_export_figure(self):
+        visible = self._visible_files()
+        fig, (ax_d, ax_g) = plt.subplots(1, 2, figsize=(11.0, 4.6), constrained_layout=True)
+        fig.patch.set_facecolor("white")
+        for ax in (ax_d, ax_g):
+            ax.set_facecolor("white")
+            ax.grid(True, color="#d0d0d0", lw=0.6, alpha=0.85)
+            ax.tick_params(colors="black")
+            for sp in ax.spines.values():
+                sp.set_color("black")
+        colors = plt.cm.tab10(np.linspace(0, 1, max(1, len(self._session.files))))
+        plotted_d = 0
+        plotted_g = 0
+        for ci, (name, entry) in enumerate(self._session.files.items()):
+            if entry.fit_result is None or name not in visible:
+                continue
+            fr = entry.fit_result
+            ev = np.asarray(fr.get("e_fitted", []), dtype=float)
+            color = colors[ci % len(colors)]
+            label_base = f"{name}"
+            for i in range(int(fr.get("n_pairs") or entry.fit_params.n_pairs or 1)):
+                km = np.asarray((fr.get("kF_minus") or [])[i], dtype=float) if i < len(fr.get("kF_minus") or []) else np.array([])
+                kp = np.asarray((fr.get("kF_plus") or [])[i], dtype=float) if i < len(fr.get("kF_plus") or []) else np.array([])
+                km_p, ev_p = self._aligned_dispersion_values(name, entry, km, ev)
+                kp_p, _ = self._aligned_dispersion_values(name, entry, kp, ev)
+                lbl = f"{label_base} P{i+1}" if i == 0 else "_"
+                ax_d.plot(km_p, ev_p, "o-", ms=3.2, lw=0.9, color=color, alpha=0.90, label=lbl)
+                ax_d.plot(kp_p, ev_p, "^-", ms=3.2, lw=0.9, color=color, alpha=0.90, label="_")
+                plotted_d += 1
+            g_arrays = fr.get("gamma_corrige") or fr.get("gamma") or []
+            sg_arrays = fr.get("sigma_gamma") or []
+            if not sg_arrays:
+                sg_arrays = (fr.get("ensemble") or {}).get("gamma_std") or []
+            for i, g_raw in enumerate(g_arrays):
+                g = np.asarray(g_raw, dtype=float)
+                n = min(ev.size, g.size)
+                if n < 3:
+                    continue
+                e_n = ev[:n]
+                valid = np.isfinite(e_n) & np.isfinite(g[:n])
+                if int(valid.sum()) < 3:
+                    continue
+                ax_g.plot(e_n[valid], g[:n][valid], "o-", ms=3.2, lw=0.9, color=color,
+                          alpha=0.90, label=f"{label_base} Γ P{i+1}" if plotted_g < 8 else "_")
+                if i < len(sg_arrays):
+                    sg = np.asarray(sg_arrays[i], dtype=float)[:n]
+                    bv = valid & np.isfinite(sg) & (sg > 0)
+                    if bv.any():
+                        ax_g.errorbar(e_n[bv], g[:n][bv], yerr=sg[bv], fmt="none",
+                                      ecolor=color, elinewidth=0.7, capsize=2, alpha=0.7)
+                plotted_g += 1
+        ax_d.axhline(0, color="black", lw=0.8, ls="--", alpha=0.55)
+        ax_d.axvline(0, color="black", lw=0.8, ls="--", alpha=0.55)
+        ax_d.set_xlabel(r"$k_\parallel$ (π/a)")
+        ax_d.set_ylabel(r"$E - E_F$ (eV)")
+        ax_d.set_title("Dispersion kF(E)" + (" — centrée sur Γ" if self._chk_align_gamma.isChecked() else ""))
+        ax_g.set_xlabel(r"$E - E_F$ (eV)")
+        ax_g.set_ylabel(r"$\Gamma_k$ (HWHM, π/a)")
+        ax_g.set_title(r"Lifetime $\Gamma_k(E)$")
+        for ax in (ax_d, ax_g):
+            handles, labels = ax.get_legend_handles_labels()
+            if labels:
+                ax.legend(fontsize=7, frameon=True, facecolor="white", edgecolor="#888", loc="best")
+        if plotted_d == 0:
+            ax_d.text(0.5, 0.5, "Aucune dispersion fitte visible", ha="center", va="center",
+                      transform=ax_d.transAxes)
+        if plotted_g == 0:
+            ax_g.text(0.5, 0.5, "Aucune Γ(E) disponible", ha="center", va="center",
+                      transform=ax_g.transAxes)
+        return fig
 
     def _write_figure_metadata_sidecar(self, fig_path: str) -> None:
         import json
@@ -648,7 +849,14 @@ class ResultsPanel(QWidget):
                 content="figure",
                 file_names=visible,
             ),
-            "export_style": self._cmb_export_style.currentText(),
+            "export_style": "scientific_white_dispersion_gamma",
+            "dispersion_alignment": {
+                "auto_gamma_center": bool(self._chk_align_gamma.isChecked()),
+                "manual_offsets": {
+                    name: {"dk_pi_a": dk, "dE_eV": de}
+                    for name, (dk, de) in sorted(self._dispersion_offsets.items())
+                },
+            },
             "session_folder": str(self._session.folder) if self._session.folder else "",
             "n_files_visible": len(files_meta),
             "files": files_meta,

@@ -318,6 +318,10 @@ class FitParamsPanel(QScrollArea):
             pairs=[dict(p) for p in self._pair_params],
             shape=(self.cmb_lineshape.currentData()
                     if hasattr(self, "cmb_lineshape") else "lorentzian"),
+            hold_center=bool(getattr(self, "chk_hold_center", None).isChecked())
+            if hasattr(self, "chk_hold_center") else False,
+            hold_gamma=bool(getattr(self, "chk_hold_gamma", None).isChecked())
+            if hasattr(self, "chk_hold_gamma") else False,
         )
 
     def set_fit_controls_visible(self, visible: bool):
@@ -448,6 +452,14 @@ class FitParamsPanel(QScrollArea):
                 self.cmb_lineshape.blockSignals(True)
                 self.cmb_lineshape.setCurrentIndex(idx)
                 self.cmb_lineshape.blockSignals(False)
+        if hasattr(self, "chk_hold_center"):
+            self.chk_hold_center.blockSignals(True)
+            self.chk_hold_center.setChecked(bool(getattr(fp, "hold_center", False)))
+            self.chk_hold_center.blockSignals(False)
+        if hasattr(self, "chk_hold_gamma"):
+            self.chk_hold_gamma.blockSignals(True)
+            self.chk_hold_gamma.setChecked(bool(getattr(fp, "hold_gamma", False)))
+            self.chk_hold_gamma.blockSignals(False)
 
         n = fp.n_pairs
         raw = list(getattr(fp, "pairs", None) or [])

@@ -5,7 +5,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
-from .fit_overlay import _make_multi_lor
+from .fit_overlay import _make_multi_lor, _resolution_correct_gamma
 
 def fit_mdc_lorentzians(
     data_cut, kpar, ev_arr,
@@ -332,6 +332,282 @@ def fit_mdc_regions(
         k_regions=regions_full,
         n_lors=n_lors,
     )
+
+
+def fit_mdc_free_region_result(
+    data_cut, kpar, ev_arr,
+    *,
+    k_min,
+    k_max,
+    ev_start=-0.15,
+    ev_end=-0.01,
+    n_lor=1,
+    smooth_fit=1.5,
+    smooth_detect=3.0,
+    gamma_init=0.05,
+    gamma_max=0.15,
+    min_amplitude=0.05,
+    center_init=0.0,
+    max_jump=0.15,
+    mdc_energy_window=0.0,
+    scan_direction="up",
+    dE_eV=0.0,
+    dk_inv_a=0.0,
+    resolution_source="",
+    verbose=False,
+):
+    """Fit independent Lorentzian peak(s) in one k-region, Results-compatible.
+
+    This wraps the older free-region idea in the same schema as
+    ``fit_mdc_peak_pairs``: kF_minus/kF_plus, Γ(E), σ, residuals, chi² and
+    resolution metadata. Each fitted Lorentzian becomes one "pair index"; if
+    its median position lies left of ``center_init`` it populates kF_minus,
+    otherwise kF_plus. The opposite branch is NaN by construction.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    n_lor = max(1, int(n_lor))
+    kpar = np.asarray(kpar, dtype=float)
+    ev_arr = np.asarray(ev_arr, dtype=float)
+    data_cut = np.asarray(data_cut, dtype=float)
+    I_fit = gaussian_filter1d(data_cut, sigma=smooth_fit, axis=0)
+    I_detect = gaussian_filter1d(data_cut, sigma=smooth_detect, axis=0)
+
+    k_lo = float(k_min)
+    k_hi = float(k_max)
+    if k_hi < k_lo:
+        k_lo, k_hi = k_hi, k_lo
+    k_mask = (kpar >= k_lo) & (kpar <= k_hi)
+    k_fit = kpar[k_mask]
+    if k_fit.size < max(8, 3 * n_lor + 2):
+        return _empty_free_region_result(I_fit, kpar, ev_arr, k_fit, n_lor, resolution_source, dE_eV, dk_inv_a)
+
+    model = _make_multi_lor(n_lor)
+    lo = [-np.inf, -np.inf] + [float(k_fit[0]), max(1e-9, float(dk_inv_a or 0.0)), 0.0] * n_lor
+    hi = [np.inf, np.inf] + [float(k_fit[-1]), float(gamma_max), np.inf] * n_lor
+
+    ev_lo = min(float(ev_start), float(ev_end))
+    ev_hi = max(float(ev_start), float(ev_end))
+    wf_indices = np.where((ev_arr >= ev_lo) & (ev_arr <= ev_hi))[0]
+    wf_energies_all = ev_arr[wf_indices]
+    wf_energies = np.sort(wf_energies_all)[::-1] if scan_direction == "down" else np.sort(wf_energies_all)
+
+    k_tracks = [[] for _ in range(n_lor)]
+    gamma_tracks = [[] for _ in range(n_lor)]
+    sigma_k_tracks = [[] for _ in range(n_lor)]
+    sigma_gamma_tracks = [[] for _ in range(n_lor)]
+    e_fitted = []
+    fit_curves = []
+    residuals = []
+    chi2_red = []
+    prev_popt = None
+    prev_k = None
+
+    def _initial_p0(mdc_n, mdc_detect_n):
+        dk = abs(float(k_fit[1] - k_fit[0])) if k_fit.size > 1 else 0.01
+        pk_idx, props = find_peaks(
+            mdc_detect_n,
+            prominence=0.05,
+            distance=max(1, int(0.04 / dk)),
+        )
+        if len(pk_idx) >= n_lor:
+            top = pk_idx[np.argsort(props["prominences"])[-n_lor:]]
+            guesses = sorted(float(k_fit[j]) for j in top)
+        else:
+            guesses = list(np.linspace(k_lo + 0.15 * (k_hi - k_lo),
+                                       k_hi - 0.15 * (k_hi - k_lo), n_lor))
+        p0 = [0.0, float(np.nanpercentile(mdc_n, 10))]
+        for kg in guesses:
+            amp = float(np.interp(kg, k_fit, mdc_n))
+            p0 += [kg, float(gamma_init), max(amp, 0.05)]
+        return p0
+
+    for ev_i in wf_energies:
+        ie = int(np.argmin(np.abs(ev_arr - ev_i)))
+        if mdc_energy_window > 0:
+            e_mask = np.abs(ev_arr - ev_arr[ie]) <= 0.5 * float(mdc_energy_window)
+            block = I_fit[:, e_mask]
+            mdc_full = np.nanmean(block, axis=1) if block.shape[1] else I_fit[:, ie]
+        else:
+            mdc_full = I_fit[:, ie]
+        mdc = mdc_full[k_mask]
+        mx = float(np.nanmax(mdc)) if mdc.size else 0.0
+        if mx <= 0:
+            continue
+        mdc_n = mdc / mx
+        mdc_d = I_detect[k_mask, ie]
+        mdx = float(np.nanmax(mdc_d)) if mdc_d.size else 0.0
+        mdc_d_n = mdc_d / mdx if mdx > 0 else mdc_n
+        p0 = list(prev_popt) if prev_popt is not None else _initial_p0(mdc_n, mdc_d_n)
+        try:
+            popt, pcov = curve_fit(model, k_fit, mdc_n, p0=p0, bounds=(lo, hi), maxfev=10000)
+            sigma_full = np.sqrt(np.abs(np.diag(pcov)))
+            k_now = [float(popt[2 + 3 * j]) for j in range(n_lor)]
+            g_now = [float(popt[3 + 3 * j]) for j in range(n_lor)]
+            a_now = [float(popt[4 + 3 * j]) for j in range(n_lor)]
+            sk_now = [float(sigma_full[2 + 3 * j]) for j in range(n_lor)]
+            sg_now = [float(sigma_full[3 + 3 * j]) for j in range(n_lor)]
+
+            order = list(np.argsort(k_now))
+            if prev_k is not None and all(np.isfinite(prev_k)):
+                cost = np.array([[abs(k_now[i] - prev_k[j]) for j in range(n_lor)]
+                                 for i in range(n_lor)])
+                rows, cols = linear_sum_assignment(cost)
+                mapped = [None] * n_lor
+                for ri, ci in zip(rows, cols):
+                    mapped[ci] = ri
+                order = [idx if idx is not None else int(np.argsort(k_now)[j])
+                         for j, idx in enumerate(mapped)]
+
+            jumped = False
+            if prev_k is not None and all(np.isfinite(prev_k)):
+                for track_i, src_i in enumerate(order):
+                    if abs(k_now[src_i] - prev_k[track_i]) > float(max_jump):
+                        jumped = True
+                        break
+
+            fit_y = model(k_fit, *popt)
+            residual_y = mdc_n - fit_y
+            dof = max(1, int(k_fit.size) - int(len(popt)))
+            for track_i, src_i in enumerate(order):
+                valid = (not jumped) and a_now[src_i] > float(min_amplitude)
+                k_tracks[track_i].append(k_now[src_i] if valid else np.nan)
+                gamma_tracks[track_i].append(g_now[src_i] if valid else np.nan)
+                sigma_k_tracks[track_i].append(sk_now[src_i] if valid else np.nan)
+                sigma_gamma_tracks[track_i].append(sg_now[src_i] if valid else np.nan)
+            e_fitted.append(float(ev_arr[ie]))
+            fit_curves.append(fit_y)
+            residuals.append(residual_y)
+            chi2_red.append(float(np.nansum(residual_y ** 2) / dof))
+            prev_popt = None if jumped else popt
+            prev_k = [k_now[src_i] for src_i in order] if not jumped else prev_k
+        except Exception as exc:
+            if verbose:
+                print(f"free region MDC fit failed at E={ev_arr[ie]:+.3f}: {exc}")
+            prev_popt = None
+            for track_i in range(n_lor):
+                k_tracks[track_i].append(np.nan)
+                gamma_tracks[track_i].append(np.nan)
+                sigma_k_tracks[track_i].append(np.nan)
+                sigma_gamma_tracks[track_i].append(np.nan)
+            e_fitted.append(float(ev_arr[ie]))
+            fit_curves.append(np.full_like(k_fit, np.nan, dtype=float))
+            residuals.append(np.full_like(k_fit, np.nan, dtype=float))
+            chi2_red.append(np.nan)
+
+    e_out = np.asarray(e_fitted, dtype=float)
+    sort_idx = np.argsort(e_out)
+    e_sorted = e_out[sort_idx]
+    k_sorted = [np.asarray(v, dtype=float)[sort_idx] for v in k_tracks]
+    g_sorted = [np.asarray(v, dtype=float)[sort_idx] for v in gamma_tracks]
+    sk_sorted = [np.asarray(v, dtype=float)[sort_idx] for v in sigma_k_tracks]
+    sg_sorted = [np.asarray(v, dtype=float)[sort_idx] for v in sigma_gamma_tracks]
+
+    kF_minus = []
+    kF_plus = []
+    sigma_kF_minus = []
+    sigma_kF_plus = []
+    k0 = []
+    for k_arr, sk_arr in zip(k_sorted, sk_sorted):
+        med = float(np.nanmedian(k_arr)) if np.isfinite(k_arr).any() else float("nan")
+        is_left = np.isfinite(med) and med <= float(center_init)
+        nan_arr = np.full_like(k_arr, np.nan, dtype=float)
+        if is_left:
+            kF_minus.append(k_arr)
+            kF_plus.append(nan_arr.copy())
+            sigma_kF_minus.append(sk_arr)
+            sigma_kF_plus.append(nan_arr.copy())
+        else:
+            kF_minus.append(nan_arr.copy())
+            kF_plus.append(k_arr)
+            sigma_kF_minus.append(nan_arr.copy())
+            sigma_kF_plus.append(sk_arr)
+        k0.append(np.abs(k_arr - float(center_init)))
+
+    gamma_min = []
+    gamma_corrige = []
+    for i in range(n_lor):
+        gmin, gcorr = _resolution_correct_gamma(
+            e_sorted, k0[i], g_sorted[i],
+            dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+        )
+        gamma_min.append(gmin)
+        gamma_corrige.append(gcorr)
+
+    return {
+        "fit_model": "free_region",
+        "width_mode": "free_region",
+        "shape": "lorentzian",
+        "width_convention": "HWHM",
+        "gamma_units": "pi/a HWHM",
+        "fit_constraints": {"region_k_min": k_lo, "region_k_max": k_hi},
+        "e_fitted": e_sorted,
+        "kF_minus": kF_minus,
+        "kF_plus": kF_plus,
+        "sigma_kF_minus": sigma_kF_minus,
+        "sigma_kF_plus": sigma_kF_plus,
+        "k0": k0,
+        "xg": np.full_like(e_sorted, float(center_init), dtype=float),
+        "gamma": g_sorted,
+        "gamma_brut": g_sorted,
+        "gamma_min": gamma_min,
+        "gamma_corrige": gamma_corrige,
+        "sigma_gamma": sg_sorted,
+        "chi2_red": np.asarray(chi2_red, dtype=float)[sort_idx],
+        "fit_kpar": k_fit,
+        "fit_curves": [np.asarray(v, dtype=float) for v in np.asarray(fit_curves, dtype=float)[sort_idx]],
+        "residuals": [np.asarray(v, dtype=float) for v in np.asarray(residuals, dtype=float)[sort_idx]],
+        "I_smoothed": I_fit,
+        "kpar": kpar,
+        "ev_arr": ev_arr,
+        "n_pairs": n_lor,
+        "n_lor": n_lor,
+        "k_regions": [(k_lo, k_hi, n_lor)],
+        "resolution": {
+            "dE_eV": float(dE_eV or 0.0),
+            "dE_meV": float(dE_eV or 0.0) * 1000.0,
+            "dk_inv_a": float(dk_inv_a or 0.0),
+            "source": str(resolution_source or ""),
+        },
+    }
+
+
+def _empty_free_region_result(I_fit, kpar, ev_arr, k_fit, n_lor, resolution_source, dE_eV, dk_inv_a):
+    empty = [np.array([]) for _ in range(n_lor)]
+    return {
+        "fit_model": "free_region",
+        "width_mode": "free_region",
+        "shape": "lorentzian",
+        "width_convention": "HWHM",
+        "gamma_units": "pi/a HWHM",
+        "e_fitted": np.array([]),
+        "kF_minus": [x.copy() for x in empty],
+        "kF_plus": [x.copy() for x in empty],
+        "sigma_kF_minus": [x.copy() for x in empty],
+        "sigma_kF_plus": [x.copy() for x in empty],
+        "k0": [x.copy() for x in empty],
+        "xg": np.array([]),
+        "gamma": [x.copy() for x in empty],
+        "gamma_brut": [x.copy() for x in empty],
+        "gamma_min": [x.copy() for x in empty],
+        "gamma_corrige": [x.copy() for x in empty],
+        "sigma_gamma": [x.copy() for x in empty],
+        "chi2_red": np.array([]),
+        "fit_kpar": k_fit,
+        "fit_curves": [],
+        "residuals": [],
+        "I_smoothed": I_fit,
+        "kpar": kpar,
+        "ev_arr": ev_arr,
+        "n_pairs": n_lor,
+        "n_lor": n_lor,
+        "resolution": {
+            "dE_eV": float(dE_eV or 0.0),
+            "dE_meV": float(dE_eV or 0.0) * 1000.0,
+            "dk_inv_a": float(dk_inv_a or 0.0),
+            "source": str(resolution_source or ""),
+        },
+    }
 
 
 # =============================================================================

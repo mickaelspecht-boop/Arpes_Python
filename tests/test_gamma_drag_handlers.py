@@ -25,6 +25,27 @@ class _FakeSpin:
         self.set_calls.append(float(v))
 
 
+class _ClampedSpin(_FakeSpin):
+    def __init__(self, value=0.0, lo=-1.0, hi=1.0):
+        super().__init__(value)
+        self._lo = float(lo)
+        self._hi = float(hi)
+
+    def minimum(self):
+        return self._lo
+
+    def maximum(self):
+        return self._hi
+
+    def setRange(self, lo, hi):
+        self._lo = float(lo)
+        self._hi = float(hi)
+
+    def setValue(self, v):
+        v = min(max(float(v), self._lo), self._hi)
+        super().setValue(v)
+
+
 class _FakeFitParams:
     def __init__(self):
         self.center_init = 0.0
@@ -94,6 +115,15 @@ def test_commit_negative_center():
     w = _FakeWindow(_raw(np.linspace(-1.0, 1.0, 21)))
     gdh._commit(w, -0.4)
     np.testing.assert_allclose(w._params.sp_cx.value(), -0.4)
+
+
+def test_commit_expands_spinbox_range_for_wide_bm():
+    w = _FakeWindow(_raw(np.linspace(-3.0, 3.0, 31)))
+    w._params.sp_cx = _ClampedSpin(lo=-1.0, hi=1.0)
+    gdh._commit(w, 1.8)
+    gdh._commit(w, 2.4)
+    np.testing.assert_allclose(w._params.sp_cx.value(), 2.4)
+    np.testing.assert_allclose(w._entry.fit_params.center_init, 2.4)
 
 
 def test_commit_no_path_still_sets_spinbox():

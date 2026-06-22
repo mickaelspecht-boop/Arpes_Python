@@ -6,7 +6,8 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
-from .fit_overlay import _make_peak_pairs_model
+from .fit_overlay import _make_peak_pairs_model, _normalize_width_mode
+from .mdc_fit import fit_mdc_peak_pairs
 
 def debug_mdc_fit(
     data_cut, kpar, ev_arr,
@@ -77,6 +78,85 @@ def debug_mdc_fit(
     if mx <= 0:
         return {'success': False, 'popt': None, 'ax': ax}
     mdc_n = mdc / mx
+
+    if _normalize_width_mode(width_mode) == "free":
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(7, 4))
+        fr = fit_mdc_peak_pairs(
+            data_cut, kpar, ev_arr,
+            n_pairs=n_pairs,
+            ev_start=energy_actual,
+            ev_end=energy_actual,
+            smooth_fit=smooth_fit,
+            smooth_detect=smooth_detect,
+            gamma_init=gamma_init,
+            gamma_max=gamma_max,
+            kF_init=kF_init,
+            center_init=center_init,
+            width_mode="free",
+            k_min=k_min,
+            k_max=k_max,
+            verbose=False,
+        )
+        fit_curves = fr.get("fit_curves") or []
+        success = bool(fit_curves and np.isfinite(np.asarray(fit_curves[0])).any())
+        fit_y = np.asarray(fit_curves[0], dtype=float) if success else np.full_like(kpar_fit, np.nan)
+        residual = float(np.sqrt(np.nanmean((mdc_n - fit_y) ** 2))) if success else np.nan
+        ax.plot(kpar, mdc_full / mx, color='#cccccc', lw=1, label='hors plage')
+        ax.plot(kpar_fit, mdc_n, 'k-', lw=1.5, label='MDC')
+        if success:
+            ax.plot(kpar_fit, fit_y, 'r-', lw=2, label='fit free')
+        ax.axvline(k_lo, color='purple', lw=0.8, ls='--', alpha=0.5)
+        ax.axvline(k_hi, color='purple', lw=0.8, ls='--', alpha=0.5)
+
+        k0_out = []
+        gamma_out = []
+        xg_arr = np.asarray(fr.get("xg", []), dtype=float)
+        xg_out = float(xg_arr[0]) if xg_arr.size else np.nan
+        for i in range(int(fr.get("n_pairs", n_pairs))):
+            km_arr = np.asarray((fr.get("kF_minus") or [])[i], dtype=float)
+            kp_arr = np.asarray((fr.get("kF_plus") or [])[i], dtype=float)
+            gm_arr = np.asarray((fr.get("gamma_brut") or [])[i], dtype=float)
+            km = float(km_arr[0]) if km_arr.size else np.nan
+            kp = float(kp_arr[0]) if kp_arr.size else np.nan
+            gm = float(gm_arr[0]) if gm_arr.size else np.nan
+            if np.isfinite(km):
+                ax.axvline(km, color='green', lw=1.5, ls='-')
+            if np.isfinite(kp):
+                ax.axvline(kp, color='orange', lw=1.5, ls='-')
+            k0_out.append(0.5 * abs(kp - km) if np.isfinite(km) and np.isfinite(kp) else np.nan)
+            gamma_out.append(gm)
+        status = 'OK' if success else 'FAIL'
+        ax.set_title(title or f'E = {energy_actual:+.3f} eV  [{status} free]', fontsize=9)
+        ax.set_xlabel(r'$k$ (π/a)', fontsize=8)
+        ax.set_ylabel(r'$I/I_{\max}$', fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.set_xlim(float(kpar[0]), float(kpar[-1]))
+        if success:
+            info = (
+                f"slice E={energy_actual:+.3f} eV\n"
+                f"mode=free peaks\n"
+                f"k fit=[{k_lo:+.3f},{k_hi:+.3f}]\n"
+                f"x centre={xg_out:+.3f}\n"
+                f"k0={[f'{v:.3f}' for v in k0_out]}\n"
+                f"γ={[f'{float(v):.3f}' for v in gamma_out]}\n"
+                f"rms={residual:.3f}"
+            )
+            ax.text(0.02, 0.97, info, transform=ax.transAxes, fontsize=6,
+                    va='top', ha='left', bbox=dict(boxstyle='round',
+                    facecolor='white', alpha=0.75, edgecolor='none'))
+        return {
+            'success': success,
+            'popt': None,
+            'pcov': None,
+            'k0': k0_out,
+            'xg': xg_out,
+            'gamma': gamma_out,
+            'residual': residual,
+            'energy': energy_actual,
+            'ax': ax,
+            'fit_result': fr,
+        }
 
     # --- guess initial ---
     dk = abs(float(kpar[1] - kpar[0]))

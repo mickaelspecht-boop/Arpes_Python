@@ -84,6 +84,21 @@ class TestResolutionEstimation(unittest.TestCase):
         )
         self.assertTrue((gcorr == 0).all())
 
+    def test_resolution_is_hwhm_converted(self):
+        # gamma is HWHM; dk_inv_a is FWHM, so the subtracted floor is dk/2.
+        # dE=0 -> gamma_min = HWHM(dk) = 0.05 for dk=0.10.
+        # sqrt(0.13^2 - 0.05^2) = 0.12.
+        if _resolution_correct_gamma is None:
+            self.skipTest("scipy unavailable")
+        gmin, gcorr = _resolution_correct_gamma(
+            [-0.2, -0.1, 0.0], [0.3, 0.25, 0.2], [0.13, 0.13, 0.13],
+            dE_eV=0.0, dk_inv_a=0.10,
+        )
+        for gm in gmin:
+            self.assertAlmostEqual(float(gm), 0.05, places=6)
+        for g in gcorr:
+            self.assertAlmostEqual(float(g), 0.12, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

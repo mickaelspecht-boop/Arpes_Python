@@ -24,8 +24,8 @@ from arpes.core.sample import SampleConfig, sample_for_entry, work_function_for_
 class TestFitZoneP34(unittest.TestCase):
     def test_from_dict_fills_defaults(self):
         z = FitZone.from_dict({"id": "a", "label": "Z1"})
-        self.assertEqual((z.color_idx, z.active, z.fit_params, z.fit_result),
-                         (0, True, {}, None))
+        self.assertEqual((z.color_idx, z.active, z.fit_model, z.fit_params, z.fit_result),
+                         (0, True, "peak_pair", {}, None))
 
     def test_from_dict_warns_on_unknown_key(self):
         with self.assertWarns(UserWarning):
@@ -33,7 +33,8 @@ class TestFitZoneP34(unittest.TestCase):
 
     def test_normalize_roundtrips_canonical_zone(self):
         zone = {"id": "a", "label": "Z1", "color_idx": 2, "active": False,
-                "fit_params": {"k_min": -0.5}, "fit_result": {"e": 1}}
+                "fit_model": "peak_pair", "fit_params": {"k_min": -0.5},
+                "fit_result": {"e": 1}}
         self.assertEqual(normalize_fit_zones([zone]), [zone])
 
     def test_normalize_drops_unknown_key_loudly(self):
@@ -43,7 +44,7 @@ class TestFitZoneP34(unittest.TestCase):
             out = normalize_fit_zones([{"id": "a", "label": "Z1", "stale": 1}])
         self.assertNotIn("stale", out[0])
         self.assertEqual(set(out[0]), {"id", "label", "color_idx", "active",
-                                       "fit_params", "fit_result"})
+                                       "fit_model", "fit_params", "fit_result"})
 
 
 class TestSessionManager(unittest.TestCase):
@@ -187,7 +188,10 @@ class TestSessionManager(unittest.TestCase):
             entry = session.files["old"]
             self.assertEqual(entry.fit_params.n_pairs, 1)
             self.assertEqual(entry.meta.hv, 100.0)
-            self.assertEqual(entry.fit_result["gamma"], [[0.04]])
+            # Legacy (untagged) fits stored the MDC width as FWHM; load migrates
+            # them to HWHM (×0.5) and stamps the convention tag.
+            self.assertEqual(entry.fit_result["gamma"], [[0.02]])
+            self.assertEqual(entry.fit_result["width_convention"], "HWHM")
             self.assertEqual(session.work_func, 4.031)
 
     def test_legacy_session_without_work_func_loads_unknown(self):

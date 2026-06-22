@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -29,7 +30,7 @@ from PyQt6.QtWidgets import (
 
 from arpes.ui.controllers.fit_zones_controller import ZONE_PALETTE
 
-_COL_ON, _COL_NAME, _COL_WINDOW, _COL_FIT = range(4)
+_COL_ON, _COL_NAME, _COL_MODEL, _COL_WINDOW, _COL_FIT = range(5)
 
 
 def _color_swatch(hex_color: str, size: int = 12) -> QIcon:
@@ -67,6 +68,7 @@ class ZonesStrip(QWidget):
     add_zone_requested = pyqtSignal()
     remove_zone_requested = pyqtSignal(str)
     rename_zone_requested = pyqtSignal(str, str)
+    model_changed = pyqtSignal(str, str)
     active_zone_changed = pyqtSignal(str)
     toggle_zone_active = pyqtSignal(str, bool)
     run_all_zones_requested = pyqtSignal()
@@ -109,8 +111,8 @@ class ZonesStrip(QWidget):
         header.addWidget(self.btn_clear)
         outer.addLayout(header)
 
-        self.tbl = QTableWidget(0, 4)
-        self.tbl.setHorizontalHeaderLabels(["On", "Zone", "k / E window", "Fit"])
+        self.tbl = QTableWidget(0, 5)
+        self.tbl.setHorizontalHeaderLabels(["On", "Zone", "Model", "k / E window", "Fit"])
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -122,11 +124,13 @@ class ZonesStrip(QWidget):
         hh = self.tbl.horizontalHeader()
         hh.setSectionResizeMode(_COL_ON, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(_COL_MODEL, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(_COL_WINDOW, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(_COL_FIT, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl.setToolTip(
             "Select a row to load that zone's parameters into the panel.\n"
-            "'On' = include the zone in 'Run all'. Double-click the name to rename."
+            "'On' = include the zone in 'Run all'. Double-click the name to rename.\n"
+            "Model: Peak pairs = Γ-symmetric pair fit; Free region = independent Lorentzians inside this zone."
         )
         self.tbl.itemSelectionChanged.connect(self._on_selection_changed)
         self.tbl.itemChanged.connect(self._on_item_changed)
@@ -186,6 +190,20 @@ class ZonesStrip(QWidget):
                     | Qt.ItemFlag.ItemIsEditable
                 )
                 self.tbl.setItem(row, _COL_NAME, name)
+
+                cmb = QComboBox()
+                cmb.addItem("Peak pairs", "peak_pair")
+                cmb.addItem("Free region", "free_region")
+                model = str(z.get("fit_model", "peak_pair") or "peak_pair")
+                cmb.setCurrentIndex(1 if model == "free_region" else 0)
+                cmb.setToolTip(
+                    "Peak pairs: symmetric kF−/kF+ model with shared center Γ.\n"
+                    "Free region: independent Lorentzian peak(s) inside this k window; use for one-sided/off-Γ bands."
+                )
+                cmb.currentIndexChanged.connect(
+                    lambda _idx, zid=zid, combo=cmb: self._on_model_changed(str(zid), str(combo.currentData()))
+                )
+                self.tbl.setCellWidget(row, _COL_MODEL, cmb)
 
                 self.tbl.setItem(row, _COL_WINDOW, self._readonly_item(_window_text(z)))
                 self.tbl.setItem(row, _COL_FIT, self._readonly_item(_fit_text(z)))
@@ -254,6 +272,16 @@ class ZonesStrip(QWidget):
                 if local is not None:
                     local["label"] = new_label
                 self.rename_zone_requested.emit(str(zid), new_label)
+
+    def _on_model_changed(self, zid: str, model: str) -> None:
+        if self._suppress:
+            return
+        local = next((z for z in self._zones if z.get("id") == zid), None)
+        if local is not None:
+            local["fit_model"] = model
+            local["fit_result"] = None
+        self.model_changed.emit(zid, model)
+        self._refresh_footer()
 
     def _begin_rename(self) -> None:
         row = self.tbl.currentRow()

@@ -14,12 +14,14 @@ def _zones():
     return [
         {
             "id": "a1", "label": "Z1", "color_idx": 0, "active": True,
+            "fit_model": "peak_pair",
             "fit_params": {"k_min": -0.4, "k_max": 0.4,
                            "ev_start": -0.5, "ev_end": -0.01},
             "fit_result": {"e_fitted": [0.0, -0.1, -0.2]},
         },
         {
             "id": "b2", "label": "Z2", "color_idx": 1, "active": False,
+            "fit_model": "free_region",
             "fit_params": {"k_min": 0.1, "k_max": 0.6,
                            "ev_start": -0.5, "ev_end": -0.01},
             "fit_result": None,
@@ -37,9 +39,11 @@ class TestSetZones:
     def test_window_and_fit_columns(self):
         s = ZonesStrip()
         s.set_zones(_zones(), "a1")
-        assert s.tbl.item(0, 2).text().startswith("k[")
-        assert s.tbl.item(0, 3).text() == "✓ 3 pts"
-        assert s.tbl.item(1, 3).text() == "—"
+        assert s.tbl.cellWidget(0, 2).currentData() == "peak_pair"
+        assert s.tbl.cellWidget(1, 2).currentData() == "free_region"
+        assert s.tbl.item(0, 3).text().startswith("k[")
+        assert s.tbl.item(0, 4).text() == "✓ 3 pts"
+        assert s.tbl.item(1, 4).text() == "—"
 
     def test_active_checkbox_reflects_state(self):
         s = ZonesStrip()
@@ -80,6 +84,14 @@ class TestSignals:
         s.rename_zone_requested.connect(lambda zid, label: seen.append((zid, label)))
         s.tbl.item(0, 1).setText("alpha")
         assert seen == [("a1", "alpha")]
+
+    def test_change_model_emits_model_changed(self):
+        s = ZonesStrip()
+        s.set_zones(_zones(), "a1")
+        seen = []
+        s.model_changed.connect(lambda zid, model: seen.append((zid, model)))
+        s.tbl.cellWidget(0, 2).setCurrentIndex(1)
+        assert seen == [("a1", "free_region")]
 
     def test_set_zones_does_not_emit(self):
         """Rebuilding the table must not emit selection/toggle/rename signals."""

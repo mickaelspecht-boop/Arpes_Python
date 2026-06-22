@@ -13,15 +13,30 @@ def _gauss_peak(x, x0, A, width):
 
 
 def _lor_peak(x, x0, A, width):
-    """Lorentzienne : A × (width/2)² / ((x-x0)² + (width/2)²)."""
-    return A * (width / 2)**2 / ((x - x0)**2 + (width / 2)**2)
+    """Lorentzienne : ``width`` est le HWHM Γ, comme Igor ``lor_peak``.
+
+    This convention is required for lifetime analysis: ``gamma_corrige`` and
+    Im Sigma consume Γ_k as a half-width in momentum units. Older code used
+    ``width/2`` internally, which silently fitted/stored FWHM while the UI and
+    exports labelled it as Γ/HWHM.
+    """
+    return A * width**2 / ((x - x0)**2 + width**2)
 
 
-def _voigt_pseudo(x, x0, A, sigma, eta):
-    """Pseudo-Voigt : eta×Lor + (1-eta)×Gauss. eta in [0,1]."""
+def _voigt_pseudo(x, x0, A, width, eta):
+    """Pseudo-Voigt : eta×Lor + (1-eta)×Gauss, ``width`` = HWHM Γ partagé.
+
+    Both components reach A/2 at |x-x0| = ``width`` : Lorentzienne
+    A·w²/(Δ²+w²) et Gaussienne A·exp(-ln2·Δ²/w²). This matches ``_lor_peak``
+    (HWHM) so gamma means the same thing whatever the shape. The previous code
+    used ``sigma/2`` for the Lorentzian core and ``exp(-2Δ²/sigma²)`` for the
+    Gaussian → the stored width was inconsistent with the Lorentzian fits.
+    """
     eta = np.clip(eta, 0.0, 1.0)
-    return A * (eta * (sigma/2)**2 / ((x-x0)**2 + (sigma/2)**2)
-                + (1 - eta) * np.exp(-2*(x-x0)**2 / sigma**2))
+    w2 = float(width) ** 2 + 1e-30
+    lor = width**2 / ((x - x0)**2 + width**2)
+    gauss = np.exp(-np.log(2.0) * (x - x0)**2 / w2)
+    return A * (eta * lor + (1.0 - eta) * gauss)
 
 
 def _make_edc_model(n_peaks, shape='lorentzian', bg='linear', with_fd=True):
@@ -86,7 +101,11 @@ def _make_edc_model(n_peaks, shape='lorentzian', bg='linear', with_fd=True):
     return model, n_bg, n_pp
 
 
-_WIDTH_MODE_ALIASES = {"asymmetric": "independent", "asym": "independent"}
+_WIDTH_MODE_ALIASES = {
+    "asymmetric": "independent",
+    "asym": "independent",
+    "free_peaks": "free",
+}
 
 
 def _normalize_width_mode(width_mode: str) -> str:
@@ -193,17 +212,24 @@ def _local_velocity_from_k(e_arr, k_arr, idx, half_window=2):
 
 
 def _resolution_correct_gamma(e_arr, k0_series, gamma_series, dE_eV, dk_inv_a):
-    """Retourne gamma_min et gamma_corrige pour une serie de largeurs MDC."""
+    """Retourne gamma_min et gamma_corrige pour une serie de largeurs MDC.
+
+    ``gamma_series`` is the MDC **HWHM** (same convention as ``_lor_peak``).
+    ``dE_eV`` / ``dk_inv_a`` are the instrument resolutions in **FWHM** (UI:
+    "ΔE FWHM", "Δk FWHM"). Quadrature subtraction must be HWHM-vs-HWHM, so the
+    FWHM resolution is converted to HWHM (×0.5) before being subtracted:
+    Γ_intrinsic = √(Γ_HWHM² − Γ_res_HWHM²), Γ_res_HWHM = ½√(Δk² + (ΔE/vF)²).
+    """
     e = np.asarray(e_arr, dtype=float)
     k0 = np.asarray(k0_series, dtype=float)
     gamma = np.asarray(gamma_series, dtype=float)
     dE = max(float(dE_eV or 0.0), 0.0)
     dk = max(float(dk_inv_a or 0.0), 0.0)
-    gamma_min = np.full_like(gamma, dk, dtype=float)
+    gamma_min = np.full_like(gamma, 0.5 * dk, dtype=float)  # HWHM resolution floor
     for i in range(gamma.size):
         vf = _local_velocity_from_k(e, k0, i)
         if np.isfinite(vf) and vf > 1e-3:
-            gamma_min[i] = float(np.sqrt(dk * dk + (dE / vf) ** 2))
+            gamma_min[i] = 0.5 * float(np.sqrt(dk * dk + (dE / vf) ** 2))
     gamma_corr = np.sqrt(np.maximum(0.0, gamma * gamma - gamma_min * gamma_min))
     gamma_corr[~np.isfinite(gamma)] = np.nan
     gamma_min[~np.isfinite(gamma)] = np.nan

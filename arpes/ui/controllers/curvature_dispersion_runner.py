@@ -38,7 +38,7 @@ def run_curvature_dispersion(window) -> None:
             n_pairs=fp.n_pairs, c0_alpha=c0,
         )
     except Exception as exc:
-        window._status(f"Warning: curvature dispersion: {exc}")
+        window._status(f"⚠ Curvature dispersion impossible: {exc}")
         traceback.print_exc()
         return
 
@@ -64,10 +64,12 @@ def run_curvature_dispersion(window) -> None:
 
     if n_slices == 0:
         window._status(
-            "Curvature dispersion: no peak found — widen the k window or lower C0."
+            "⚠ Curvature dispersion: aucun maximum trouve. Elargir la fenetre k/E "
+            "ou diminuer C0, puis relancer."
         )
     else:
         window._status(
-            f"Curvature dispersion: {n_slices} slices — cross-check overlay in Results "
-            "(enable 'Curvature cross-check')."
+            f"✓ Curvature dispersion calculee: {n_slices} coupes. "
+            "Results -> cocher 'Curvature cross-check' pour comparer les positions kF. "
+            "Γ/lifetime reste donne par le fit Lorentzien."
         )

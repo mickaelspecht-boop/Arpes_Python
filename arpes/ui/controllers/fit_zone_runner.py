@@ -12,6 +12,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
 from arpes.physics.fit import MdcFitter
+from arpes.ui.widgets.plots.mdc_regions import fit_mdc_free_region_result
 
 
 def wire_zones_strip(window) -> None:
@@ -46,6 +47,11 @@ def wire_zones_strip(window) -> None:
         lambda zid, label: (window.fit_zone_action(
             "rename", {"zone_id": zid, "label": label}),
             _post_mutation(window))
+    )
+    zs.model_changed.connect(
+        lambda zid, model: (window.fit_zone_action(
+            "set_model", {"zone_id": zid, "fit_model": model}),
+            _post_mutation(window, reload_active=True))
     )
     zs.run_all_zones_requested.connect(window._fit_run_all_zones)
     zs.clear_zone_results.connect(
@@ -216,15 +222,44 @@ def fit_run_all_zones(ctrl) -> None:
             if data is None:
                 n_fail += 1
                 continue
-            fr = controller.run_full_fit(
-                data, kpar, ev, fp,
-                resolution_source=getattr(
-                    ctrl._params, "_resolution_source_detail", "",
-                ),
+            resolution_source = getattr(
+                ctrl._params, "_resolution_source_detail", "",
             )
+            if str(zone.get("fit_model", "peak_pair")) == "free_region":
+                if fp.k_min is None or fp.k_max is None:
+                    raise ValueError(
+                        "Free region requires explicit k_min/k_max. "
+                        "Create the zone from an ROI or set the k window."
+                    )
+                fr = fit_mdc_free_region_result(
+                    data, kpar, ev,
+                    k_min=fp.k_min,
+                    k_max=fp.k_max,
+                    ev_start=fp.ev_start,
+                    ev_end=fp.ev_end,
+                    n_lor=fp.n_pairs,
+                    smooth_fit=fp.smooth_fit,
+                    smooth_detect=fp.smooth_detect,
+                    gamma_init=fp.gamma_init,
+                    gamma_max=fp.gamma_max,
+                    min_amplitude=fp.min_amplitude,
+                    center_init=fp.center_init,
+                    max_jump=fp.max_jump,
+                    mdc_energy_window=getattr(fp, "mdc_energy_window", 0.0),
+                    scan_direction=fp.scan_direction,
+                    dE_eV=fp.dE_meV / 1000.0,
+                    dk_inv_a=fp.dk_inv_a,
+                    resolution_source=resolution_source,
+                )
+            else:
+                fr = controller.run_full_fit(
+                    data, kpar, ev, fp,
+                    resolution_source=resolution_source,
+                )
             fr["params_hash"] = ctrl._current_fit_params_hash(entry, fp=fp)
             fr["zone_id"] = zone["id"]
             fr["zone_label"] = zone.get("label")
+            fr["zone_fit_model"] = str(zone.get("fit_model", "peak_pair"))
             from arpes.physics.distortion import is_distortion_active
             fr["distorted"] = bool(
                 entry.bm_distortion

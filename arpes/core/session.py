@@ -48,6 +48,8 @@ class FitParams:
     k0_max: Optional[float] = None
     width_mode: str = "symmetric"
     shape: str = "lorentzian"  # "lorentzian" | "voigt" (pseudo-Voigt η_global)
+    hold_center: bool = False
+    hold_gamma: bool = False
     min_amplitude: float = 0.01
     max_jump: float = 0.20
     mdc_energy_window: float = 0.0  # eV; >0 integrates ±half over E per MDC (anti-serpentage)
@@ -74,6 +76,7 @@ class FitZone:
     label: str
     color_idx: int = 0
     active: bool = True
+    fit_model: str = "peak_pair"
     fit_params: dict = field(default_factory=dict)
     fit_result: Optional[dict] = None
 
@@ -92,6 +95,7 @@ class FitZone:
             label=str(d.get("label", "")),
             color_idx=int(d.get("color_idx", 0) or 0),
             active=bool(d.get("active", True)),
+            fit_model=str(d.get("fit_model", "peak_pair") or "peak_pair"),
             fit_params=dict(d.get("fit_params", {}) or {}),
             fit_result=d.get("fit_result"),
         )
@@ -101,7 +105,7 @@ class FitZone:
 
 
 def normalize_fit_zones(zones: list) -> list[dict]:
-    """Ensure every zone has the 6 canonical keys (defaults filled) and log
+    """Ensure every zone has the canonical keys (defaults filled) and log
     unknown keys. Preserve order. P3.4."""
     out: list[dict] = []
     for z in zones or []:
@@ -480,6 +484,14 @@ class Session:
                 processing_history=list(edict.get("processing_history", []) or []),
                 curvature_dispersion=edict.get("curvature_dispersion"),
             )
+            # One-time upgrade: legacy fits stored the MDC width as FWHM; modern
+            # fits store HWHM (tagged width_convention). Normalize loaded fits to
+            # HWHM so every consumer (Results, Γ(E), Im Σ) reads one convention.
+            from arpes.physics.fit import migrate_fit_result_to_hwhm
+            migrate_fit_result_to_hwhm(entry.fit_result)
+            for _z in entry.fit_zones:
+                if isinstance(_z, dict):
+                    migrate_fit_result_to_hwhm(_z.get("fit_result"))
             self.files[name] = entry
 
     def load(self, path: Path):

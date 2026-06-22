@@ -228,7 +228,7 @@ def _build_constraint_section(panel, _fcl) -> None:
         "The optimizer limits xg to [center - xg_range, center + xg_range].\n"
         "See the cyan rectangle in the MDC plot."
     )
-    panel.sp_cx = dspin(0.0, -1.0, 1.0, 0.01)
+    panel.sp_cx = dspin(0.0, -5.0, 5.0, 0.01)
     panel.sp_cx.setToolTip(
         "Pair symmetry center (Γ position, in π/a).\n"
         "Dashed cyan halo on the BM map in real time while editing.\n"
@@ -260,7 +260,8 @@ def _build_constraint_section(panel, _fcl) -> None:
         "Independent: γL ≠ γR per pair (width asymmetry; direction-dependent\n"
         "             mobility, mean free path).\n"
         "Shared γ: one γ for all pairs (rare; use only when the bands truly\n"
-        "          have the same width)."
+        "          have the same width).\n"
+        "For non-Γ-symmetric one-sided bands, create a zone and set Model = Free region."
     )
     for w in (panel.sp_xg, panel.sp_cx, panel.sp_k0m):
         w.valueChanged.connect(panel.fit_only_changed)
@@ -291,6 +292,20 @@ def _build_constraint_section(panel, _fcl) -> None:
     )
     panel.cmb_lineshape.currentIndexChanged.connect(panel.fit_only_changed)
     fl.addRow("Profile:", panel.cmb_lineshape)
+    panel.chk_hold_center = QCheckBox("Fixer Γ center")
+    panel.chk_hold_center.setToolTip(
+        "Verrouille xg au centre Γ indique. Utile quand le fit derive vers un "
+        "fond ou une autre bande."
+    )
+    panel.chk_hold_gamma = QCheckBox("Fixer Γ width")
+    panel.chk_hold_gamma.setToolTip(
+        "Verrouille la largeur Γ au γ init de la paire courante. A utiliser "
+        "comme test de stabilite, pas comme extraction finale de lifetime."
+    )
+    panel.chk_hold_center.toggled.connect(panel.fit_only_changed)
+    panel.chk_hold_gamma.toggled.connect(panel.fit_only_changed)
+    fl.addRow("Locks:", panel.chk_hold_center)
+    fl.addRow("", panel.chk_hold_gamma)
     _fcl.addWidget(grp)
 
 
@@ -587,7 +602,8 @@ def _build_fit_buttons(panel, _fcl) -> None:
     panel.btn_im_sigma.setEnabled(False)
     panel.btn_im_sigma.setToolTip(
         "Converts the fitted MDC width into the physical scattering rate.\n"
-        "Im Σ(E) = (vF/2)·Γ(E)  — Γ from the fit (π/a), vF from the dispersion.\n"
+        "Im Σ(E) = vF·Γ(E)  — Γ = MDC HWHM from the fit (π/a), vF from the\n"
+        "dispersion (equivalently (vF/2)·FWHM).\n"
         "Result is in eV: the electron lifetime τ = ħ/(2·Im Σ), comparable\n"
         "across samples and to the literature (Fermi liquid ⇒ Im Σ ∝ E²).\n"
         "\n"

@@ -182,10 +182,21 @@ def _commit(window, k_center: float) -> None:
         return
     kpar = np.asarray(raw.get("kpar"), dtype=float)
     if kpar.size:
-        k_center = float(np.clip(k_center, np.nanmin(kpar), np.nanmax(kpar)))
+        k_min = float(np.nanmin(kpar))
+        k_max = float(np.nanmax(kpar))
+        k_center = float(np.clip(k_center, k_min, k_max))
+    else:
+        k_min = k_max = None
     sp_cx = getattr(window._params, "sp_cx", None)
     old_center = float(sp_cx.value()) if sp_cx is not None else 0.0
     if sp_cx is not None:
+        if k_min is not None and hasattr(sp_cx, "setRange"):
+            try:
+                cur_min = float(sp_cx.minimum()) if hasattr(sp_cx, "minimum") else k_min
+                cur_max = float(sp_cx.maximum()) if hasattr(sp_cx, "maximum") else k_max
+                sp_cx.setRange(min(cur_min, k_min, k_center), max(cur_max, k_max, k_center))
+            except Exception:
+                pass
         # setValue fires valueChanged → gamma_center_preview (redraws the guide
         # line) + fit_only_changed (refreshes the fit overlay), same as a manual
         # spinbox edit. This is the single place the drag writes the center.

@@ -184,6 +184,60 @@ def compute_fermi_velocity_mstar(
     return out
 
 
+def gamma_to_hwhm_factor(fit_result) -> float:
+    """Multiplier converting a fit's stored gamma to HWHM.
+
+    Modern fits tag ``width_convention="HWHM"`` (gamma already HWHM → 1.0).
+    Legacy/untagged fits stored the FWHM under the same keys → 0.5.
+    """
+    fr = fit_result or {}
+    conv = str(fr.get("width_convention", "")).strip().upper()
+    units = str(fr.get("gamma_units", "")).strip().upper()
+    if conv == "HWHM" or (conv == "" and "HWHM" in units):
+        return 1.0
+    return 0.5
+
+
+def _scale_gamma_nested(value, factor: float):
+    """Multiply every numeric leaf of a (possibly nested) gamma array."""
+    if isinstance(value, (list, tuple)):
+        return [_scale_gamma_nested(v, factor) for v in value]
+    if isinstance(value, np.ndarray):
+        return value * factor
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value * factor
+    return value
+
+
+def migrate_fit_result_to_hwhm(fit_result) -> bool:
+    """In-place: rescale a legacy (FWHM) fit_result's gamma arrays to HWHM.
+
+    Idempotent — already-HWHM-tagged fits are left untouched. Scales every
+    ``gamma*`` array (plus the ensemble's ``gamma*`` entries) by 0.5: widths,
+    sigmas, medians and the resolution floor all share the FWHM→HWHM factor.
+    Then stamps the HWHM tags so the whole app reads one convention.
+    ``gamma_units`` (a string label) is skipped. Returns True if converted.
+    """
+    fr = fit_result
+    if not isinstance(fr, dict) or not fr:
+        return False
+    if gamma_to_hwhm_factor(fr) == 1.0:
+        return False  # already HWHM
+    # "gamma" in k catches sigma_gamma / gamma_left / gamma_min too; the only
+    # gamma-named non-width entry is the gamma_units label, excluded.
+    for k in list(fr.keys()):
+        if "gamma" in k and k != "gamma_units":
+            fr[k] = _scale_gamma_nested(fr[k], 0.5)
+    ens = fr.get("ensemble")
+    if isinstance(ens, dict):
+        for k in list(ens.keys()):
+            if "gamma" in k and k != "gamma_units":
+                ens[k] = _scale_gamma_nested(ens[k], 0.5)
+    fr["width_convention"] = "HWHM"
+    fr.setdefault("gamma_units", "pi/a HWHM")
+    return True
+
+
 def imaginary_self_energy(
     fit_result: dict,
     crystal_a: float,
@@ -192,14 +246,20 @@ def imaginary_self_energy(
     use_corrected: bool = True,
     side: str = "mean",
 ) -> dict:
-    """Im Sigma(E) = (vF/2)*Gamma_k(E), in eV.
+    """Im Sigma(E) = vF * Gamma_k_HWHM(E), in eV.
+
+    Physical relation: an MDC at fixed E is a Lorentzian in k of HWHM = |Σ''|/vF,
+    so |Σ''| = vF · HWHM_k (Σ'' = (vF/2)·FWHM_k, the textbook form).
 
     ``side``: 'mean' (averaged gamma, default), 'left' (gamma on kF- side),
     'right' (gamma on kF+ side). Left/right sources are populated only when
     the fit ran in ``width_mode='independent'``; for other modes, left and
     right equal mean.
 
-    Gamma is stored in pi/a (HWHM). Conversion: Gamma_k[A^-1] = Gamma[pi/a]*pi/a.
+    Width convention: modern fits tag ``fit_result["width_convention"]="HWHM"``
+    (gamma stored as HWHM). Legacy/untagged fits stored the FWHM under the same
+    key, so for those Σ'' = (vF/2)·gamma. This is resolved from the tag here so
+    both vintages stay correct. Conversion: Gamma_k[A^-1] = Gamma[pi/a]*pi/a.
     vF tiré de compute_fermi_velocity_mstar (kF_minus, paire 0 par
     défaut). Renvoie ``{"energy": e, "im_sigma": Σ, "vF_eV_A": vF,
     "pair_index": pair_index, "side": side}``. Tableaux vides si
@@ -244,15 +304,18 @@ def imaginary_self_energy(
         return empty
     pi_over_a = np.pi / float(crystal_a)
     g_inv_A = g_pi_a * pi_over_a
-    im_sigma = (vF / 2.0) * g_inv_A  # eV
-    # σ propagée depuis l'ensemble fit : Im Σ linéaire en Γ → σ(ImΣ)=(vF/2)·σ_Γ
+    # Σ'' = vF·HWHM. HWHM-tagged fits use vF·γ; legacy/untagged fits stored the
+    # FWHM (HWHM=γ/2) so they use (vF/2)·γ. gamma_to_hwhm_factor encodes this.
+    width_coef = vF * gamma_to_hwhm_factor(fit_result)
+    im_sigma = width_coef * g_inv_A  # eV
+    # σ propagée depuis l'ensemble fit : Im Σ linéaire en Γ → σ(ImΣ)=coef·σ_Γ
     im_sigma_std = np.full_like(im_sigma, np.nan)
     ens = fit_result.get("ensemble") or {}
     gstd_all = ens.get("gamma_std") or []
     if 0 <= pair_index < len(gstd_all):
         g_std_pi_a = np.asarray(gstd_all[pair_index], dtype=float)
         if g_std_pi_a.size == e.size:
-            im_sigma_std = (vF / 2.0) * (g_std_pi_a * pi_over_a)
+            im_sigma_std = width_coef * (g_std_pi_a * pi_over_a)
     finite = np.isfinite(e) & np.isfinite(im_sigma)
     return {
         "energy": e[finite],
@@ -549,6 +612,8 @@ class MdcFitter:
             "dk_inv_a": fp.dk_inv_a,
             "resolution_source": resolution_source,
             "shape": getattr(fp, "shape", "lorentzian"),
+            "hold_center": bool(getattr(fp, "hold_center", False)),
+            "hold_gamma": bool(getattr(fp, "hold_gamma", False)),
             "verbose": False,
         }
 
