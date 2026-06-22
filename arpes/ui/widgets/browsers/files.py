@@ -54,6 +54,11 @@ class FileBrowserPanel(QWidget):
         self._loader_label_cache: dict[str, tuple[tuple[int, int] | None, str]] = {}
         self._scan_kind_cache: dict[str, tuple[tuple[int, int] | None, str]] = {}
         self._logbook_record_cache: dict[str, dict | None] = {}
+        # Transient cross-folder "similar parameters" flags (a working set, not
+        # persisted) + an in-app fit-parameters clipboard for copy/paste between
+        # files via the list right-click menu.
+        self._flagged_keys: set[str] = set()
+        self._fit_params_clipboard = None
         from arpes.ui.controllers.browser_controller import BrowserController
         self._browser_ctrl = BrowserController(self)
         self._build()
@@ -145,6 +150,8 @@ class FileBrowserPanel(QWidget):
         """)
         self._list.itemDoubleClicked.connect(self._on_double_click)
         self._list.currentItemChanged.connect(self._on_selection_change)
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._browser_ctrl._on_context_menu)
         lay.addWidget(self._list, stretch=1)
 
         self._lbl_selection = QLabel("Select a file to load")
@@ -334,7 +341,9 @@ class FileBrowserPanel(QWidget):
         extra = self._item_context_suffix(p, key)
         tags = self._tags_for_path(p, key)
         tag_txt = f"  #{', #'.join(tags[:3])}" if tags else ""
-        return f"  {icon}  {p.name}{self._loader_suffix_for_path(p, key)}{self._fs_suffix_for_path(p)}{tag_txt}{extra}"
+        k = key or self._session.key_for_path(p)
+        flag = "⚑ " if k in self._flagged_keys else ""
+        return f"  {flag}{icon}  {p.name}{self._loader_suffix_for_path(p, key)}{self._fs_suffix_for_path(p)}{tag_txt}{extra}"
 
     def _tags_for_path(self, path: str | Path, key: str | None = None) -> list[str]:
         p = Path(path)
