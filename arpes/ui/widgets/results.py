@@ -86,6 +86,22 @@ class ResultsPanel(QWidget):
         self._cmb_gamma_model.currentIndexChanged.connect(
             lambda *_: self._draw_gamma_panel(getattr(self, "_gamma_colors", None)))
         grow.addWidget(self._cmb_gamma_model)
+        from arpes.ui.widgets._qt_helpers import dspin
+        grow.addSpacing(12)
+        grow.addWidget(QLabel("Fit range E:"))
+        self._sp_gamma_emin = dspin(-0.15, -5.0, 0.0, 0.01, dec=3)
+        self._sp_gamma_emax = dspin(0.0, -5.0, 0.5, 0.01, dec=3)
+        for _sp in (self._sp_gamma_emin, self._sp_gamma_emax):
+            _sp.setToolTip(
+                "Energy window (E−E_F, eV) used for the Γ(E) trend fit and the "
+                "reported Γ₀. Combined with the reliability mask: only resolved, "
+                "in-range slices are fitted. Set e.g. [−0.12, −0.05] to avoid the "
+                "Fermi-edge blow-up.")
+            _sp.valueChanged.connect(
+                lambda *_: self._draw_gamma_panel(getattr(self, "_gamma_colors", None)))
+        grow.addWidget(self._sp_gamma_emin)
+        grow.addWidget(QLabel("…"))
+        grow.addWidget(self._sp_gamma_emax)
         grow.addStretch(1)
         gtl.addLayout(grow)
         gtl.addWidget(self._canvas_gamma)
@@ -471,10 +487,12 @@ class ResultsPanel(QWidget):
             for col, val in enumerate([filename, "missing a", str(exc), "—", "—", "—"]):
                 self._table_phys.setItem(row, col, QTableWidgetItem(val))
             return
+        g_lo, g_hi = self._gamma_e_range()
         bundle = compute_results(
             fr, e_window_kF=0.10, e_window_gamma=0.30,
             crystal_a_angstrom=a_val,
             gamma_max=getattr(getattr(entry, "fit_params", None), "gamma_max", None),
+            gamma_e_lo=g_lo, gamma_e_hi=g_hi,
         )
         if self._chk_bootstrap.isChecked():
             from arpes.analysis.bootstrap import bootstrap_branch_result
@@ -519,6 +537,15 @@ class ResultsPanel(QWidget):
     def _fallback_colors(self):
         import matplotlib.pyplot as plt
         return plt.cm.plasma(np.linspace(0.1, 0.9, max(1, len(self._session.files))))
+
+    def _gamma_e_range(self) -> tuple[float, float]:
+        """User-chosen Γ(E) trend fit window (E−E_F, eV), low→high."""
+        try:
+            lo = float(self._sp_gamma_emin.value())
+            hi = float(self._sp_gamma_emax.value())
+            return (lo, hi) if lo <= hi else (hi, lo)
+        except Exception:
+            return (-0.15, 0.0)
 
     def _draw_gamma_panel(self, colors) -> None:
         from arpes.ui.widgets.results_gamma import draw_gamma_panel

@@ -49,6 +49,18 @@ def test_gamma_zero_uses_reliable_region_only():
     assert res.gamma_zero < 0.12
 
 
+def test_gamma_zero_honours_chosen_e_window():
+    e = np.linspace(-0.15, 0.0, 16)
+    kp = np.full_like(e, 0.25); km = -kp            # peaks always resolved
+    g = np.where((e >= -0.10) & (e <= -0.04), 0.05, 0.20)
+    fr = {"e_fitted": e.tolist(), "kF_plus": [kp.tolist()], "kF_minus": [km.tolist()],
+          "gamma_corrige": [g.tolist()], "gamma_brut": [g.tolist()]}
+    win = fit_gamma_fermi_liquid(fr, pair_index=0, e_lo=-0.10, e_hi=-0.04)
+    full = fit_gamma_fermi_liquid(fr, pair_index=0, e_window=0.30)
+    assert win.gamma_zero < 0.10        # only the 0.05 window
+    assert full.gamma_zero > win.gamma_zero  # full range dragged up by the 0.20 region
+
+
 def _synthetic_fit_result(*, slope=2.0, intercept=-0.5, sigma_k=0.003, n=25, seed=0):
     """Generates a synthetic fit_result: E = intercept + slope·k → kF=-intercept/slope."""
     rng = np.random.default_rng(seed)

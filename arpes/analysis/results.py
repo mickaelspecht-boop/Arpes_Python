@@ -340,6 +340,8 @@ def fit_gamma_fermi_liquid(
     pair_index: int,
     e_window: float = 0.30,
     gamma_max: float | None = None,
+    e_lo: float | None = None,
+    e_hi: float | None = None,
 ) -> GammaFermiLiquid:
     """Fit Γ(E) = Γ₀ + a·E² by weighted regression on σ_gamma.
 
@@ -347,6 +349,9 @@ def fit_gamma_fermi_liquid(
     ``gamma``. The trend is fit only on the **reliable** slices
     (``gamma_reliability_mask``): merged-peak / saturated slices are excluded so
     Γ₀ is extrapolated from the resolved region, not the near-E_F blow-up.
+
+    Energy window: ``[e_lo, e_hi]`` when both are given (user-chosen fit range),
+    otherwise the symmetric ``|E| ≤ e_window``.
     """
     e = np.asarray(fit_result.get("e_fitted", []), dtype=float)
     g_arrays = fit_result.get("gamma_corrige") or fit_result.get("gamma") or []
@@ -361,7 +366,12 @@ def fit_gamma_fermi_liquid(
     e, g, sg = e[:n], g[:n], sg[:n]
     reliable = gamma_reliability_mask(
         fit_result, pair_index=pair_index, gamma_max=gamma_max)[:n]
-    valid = np.isfinite(e) & np.isfinite(g) & (np.abs(e) <= float(e_window)) & reliable
+    if e_lo is not None and e_hi is not None:
+        lo, hi = (float(e_lo), float(e_hi)) if e_lo <= e_hi else (float(e_hi), float(e_lo))
+        in_window = (e >= lo) & (e <= hi)
+    else:
+        in_window = np.abs(e) <= float(e_window)
+    valid = np.isfinite(e) & np.isfinite(g) & in_window & reliable
     if int(valid.sum()) < 3:
         return GammaFermiLiquid(pair_index=pair_index, n_points_used=int(valid.sum()))
     x = (e[valid]) ** 2
@@ -414,11 +424,14 @@ def compute_results(
     e_window_gamma: float = 0.30,
     crystal_a_angstrom: float = 0.0,
     gamma_max: float | None = None,
+    gamma_e_lo: float | None = None,
+    gamma_e_hi: float | None = None,
 ) -> ResultsBundle:
     """Compute all physical results and uncertainties from a fit.
 
     ``gamma_max`` (the fit's width bound) lets the Γ₀ trend flag saturated
     slices; pass it from the entry's fit_params when available.
+    ``gamma_e_lo``/``gamma_e_hi`` set the user-chosen Γ(E) fit window.
     """
     if not fit_result:
         return ResultsBundle()
@@ -434,7 +447,8 @@ def compute_results(
             ))
     gamma_fl = tuple(
         fit_gamma_fermi_liquid(
-            fit_result, pair_index=i, e_window=e_window_gamma, gamma_max=gamma_max)
+            fit_result, pair_index=i, e_window=e_window_gamma, gamma_max=gamma_max,
+            e_lo=gamma_e_lo, e_hi=gamma_e_hi)
         for i in range(n_pairs)
     )
     asym = tuple(

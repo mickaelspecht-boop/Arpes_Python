@@ -25,9 +25,18 @@ def _trend_model(panel) -> str:
     return "linear" if (cmb is not None and cmb.currentIndex() == 1) else "quadratic"
 
 
-def _gamma_trend(e, g, sg, *, model: str):
-    """Weighted Γ(E) trend. Returns (e_grid, g_grid) or None if too few points."""
-    valid = np.isfinite(e) & np.isfinite(g) & (np.abs(e) <= _E_WINDOW)
+def _gamma_trend(e, g, sg, *, model: str, e_range=None):
+    """Weighted Γ(E) trend over the chosen window.
+
+    Returns ``(e_grid, g_grid, intercept, slope)`` or None if too few points.
+    ``e_range=(lo, hi)`` overrides the default symmetric ``|E| ≤ _E_WINDOW``.
+    """
+    if e_range is not None:
+        lo, hi = (e_range[0], e_range[1]) if e_range[0] <= e_range[1] else (e_range[1], e_range[0])
+        in_window = (e >= lo) & (e <= hi)
+    else:
+        in_window = np.abs(e) <= _E_WINDOW
+    valid = np.isfinite(e) & np.isfinite(g) & in_window
     if int(valid.sum()) < 3:
         return None
     ev, gv = e[valid], g[valid]
@@ -40,7 +49,7 @@ def _gamma_trend(e, g, sg, *, model: str):
     fit = weighted_linear_fit(x, gv, sigma=w)
     e_grid = np.linspace(float(ev.min()), float(ev.max()), 80)
     xg = e_grid if model == "linear" else e_grid ** 2
-    return e_grid, fit.intercept + fit.slope * xg
+    return e_grid, fit.intercept + fit.slope * xg, float(fit.intercept), float(fit.slope)
 
 
 def _apply_robust_limits(ax, xs, ys) -> None:
@@ -79,6 +88,8 @@ def draw_gamma_panel(panel, colors) -> None:
     xs: list = []
     ys: list = []
     unreliable_labeled = False
+    erange = panel._gamma_e_range() if hasattr(panel, "_gamma_e_range") else None
+    eq_lines: list = []
     for ci, (name, entry) in enumerate(panel._session.files.items()):
         if entry.fit_result is None or name not in visible:
             continue
@@ -130,12 +141,29 @@ def draw_gamma_panel(panel, colors) -> None:
                                 capsize=2.5, alpha=0.9, zorder=3)
             else:
                 panel._gamma_sigma_missing = True
-            # Trend fit only on the reliable region (Γ₀ extrapolated from there).
+            # Trend fit only on the reliable region within the chosen window.
             sg_rel = sg_i[reliable] if sg_i is not None else None
-            trend = _gamma_trend(e_n[reliable], g_n[reliable], sg_rel, model=model)
+            trend = _gamma_trend(e_n[reliable], g_n[reliable], sg_rel,
+                                 model=model, e_range=erange)
             if trend is not None:
                 ax.plot(trend[0], trend[1], "--", color=color, lw=1.3, alpha=0.85)
+                intercept, slope = trend[2], trend[3]
+                if model == "linear":
+                    eq = f"{name} P{i+1}:  Γ = {intercept:.3f} + {slope:.2f}·E"
+                else:
+                    eq = f"{name} P{i+1}:  Γ₀ = {intercept:.3f}, a = {slope:.1f}"
+                eq_lines.append((eq, color))
             plotted += 1
+    # Chosen fit equations, one coloured line each (also written to the export).
+    if eq_lines:
+        ax.text(0.015, 0.975, "Fit (" + ("a + b·E" if model == "linear"
+                else "Γ₀ + a·E²") + f")  E∈[{erange[0]:.3f}, {erange[1]:.3f}] eV"
+                if erange else "Fit", transform=ax.transAxes, ha="left", va="top",
+                color="#cfd8e3", fontsize=7.5, fontweight="bold")
+        for j, (eq, col) in enumerate(eq_lines[:8]):
+            ax.text(0.015, 0.93 - 0.045 * j, eq, transform=ax.transAxes,
+                    ha="left", va="top", color=col, fontsize=7.5)
+    panel._gamma_equations = [(eq, model) for eq, _ in eq_lines]
     _apply_robust_limits(ax, xs, ys)
     form = "a + b·E" if model == "linear" else r"$\Gamma_0 + a E^2$"
     ax.set_xlabel(r"$E - E_F$ (eV)", fontsize=10, color="w")
