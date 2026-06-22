@@ -180,6 +180,13 @@ class FileEntry:
     # If set: force this BM to attach to the FS at the given path, bypassing
     # metadata auto-discovery.
     parent_fs_path: Optional[str] = None
+    # Append-only provenance journal: chronological data transforms + fit
+    # operations applied to this signal (timestamped events). Written via
+    # core/processing_history.log_event at each mutation, rendered by the
+    # processing-log dock/dialog. Survives save/load. NOT the source of truth
+    # for current parameters (those live in the typed fields above) — purely an
+    # audit trail, so it can never drift away from the actual state.
+    processing_history: list[dict] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -274,7 +281,9 @@ class Session:
     # (were added without a bump; v1->v2 migration = absent fields -> defaults).
     # v2 -> v3: added convention_registry (P2.6a, angle sign conventions
     # freezable by beamline). v2->v3 migration = absent field -> empty dict.
-    VERSION = 3
+    # v3 -> v4: added FileEntry.processing_history (append-only provenance
+    # journal). v3->v4 migration = absent field -> empty list.
+    VERSION = 4
 
     def __init__(self, folder: Path | None = None, work_func: float = 0.0):
         self.folder: Path | None = folder
@@ -460,6 +469,7 @@ class Session:
                 annotations=edict.get("annotations", {}) or {},
                 meta_gamma_state=dict(edict.get("meta_gamma_state", {}) or {}),
                 parent_fs_path=edict.get("parent_fs_path"),
+                processing_history=list(edict.get("processing_history", []) or []),
             )
             self.files[name] = entry
 

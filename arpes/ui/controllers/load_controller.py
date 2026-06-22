@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 from PyQt6.QtWidgets import QApplication
 
+from arpes.core import processing_history as ph
 from arpes.core.sample import work_function_for_entry
 from arpes.core.session import DEFAULT_EF_OFFSET_EV, normalize_tags, session_tags
 from arpes.io.artifact_cache import (
@@ -110,6 +111,23 @@ class LoadController:
             self._restore_session(d, prepared.entry, md, prepared.key)
             entry_dirty = self._entry_state_token(prepared.entry) != entry_state_before_load
             self._refresh_ui(d, prepared, path, entry_dirty=entry_dirty)
+            # Record the load once per signal (first load + explicit no-cache
+            # reloads); plain file switches must not clutter the journal.
+            entry = prepared.entry
+            if force_reload or not getattr(entry, "processing_history", None):
+                meta = getattr(entry, "meta", None)
+                loader = (
+                    getattr(meta, "loader_label", "")
+                    or getattr(meta, "source_format", "")
+                    or "loader"
+                )
+                hv = float(getattr(meta, "hv", 0.0) or 0.0)
+                ph.log_action(self._parent,
+                    ph.CAT_LOAD,
+                    "reloaded (no cache)" if force_reload else "loaded",
+                    entry=entry,
+                    summary=f"{loader}" + (f", hν={hv:.0f} eV" if hv else ""),
+                )
         except Exception as e:
             self._status(f"Warning: {e}")
             traceback.print_exc()

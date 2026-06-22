@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 
+from arpes.core import processing_history as ph
 from arpes.core.fit_result_store import clear_fit_result, set_fit_result
 from arpes.core.session import FitParams
 
@@ -55,6 +56,15 @@ class FitZonesController:
     def _status(self, msg: str) -> None:
         try:
             self._parent._status(msg)
+        except Exception:
+            pass
+
+    def _log(self, action: str, entry, *, summary: str = "", **params) -> None:
+        try:
+            ph.log_action(
+                self._parent, ph.CAT_ZONE, action, entry=entry, summary=summary,
+                params=params or None,
+            )
         except Exception:
             pass
 
@@ -116,6 +126,7 @@ class FitZonesController:
         entry.fit_zones.append(zone)
         entry.active_zone_id = zone["id"]
         self._save()
+        self._log("zone added", entry, summary=zone["label"])
         return {"ok": True, "zone_id": zone["id"]}
 
     def _v_remove(self, entry, payload: dict) -> dict:
@@ -131,6 +142,7 @@ class FitZonesController:
                 # zone's kF overlay does not linger on the map.
                 clear_fit_result(entry)
         self._save()
+        self._log("zone removed", entry, summary=str(zid))
         return {"ok": True, "removed": before - len(entry.fit_zones)}
 
     def _v_set_active(self, entry, payload: dict) -> dict:
@@ -140,6 +152,7 @@ class FitZonesController:
         entry.active_zone_id = zid
         self._sync_legacy_from_active(entry)
         self._save()
+        self._log("zone activated", entry, summary=str(zid))
         return {"ok": True}
 
     def _v_toggle_active(self, entry, payload: dict) -> dict:
@@ -148,6 +161,10 @@ class FitZonesController:
             if z.get("id") == zid:
                 z["active"] = bool(payload.get("value", not z.get("active", True)))
                 self._save()
+                self._log(
+                    "zone enabled" if z["active"] else "zone disabled",
+                    entry, summary=str(z.get("label", "")),
+                )
                 return {"ok": True, "active": z["active"]}
         return {"ok": False, "error": "zone_not_found"}
 
@@ -160,12 +177,14 @@ class FitZonesController:
             if z.get("id") == zid:
                 z["label"] = new_label
                 self._save()
+                self._log("zone renamed", entry, summary=new_label)
                 return {"ok": True}
         return {"ok": False, "error": "zone_not_found"}
 
     def _v_clear_results(self, entry, payload: dict) -> dict:
         clear_fit_result(entry)
         self._save()
+        self._log("zone results cleared", entry)
         return {"ok": True}
 
     def _v_list(self, entry, payload: dict) -> dict:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from arpes.core import processing_history as ph
 from arpes.core.sample import lattice_a_for_entry, work_function_for_entry
 from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.kz import kz_from_hv_kpar, fold_kz_to_1bz
@@ -152,6 +153,11 @@ class FSController:
             entry.fs_center_ky = float(p.ky_center)
             entry.fs_rotation_deg = float(p.fs_rotation_deg)
             self._session.save()
+            ph.log_action(self._parent,
+                ph.CAT_FS, "FS center saved", entry=entry,
+                summary=f"kx={float(p.kx_center):.4f}, ky={float(p.ky_center):.4f}, "
+                        f"rot={float(p.fs_rotation_deg):+.2f}°",
+            )
         except Exception:
             pass
 
@@ -480,6 +486,11 @@ class FSController:
             try:
                 entry.propagate_distortion_to_fs = enabled
                 self._session.save()
+                ph.log_action(self._parent,
+                    ph.CAT_FS,
+                    "distortion→FS on" if enabled else "distortion→FS off",
+                    entry=entry,
+                )
             except Exception:
                 pass
         self._sync_distortion_fs_toggles(enabled)

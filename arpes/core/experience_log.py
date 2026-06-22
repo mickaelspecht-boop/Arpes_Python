@@ -283,6 +283,58 @@ def _fmt(value) -> str:
         return str(value)
 
 
+def _fmt_ts(ts: str) -> str:
+    """Compact display of an ISO timestamp: keep date + time, drop the 'T'/'Z'."""
+    if not ts:
+        return "?"
+    return str(ts).replace("T", " ").replace("Z", "")
+
+
+def _params_str(params: dict) -> str:
+    if not params:
+        return ""
+    return ", ".join(f"{key}={params[key]}" for key in params)
+
+
+def build_timeline(entry: Any, *, name: str = "", limit: int = 0) -> str:
+    """Return a Markdown chronological journal from entry.processing_history.
+
+    This is the time-ordered audit trail ("what we did, and when"), the
+    complement of build_experience_log (which is the current-state snapshot).
+    `limit` > 0 keeps only the most recent events.
+    """
+    hist = list(getattr(entry, "processing_history", []) or [])
+    out = [f"# Processing timeline - {name or 'current signal'}", ""]
+    if not hist:
+        out.append("_No recorded operations yet._")
+        return "\n".join(out) + "\n"
+    shown = hist
+    if limit and len(hist) > limit:
+        shown = hist[-limit:]
+        out.append(f"- Showing last {limit} of {len(hist)} events.")
+    else:
+        out.append(f"- Total events: {len(hist)}.")
+    out.append("")
+    out.append("| Time (UTC) | Step | Action | Details |")
+    out.append("|---|---|---|---|")
+    for ev in shown:
+        ts = _fmt_ts(ev.get("ts", ""))
+        cat = str(ev.get("category", "")).upper()
+        action = str(ev.get("action", "")).replace("|", "/")
+        detail = str(ev.get("summary") or _params_str(ev.get("params") or {})).replace("|", "/")
+        out.append(f"| {ts} | {cat} | {action} | {detail} |")
+    return "\n".join(out) + "\n"
+
+
+def build_full_report(entry: Any, *, name: str = "") -> str:
+    """Chronological timeline + current-state snapshot (for Markdown export)."""
+    return (
+        build_timeline(entry, name=name)
+        + "\n---\n\n"
+        + build_experience_log(entry, name=name)
+    )
+
+
 def entry_to_plain_dict(entry: Any) -> dict:
     """Testing/debug helper: convert a FileEntry-like object to a plain dict."""
     if is_dataclass(entry):

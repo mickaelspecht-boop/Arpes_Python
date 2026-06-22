@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
+from arpes.core import processing_history as ph
 from arpes.physics.plot_compute import apply_edcnorm
 from arpes.physics.ef_calibration import (
     ReferenceError as EFReferenceError,
@@ -306,6 +307,12 @@ class FitRunnerController:
                 summary.label_text +
                 f"\nEnsemble: {n_ok}/{n} runs, jitter={jitter*100:.0f}%"
             )
+            ph.log_action(
+                self._parent, ph.CAT_FIT, "MDC fit (ensemble)",
+                summary=f"{len(fr.get('e_fitted') or [])} slices, "
+                        f"{n_ok}/{n} runs, jitter={jitter*100:.0f}%",
+                params={"a": crystal_a},
+            )
             self._params.lbl_res.setToolTip(
                 "Instrumental resolution dominates; fit is unreliable"
                 if summary.resolution_dominates else
@@ -457,6 +464,11 @@ class FitRunnerController:
                 crystal_a = 0.0
             summary = controller.summarize(fr, crystal_a=crystal_a)
             self._params.lbl_res.setText(summary.label_text)
+            ph.log_action(
+                self._parent, ph.CAT_FIT, "MDC fit",
+                summary=f"{len(fr.get('e_fitted') or [])} slices",
+                params={"a": crystal_a},
+            )
             self._params.lbl_res.setToolTip(
                 "Instrumental resolution dominates; fit is unreliable"
                 if summary.resolution_dominates else ""
@@ -552,6 +564,11 @@ class FitRunnerController:
             msg += "  |  folder reference saved"
 
         self._session.save()
+        ph.log_action(
+            self._parent, ph.CAT_ENERGY, "EF calibration", entry=entry,
+            summary=f"EF offset = {update.new_ef_offset:+.4f} eV",
+            params={"mode": (update.ef_correction or {}).get("mode", "offset")},
+        )
         p._load_file(p._current_path)
         self._refresh_helper_buttons()
         self._status(msg)

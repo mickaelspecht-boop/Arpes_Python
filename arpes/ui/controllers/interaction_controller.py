@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QInputDialog, QToolTip
 from matplotlib.patches import Rectangle
 
+from arpes.core import processing_history as ph
 from arpes.core.undo import UndoFrame
 
 
@@ -504,6 +505,10 @@ class InteractionController:
         ))
         p._fit_selected = []
         self._persist_fit_result(fr)
+        ph.log_action(self._parent,
+            ph.CAT_KF, "fit points removed",
+            summary=f"{len(sel)} point(s) marked bad",
+        )
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
         self._status(f"{len(sel)} point(s) deleted. Use Undo to restore.")
         self._draw_current_view(include_curves=False)
@@ -514,6 +519,9 @@ class InteractionController:
             self._params.set_fit_undo_enabled(False)
             return
         frame = p._undo_stack.undo()
+        if frame is not None:
+            ph.log_action(self._parent,
+                ph.CAT_EDIT, "undo", summary=str(getattr(frame, "action", "")))
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
         self._status("Deletion undone." if frame else "No action to undo.")
         self._draw_current_view(include_curves=False)
@@ -523,6 +531,9 @@ class InteractionController:
         if p._fit_res is None:
             return
         frame = p._undo_stack.redo()
+        if frame is not None:
+            ph.log_action(self._parent,
+                ph.CAT_EDIT, "redo", summary=str(getattr(frame, "action", "")))
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
         self._status("Deletion redone." if frame else "No action to redo.")
         self._draw_current_view(include_curves=False)

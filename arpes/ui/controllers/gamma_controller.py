@@ -5,6 +5,7 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
+from arpes.core import processing_history as ph
 from arpes.core.sample import lattice_a_for_entry, work_function_for_entry
 from arpes.ui.widgets.fs_panel import FermiSurfaceCanvas, FSControlPanel
 from arpes.physics.gamma import (
@@ -537,6 +538,14 @@ class GammaController:
                     f"Γ applied: fit kF remapped by Δ={resolved.axis_shift_delta:+.4f} "
                     "π/a to match the new axis center."
                 )
+        ph.log_action(self._parent,
+            ph.CAT_GAMMA, "Γ applied", entry=entry,
+            summary=f"{resolved.mode}" + (
+                f", kF remapped Δ={resolved.axis_shift_delta:+.4f} π/a"
+                if axis_was_shifted and abs(resolved.axis_shift_delta) > 1e-12 else ""
+            ),
+            coalesce=True,
+        )
         self._update_gamma_status_badge()
         # Propagate the Γ change to every view, incl. the MDC Fit tab (its center
         # reads sp_cx live). Centralized here so all Γ paths (auto BM/FS, manual
@@ -572,6 +581,7 @@ class GammaController:
 
     def _forget_gamma(self) -> None:
         _gamma_life.forget(self, _GAMMA_META_KEYS)
+        ph.log_action(self._parent,ph.CAT_GAMMA, "Γ forgotten")
 
     def _apply_stored_gamma_to_current_file(self, *, save_entry: bool = False):
         """Auto-apply stored Gamma on the current file (load/switch path).

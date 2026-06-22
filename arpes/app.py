@@ -320,6 +320,11 @@ class ArpesExplorer(QMainWindow):
         self._gamma_status_label = _QLabel("Γ ∅")
         self._gamma_status_label.setToolTip("Current Γ state (reference + axis).")
         self.statusBar().addPermanentWidget(self._gamma_status_label)
+        # Live processing-log dock (provenance journal), available from the start.
+        try:
+            self._experience_log_ctrl.ensure_dock()
+        except Exception:
+            pass
 
     def _wire_signals(self):
         from arpes.ui.builders.panels import wire_ui_signals

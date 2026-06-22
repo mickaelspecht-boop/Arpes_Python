@@ -134,7 +134,7 @@ class TestEvaluateConfidence(unittest.TestCase):
 
 class TestSessionRegistryRoundTrip(unittest.TestCase):
     def test_convention_registry_persists_and_bumps_version(self):
-        self.assertEqual(Session.VERSION, 3)
+        self.assertEqual(Session.VERSION, 4)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             s = Session(root)

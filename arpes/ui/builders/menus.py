@@ -92,6 +92,15 @@ def build_menubar(window) -> QMenuBar:
     act_toggle.toggled.connect(window._toggle_disk_cache)
     cache_menu.addAction(act_toggle)
     window._cache_toggle_action = act_toggle
+
+    view_menu = bar.addMenu("&View")
+    act_proc_log = QAction("Processing log panel (live)", window)
+    act_proc_log.setToolTip(
+        "Show/hide the live processing-log dock: a timestamped journal of every\n"
+        "data transform and fit operation applied to the current signal."
+    )
+    act_proc_log.triggered.connect(lambda: window._experience_log_ctrl.toggle_dock())
+    view_menu.addAction(act_proc_log)
     return bar
 
 

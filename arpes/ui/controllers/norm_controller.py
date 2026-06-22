@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QMessageBox
 
+from arpes.core import processing_history as ph
 from arpes.physics.plot_compute import display_grid_config as _plot_display_grid_config
 
 
@@ -65,6 +66,10 @@ class NormController:
             entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
             entry.grid_correction = dict(cfg)
             self._session.save()
+            ph.log_action(self._parent,
+                ph.CAT_GRID, "grid correction on", entry=entry,
+                summary=f"strength={float(cfg.get('strength', 1.0)):.2f}",
+            )
             self._update_display_data()
             self._draw_current_view()
             msg = self._grid_status_text(self._grid_display_info, "BM display")
@@ -82,6 +87,7 @@ class NormController:
         entry = self._session.get_or_create(self._session.key_for_path(self._current_path))
         entry.grid_correction = {}
         self._session.save()
+        ph.log_action(self._parent,ph.CAT_GRID, "grid correction off", entry=entry)
         self._grid_display_info = {}
         self._update_display_data()
         self._draw_current_view()

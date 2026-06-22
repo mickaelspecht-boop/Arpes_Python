@@ -15,6 +15,7 @@ from __future__ import annotations
 import traceback
 import numpy as np
 
+from arpes.core import processing_history as ph
 from arpes.core.sample import sample_for_entry
 from arpes.physics import tb_fit, kink_analysis, gap_extraction
 
@@ -177,6 +178,15 @@ class BandAnalysisController:
         except Exception:
             print(f"[band_analysis] {msg}")
 
+    def _log(self, action: str, entry, *, summary: str = "", **params) -> None:
+        try:
+            ph.log_action(
+                self._parent, ph.CAT_BAND, action, entry=entry, summary=summary,
+                params=params or None,
+            )
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # TB fit
     # ------------------------------------------------------------------
@@ -245,6 +255,12 @@ class BandAnalysisController:
             "E_fit": np.asarray(E_fit, dtype=float).tolist(),
         }
         panel.show_tb_result(ba["tb"], k=k, E=E, E_fit=E_fit)
+        self._log(
+            "TB fit", entry,
+            summary=f"{res.model}: m*/m={res.m_eff_over_me:.3f}, "
+                    f"bandwidth={res.bandwidth_eV:.3f} eV",
+            branch=branch, pair=pair, a=crystal_a, chi2_red=res.chi2_red,
+        )
         self._after_run_refresh(entry)
 
     # ------------------------------------------------------------------
@@ -304,6 +320,12 @@ class BandAnalysisController:
             "notes": res.notes,
         }
         panel.show_kink_result(ba["kink"])
+        self._log(
+            "kink analysis", entry,
+            summary=f"λ={res.lambda_coupling:.3f}±{res.lambda_err:.3f} "
+                    f"({res.bare_model} bare band)",
+            branch=opts.get("branch", "kF_minus"), pair=int(opts.get("pair", 0)),
+        )
         self._after_run_refresh(entry)
 
     # ------------------------------------------------------------------
@@ -388,6 +410,12 @@ class BandAnalysisController:
             "I_fit": res.I_fit.tolist(),
         }
         panel.show_gap_result(ba["gap"])
+        deltas = ", ".join(f"{d:.1f}" for d in (res.deltas_meV or []))
+        self._log(
+            "gap fit", entry,
+            summary=f"Δ=[{deltas}] meV, n_gaps={res.n_gaps}",
+            k_F_inv_A=k_F, resolution_meV=res.resolution_meV,
+        )
         self._after_run_refresh(entry)
 
     # ------------------------------------------------------------------

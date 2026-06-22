@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from arpes.core import processing_history as ph
+
 
 def install_kf_drag_handlers(ctrl) -> None:
     if getattr(ctrl._parent, "_kf_drag_cids", None):
@@ -209,5 +211,13 @@ def on_kf_init_drag(ctrl, pair_idx: int, sign: int, kf_new: float) -> None:
         pass
     try:
         ctrl._parent._schedule_live_guess()
+    except Exception:
+        pass
+    try:
+        ph.log_action(ctrl._parent,
+            ph.CAT_KF, "kF init set",
+            summary=f"pair {pair_idx}: kF_init={float(kf_new):.4f} π/a",
+            coalesce=True,
+        )
     except Exception:
         pass

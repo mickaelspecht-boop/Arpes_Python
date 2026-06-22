@@ -13,11 +13,16 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QTabWidget,
     QTextBrowser,
     QVBoxLayout,
 )
 
-from arpes.core.experience_log import build_experience_log
+from arpes.core.experience_log import (
+    build_experience_log,
+    build_full_report,
+    build_timeline,
+)
 
 
 class ExperienceLogDialog(QDialog):
@@ -48,14 +53,23 @@ class ExperienceLogDialog(QDialog):
         self._files.setMinimumWidth(260)
         body.addWidget(self._files)
 
-        self._viewer = QTextBrowser()
-        self._viewer.setOpenExternalLinks(True)
-        self._viewer.setStyleSheet(
+        style = (
             "QTextBrowser { background:#1f1f1f; color:#ddd; font-size:13px; padding:10px; }"
             "h1 { color:#f8fafc; } h2 { color:#c7d2fe; } code { color:#fbbf24; }"
             "li { margin-bottom:3px; }"
+            "table { border-collapse:collapse; } "
+            "th, td { border:1px solid #3a3a3a; padding:2px 6px; }"
         )
-        body.addWidget(self._viewer, stretch=1)
+        self._tabs = QTabWidget()
+        self._timeline = QTextBrowser()
+        self._timeline.setOpenExternalLinks(True)
+        self._timeline.setStyleSheet(style)
+        self._tabs.addTab(self._timeline, "Timeline")
+        self._viewer = QTextBrowser()
+        self._viewer.setOpenExternalLinks(True)
+        self._viewer.setStyleSheet(style)
+        self._tabs.addTab(self._viewer, "State summary")
+        body.addWidget(self._tabs, stretch=1)
         root.addLayout(body, stretch=1)
 
     def _populate(self) -> None:
@@ -68,6 +82,7 @@ class ExperienceLogDialog(QDialog):
             if name == self._current_key:
                 selected_row = row
         if self._files.count() == 0:
+            self._timeline.setMarkdown("No signal loaded in the current session.")
             self._viewer.setMarkdown("No signal loaded in the current session.")
             self._btn_save.setEnabled(False)
             return
@@ -80,6 +95,7 @@ class ExperienceLogDialog(QDialog):
         entry = self._session.files.get(key)
         if entry is None:
             return
+        self._timeline.setMarkdown(build_timeline(entry, name=key))
         self._viewer.setMarkdown(build_experience_log(entry, name=key))
 
     def _save_current(self) -> None:
@@ -102,6 +118,6 @@ class ExperienceLogDialog(QDialog):
         if not path:
             return
         try:
-            Path(path).write_text(build_experience_log(entry, name=key), encoding="utf-8")
+            Path(path).write_text(build_full_report(entry, name=key), encoding="utf-8")
         except OSError as exc:
             QMessageBox.warning(self, "Processing log", f"Write failed: {exc}")

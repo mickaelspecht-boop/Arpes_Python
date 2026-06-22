@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 from PyQt6.QtWidgets import QMessageBox
 
+from arpes.core import processing_history as ph
 from arpes.physics.distortion import (
     angle_offsets_hash,
     auto_detect_parabola,
@@ -146,6 +147,9 @@ class DistortionController:
             msg = get_cfg_summary(cfg_clamped)
             self._params.lbl_distortion.setText(msg)
             self._status(msg)
+            ph.log_action(self._parent,
+                ph.CAT_DISTORT, "BM distortion on", entry=entry, summary=msg,
+            )
             if hasattr(self._params, "mark_action_done"):
                 self._params.mark_action_done("BM distortion applied")
         except Exception as exc:
@@ -159,6 +163,7 @@ class DistortionController:
         # Garde une copie nulle bit-exact pour test de réversibilité aval.
         entry.bm_distortion = {}
         self._session.save()
+        ph.log_action(self._parent,ph.CAT_DISTORT, "BM distortion off", entry=entry)
         self._params.set_bm_distortion_state({})
         self._parent._distortion_preview_visible = False
         self._update_display_data()
