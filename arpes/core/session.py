@@ -187,6 +187,12 @@ class FileEntry:
     # for current parameters (those live in the typed fields above) — purely an
     # audit trail, so it can never drift away from the actual state.
     processing_history: list[dict] = field(default_factory=list)
+    # Independent kF(E) estimate from the Zhang curvature maxima, computed as a
+    # cross-check of the Lorentzian MDC dispersion (never carries Gamma — the
+    # curvature distorts widths). Same array schema as fit_result
+    # ({e_fitted, kF_minus, kF_plus, method:"curvature", c0_alpha, n_pairs}) so
+    # the dispersion plot reuses its consumers. None until the user runs it.
+    curvature_dispersion: Optional[dict] = None
 
     @property
     def status(self) -> str:
@@ -283,7 +289,9 @@ class Session:
     # freezable by beamline). v2->v3 migration = absent field -> empty dict.
     # v3 -> v4: added FileEntry.processing_history (append-only provenance
     # journal). v3->v4 migration = absent field -> empty list.
-    VERSION = 4
+    # v4 -> v5: added FileEntry.curvature_dispersion (Zhang curvature cross-check
+    # of the MDC dispersion). v4->v5 migration = absent field -> None.
+    VERSION = 5
 
     def __init__(self, folder: Path | None = None, work_func: float = 0.0):
         self.folder: Path | None = folder
@@ -470,6 +478,7 @@ class Session:
                 meta_gamma_state=dict(edict.get("meta_gamma_state", {}) or {}),
                 parent_fs_path=edict.get("parent_fs_path"),
                 processing_history=list(edict.get("processing_history", []) or []),
+                curvature_dispersion=edict.get("curvature_dispersion"),
             )
             self.files[name] = entry
 

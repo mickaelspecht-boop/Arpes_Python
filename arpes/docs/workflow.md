@@ -44,6 +44,8 @@ Fit zones are for files that need several independent windows, branches, or para
 
 Run the full fit after the estimate looks sane. Then check Waterfall and EDC views to see whether the model follows the data slice by slice. Bad points can be selected, deleted, undone, redone, and annotated.
 
+For broad or incoherent bands where the Lorentzian pairs are hard to resolve, the Curvature dispersion button gives an independent kF(E) from the curvature maxima (Zhang et al., RSI 82, 043712), using the same k/E window. It is a cross-check of peak position only: the curvature distorts widths, so it never carries a lifetime — keep extracting Gamma and Im Sigma from the Lorentzian fit. Enable the "Curvature cross-check" overlay in Results to compare the two; where they agree kF is trustworthy, where they diverge the Lorentzian pair has merged and that energy range is unreliable.
+
 Batch fit works best after one representative file has been tuned by hand. Propagate parameters only across files with the same geometry, energy range, and band topology.
 
 ## 7. Check Results Before Reporting

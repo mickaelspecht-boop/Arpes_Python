@@ -157,6 +157,17 @@ class ResultsPanel(QWidget):
         )
         self._chk_bootstrap.toggled.connect(self.refresh)
         right.addWidget(self._chk_bootstrap)
+
+        self._chk_curvature = QCheckBox("Curvature cross-check (Zhang) overlay")
+        self._chk_curvature.setToolTip(
+            "Overlays the independent kF(E) from the curvature maxima (open\n"
+            "markers) on top of the Lorentzian dispersion, for files where it\n"
+            "was computed (MDC Fit → 'Curvature dispersion'). Agreement validates\n"
+            "kF; divergence flags where the Lorentzian pair has merged.\n"
+            "Positions only — carries no Γ/lifetime."
+        )
+        self._chk_curvature.toggled.connect(self.refresh)
+        right.addWidget(self._chk_curvature)
         right.addWidget(QLabel("Physical results ± σ — the quantities to report"))
         self._table_phys = QTableWidget(0, 6)
         self._table_phys.setHorizontalHeaderLabels([
@@ -257,6 +268,7 @@ class ResultsPanel(QWidget):
         self._table_phys.setRowCount(0)
         ax = self._canvas.ax
         self._result_point_refs = []
+        self._curv_legend_done = False
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas.fig.set_facecolor("#2b2b2b")
 
@@ -286,6 +298,9 @@ class ResultsPanel(QWidget):
                 from arpes.ui.widgets.results_link import append_branch_refs
                 append_branch_refs(self, name, "kF_minus", i, km, ev_f)
                 append_branch_refs(self, name, "kF_plus", i, kp, ev_f)
+
+            if self._chk_curvature.isChecked():
+                self._overlay_curvature(ax, entry, c)
 
             # Table row
             kf_ef = np.nan
@@ -394,6 +409,29 @@ class ResultsPanel(QWidget):
         if start is not None and prev is not None and prev - start + 1 >= 2:
             ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
                     color=color, alpha=alpha, zorder=2)
+
+    def _overlay_curvature(self, ax, entry, color) -> None:
+        """Overlay the curvature kF(E) cross-check (open markers) for one file."""
+        cd = getattr(entry, "curvature_dispersion", None)
+        if not cd or not cd.get("e_fitted"):
+            return
+        ev_c = np.asarray(cd["e_fitted"], dtype=float)
+        km_all = cd.get("kF_minus") or []
+        kp_all = cd.get("kF_plus") or []
+        n = max(len(km_all), len(kp_all))
+        for i in range(n):
+            km = np.asarray(km_all[i]) if i < len(km_all) else np.array([])
+            kp = np.asarray(kp_all[i]) if i < len(kp_all) else np.array([])
+            lbl = "_"
+            if not self._curv_legend_done and (km.size or kp.size):
+                lbl = "curvature (Zhang)"
+                self._curv_legend_done = True
+            ax.scatter(km, ev_c, s=22, facecolors="none", edgecolors=color,
+                       marker="o", linewidths=0.9, alpha=0.85, zorder=3, label=lbl)
+            ax.scatter(kp, ev_c, s=22, facecolors="none", edgecolors=color,
+                       marker="o", linewidths=0.9, alpha=0.85, zorder=3)
+            self._plot_branch_segments(ax, km, ev_c, color=color, alpha=0.35)
+            self._plot_branch_segments(ax, kp, ev_c, color=color, alpha=0.35)
 
     def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
         entry = self._session.files.get(filename)

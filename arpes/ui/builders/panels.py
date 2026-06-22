@@ -647,6 +647,14 @@ def wire_param_signals(window) -> None:
     p.kf_init_drag_changed.connect(window._on_kf_init_drag)
     p.im_self_energy_requested.connect(window._calculate_im_self_energy)
     p.fit_ensemble_requested.connect(window._fit_ensemble)
+    # Curvature dispersion: wired directly to the free-function runner (no
+    # PROXY_MAP entry — the map is at 149/150).
+    from arpes.ui.controllers.curvature_dispersion_runner import (
+        run_curvature_dispersion,
+    )
+    p.curvature_dispersion_requested.connect(
+        lambda: run_curvature_dispersion(window)
+    )
     p.file_tags_changed.connect(window._on_file_tags_changed)
     # THEORY_OVERLAY: optional/removable DFT guide wiring.
     p.theory_import_requested.connect(window._import_theory_overlay)
