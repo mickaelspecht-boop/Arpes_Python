@@ -49,6 +49,23 @@ def test_gamma_zero_uses_reliable_region_only():
     assert res.gamma_zero < 0.12
 
 
+def test_kf_measured_from_band_center_not_origin():
+    # Band centred at +0.10 (off the detector centre): crossings +0.30 / -0.10.
+    e = np.linspace(-0.08, 0.0, 9)
+    kp = (0.30 + 0.5 * e).tolist()      # kF_plus crosses EF at +0.30
+    km = (-0.10 - 0.5 * e).tolist()     # kF_minus crosses EF at -0.10 (opposite slope)
+    fr = {"e_fitted": e.tolist(), "kF_plus": [kp], "kF_minus": [km], "n_pairs": 1}
+    bundle = compute_results(fr, e_window_kF=0.10, crystal_a_angstrom=3.96)
+    bp = next(b for b in bundle.branches if b.branch == "kF_plus")
+    bm = next(b for b in bundle.branches if b.branch == "kF_minus")
+    # Centre = (0.30 + −0.10)/2 = +0.10 → physical kF = ±0.20 from Γ, symmetric.
+    assert abs(bp.kF_at_EF - 0.20) < 1e-3
+    assert abs(bm.kF_at_EF + 0.20) < 1e-3
+    # Without the centre correction kF would be the raw 0.30 / −0.10 crossings.
+    raw = extract_branch_result(fr, branch="kF_plus", pair_index=0, e_window=0.10)
+    assert abs(raw.kF_at_EF - 0.30) < 1e-3
+
+
 def test_gamma_zero_honours_chosen_e_window():
     e = np.linspace(-0.15, 0.0, 16)
     kp = np.full_like(e, 0.25); km = -kp            # peaks always resolved

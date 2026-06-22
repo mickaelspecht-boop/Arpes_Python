@@ -63,6 +63,7 @@ def bootstrap_branch_result(
     crystal_a_angstrom: float = 0.0,
     n_iter: int = 500,
     seed: int | None = 0,
+    center: float = 0.0,
 ) -> BootstrapBranchResult:
     e, k, sk = _branch_arrays(fit_result, branch, pair_index)
     valid = np.isfinite(k) & np.isfinite(e) & (np.abs(e) <= float(e_window))
@@ -87,7 +88,7 @@ def bootstrap_branch_result(
         if (fit.n_points < 3 or not math.isfinite(fit.slope)
                 or abs(fit.slope) < 1e-9):
             continue
-        kF_samples.append(-fit.intercept / fit.slope)
+        kF_samples.append(-fit.intercept / fit.slope - float(center))
         vF_samples.append(fit.slope)
     if len(kF_samples) < 5:
         return BootstrapBranchResult(

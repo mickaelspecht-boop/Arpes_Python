@@ -496,11 +496,13 @@ class ResultsPanel(QWidget):
         )
         if self._chk_bootstrap.isChecked():
             from arpes.analysis.bootstrap import bootstrap_branch_result
+            from arpes.analysis.results import _pair_center
             bs_branches = []
             for br in bundle.branches:
                 bs_branches.append(bootstrap_branch_result(
                     fr, branch=br.branch, pair_index=br.pair_index,
                     e_window=0.10, crystal_a_angstrom=a_val, n_iter=500,
+                    center=_pair_center(fr, br.pair_index),
                 ))
             branches = bs_branches
         else:

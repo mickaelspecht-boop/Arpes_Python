@@ -167,12 +167,17 @@ def extract_branch_result(
     pair_index: int,
     e_window: float = 0.10,
     crystal_a_angstrom: float = 0.0,
+    center: float = 0.0,
 ) -> BranchResult:
     """kF₀, vF, m*, n_Luttinger for ``(branch, pair_index)``.
 
     Selects slices with |E| ≤ ``e_window`` around E_F=0 and fits
-    ``E = α + β·k`` (weighted regression by σ_k). Then vF = β and kF = -α/β.
-    Uses linear propagation for σ_kF, σ_vF, σ_m*.
+    ``E = α + β·k`` (weighted regression by σ_k). Then vF = β and the Fermi
+    crossing is -α/β; the **Fermi momentum** is measured from the band centre
+    Γ: ``kF = -α/β − center`` (``center`` = (kF₊+kF₋)/2, the pair midpoint).
+    Without this, an off-centre band (Γ not at k=0 in the detector window) gives
+    a kF measured from k=0 — wrong m*/density. Uses linear propagation for
+    σ_kF, σ_vF, σ_m* (a constant centre shift leaves the σ unchanged).
     """
     e, k, sk = _branch_arrays(fit_result, branch, pair_index)
     valid = np.isfinite(k) & np.isfinite(e) & (np.abs(e) <= float(e_window))
@@ -220,7 +225,7 @@ def extract_branch_result(
     var_a = float(cov[1, 1])
     cov_ab = float(cov[0, 1])
     sigma_beta = math.sqrt(max(var_b, 0.0))
-    kF = -alpha / beta
+    kF = (-alpha / beta) - float(center)  # Fermi momentum from the band centre Γ
     # σ_kF with full covariance: ∂kF/∂α=−1/β, ∂kF/∂β=α/β².
     dkF_da = -1.0 / beta
     dkF_db = alpha / (beta * beta)
@@ -390,20 +395,41 @@ def fit_gamma_fermi_liquid(
     )
 
 
+def _pair_center(fit_result: dict, pair_index: int) -> float:
+    """Band centre Γ in π/a = median pair midpoint (kF₊+kF₋)/2 over slices.
+
+    Used so kF is measured from the band's own centre, not from k=0 — required
+    when the band sits off-centre in the detector window. 0.0 if undecidable.
+    """
+    km_all = fit_result.get("kF_minus") or []
+    kp_all = fit_result.get("kF_plus") or []
+    if not (0 <= pair_index < len(km_all) and 0 <= pair_index < len(kp_all)):
+        return 0.0
+    km = np.asarray(km_all[pair_index], dtype=float)
+    kp = np.asarray(kp_all[pair_index], dtype=float)
+    n = min(km.size, kp.size)
+    if n == 0:
+        return 0.0
+    mid = (km[:n] + kp[:n]) / 2.0
+    c = float(np.nanmedian(mid)) if np.isfinite(mid).any() else 0.0
+    return c if math.isfinite(c) else 0.0
+
+
 def compute_asymmetry(
     fit_result: dict,
     *,
     pair_index: int,
     e_window: float = 0.10,
     significance_sigma: float = 2.0,
+    center: float = 0.0,
 ) -> AsymmetryCheck:
-    """Compare ``kF_plus`` vs ``|kF_minus|`` near E_F.
+    """Compare ``kF_plus`` vs ``|kF_minus|`` near E_F (both from the band Γ).
 
     Returns ``delta_kF = kF_plus - |kF_minus|`` ± σ and a boolean
     ``is_symmetric`` true if ``|delta| ≤ significance_sigma · σ``.
     """
-    bm = extract_branch_result(fit_result, branch="kF_minus", pair_index=pair_index, e_window=e_window)
-    bp = extract_branch_result(fit_result, branch="kF_plus", pair_index=pair_index, e_window=e_window)
+    bm = extract_branch_result(fit_result, branch="kF_minus", pair_index=pair_index, e_window=e_window, center=center)
+    bp = extract_branch_result(fit_result, branch="kF_plus", pair_index=pair_index, e_window=e_window, center=center)
     if not (math.isfinite(bm.kF_at_EF) and math.isfinite(bp.kF_at_EF)):
         return AsymmetryCheck(pair_index=pair_index)
     delta = bp.kF_at_EF - abs(bm.kF_at_EF)
@@ -438,12 +464,14 @@ def compute_results(
     n_pairs = int(fit_result.get("n_pairs", 0) or 0)
     if n_pairs <= 0:
         n_pairs = max(len(fit_result.get("kF_minus") or []), len(fit_result.get("kF_plus") or []))
+    centers = [_pair_center(fit_result, i) for i in range(n_pairs)]
     branches: list[BranchResult] = []
     for i in range(n_pairs):
         for br in ("kF_minus", "kF_plus"):
             branches.append(extract_branch_result(
                 fit_result, branch=br, pair_index=i,
                 e_window=e_window_kF, crystal_a_angstrom=crystal_a_angstrom,
+                center=centers[i],
             ))
     gamma_fl = tuple(
         fit_gamma_fermi_liquid(
@@ -452,7 +480,8 @@ def compute_results(
         for i in range(n_pairs)
     )
     asym = tuple(
-        compute_asymmetry(fit_result, pair_index=i, e_window=e_window_kF)
+        compute_asymmetry(fit_result, pair_index=i, e_window=e_window_kF,
+                          center=centers[i])
         for i in range(n_pairs)
     )
     return ResultsBundle(
