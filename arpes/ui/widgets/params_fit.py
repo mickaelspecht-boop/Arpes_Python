@@ -141,9 +141,18 @@ def _build_roi_group(panel, _fcl) -> None:
     panel.sp_eve = dspin(-0.005, -5.0, 1.0, 0.005)
     panel.sp_kmin = dspin(-0.80, -5.0, 5.0, 0.05)
     panel.sp_kmax = dspin(0.80, -5.0, 5.0, 0.05)
+    panel.sp_mdc_ewin = dspin(0.02, 0.0, 0.2, 0.005, dec=3)
+    panel.sp_mdc_ewin.setToolTip(
+        "Energy integration window per MDC (eV, full width). Default 0.02. "
+        "0 = single energy row.\nPRIMARY noise control: averaging ±half over E "
+        "cuts noise that makes kF(E) wiggle, without biasing kF or Γ (they vary "
+        "slowly with E) — unlike 'Fit smoothing σ' which broadens the peak. Keep "
+        "it small vs the band dispersion."
+    )
     for w in (panel.sp_evs, panel.sp_eve, panel.sp_kmin, panel.sp_kmax):
         w.valueChanged.connect(panel.params_changed)
         w.valueChanged.connect(panel.fit_only_changed)
+    panel.sp_mdc_ewin.valueChanged.connect(panel.fit_only_changed)
     panel.btn_fit_roi = compact_button(QPushButton("Select on map"), max_width=180)
     panel.btn_fit_roi.setCheckable(True)
     panel.btn_fit_roi.setToolTip(
@@ -165,6 +174,7 @@ def _build_roi_group(panel, _fcl) -> None:
     fl2.addRow("ev_end:", panel.sp_eve)
     fl2.addRow("k_min:", panel.sp_kmin)
     fl2.addRow("k_max:", panel.sp_kmax)
+    fl2.addRow("Energy integ. ΔE (eV):", panel.sp_mdc_ewin)
     fl2.addRow(roi_row)
     _fcl.addWidget(grp_r)
 
@@ -336,14 +346,6 @@ def _build_detect_section(panel, _fcl) -> None:
         "Maximum allowed jump between consecutive kF positions (π/a).\n"
         "Controls dispersion continuity during the full fit."
     )
-    panel.sp_mdc_ewin = dspin(0.02, 0.0, 0.2, 0.005, dec=3)
-    panel.sp_mdc_ewin.setToolTip(
-        "Energy integration window per MDC (eV, full width). Default 0.02. "
-        "0 = single energy row.\nThis is the PRIMARY noise control: averaging "
-        "±half over E cuts noise that makes kF(E) wiggle, without biasing kF or "
-        "Γ (they vary slowly with E) — unlike 'Fit smoothing σ' which broadens "
-        "the peak and inflates Γ. Keep it small vs the band dispersion."
-    )
     panel.sp_chi2_threshold = dspin(5.0, 0.1, 1_000.0, 0.5, dec=1)
     panel.sp_chi2_threshold.setToolTip(
         "chi2_red threshold for marking questionable fit slices in orange.\n"
@@ -357,14 +359,13 @@ def _build_detect_section(panel, _fcl) -> None:
         "down: reverse direction."
     )
     for w in (panel.sp_sff, panel.sp_sfd, panel.sp_ma, panel.sp_mj,
-              panel.sp_mdc_ewin, panel.sp_chi2_threshold):
+              panel.sp_chi2_threshold):
         w.valueChanged.connect(panel.fit_only_changed)
     panel.cmb_sd.currentIndexChanged.connect(panel.fit_only_changed)
     fl.addRow("Fit smoothing σ:", panel.sp_sff)
     fl.addRow("Detect smoothing σ:", panel.sp_sfd)
     fl.addRow("Min. ampl.:", panel.sp_ma)
     fl.addRow("Max jump (π/a):", panel.sp_mj)
-    fl.addRow("MDC ΔE window (eV):", panel.sp_mdc_ewin)
     fl.addRow("chi2_red threshold:", panel.sp_chi2_threshold)
     fl.addRow("Scan direction:", panel.cmb_sd)
     _fcl.addWidget(grp)
