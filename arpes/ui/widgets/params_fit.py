@@ -486,34 +486,6 @@ def _build_fit_buttons(panel, _fcl) -> None:
     primary_lay.addStretch(1)
     actions_lay_root.addWidget(primary_row)
 
-    # Slice navigation + post-fit inspection.
-    post_row = QWidget()
-    post_lay = QHBoxLayout(post_row)
-    post_lay.setContentsMargins(0, 0, 0, 0)
-    post_lay.setSpacing(4)
-    panel.btn_goto_fit_slice = compact_button(
-        QPushButton("↩ Slice de fit"), max_width=150)
-    panel.btn_goto_fit_slice.setToolTip(
-        "Replace le curseur d'énergie sur la tranche de référence du fit "
-        "(côté E_F). Permet de revenir au slice initial après avoir navigué.")
-    panel.btn_goto_fit_slice.clicked.connect(panel.goto_fit_slice_requested)
-    post_lay.addWidget(panel.btn_goto_fit_slice)
-    panel.btn_postfit_view = compact_button(
-        QPushButton("Vue post-fit"), max_width=170)
-    panel.btn_postfit_view.setCheckable(True)
-    panel.btn_postfit_view.setStyleSheet(
-        "QPushButton{background:#374151;color:#cde;font-weight:bold;padding:6px;}"
-        "QPushButton:checked{background:#0e7490;color:white;}")
-    panel.btn_postfit_view.setToolTip(
-        "Bascule la fenêtre MDC entre la vue d'init (guess) et la vue POST-FIT :\n"
-        "le fit STOCKÉ à la tranche courante — données, modèle total, fond "
-        "linéaire, pics (fit−fond) et résidu — pour comprendre ce qu'a ajusté "
-        "le fit. Nécessite un Full fit (l'ensemble ne stocke pas le modèle).")
-    panel.btn_postfit_view.toggled.connect(panel.fit_only_changed)
-    post_lay.addWidget(panel.btn_postfit_view)
-    post_lay.addStretch(1)
-    actions_lay_root.addWidget(post_row)
-
     panel._gamma_tools_widget = QWidget()
     gamma_lay = QHBoxLayout(panel._gamma_tools_widget)
     gamma_lay.setContentsMargins(0, 0, 0, 0)

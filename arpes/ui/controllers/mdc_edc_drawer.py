@@ -23,6 +23,17 @@ def _num_array(v):
     return a if a.ndim == 1 and a.size else None
 
 
+def _has_postfit_model(ctrl) -> bool:
+    """True if a per-slice fit model exists (Full fit). Ensemble fits store no
+    fit_curves → False (post-fit view then unavailable)."""
+    try:
+        entry = ctrl._current_entry()
+        fr = getattr(entry, "fit_result", None)
+    except Exception:
+        fr = getattr(ctrl, "_fit_res", None)
+    return bool(fr and (fr.get("fit_curves") or []))
+
+
 def _postfit_slice(ctrl):
     """(fit_kpar, total, bg, residual, E) for the fitted slice nearest _sel_ev.
 
@@ -124,11 +135,19 @@ def draw_mdc_edc(ctrl) -> None:
         or params.chk_fit_slice_inspector.isChecked()
     )
 
-    # Post-fit view (toggle button): show the stored fit decomposition for this
-    # slice instead of the live guess preview.
-    _pf = getattr(params, "btn_postfit_view", None)
+    # Post-fit view (toggle button above the MDC cut): show the stored fit
+    # decomposition for this slice instead of the live guess preview. The button
+    # is enabled only when a per-slice model exists (a Full fit, not ensemble).
+    _pf = getattr(ctrl, "_btn_postfit_view", None)
+    has_model = _has_postfit_model(ctrl)
+    if _pf is not None:
+        _pf.setEnabled(has_model)
+        if not has_model and _pf.isChecked():
+            _pf.blockSignals(True)
+            _pf.setChecked(False)
+            _pf.blockSignals(False)
     mdc_done = False
-    if _pf is not None and _pf.isChecked():
+    if _pf is not None and _pf.isChecked() and has_model:
         mdc_done = draw_postfit_mdc(ctrl, ax_mdc)
     res = None if mdc_done else ctrl._get_mdc()
     if res is not None:

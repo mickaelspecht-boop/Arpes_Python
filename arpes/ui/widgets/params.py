@@ -114,7 +114,6 @@ class FitParamsPanel(QScrollArea):
     kf_init_drag_changed = pyqtSignal(int, int, float)  # pair_idx, sign(-1/+1), kF (π/a)
     im_self_energy_requested = pyqtSignal()
     fit_ensemble_requested = pyqtSignal()
-    goto_fit_slice_requested = pyqtSignal()
     theory_import_requested = pyqtSignal()
     theory_refresh_requested = pyqtSignal()
     theory_local_import_requested = pyqtSignal()

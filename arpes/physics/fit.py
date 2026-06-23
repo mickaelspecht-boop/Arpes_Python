@@ -633,9 +633,11 @@ class MdcFitter:
     def summarize(fr: dict, *, crystal_a: float = 0.0) -> FitSummary:
         e_fitted = fr.get("e_fitted", [])
         n_e = len(e_fitted)
-        kf0 = np.asarray((fr.get("kF_minus") or [[np.nan]])[0], dtype=float)
+        _km = fr.get("kF_minus")
+        kf0 = np.asarray((_km[0] if _km is not None and len(_km) else [np.nan]), dtype=float)
         n_ok = int(np.isfinite(kf0).sum())
-        xg_arr = np.asarray(fr.get("xg") or [], dtype=float)
+        _xg = fr.get("xg")
+        xg_arr = np.asarray([] if _xg is None else _xg, dtype=float)
         xg_mean = float(np.nanmean(xg_arr)) if np.isfinite(xg_arr).any() else float("nan")
         gamma_note = ""
         resolution_dominates = False

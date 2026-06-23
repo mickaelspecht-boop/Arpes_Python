@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -287,9 +288,42 @@ def _build_mdc_tab(window) -> QWidget:
     window._mdc_map_canvas = MplCanvas(figsize=(7, 5), toolbar=True)
     mdc_split.addWidget(window._mdc_map_canvas)
 
+    # MDC cut box = a small toolbar (slice nav + post-fit toggle) above the cut.
+    mdc_cut_box = QWidget()
+    mdc_cut_lay = QVBoxLayout(mdc_cut_box)
+    mdc_cut_lay.setContentsMargins(0, 0, 0, 0)
+    mdc_cut_lay.setSpacing(2)
+    cut_bar = QHBoxLayout()
+    cut_bar.setContentsMargins(2, 0, 2, 0)
+    cut_bar.addWidget(QLabel("MDC cut:"))
+    window._btn_goto_fit_slice = QPushButton("↩ Slice de fit")
+    window._btn_goto_fit_slice.setMaximumWidth(150)
+    window._btn_goto_fit_slice.setToolTip(
+        "Replace le curseur d'énergie sur la tranche de référence du fit "
+        "(côté E_F). Permet de revenir au slice initial après navigation.")
+    window._btn_goto_fit_slice.clicked.connect(
+        lambda: window._interaction_ctrl.goto_fit_slice())
+    cut_bar.addWidget(window._btn_goto_fit_slice)
+    window._btn_postfit_view = QPushButton("Vue post-fit")
+    window._btn_postfit_view.setCheckable(True)
+    window._btn_postfit_view.setEnabled(False)  # enabled once a Full fit exists
+    window._btn_postfit_view.setMaximumWidth(150)
+    window._btn_postfit_view.setStyleSheet(
+        "QPushButton{background:#374151;color:#cde;font-weight:bold;}"
+        "QPushButton:checked{background:#0e7490;color:white;}"
+        "QPushButton:disabled{background:#2a2f35;color:#6b7280;}")
+    window._btn_postfit_view.setToolTip(
+        "Bascule la fenêtre MDC entre la vue d'init (guess) et la vue POST-FIT :\n"
+        "données, modèle total, fond linéaire, pics (fit−fond), résidu.\n"
+        "Actif seulement après un Full fit (l'ensemble ne stocke pas le modèle).")
+    window._btn_postfit_view.toggled.connect(lambda _=False: window._draw_mdc_edc())
+    cut_bar.addWidget(window._btn_postfit_view)
+    cut_bar.addStretch(1)
+    mdc_cut_lay.addLayout(cut_bar)
     window._mdc_edc = MplCanvas(figsize=(7, 2.8), nrows=1)
-    mdc_split.addWidget(window._mdc_edc)
-    mdc_split.setSizes([620, 280])
+    mdc_cut_lay.addWidget(window._mdc_edc)
+    mdc_split.addWidget(mdc_cut_box)
+    mdc_split.setSizes([620, 300])
     fit_lay.addWidget(mdc_split, stretch=1)
     window._mdc_fit_tabs.addTab(fit_view, "MDC Fit")
 
@@ -647,10 +681,6 @@ def wire_param_signals(window) -> None:
     p.kf_init_drag_changed.connect(window._on_kf_init_drag)
     p.im_self_energy_requested.connect(window._calculate_im_self_energy)
     p.fit_ensemble_requested.connect(window._fit_ensemble)
-    # Return-to-fit-slice: wired directly to the controller (no PROXY_MAP entry).
-    p.goto_fit_slice_requested.connect(
-        lambda: window._interaction_ctrl.goto_fit_slice()
-    )
     p.file_tags_changed.connect(window._on_file_tags_changed)
     # THEORY_OVERLAY: optional/removable DFT guide wiring.
     p.theory_import_requested.connect(window._import_theory_overlay)
