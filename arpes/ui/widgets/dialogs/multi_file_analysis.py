@@ -38,6 +38,19 @@ _PANELS = [
 _X_ITEMS = ["T (K)", "hν", "polarisation", "dopant"]
 
 
+def _frame_y_on_values(ax, values) -> None:
+    """Set y-limits from the data values only (error bars clipped at the edge)."""
+    v = np.asarray([x for x in values if np.isfinite(x)], dtype=float)
+    if v.size == 0:
+        return
+    lo, hi = float(v.min()), float(v.max())
+    if hi > lo:
+        pad = 0.18 * (hi - lo)
+    else:
+        pad = max(abs(hi) * 0.1, 1e-6)
+    ax.set_ylim(lo - pad, hi + pad)
+
+
 class MultiFileAnalysisDialog(QDialog):
     def __init__(self, session: Session, parent=None):
         super().__init__(parent)
@@ -211,6 +224,7 @@ class MultiFileAnalysisDialog(QDialog):
         tick_pos: dict[float, str] = {}
 
         for ax, (ylabel, attr, sattr) in zip(axes, _PANELS):
+            panel_y: list[float] = []
             for comp, pts in groups.items():
                 pts_s = sorted(pts, key=lambda p: p.x_value)
                 x = np.asarray([p.x_value for p in pts_s], dtype=float)
@@ -223,8 +237,13 @@ class MultiFileAnalysisDialog(QDialog):
                 ax.errorbar(x[valid], y[valid], yerr=yerr[valid], fmt="o-",
                             color=colours[comp], ecolor=colours[comp], lw=1.6,
                             ms=5, capsize=2, elinewidth=1.0, label=comp)
+                panel_y.extend(y[valid].tolist())
                 for p in pts_s:
                     tick_pos[float(p.x_value)] = p.x_label
+            # Frame the panel on the VALUES, not the error bars: an ill-conditioned
+            # σ (e.g. C05 m* ±46 %) then no longer blows the scale — its bar is
+            # simply clipped at the axis edge while every point stays visible.
+            _frame_y_on_values(ax, panel_y)
             ax.set_ylabel(ylabel, color="black", fontsize=11)
             ax.set_title(ylabel, fontsize=10, color="black")
             ax.grid(True, color="#d8d8d8", lw=0.6, alpha=0.9)

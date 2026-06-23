@@ -6,7 +6,7 @@ from typing import Iterable
 
 import numpy as np
 
-from arpes.analysis.results import compute_results
+from arpes.analysis.results import compute_results, select_representative_branch
 from arpes.core.sample import require_lattice_a, sample_for_entry
 from arpes.core.session import FileEntry, Session
 from arpes.theory.models import normalize_direction_label
@@ -98,7 +98,10 @@ def _point_from_entry(
         entry.fit_result, crystal_a_angstrom=a_val,
         gamma_max=getattr(getattr(entry, "fit_params", None), "gamma_max", None),
     )
-    branch = next((br for br in bundle.branches if np.isfinite(br.kF_at_EF)), None)
+    # Prefer the best-conditioned branch (mirror branches share the physics but
+    # m* ∝ |α|/β² blows up when one branch's k=0 intercept ≈ 0). |kF|/|vF| are
+    # reported so swapping kF_minus↔kF_plus never flips the sign in the panels.
+    branch = select_representative_branch(bundle.branches)
     if branch is None:
         return None
     gamma = bundle.gamma_fl[branch.pair_index] if branch.pair_index < len(bundle.gamma_fl) else None
@@ -110,11 +113,11 @@ def _point_from_entry(
         filename=filename,
         x_value=float(x_value),
         x_label=x_label,
-        kF=float(branch.kF_at_EF),
+        kF=float(abs(branch.kF_at_EF)),
         kF_sigma=float(branch.kF_at_EF_sigma),
         m_star=float(branch.m_star_over_me),
         m_star_sigma=float(branch.m_star_sigma),
-        vF=float(branch.vF_eV_pi_a),
+        vF=float(abs(branch.vF_eV_pi_a)),
         vF_sigma=float(branch.vF_sigma),
         gamma_zero=float(gamma.gamma_zero) if gamma is not None else float("nan"),
         gamma_zero_sigma=float(gamma.gamma_zero_sigma) if gamma is not None else float("nan"),

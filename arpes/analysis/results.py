@@ -490,3 +490,27 @@ def compute_results(
         asymmetry=asym,
         crystal_a_angstrom=float(crystal_a_angstrom),
     )
+
+
+def select_representative_branch(branches) -> "BranchResult | None":
+    """Pick the single branch best summarising a file (multi-file aggregation).
+
+    The mirror branches (kF_minus / kF_plus of a pair) measure the SAME |kF|,
+    |vF| and m*; but m* ∝ |α|/β² is ill-conditioned when the dispersion's k=0
+    intercept α ≈ 0, so one branch can carry a huge σ_m* while its mirror is
+    tight (e.g. C05: kF_plus 48 % vs kF_minus 2 %). Among the branches with a
+    finite ``kF_at_EF``, return the one with the smallest *relative* m*
+    uncertainty; fall back to the first finite-kF branch when no m* is finite.
+    Returns ``None`` if no branch has a finite kF.
+    """
+    finite = [br for br in (branches or []) if np.isfinite(br.kF_at_EF)]
+    if not finite:
+        return None
+
+    def _rel_sigma(br: "BranchResult") -> float:
+        m, s = br.m_star_over_me, br.m_star_sigma
+        if np.isfinite(m) and m != 0.0 and np.isfinite(s):
+            return abs(s / m)
+        return float("inf")
+
+    return min(finite, key=_rel_sigma)
