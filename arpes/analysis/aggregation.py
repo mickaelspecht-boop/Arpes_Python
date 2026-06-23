@@ -43,8 +43,14 @@ def aggregate_session_entries(
     x_axis: str = "T (K)",
     direction_filter: str = "",
     crystal_a_default: float = 0.0,
+    pair_index: int | None = None,
 ) -> MultiFileSeries:
-    """Extract kF, m*, Γ0 for a selection of session entries."""
+    """Extract kF, m*, Γ0 for a selection of session entries.
+
+    ``pair_index`` locks the comparison to one band (fit pair) so every file is
+    summarised by the SAME band; None lets the best-conditioned branch across all
+    pairs win (fine when every fit has a single band).
+    """
     selected = list(filenames) if filenames is not None else list(session.files)
     points: list[MultiFilePoint] = []
     skipped = 0
@@ -74,7 +80,7 @@ def aggregate_session_entries(
         a_values.add(round(a_val, 6))
         point = _point_from_entry(
             name, entry, x_axis=x_axis, a_val=a_val,
-            category_map=category_map,
+            category_map=category_map, pair_index=pair_index,
         )
         if point is None:
             skipped += 1
@@ -93,15 +99,19 @@ def _point_from_entry(
     x_axis: str,
     a_val: float,
     category_map: dict[str, int],
+    pair_index: int | None = None,
 ) -> MultiFilePoint | None:
     bundle = compute_results(
         entry.fit_result, crystal_a_angstrom=a_val,
         gamma_max=getattr(getattr(entry, "fit_params", None), "gamma_max", None),
     )
-    # Prefer the best-conditioned branch (mirror branches share the physics but
-    # m* ∝ |α|/β² blows up when one branch's k=0 intercept ≈ 0). |kF|/|vF| are
-    # reported so swapping kF_minus↔kF_plus never flips the sign in the panels.
-    branch = select_representative_branch(bundle.branches)
+    # Lock to one band (pair) when asked, so every file is compared on the same
+    # band. Within it, prefer the best-conditioned branch (mirror branches share
+    # the physics but m* ∝ |α|/β² blows up when a branch's k=0 intercept ≈ 0).
+    # |kF|/|vF| are reported so swapping kF_minus↔kF_plus never flips the sign.
+    candidates = [b for b in bundle.branches
+                  if pair_index is None or b.pair_index == int(pair_index)]
+    branch = select_representative_branch(candidates)
     if branch is None:
         return None
     gamma = bundle.gamma_fl[branch.pair_index] if branch.pair_index < len(bundle.gamma_fl) else None

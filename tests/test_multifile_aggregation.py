@@ -101,6 +101,15 @@ class TestRepresentativeBranch(unittest.TestCase):
         only = BranchResult(branch="kF_plus", kF_at_EF=0.2)  # m* NaN
         self.assertIs(select_representative_branch([only]), only)
 
+    def test_pair_index_restricts_to_one_band(self):
+        # Single-band fits: pair 0 keeps the point, a non-existent pair drops it.
+        session = Session()
+        session.files["A"] = FileEntry(
+            fit_result=_fit_result(), fit_params=FitParams(n_pairs=1),
+            meta=FileMeta(temperature=10.0, crystal_a_angstrom=4.0))
+        self.assertEqual(len(aggregate_session_entries(session, pair_index=0).points), 1)
+        self.assertEqual(len(aggregate_session_entries(session, pair_index=1).points), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -84,9 +84,18 @@ class MultiFileAnalysisDialog(QDialog):
             "Follow one compound vs T → X = T. Each compound is its own line.")
         filters.addWidget(self._cmb_x, 2, 1)
         self._cmb_x.currentTextChanged.connect(self._plot)
+        # Band selector: only meaningful (and only shown) for multi-band fits.
+        self._lbl_band = QLabel("Band")
+        filters.addWidget(self._lbl_band, 2, 2)
+        self._cmb_band = QComboBox()
+        self._cmb_band.setToolTip(
+            "Which fitted band (pair) to compare — locks every file to the same "
+            "band. Hidden when all fits have a single band.")
+        self._cmb_band.currentTextChanged.connect(self._plot)
+        filters.addWidget(self._cmb_band, 2, 3)
         self._btn_plot = QPushButton("Plot")
         self._btn_plot.clicked.connect(self._plot)
-        filters.addWidget(self._btn_plot, 2, 3)
+        filters.addWidget(self._btn_plot, 3, 3)
         root.addLayout(filters)
         for cmb in (self._cmb_direction, self._cmb_pol, self._cmb_hv, self._cmb_temp):
             cmb.currentTextChanged.connect(self._apply_filters)
@@ -153,6 +162,31 @@ class MultiFileAnalysisDialog(QDialog):
                 if idx >= 0:
                     cmb.setCurrentIndex(idx)
             cmb.blockSignals(False)
+        self._populate_band_combo()
+
+    def _populate_band_combo(self) -> None:
+        max_pairs = max(
+            (int(getattr(getattr(e, "fit_params", None), "n_pairs", 1) or 1)
+             for e in self._session.files.values() if e.fit_result),
+            default=1)
+        self._cmb_band.blockSignals(True)
+        cur = self._cmb_band.currentIndex()
+        self._cmb_band.clear()
+        for i in range(max_pairs):
+            self._cmb_band.addItem(f"Band {i + 1}")
+        if 0 <= cur < max_pairs:
+            self._cmb_band.setCurrentIndex(cur)
+        self._cmb_band.blockSignals(False)
+        # Ergonomics: no band choice to make for single-band fits → hide it.
+        multi = max_pairs > 1
+        self._cmb_band.setVisible(multi)
+        self._lbl_band.setVisible(multi)
+
+    def _band_index(self) -> int | None:
+        if not self._cmb_band.isVisible() or self._cmb_band.count() <= 1:
+            return None
+        idx = self._cmb_band.currentIndex()
+        return idx if idx >= 0 else None
 
     def _entry_matches_filters(self, name: str) -> bool:
         entry = self._session.files.get(name)
@@ -198,6 +232,7 @@ class MultiFileAnalysisDialog(QDialog):
             self._session, names, x_axis=self._x_axis_key(),
             direction_filter="" if self._cmb_direction.currentText() in ("All", "")
             else self._cmb_direction.currentText(),
+            pair_index=self._band_index(),
         )
         self._draw_series(series)
         n = len(series.points)
