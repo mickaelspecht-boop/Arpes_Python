@@ -253,12 +253,16 @@ def extract_branch_result(
         #   m*/m_e ≈ HBAR2_OVER_ME_eV_A2 · kF / vF_eV_A
         # (kF in Å⁻¹, vF in eV·Å -> dimensionless ratio)
         m_star_ratio = HBAR2_OVER_ME_eV_A2 * abs(kF_A) / abs(vF_A) if abs(vF_A) > 0 else float("nan")
-        if math.isfinite(m_star_ratio) and alpha != 0.0:
-            # m* ∝ |α|/β² -> σ_m* via full covariance (α,β correlated in the
-            # same fit; assuming independence underestimates σ).
-            rel_var = (var_a / (alpha * alpha)
-                       + 4.0 * var_b / (beta * beta)
-                       - 4.0 * cov_ab / (alpha * beta))
+        if math.isfinite(m_star_ratio) and kF != 0.0 and beta != 0.0:
+            # m* ∝ |kF|/|vF|, with kF = −α/β − center and vF = β. Propagate σ_m*
+            # through (kF, vF) — both already computed with the correct
+            # derivatives — using their covariance. The earlier |α|/β² form
+            # dropped `center`: for an off-Γ pocket (center≠0) it divided by the
+            # k=0 intercept α≈0 and blew σ_m* up spuriously even though kF/vF are
+            # well determined (e.g. C05). cov(kF,vF) = ∂kF/∂α·cov_ab + ∂kF/∂β·var_β.
+            cov_kf_vf = dkF_da * cov_ab + dkF_db * var_b
+            rel_var = ((sigma_kF / kF) ** 2 + (sigma_vF / beta) ** 2
+                       - 2.0 * cov_kf_vf / (kF * beta))
             sigma_m_star = m_star_ratio * math.sqrt(max(rel_var, 0.0))
         # 2D Luttinger density with spin degeneracy.
         luttinger = 2.0 * kF_A ** 2 / (2.0 * math.pi)

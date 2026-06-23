@@ -101,6 +101,27 @@ class TestRepresentativeBranch(unittest.TestCase):
         only = BranchResult(branch="kF_plus", kF_at_EF=0.2)  # m* NaN
         self.assertIs(select_representative_branch([only]), only)
 
+    def test_mstar_sigma_sane_for_offcentre_pocket(self):
+        # Regression: an off-Γ pocket (center≠0) whose +branch sits near k=0
+        # used to blow σ_m* up (old |α|/β² form divided by α≈0). σ_m* must now
+        # stay comparable to σ_kF/σ_vF, not explode.
+        from arpes.analysis.results import extract_branch_result
+        center, kf, slope = -0.10, 0.13, 0.5
+        e = np.linspace(-0.10, -0.005, 14)
+        kp = (center + kf) + e / slope          # +branch crosses EF near k=+0.03
+        km = 2.0 * center - kp                   # mirror about center
+        sig = np.full(e.size, 0.003)
+        fr = {
+            "n_pairs": 1, "e_fitted": e.tolist(),
+            "kF_plus": [kp.tolist()], "kF_minus": [km.tolist()],
+            "sigma_kF_plus": [sig.tolist()], "sigma_kF_minus": [sig.tolist()],
+        }
+        br = extract_branch_result(fr, branch="kF_plus", pair_index=0,
+                                   crystal_a_angstrom=4.0, center=center)
+        self.assertTrue(np.isfinite(br.m_star_over_me))
+        rel = br.m_star_sigma / br.m_star_over_me
+        self.assertLess(rel, 0.10)              # would be ~0.5 with the old bug
+
     def test_pair_index_restricts_to_one_band(self):
         # Single-band fits: pair 0 keeps the point, a non-existent pair drops it.
         session = Session()
