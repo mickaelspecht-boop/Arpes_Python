@@ -92,6 +92,37 @@ class InteractionController:
         p._sel_ev = float(np.clip(val, ev_arr.min(), ev_arr.max()))
         self._draw_current_view()
 
+    def goto_fit_slice(self) -> None:
+        """Jump the energy cursor back to the fit's anchor slice.
+
+        Anchor = the E_F-side slice the fit started from (scan 'down' → highest
+        fitted E, 'up' → lowest). Uses the actual fitted slices when a fit
+        exists, else the fit window bound. Lets the user always return to the
+        reference slice after browsing other energies.
+        """
+        p = self._parent
+        if p._raw_data is None:
+            return
+        entry = p._current_entry() if hasattr(p, "_current_entry") else None
+        fr = getattr(entry, "fit_result", None) if entry else None
+        fp = self._params.get_fit_params()
+        anchor = None
+        if fr and fr.get("e_fitted") is not None and len(fr["e_fitted"]):
+            ev = np.asarray(fr["e_fitted"], dtype=float)
+            sd = str(fr.get("scan_direction") or fp.scan_direction or "down")
+            anchor = float(np.nanmax(ev) if sd == "down" else np.nanmin(ev))
+        elif fp is not None:
+            anchor = float(fp.ev_end if fp.scan_direction == "down" else fp.ev_start)
+        if anchor is None:
+            return
+        sp = getattr(self._params, "sp_ev", None)
+        if sp is not None:
+            sp.setValue(anchor)  # triggers _on_ev_spinbox_changed → redraw
+        else:
+            p._sel_ev = anchor
+            self._draw_current_view()
+        p._status(f"Retour au slice de fit : E = {anchor:+.3f} eV")
+
     def _schedule_model_redraw(self, _=None):
         self._parent._redraw_timer.start(120)
 

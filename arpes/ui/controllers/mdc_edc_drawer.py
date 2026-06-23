@@ -11,6 +11,74 @@ from arpes.ui.controllers.plot_model_helpers import build_model_pairs
 from arpes.ui.controllers.fit_overlay_drawer import PAIR_COLORS
 
 
+def _postfit_slice(ctrl):
+    """(fit_kpar, total, bg, residual, E) for the fitted slice nearest _sel_ev.
+
+    None if no fit / no fit_curves. Data is reconstructed as total+residual so it
+    shares the fit's normalisation exactly (no re-scaling mismatch).
+    """
+    fr = None
+    try:
+        entry = ctrl._current_entry()
+        fr = getattr(entry, "fit_result", None)
+    except Exception:
+        fr = getattr(ctrl, "_fit_res", None)
+    if not fr:
+        return None
+    ev = np.asarray(fr.get("e_fitted") or [], dtype=float)
+    fc = fr.get("fit_curves") or []
+    kf = np.asarray(fr.get("fit_kpar") or [], dtype=float)
+    if ev.size == 0 or not fc or kf.size == 0:
+        return None
+    idx = int(np.argmin(np.abs(ev - ctrl._sel_ev)))
+    if not (0 <= idx < len(fc)):
+        return None
+    total = np.asarray(fc[idx], dtype=float)
+    if total.size != kf.size:
+        return None
+    def _at(key):
+        arr = fr.get(key) or []
+        if 0 <= idx < len(arr):
+            v = np.asarray(arr[idx], dtype=float)
+            return v if v.size == kf.size else None
+        return None
+    return kf, total, _at("fit_bg"), _at("residuals"), float(ev[idx])
+
+
+def draw_postfit_mdc(ctrl, ax_mdc) -> bool:
+    """Draw the stored fit at the current slice: data, total, background, peaks,
+    residual. Returns True if it rendered (a fit exists for this slice)."""
+    out = _postfit_slice(ctrl)
+    if out is None:
+        return False
+    kf, total, bg, resid, e_used = out
+    data = total + resid if (resid is not None) else None
+    if data is not None:
+        ax_mdc.plot(kf, data, color="white", lw=1.3, label="MDC data", zorder=3)
+        ax_mdc.fill_between(kf, np.nanmin(data), data, alpha=0.06, color="white", zorder=1)
+    ax_mdc.plot(kf, total, color="#ffa040", lw=1.8, label="fit total", zorder=5)
+    if bg is not None and np.isfinite(bg).any():
+        ax_mdc.plot(kf, bg, color="#9aa0a6", lw=1.0, ls="--", label="background", zorder=4)
+        ax_mdc.plot(kf, total - bg, color="#7dd3fc", lw=1.0, ls=":", label="peaks (fit−bg)", zorder=4)
+    if resid is not None and np.isfinite(resid).any():
+        base = float(np.nanmin(data if data is not None else total)) - 0.18
+        ax_mdc.axhline(base, color="#555", lw=0.6, ls="-", alpha=0.6, zorder=2)
+        ax_mdc.plot(kf, resid + base, color="#f87171", lw=0.8, alpha=0.85,
+                    label="residual", zorder=4)
+    cx = ctrl._params.sp_cx.value()
+    ax_mdc.axvline(cx, color="cyan", lw=0.8, ls=":", alpha=0.6, zorder=2)
+    ax_mdc.set_xlabel("k// (π/a)", fontsize=8, color="w")
+    ax_mdc.set_ylabel("I (norm. fit)", fontsize=8, color="w")
+    ax_mdc.set_title(f"Post-fit MDC  E={e_used:+.3f} eV  (data + modèle + fond)",
+                     fontsize=8, color="w")
+    ax_mdc.tick_params(colors="w", labelsize=7)
+    ax_mdc.legend(fontsize=7, facecolor="#333", labelcolor="w",
+                  loc="upper right", framealpha=0.7, ncol=2)
+    for sp in ax_mdc.spines.values():
+        sp.set_edgecolor("#555")
+    return True
+
+
 def draw_mdc_edc(ctrl) -> None:
     from scipy.ndimage import gaussian_filter1d
 
@@ -29,7 +97,12 @@ def draw_mdc_edc(ctrl) -> None:
         or params.chk_fit_slice_inspector.isChecked()
     )
 
-    res = ctrl._get_mdc()
+    # Post-fit view (toggle): show the stored fit decomposition for this slice
+    # instead of the live guess preview.
+    mdc_done = False
+    if getattr(params, "chk_postfit_view", None) is not None and params.chk_postfit_view.isChecked():
+        mdc_done = draw_postfit_mdc(ctrl, ax_mdc)
+    res = None if mdc_done else ctrl._get_mdc()
     if res is not None:
         kpar, mdc = res
         lo, hi = np.nanpercentile(mdc, [1, 99])

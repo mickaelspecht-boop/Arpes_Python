@@ -311,8 +311,7 @@ class ResultsPanel(QWidget):
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas.fig.set_facecolor("#2b2b2b")
 
-        colors = plt.cm.plasma(np.linspace(0.1, 0.9,
-                                           max(1, len(self._session.files))))
+        colors = self._palette(len(self._session.files))
         row = 0
         for ci, (name, entry) in enumerate(self._session.files.items()):
             if entry.fit_result is None:
@@ -493,12 +492,24 @@ class ResultsPanel(QWidget):
                 continue
             n = entry.fit_params.n_pairs
             self._populate_physics_rows(name, entry.fit_result, n, entry.meta)
-        colors = _plt.cm.plasma(np.linspace(0.1, 0.9, max(1, len(self._session.files))))
+        colors = self._palette(len(self._session.files))
         self._draw_gamma_panel(colors)
 
-    def _fallback_colors(self):
+    @staticmethod
+    def _palette(n: int):
+        """n maximally-distinct qualitative colours (tab10/tab20 cycled).
+
+        Replaces the old sequential plasma map whose adjacent samples were all
+        near-identical yellows — files must be visually separable.
+        """
         import matplotlib.pyplot as plt
-        return plt.cm.plasma(np.linspace(0.1, 0.9, max(1, len(self._session.files))))
+        base = list(plt.cm.tab10.colors)
+        if n > len(base):
+            base = base + list(plt.cm.tab20.colors)
+        return [base[i % len(base)] for i in range(max(1, n))]
+
+    def _fallback_colors(self):
+        return self._palette(len(self._session.files))
 
     def _gamma_e_range(self) -> tuple[float, float]:
         """User-chosen Γ(E) trend fit window (E−E_F, eV), low→high."""

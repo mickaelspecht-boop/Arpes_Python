@@ -647,6 +647,10 @@ def wire_param_signals(window) -> None:
     p.kf_init_drag_changed.connect(window._on_kf_init_drag)
     p.im_self_energy_requested.connect(window._calculate_im_self_energy)
     p.fit_ensemble_requested.connect(window._fit_ensemble)
+    # Return-to-fit-slice: wired directly to the controller (no PROXY_MAP entry).
+    p.goto_fit_slice_requested.connect(
+        lambda: window._interaction_ctrl.goto_fit_slice()
+    )
     p.file_tags_changed.connect(window._on_file_tags_changed)
     # THEORY_OVERLAY: optional/removable DFT guide wiring.
     p.theory_import_requested.connect(window._import_theory_overlay)
