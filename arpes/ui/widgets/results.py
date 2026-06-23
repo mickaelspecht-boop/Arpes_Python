@@ -106,9 +106,36 @@ class ResultsPanel(QWidget):
         gtl.addLayout(grow)
         gtl.addWidget(self._canvas_gamma)
         cw.addTab(gamma_tab, "Γ(E) — lifetime")
+
+        # MDC waterfall tab: stacked fitted MDCs (data+model) of one file, with
+        # kF marked → the dispersion line drawn on top of the raw MDCs.
+        wf_tab = QWidget()
+        wtl = QVBoxLayout(wf_tab)
+        wtl.setContentsMargins(0, 0, 0, 0); wtl.setSpacing(2)
+        wrow = QHBoxLayout()
+        wrow.addWidget(QLabel("File:"))
+        self._cmb_wf_file = QComboBox()
+        self._cmb_wf_file.setToolTip(
+            "Fitted file shown as an MDC waterfall. Number of stacked MDCs = the "
+            "fitted slices (set by the fit 'Energy step ΔE'); decimated above 40.")
+        self._cmb_wf_file.currentTextChanged.connect(lambda *_: self._draw_mdc_waterfall())
+        wrow.addWidget(self._cmb_wf_file, 1)
+        self._chk_wf_model = QCheckBox("Model")
+        self._chk_wf_model.setChecked(True)
+        self._chk_wf_model.setToolTip("Overlay the fitted model on each MDC.")
+        self._chk_wf_model.toggled.connect(lambda *_: self._draw_mdc_waterfall())
+        wrow.addWidget(self._chk_wf_model)
+        wrow.addStretch(1)
+        wtl.addLayout(wrow)
+        self._canvas_wf = MplCanvas(figsize=(6, 4), toolbar=True)
+        wtl.addWidget(self._canvas_wf)
+        cw.addTab(wf_tab, "MDC waterfall")
+
         cw.setTabToolTip(0, "kF(E) points of every fitted file (both branches).")
         cw.setTabToolTip(1, "MDC linewidth Γ(E) ± σ with a selectable linear or "
                             "Fermi-liquid (Γ₀ + a·E²) trend.")
+        cw.setTabToolTip(2, "Stacked fitted MDCs of one file (data + model), "
+                            "coloured by energy, kF dispersion drawn on top.")
 
         # droite : table + boutons
         right = QVBoxLayout()
@@ -403,6 +430,9 @@ class ResultsPanel(QWidget):
         from arpes.ui.widgets.results_link import highlight_results_selection
         highlight_results_selection(self)
         self._draw_gamma_panel(colors)
+        from arpes.ui.widgets.results_waterfall import populate_waterfall_files
+        populate_waterfall_files(self)
+        self._draw_mdc_waterfall()
 
     def _auto_gamma_center(self, entry) -> float:
         fr = getattr(entry, "fit_result", None) or {}
@@ -520,6 +550,10 @@ class ResultsPanel(QWidget):
             return (lo, hi) if lo <= hi else (hi, lo)
         except Exception:
             return (-0.15, 0.0)
+
+    def _draw_mdc_waterfall(self) -> None:
+        from arpes.ui.widgets.results_waterfall import draw_mdc_waterfall
+        draw_mdc_waterfall(self)
 
     def _draw_gamma_panel(self, colors) -> None:
         from arpes.ui.widgets.results_gamma import draw_gamma_panel
