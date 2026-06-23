@@ -25,6 +25,12 @@ from arpes.physics.fit import (
 from arpes.ui.widgets.dialogs import EFCalibrationDialog
 
 
+def _n_slices(fr) -> int:
+    """Number of fitted slices, ndarray-safe (avoids `arr or []` truth error)."""
+    e = (fr or {}).get("e_fitted")
+    return 0 if e is None else len(e)
+
+
 class FitRunnerController:
     def __init__(self, parent):
         self._parent = parent
@@ -328,7 +334,7 @@ class FitRunnerController:
             )
             ph.log_action(
                 self._parent, ph.CAT_FIT, "MDC fit (ensemble)",
-                summary=f"{len(fr.get('e_fitted') or [])} slices, "
+                summary=f"{_n_slices(fr)} slices, "
                         f"{n_ok}/{n} runs, jitter={jitter*100:.0f}%",
                 params={"a": crystal_a},
             )
@@ -485,7 +491,7 @@ class FitRunnerController:
             self._params.lbl_res.setText(summary.label_text)
             ph.log_action(
                 self._parent, ph.CAT_FIT, "MDC fit",
-                summary=f"{len(fr.get('e_fitted') or [])} slices",
+                summary=f"{_n_slices(fr)} slices",
                 params={"a": crystal_a},
             )
             self._params.lbl_res.setToolTip(

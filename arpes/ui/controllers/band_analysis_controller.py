@@ -572,7 +572,8 @@ class BandAnalysisController:
             if a > 0:
                 defaults["a"] = a
         elif target == "kink":
-            e_fit = np.asarray(fr.get("e_fitted") or [], float)
+            _ef = fr.get("e_fitted")
+            e_fit = np.asarray([] if _ef is None else _ef, dtype=float)
             if e_fit.size >= 4:
                 e_min = float(np.nanmin(e_fit))
                 e_max = float(np.nanmax(e_fit))

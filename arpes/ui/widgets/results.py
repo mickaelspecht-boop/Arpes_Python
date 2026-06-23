@@ -346,7 +346,8 @@ class ResultsPanel(QWidget):
                 kf_arr = np.asarray(fr["kF_plus"][0])
                 if len(kf_arr) > idx_ef:
                     kf_ef = kf_arr[idx_ef]
-            xg_arr = np.asarray(fr.get("xg") or [], dtype=float)
+            _xg = fr.get("xg")
+            xg_arr = np.asarray([] if _xg is None else _xg, dtype=float)
             xg_m = float(np.nanmean(xg_arr)) if np.isfinite(xg_arr).any() else float("nan")
             gamma_b = np.nan
             gamma_c = np.nan
