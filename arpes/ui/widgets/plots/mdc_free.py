@@ -13,6 +13,7 @@ from scipy.signal import find_peaks
 from .fit_overlay import (
     _lor_peak,
     _resolution_correct_gamma,
+    _select_fit_energies,
     _voigt_pseudo,
 )
 
@@ -32,6 +33,7 @@ def _fit_mdc_free_peaks(
     min_amplitude=0.02,
     max_jump=0.15,
     mdc_energy_window=0.0,
+    mdc_energy_step=0.0,
     scan_direction="down",
     k_min=None,
     k_max=None,
@@ -90,8 +92,7 @@ def _fit_mdc_free_peaks(
 
     ev_lo = min(ev_start, ev_end)
     ev_hi = max(ev_start, ev_end)
-    wf_indices = np.where((ev_arr >= ev_lo) & (ev_arr <= ev_hi))[0]
-    wf_energies_all = ev_arr[wf_indices]
+    wf_energies_all = _select_fit_energies(ev_arr, ev_lo, ev_hi, mdc_energy_step)
     wf_energies = np.sort(wf_energies_all)[::-1] if scan_direction == "down" else np.sort(wf_energies_all)
     ev_for_init = ev_hi if scan_direction == "down" else ev_lo
 

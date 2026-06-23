@@ -10,6 +10,7 @@ from .fit_overlay import (
     _make_peak_pairs_model,
     _normalize_width_mode,
     _resolution_correct_gamma,
+    _select_fit_energies,
     _voigt_pseudo,
 )
 
@@ -27,6 +28,7 @@ def fit_mdc_peak_pairs(
     min_amplitude=0.02,
     max_jump=0.15,
     mdc_energy_window=0.0,
+    mdc_energy_step=0.0,
     scan_direction='down',
     width_mode='symmetric',
     k_min=None,
@@ -95,6 +97,9 @@ def fit_mdc_peak_pairs(
     is_voigt = (shape == 'voigt')
     # Normalize historical aliases (UI 'asymmetric' -> backend 'independent').
     width_mode = _normalize_width_mode(width_mode)
+    # Igor : step (espacement des MDC) et mdc_energy_window (intégration ±demi)
+    # sont INDÉPENDANTS — step échantillonne la dispersion, la fenêtre denoise
+    # chaque MDC. On peut vouloir step < window (oversampling avec recouvrement).
     if width_mode == "free":
         from .mdc_free import _fit_mdc_free_peaks
         return _fit_mdc_free_peaks(
@@ -106,6 +111,7 @@ def fit_mdc_peak_pairs(
             kF_init=kF_init, center_init=center_init,
             min_amplitude=min_amplitude, max_jump=max_jump,
             mdc_energy_window=mdc_energy_window,
+            mdc_energy_step=mdc_energy_step,
             scan_direction=scan_direction,
             k_min=k_min, k_max=k_max,
             dE_eV=dE_eV, dk_inv_a=dk_inv_a,
@@ -185,8 +191,7 @@ def fit_mdc_peak_pairs(
     # était en ordre décroissant — bug corrigé.
     ev_lo = min(ev_start, ev_end)
     ev_hi = max(ev_start, ev_end)
-    wf_indices  = np.where((ev_arr >= ev_lo) & (ev_arr <= ev_hi))[0]
-    wf_energies_all = ev_arr[wf_indices]   # dans l'ordre de ev_arr
+    wf_energies_all = _select_fit_energies(ev_arr, ev_lo, ev_hi, mdc_energy_step)
     if scan_direction == 'down':
         # Scan du côté EF (ev_hi) vers les basses E (ev_lo)
         wf_energies = np.sort(wf_energies_all)[::-1]

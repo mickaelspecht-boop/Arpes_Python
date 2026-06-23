@@ -311,6 +311,7 @@ class FitParamsPanel(QScrollArea):
             min_amplitude=self.sp_ma.value(),
             max_jump=self.sp_mj.value(),
             mdc_energy_window=self.sp_mdc_ewin.value(),
+            mdc_energy_step=self.sp_mdc_estep.value(),
             scan_direction=self.cmb_sd.currentText(),
             dE_meV=self.sp_dE_meV.value(),
             dk_inv_a=self.sp_dk_inv_a.value(),
@@ -415,6 +416,7 @@ class FitParamsPanel(QScrollArea):
             (self.sp_xg, fp.xg_range), (self.sp_cx, fp.center_init),
             (self.sp_ma, fp.min_amplitude), (self.sp_mj, fp.max_jump),
             (self.sp_mdc_ewin, getattr(fp, "mdc_energy_window", 0.0)),
+            (self.sp_mdc_estep, getattr(fp, "mdc_energy_step", 0.0)),
             (self.sp_dE_meV, getattr(fp, "dE_meV", 15.0)),
             (self.sp_dk_inv_a, getattr(fp, "dk_inv_a", 0.005)),
         ]:

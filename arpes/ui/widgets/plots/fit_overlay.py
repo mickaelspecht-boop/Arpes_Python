@@ -249,6 +249,25 @@ def _resolution_correct_gamma(e_arr, k0_series, gamma_series, dE_eV, dk_inv_a,
     return gamma_min, gamma_corr
 
 
+def _select_fit_energies(ev_arr, ev_lo, ev_hi, step=0.0):
+    """Énergies des MDC à fitter dans [ev_lo, ev_hi] (ordre de ev_arr).
+
+    ``step`` ≤ 0 → une MDC par ligne d'énergie (comportement historique).
+    ``step`` > 0 → ~une MDC tous les ``step`` eV : on prend la ligne ev_arr la
+    plus proche de chaque point de la grille, dédupliquée. C'est le pendant du
+    ``step`` Igor (espacement des MDC), à combiner avec ``mdc_energy_window``
+    (intégration = ``range`` Igor) pour fitter peu de MDC bien intégrées.
+    """
+    ev_arr = np.asarray(ev_arr, dtype=float)
+    in_win = np.where((ev_arr >= ev_lo) & (ev_arr <= ev_hi))[0]
+    if step is None or float(step) <= 0 or in_win.size == 0:
+        return ev_arr[in_win]
+    grid = np.arange(float(ev_lo), float(ev_hi) + 1e-12, float(step))
+    sub = ev_arr[in_win]
+    idx = np.unique([in_win[int(np.argmin(np.abs(sub - g)))] for g in grid])
+    return ev_arr[idx]
+
+
 def _make_multi_lor(n):
     """Fabrique un modele a N Lorentziennes + fond lineaire."""
     def model(k, *args):

@@ -246,6 +246,7 @@ def fit_run_all_zones(ctrl) -> None:
                     center_init=fp.center_init,
                     max_jump=fp.max_jump,
                     mdc_energy_window=getattr(fp, "mdc_energy_window", 0.0),
+                    mdc_energy_step=getattr(fp, "mdc_energy_step", 0.0),
                     scan_direction=fp.scan_direction,
                     dE_eV=fp.dE_meV / 1000.0,
                     dk_inv_a=fp.dk_inv_a,

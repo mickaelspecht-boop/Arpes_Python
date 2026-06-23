@@ -147,12 +147,21 @@ def _build_roi_group(panel, _fcl) -> None:
         "0 = single energy row.\nPRIMARY noise control: averaging ±half over E "
         "cuts noise that makes kF(E) wiggle, without biasing kF or Γ (they vary "
         "slowly with E) — unlike 'Fit smoothing σ' which broadens the peak. Keep "
-        "it small vs the band dispersion."
+        "it small vs the band dispersion. Independent from 'Energy step ΔE'."
+    )
+    panel.sp_mdc_estep = dspin(0.0, 0.0, 0.2, 0.005, dec=3)
+    panel.sp_mdc_estep.setToolTip(
+        "Energy step between fitted MDCs (eV). 0 = fit every energy row "
+        "(default).\nSet >0 to fit one MDC every ΔE (e.g. 0.005 = every 5 meV), "
+        "like the Igor 'step' — controls how densely the dispersion is sampled. "
+        "Independent from 'Energy integ. ΔE': step spaces the MDCs, the window "
+        "denoises each one (step < window = oversampling with overlap)."
     )
     for w in (panel.sp_evs, panel.sp_eve, panel.sp_kmin, panel.sp_kmax):
         w.valueChanged.connect(panel.params_changed)
         w.valueChanged.connect(panel.fit_only_changed)
     panel.sp_mdc_ewin.valueChanged.connect(panel.fit_only_changed)
+    panel.sp_mdc_estep.valueChanged.connect(panel.fit_only_changed)
     panel.btn_fit_roi = compact_button(QPushButton("Select on map"), max_width=180)
     panel.btn_fit_roi.setCheckable(True)
     panel.btn_fit_roi.setToolTip(
@@ -175,6 +184,7 @@ def _build_roi_group(panel, _fcl) -> None:
     fl2.addRow("k_min:", panel.sp_kmin)
     fl2.addRow("k_max:", panel.sp_kmax)
     fl2.addRow("Energy integ. ΔE (eV):", panel.sp_mdc_ewin)
+    fl2.addRow("Energy step ΔE (eV):", panel.sp_mdc_estep)
     fl2.addRow(roi_row)
     _fcl.addWidget(grp_r)
 

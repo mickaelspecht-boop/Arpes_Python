@@ -53,6 +53,46 @@ class TestMdcEnergyWindow(unittest.TestCase):
         from arpes.core.session import FitParams
         self.assertAlmostEqual(FitParams().mdc_energy_window, 0.02, places=6)
 
+    def test_energy_step_decimates_fitted_slices(self):
+        # Igor 'step': fit one MDC every ΔE instead of every energy row.
+        data, kpar, ev_arr = _flat_band(noise=0.0, seed=1)  # ev spans [-0.20, -0.02]
+        n_all = len(fit_mdc_peak_pairs(
+            data, kpar, ev_arr, n_pairs=1, ev_start=-0.20, ev_end=-0.02,
+            smooth_fit=0.1, smooth_detect=0.1, gamma_init=0.04, gamma_max=0.12,
+            kF_init=[0.18], center_init=0.0, width_mode="symmetric",
+            k_min=-0.4, k_max=0.4, mdc_energy_step=0.0,
+        )["e_fitted"])
+        n_step = len(fit_mdc_peak_pairs(
+            data, kpar, ev_arr, n_pairs=1, ev_start=-0.20, ev_end=-0.02,
+            smooth_fit=0.1, smooth_detect=0.1, gamma_init=0.04, gamma_max=0.12,
+            kF_init=[0.18], center_init=0.0, width_mode="symmetric",
+            k_min=-0.4, k_max=0.4, mdc_energy_step=0.02,
+        )["e_fitted"])
+        self.assertLess(n_step, n_all)
+        self.assertLessEqual(n_step, 12)  # ~0.18 eV / 0.02 + 1
+
+    def test_default_step_is_every_row(self):
+        from arpes.core.session import FitParams
+        self.assertEqual(FitParams().mdc_energy_step, 0.0)
+
+    def test_step_and_window_are_independent(self):
+        # Igor: step (spacing) and window (integration) are independent — changing
+        # the window with a fixed step must actually change the integrated MDC.
+        data, kpar, ev_arr = _flat_band(noise=0.06, seed=2)
+
+        def gamma_std(win):
+            r = fit_mdc_peak_pairs(
+                data, kpar, ev_arr, n_pairs=1, ev_start=-0.20, ev_end=-0.02,
+                smooth_fit=0.1, smooth_detect=0.1, gamma_init=0.04, gamma_max=0.12,
+                kF_init=[0.18], center_init=0.0, width_mode="symmetric",
+                k_min=-0.4, k_max=0.4, mdc_energy_step=0.02, mdc_energy_window=win,
+            )
+            g = np.asarray(r["kF_plus"][0], dtype=float)
+            return float(np.nanstd(g[np.isfinite(g)]))
+
+        # Wider integration (independent of the fixed step) smooths kF more.
+        self.assertLessEqual(gamma_std(0.04), gamma_std(0.0) + 1e-9)
+
     def test_integration_on_raw_does_not_bias_gamma(self):
         # Integrating raw rows over E (then a light k-smooth) must NOT inflate Γ:
         # the band is flat so the integrated MDC keeps the true width 0.04.

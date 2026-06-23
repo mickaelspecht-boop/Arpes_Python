@@ -5,7 +5,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
-from .fit_overlay import _make_multi_lor, _resolution_correct_gamma
+from .fit_overlay import _make_multi_lor, _resolution_correct_gamma, _select_fit_energies
 
 def fit_mdc_lorentzians(
     data_cut, kpar, ev_arr,
@@ -350,6 +350,7 @@ def fit_mdc_free_region_result(
     center_init=0.0,
     max_jump=0.15,
     mdc_energy_window=0.0,
+    mdc_energy_step=0.0,
     scan_direction="up",
     dE_eV=0.0,
     dk_inv_a=0.0,
@@ -389,8 +390,7 @@ def fit_mdc_free_region_result(
 
     ev_lo = min(float(ev_start), float(ev_end))
     ev_hi = max(float(ev_start), float(ev_end))
-    wf_indices = np.where((ev_arr >= ev_lo) & (ev_arr <= ev_hi))[0]
-    wf_energies_all = ev_arr[wf_indices]
+    wf_energies_all = _select_fit_energies(ev_arr, ev_lo, ev_hi, mdc_energy_step)
     wf_energies = np.sort(wf_energies_all)[::-1] if scan_direction == "down" else np.sort(wf_energies_all)
 
     k_tracks = [[] for _ in range(n_lor)]

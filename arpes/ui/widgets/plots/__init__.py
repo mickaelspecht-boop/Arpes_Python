@@ -16,6 +16,7 @@ from .fit_overlay import (
     _make_multi_lor,
     _make_peak_pairs_model,
     _resolution_correct_gamma,
+    _select_fit_energies,
     _voigt_pseudo,
 )
 
