@@ -99,6 +99,30 @@ class TestResolutionEstimation(unittest.TestCase):
         for g in gcorr:
             self.assertAlmostEqual(float(g), 0.12, places=6)
 
+    def test_smooth_fit_broadening_is_deconvolved(self):
+        # P2: the Gaussian k-smoothing (smooth_fit) folds into Δk_eff.
+        # σ=3 px, dk_pixel=0.01 -> Δk_smooth FWHM = 2√(2ln2)·0.03 = 0.07064,
+        # HWHM floor = 0.03532 (dE=0, no instrument dk). gamma_min must reflect it
+        # and gamma_corrige must drop below the raw HWHM.
+        if _resolution_correct_gamma is None:
+            self.skipTest("scipy unavailable")
+        gmin, gcorr = _resolution_correct_gamma(
+            [-0.2, -0.1, 0.0], [0.3, 0.25, 0.2], [0.13, 0.13, 0.13],
+            dE_eV=0.0, dk_inv_a=0.0,
+            smooth_fit_sigma_px=3.0, dk_pixel=0.01,
+        )
+        for gm in gmin:
+            self.assertAlmostEqual(float(gm), 0.5 * 2.3548200450309493 * 0.03, places=6)
+        for g in gcorr:
+            self.assertLess(float(g), 0.13)
+        # Backward compat: zero smoothing reproduces the un-deconvolved width.
+        _, gcorr0 = _resolution_correct_gamma(
+            [-0.2, -0.1, 0.0], [0.3, 0.25, 0.2], [0.13, 0.13, 0.13],
+            dE_eV=0.0, dk_inv_a=0.0,
+        )
+        for g in gcorr0:
+            self.assertAlmostEqual(float(g), 0.13, places=8)
+
 
 if __name__ == "__main__":
     unittest.main()

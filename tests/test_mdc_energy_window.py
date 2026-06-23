@@ -48,6 +48,19 @@ class TestMdcEnergyWindow(unittest.TestCase):
         # Clean flat band, no window: kF sits at ~0.18 everywhere.
         self.assertTrue(np.all(np.abs(kf[np.isfinite(kf)] - 0.18) < 0.02))
 
+    def test_default_window_is_enabled(self):
+        # P1: energy integration is the default noise control (≈±10 meV).
+        from arpes.core.session import FitParams
+        self.assertAlmostEqual(FitParams().mdc_energy_window, 0.02, places=6)
+
+    def test_integration_on_raw_does_not_bias_gamma(self):
+        # Integrating raw rows over E (then a light k-smooth) must NOT inflate Γ:
+        # the band is flat so the integrated MDC keeps the true width 0.04.
+        data, kpar, ev_arr = _flat_band(noise=0.04, seed=7)
+        g = np.asarray(_fit(data, kpar, ev_arr, 0.03)["gamma_corrige"][0], dtype=float)
+        g = g[np.isfinite(g)]
+        self.assertLess(float(np.nanmedian(g)), 0.06)
+
 
 if __name__ == "__main__":
     unittest.main()

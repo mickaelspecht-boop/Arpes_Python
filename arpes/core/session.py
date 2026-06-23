@@ -52,7 +52,7 @@ class FitParams:
     hold_gamma: bool = False
     min_amplitude: float = 0.01
     max_jump: float = 0.20
-    mdc_energy_window: float = 0.0  # eV; >0 integrates ±half over E per MDC (anti-serpentage)
+    mdc_energy_window: float = 0.02  # eV; integrates ±half over E per MDC = primary noise control (doesn't broaden Γ). 0 = single row.
     scan_direction: str = "up"
     dE_meV: float = 15.0
     dk_inv_a: float = 0.005

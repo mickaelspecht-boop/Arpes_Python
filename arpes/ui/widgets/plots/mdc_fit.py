@@ -281,10 +281,14 @@ def fit_mdc_peak_pairs(
         # petite devant l'échelle de dispersion.
         if mdc_energy_window > 0:
             e_mask = np.abs(ev_arr - ev_arr[ie]) <= 0.5 * float(mdc_energy_window)
-            block = I_fit[:, e_mask]
-            mdc_full = np.nanmean(block, axis=1) if block.shape[1] else I_fit[:, ie]
+            block = data_cut[:, e_mask]   # intègre la donnée BRUTE (pas I_fit lissé-k)
+            mdc_raw = np.nanmean(block, axis=1) if block.shape[1] else data_cut[:, ie].astype(float)
         else:
-            mdc_full = I_fit[:, ie]
+            mdc_raw = data_cut[:, ie].astype(float)
+        # Lissage k appliqué une seule fois, APRÈS l'intégration en énergie : il
+        # élargit le pic (donc Γ) et n'est pas déconvolué → garder petit. La
+        # réduction du bruit doit venir de mdc_energy_window, pas de smooth_fit.
+        mdc_full = gaussian_filter1d(mdc_raw, sigma=smooth_fit) if smooth_fit and smooth_fit > 0 else mdc_raw
         mdc      = mdc_full[k_mask]
         mx = mdc.max()
         if mx <= 0:
@@ -456,10 +460,12 @@ def fit_mdc_peak_pairs(
         _, glc = _resolution_correct_gamma(
             e_arr_out[sort_idx], k0_out[i], gamma_left_brut[i],
             dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+            smooth_fit_sigma_px=smooth_fit, dk_pixel=dk,
         )
         _, grc = _resolution_correct_gamma(
             e_arr_out[sort_idx], k0_out[i], gamma_right_brut[i],
             dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+            smooth_fit_sigma_px=smooth_fit, dk_pixel=dk,
         )
         gamma_left_corrige.append(glc)
         gamma_right_corrige.append(grc)
@@ -469,6 +475,7 @@ def fit_mdc_peak_pairs(
         gmin, gcorr = _resolution_correct_gamma(
             e_arr_out[sort_idx], k0_out[i], gamma_brut[i],
             dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+            smooth_fit_sigma_px=smooth_fit, dk_pixel=dk,
         )
         gamma_min.append(gmin)
         gamma_corrige.append(gcorr)

@@ -211,20 +211,33 @@ def _local_velocity_from_k(e_arr, k_arr, idx, half_window=2):
     return abs(1.0 / dk_dE)
 
 
-def _resolution_correct_gamma(e_arr, k0_series, gamma_series, dE_eV, dk_inv_a):
+_GAUSS_SIGMA_TO_FWHM = 2.3548200450309493  # 2·√(2·ln2)
+
+
+def _resolution_correct_gamma(e_arr, k0_series, gamma_series, dE_eV, dk_inv_a,
+                              *, smooth_fit_sigma_px=0.0, dk_pixel=0.0):
     """Retourne gamma_min et gamma_corrige pour une serie de largeurs MDC.
 
     ``gamma_series`` is the MDC **HWHM** (same convention as ``_lor_peak``).
     ``dE_eV`` / ``dk_inv_a`` are the instrument resolutions in **FWHM** (UI:
     "ΔE FWHM", "Δk FWHM"). Quadrature subtraction must be HWHM-vs-HWHM, so the
     FWHM resolution is converted to HWHM (×0.5) before being subtracted:
-    Γ_intrinsic = √(Γ_HWHM² − Γ_res_HWHM²), Γ_res_HWHM = ½√(Δk² + (ΔE/vF)²).
+    Γ_intrinsic = √(Γ_HWHM² − Γ_res_HWHM²), Γ_res_HWHM = ½√(Δk_eff² + (ΔE/vF)²).
+
+    ``smooth_fit_sigma_px`` (the Gaussian k-smoothing applied to the fitted MDC,
+    in pixels) broadens the peak exactly like an extra Δk and is **not** an
+    instrument effect, so it is folded into Δk_eff and deconvolved here:
+    Δk_eff = √(Δk_inst² + Δk_smooth²), Δk_smooth(FWHM) = 2√(2ln2)·σ_px·dk_pixel.
+    This removes the smoothing bias on Γ without making smooth_fit a duplicate
+    detection knob. dk_pixel = |kpar[1]−kpar[0]| (π/a per pixel).
     """
     e = np.asarray(e_arr, dtype=float)
     k0 = np.asarray(k0_series, dtype=float)
     gamma = np.asarray(gamma_series, dtype=float)
     dE = max(float(dE_eV or 0.0), 0.0)
-    dk = max(float(dk_inv_a or 0.0), 0.0)
+    dk_inst = max(float(dk_inv_a or 0.0), 0.0)
+    dk_smooth = _GAUSS_SIGMA_TO_FWHM * max(float(smooth_fit_sigma_px or 0.0), 0.0) * abs(float(dk_pixel or 0.0))
+    dk = float(np.sqrt(dk_inst * dk_inst + dk_smooth * dk_smooth))  # effective Δk FWHM
     gamma_min = np.full_like(gamma, 0.5 * dk, dtype=float)  # HWHM resolution floor
     for i in range(gamma.size):
         vf = _local_velocity_from_k(e, k0, i)

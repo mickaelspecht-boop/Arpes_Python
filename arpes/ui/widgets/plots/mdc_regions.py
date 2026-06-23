@@ -381,6 +381,7 @@ def fit_mdc_free_region_result(
     k_fit = kpar[k_mask]
     if k_fit.size < max(8, 3 * n_lor + 2):
         return _empty_free_region_result(I_fit, kpar, ev_arr, k_fit, n_lor, resolution_source, dE_eV, dk_inv_a)
+    dk_pix = abs(float(k_fit[1] - k_fit[0])) if k_fit.size > 1 else 0.0
 
     model = _make_multi_lor(n_lor)
     lo = [-np.inf, -np.inf] + [float(k_fit[0]), max(1e-9, float(dk_inv_a or 0.0)), 0.0] * n_lor
@@ -426,10 +427,12 @@ def fit_mdc_free_region_result(
         ie = int(np.argmin(np.abs(ev_arr - ev_i)))
         if mdc_energy_window > 0:
             e_mask = np.abs(ev_arr - ev_arr[ie]) <= 0.5 * float(mdc_energy_window)
-            block = I_fit[:, e_mask]
-            mdc_full = np.nanmean(block, axis=1) if block.shape[1] else I_fit[:, ie]
+            block = data_cut[:, e_mask]   # intègre la donnée BRUTE (pas I_fit lissé-k)
+            mdc_raw = np.nanmean(block, axis=1) if block.shape[1] else data_cut[:, ie].astype(float)
         else:
-            mdc_full = I_fit[:, ie]
+            mdc_raw = data_cut[:, ie].astype(float)
+        # Lissage k une seule fois, après l'intégration énergie (cf mdc_fit.py).
+        mdc_full = gaussian_filter1d(mdc_raw, sigma=smooth_fit) if smooth_fit and smooth_fit > 0 else mdc_raw
         mdc = mdc_full[k_mask]
         mx = float(np.nanmax(mdc)) if mdc.size else 0.0
         if mx <= 0:
@@ -530,6 +533,7 @@ def fit_mdc_free_region_result(
         gmin, gcorr = _resolution_correct_gamma(
             e_sorted, k0[i], g_sorted[i],
             dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+            smooth_fit_sigma_px=smooth_fit, dk_pixel=dk_pix,
         )
         gamma_min.append(gmin)
         gamma_corrige.append(gcorr)

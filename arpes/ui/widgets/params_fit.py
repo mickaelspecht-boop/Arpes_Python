@@ -315,8 +315,11 @@ def _build_detect_section(panel, _fcl) -> None:
     )
     panel.sp_sff = dspin(2.0, 0.0, 10.0, 0.5, dec=1)
     panel.sp_sff.setToolTip(
-        "Gaussian smoothing sigma applied to the MDC before scipy optimization.\n"
-        "Increase for noisy data. See the orange curve in the MDC plot."
+        "Gaussian k-smoothing sigma (pixels) applied to the MDC before scipy "
+        "optimization.\nFor noise, prefer 'MDC ΔE window' (energy integration) — "
+        "it does not widen the peak. This σ broadens Γ, but its Gaussian width is "
+        "now folded into the resolution deconvolution (gamma_corrige), so the bias "
+        "is compensated. See the orange curve in the MDC plot."
     )
     panel.sp_sfd = dspin(3.0, 0.0, 10.0, 0.5, dec=1)
     panel.sp_sfd.setToolTip(
@@ -333,12 +336,13 @@ def _build_detect_section(panel, _fcl) -> None:
         "Maximum allowed jump between consecutive kF positions (π/a).\n"
         "Controls dispersion continuity during the full fit."
     )
-    panel.sp_mdc_ewin = dspin(0.0, 0.0, 0.2, 0.005, dec=3)
+    panel.sp_mdc_ewin = dspin(0.02, 0.0, 0.2, 0.005, dec=3)
     panel.sp_mdc_ewin.setToolTip(
-        "Energy integration window per MDC (eV, full width). 0 = single energy "
-        "row.\nAveraging ±half over E cuts noise that makes kF(E) wiggle, without "
-        "biasing kF or Γ (they vary slowly with E). Keep it small vs the band "
-        "dispersion."
+        "Energy integration window per MDC (eV, full width). Default 0.02. "
+        "0 = single energy row.\nThis is the PRIMARY noise control: averaging "
+        "±half over E cuts noise that makes kF(E) wiggle, without biasing kF or "
+        "Γ (they vary slowly with E) — unlike 'Fit smoothing σ' which broadens "
+        "the peak and inflates Γ. Keep it small vs the band dispersion."
     )
     panel.sp_chi2_threshold = dspin(5.0, 0.1, 1_000.0, 0.5, dec=1)
     panel.sp_chi2_threshold.setToolTip(

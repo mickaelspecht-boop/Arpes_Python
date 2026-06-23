@@ -61,6 +61,7 @@ def _fit_mdc_free_peaks(
     kpar_fit = kpar[k_mask]
     if kpar_fit.size < max(8, 3 * n_peaks + 2):
         return _empty_free_result(I_fit, kpar, ev_arr, kpar_fit, n_pairs, shape, resolution_source, dE_eV, dk_inv_a)
+    dk_pix = abs(float(kpar_fit[1] - kpar_fit[0])) if kpar_fit.size > 1 else 0.0
 
     gamma_floor = max(1e-9, float(gamma_init) - max(abs(float(gamma_init)) * 1e-6, 1e-7)) if hold_gamma else min(max(0.001, float(dk_inv_a or 0.0)), float(gamma_max) * 0.95)
     gamma_upper = float(gamma_init) + max(abs(float(gamma_init)) * 1e-6, 1e-7) if hold_gamma else float(gamma_max)
@@ -154,10 +155,12 @@ def _fit_mdc_free_peaks(
         ie = int(np.argmin(np.abs(ev_arr - ev_i)))
         if mdc_energy_window > 0:
             e_mask = np.abs(ev_arr - ev_arr[ie]) <= 0.5 * float(mdc_energy_window)
-            block = I_fit[:, e_mask]
-            mdc_full = np.nanmean(block, axis=1) if block.shape[1] else I_fit[:, ie]
+            block = data_cut[:, e_mask]   # intègre la donnée BRUTE (pas I_fit lissé-k)
+            mdc_raw = np.nanmean(block, axis=1) if block.shape[1] else data_cut[:, ie].astype(float)
         else:
-            mdc_full = I_fit[:, ie]
+            mdc_raw = data_cut[:, ie].astype(float)
+        # Lissage k une seule fois, après l'intégration énergie (cf mdc_fit.py).
+        mdc_full = gaussian_filter1d(mdc_raw, sigma=smooth_fit) if smooth_fit and smooth_fit > 0 else mdc_raw
         mdc = mdc_full[k_mask]
         mx = float(np.nanmax(mdc)) if mdc.size else 0.0
         if mx <= 0:
@@ -255,6 +258,7 @@ def _fit_mdc_free_peaks(
         gmin, gcorr = _resolution_correct_gamma(
             e_arr_out[sort_idx], k0_out[i], gamma_brut[i],
             dE_eV=dE_eV, dk_inv_a=dk_inv_a,
+            smooth_fit_sigma_px=smooth_fit, dk_pixel=dk_pix,
         )
         gamma_min.append(gmin)
         gamma_corrige.append(gcorr)
