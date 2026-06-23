@@ -26,6 +26,7 @@ class MultiFilePoint:
     gamma_zero: float = float("nan")
     gamma_zero_sigma: float = float("nan")
     direction: str = ""
+    compound: str = ""              # sample/compound label (grouping & colour)
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,8 @@ def _point_from_entry(
     if branch is None:
         return None
     gamma = bundle.gamma_fl[branch.pair_index] if branch.pair_index < len(bundle.gamma_fl) else None
-    x_value, x_label = _x_value(entry, x_axis, category_map)
+    compound = compound_label(filename)
+    x_value, x_label = _x_value(entry, x_axis, category_map, compound)
     if not np.isfinite(x_value):
         return None
     return MultiFilePoint(
@@ -117,16 +119,40 @@ def _point_from_entry(
         gamma_zero=float(gamma.gamma_zero) if gamma is not None else float("nan"),
         gamma_zero_sigma=float(gamma.gamma_zero_sigma) if gamma is not None else float("nan"),
         direction=str(entry.meta.direction or ""),
+        compound=compound,
     )
 
 
-def _x_value(entry: FileEntry, x_axis: str, category_map: dict[str, int]) -> tuple[float, str]:
+def compound_label(filename: str) -> str:
+    """Short compound/sample label for grouping & colour.
+
+    Uses the session-key prefix (the sample folder), e.g.
+    ``"Ba122Cu_C13/BM2" -> "Cu_C13"``. Strips a leading ``Ba122`` so the legend
+    reads ``Cu_C13``, ``Cr_C10``, ``C05_2`` … Falls back to the raw name when
+    there is no ``/`` (synthetic test entries).
+    """
+    prefix = str(filename).split("/", 1)[0].strip()
+    if not prefix:
+        return str(filename)
+    for tag in ("Ba122_", "Ba122"):
+        if prefix.startswith(tag):
+            return prefix[len(tag):] or prefix
+    return prefix
+
+
+def _x_value(entry: FileEntry, x_axis: str, category_map: dict[str, int],
+             compound: str = "") -> tuple[float, str]:
     meta = entry.meta
     if x_axis == "hν":
         value = float(meta.hv or np.nan)
         return value, f"{value:g}"
     if x_axis == "polarisation":
         label = str(meta.polarization or "").strip() or "?"
+        if label not in category_map:
+            category_map[label] = len(category_map)
+        return float(category_map[label]), label
+    if x_axis == "dopant":
+        label = compound or "?"
         if label not in category_map:
             category_map[label] = len(category_map)
         return float(category_map[label]), label

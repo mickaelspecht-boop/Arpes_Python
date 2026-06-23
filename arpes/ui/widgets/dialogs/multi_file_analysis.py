@@ -1,8 +1,18 @@
-"""Multi-file analysis dialog for kF, m*, and Gamma0."""
+"""Multi-file analysis dialog — one coloured series per compound.
+
+Article-style comparison of the physical results (kF, vF, m*, Γ₀) across the
+fitted entries. Points are **grouped by compound** (sample folder) so each
+compound is its own coloured line, instead of a single blurred series. The
+x-axis is selectable (temperature, hν, polarisation, dopant), which covers both
+"several compounds at one T" (x = dopant) and "one compound vs T" (x = T).
+"""
 from __future__ import annotations
 
+from collections import OrderedDict
+
+import matplotlib.pyplot as plt
 import numpy as np
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -12,13 +22,20 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
-    QSlider,
     QVBoxLayout,
 )
 
-from arpes.analysis.aggregation import MultiFileSeries, aggregate_session_entries
+from arpes.analysis.aggregation import aggregate_session_entries
 from arpes.core.session import Session
 from arpes.ui.widgets.canvas import MplCanvas
+
+_PANELS = [
+    (r"$k_F$ (π/a)", "kF", "kF_sigma"),
+    (r"$v_F$ (eV·π/a)", "vF", "vF_sigma"),
+    (r"$m^*/m_e$", "m_star", "m_star_sigma"),
+    (r"$\Gamma_0$ (π/a)", "gamma_zero", "gamma_zero_sigma"),
+]
+_X_ITEMS = ["T (K)", "hν", "polarisation", "dopant"]
 
 
 class MultiFileAnalysisDialog(QDialog):
@@ -26,10 +43,11 @@ class MultiFileAnalysisDialog(QDialog):
         super().__init__(parent)
         self._session = session
         self.setWindowTitle("Multi-file Analysis")
-        self.resize(920, 680)
+        self.resize(980, 720)
         self._build()
         self._populate_files()
 
+    # ── UI ────────────────────────────────────────────────────────────────
     def _build(self) -> None:
         root = QVBoxLayout(self)
         filters = QGridLayout()
@@ -45,10 +63,14 @@ class MultiFileAnalysisDialog(QDialog):
         filters.addWidget(QLabel("T"), 1, 2)
         self._cmb_temp = QComboBox()
         filters.addWidget(self._cmb_temp, 1, 3)
-        filters.addWidget(QLabel("Axe X"), 2, 0)
+        filters.addWidget(QLabel("X axis"), 2, 0)
         self._cmb_x = QComboBox()
-        self._cmb_x.addItems(["T (K)", "hν", "polarisation"])
+        self._cmb_x.addItems(_X_ITEMS)
+        self._cmb_x.setToolTip(
+            "Compare several compounds at one T → set filters then X = dopant.\n"
+            "Follow one compound vs T → X = T. Each compound is its own line.")
         filters.addWidget(self._cmb_x, 2, 1)
+        self._cmb_x.currentTextChanged.connect(self._plot)
         self._btn_plot = QPushButton("Plot")
         self._btn_plot.clicked.connect(self._plot)
         filters.addWidget(self._btn_plot, 2, 3)
@@ -58,7 +80,9 @@ class MultiFileAnalysisDialog(QDialog):
 
         mid = QHBoxLayout()
         self._list = QListWidget()
-        mid.addWidget(self._list, stretch=1)
+        self._list.setMaximumWidth(220)
+        self._list.itemChanged.connect(lambda *_: self._plot())
+        mid.addWidget(self._list, stretch=0)
         self._canvas = MplCanvas(figsize=(8, 6), toolbar=True, nrows=4)
         self._canvas.fig.clear()
         self._canvas.axes = list(self._canvas.fig.subplots(2, 2).ravel())
@@ -66,36 +90,13 @@ class MultiFileAnalysisDialog(QDialog):
         mid.addWidget(self._canvas, stretch=3)
         root.addLayout(mid, stretch=1)
 
-        anim_row = QHBoxLayout()
-        self._btn_play = QPushButton("▶ Play")
-        self._btn_play.setCheckable(True)
-        self._btn_play.toggled.connect(self._on_play_toggled)
-        anim_row.addWidget(self._btn_play)
-        self._slider = QSlider(Qt.Orientation.Horizontal)
-        self._slider.setMinimum(0)
-        self._slider.setMaximum(0)
-        self._slider.setEnabled(False)
-        self._slider.valueChanged.connect(self._on_slider_changed)
-        anim_row.addWidget(self._slider, stretch=1)
-        anim_row.addWidget(QLabel("speed (ms):"))
-        self._cmb_speed = QComboBox()
-        self._cmb_speed.addItems(["300", "600", "1000", "2000"])
-        self._cmb_speed.setCurrentText("1000")
-        self._cmb_speed.currentTextChanged.connect(self._on_speed_changed)
-        anim_row.addWidget(self._cmb_speed)
-        root.addLayout(anim_row)
-
-        self._timer = QTimer(self)
-        self._timer.setInterval(1000)
-        self._timer.timeout.connect(self._step_animation)
-        self._highlight_artists: list = []
-        self._series = None
-
         self._lbl_status = QLabel("")
         self._lbl_status.setStyleSheet("color:#333;font-size:10px;")
         root.addWidget(self._lbl_status)
 
+    # ── population / filters ───────────────────────────────────────────────
     def _populate_files(self) -> None:
+        self._list.blockSignals(True)
         self._list.clear()
         self._populate_filter_combos()
         for name, entry in self._session.files.items():
@@ -103,13 +104,13 @@ class MultiFileAnalysisDialog(QDialog):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if entry.fit_result else Qt.CheckState.Unchecked)
             if not entry.fit_result:
-                item.setToolTip("Ignoré: aucun fit_result.")
+                item.setToolTip("Ignored: no fit_result.")
             else:
                 item.setToolTip(
                     f"T={entry.meta.temperature:g} K, hν={entry.meta.hv:g}, "
-                    f"dir={entry.meta.direction}, pol={entry.meta.polarization}"
-                )
+                    f"dir={entry.meta.direction}, pol={entry.meta.polarization}")
             self._list.addItem(item)
+        self._list.blockSignals(False)
         self._apply_filters()
 
     def _populate_filter_combos(self) -> None:
@@ -131,7 +132,7 @@ class MultiFileAnalysisDialog(QDialog):
             cmb.blockSignals(True)
             current = cmb.currentText()
             cmb.clear()
-            cmb.addItem("Tous")
+            cmb.addItem("All")
             for value in values:
                 cmb.addItem(fmt(value))
             if current:
@@ -151,17 +152,20 @@ class MultiFileAnalysisDialog(QDialog):
             (self._cmb_hv.currentText(), f"{float(meta.hv or np.nan):g}"),
             (self._cmb_temp.currentText(), f"{float(meta.temperature or np.nan):g}"),
         ]
-        return all(sel == "Tous" or sel == value for sel, value in checks)
+        return all(sel in ("All", "") or sel == value for sel, value in checks)
 
     def _apply_filters(self) -> None:
         shown = 0
+        self._list.blockSignals(True)
         for i in range(self._list.count()):
             item = self._list.item(i)
             match = self._entry_matches_filters(item.text())
             item.setHidden(not match)
             if match:
                 shown += 1
-        self._lbl_status.setText(f"{shown} fichier(s) affichés par les filtres.")
+        self._list.blockSignals(False)
+        self._lbl_status.setText(f"{shown} file(s) shown by the filters.")
+        self._plot()
 
     def _selected_names(self) -> list[str]:
         out = []
@@ -171,118 +175,81 @@ class MultiFileAnalysisDialog(QDialog):
                 out.append(item.text())
         return out
 
+    def _x_axis_key(self) -> str:
+        return self._cmb_x.currentText()
+
+    # ── plotting ────────────────────────────────────────────────────────────
     def _plot(self) -> None:
+        names = self._selected_names()
         series = aggregate_session_entries(
-            self._session,
-            self._selected_names(),
-            x_axis=self._x_axis_key(),
-            direction_filter="" if self._cmb_direction.currentText() == "Tous" else self._cmb_direction.currentText(),
+            self._session, names, x_axis=self._x_axis_key(),
+            direction_filter="" if self._cmb_direction.currentText() in ("All", "")
+            else self._cmb_direction.currentText(),
         )
-        self._series = series
-        self._highlight_artists = []
         self._draw_series(series)
         n = len(series.points)
-        self._slider.blockSignals(True)
-        self._slider.setMaximum(max(0, n - 1))
-        self._slider.setValue(0)
-        self._slider.setEnabled(n > 1)
-        self._slider.blockSignals(False)
-        self._btn_play.setEnabled(n > 1)
-        if self._btn_play.isChecked():
-            self._btn_play.setChecked(False)
+        n_comp = len({p.compound for p in series.points})
         self._lbl_status.setText(
-            f"{n} point(s), {series.skipped} ignoré(s). {series.warning}".strip()
-        )
+            f"{n} point(s) · {n_comp} compound(s) · {series.skipped} skipped. "
+            f"{series.warning}".strip())
 
-    def _on_play_toggled(self, checked: bool) -> None:
-        if checked and self._series and len(self._series.points) > 1:
-            self._timer.start()
-            self._btn_play.setText("■ Stop")
-        else:
-            self._timer.stop()
-            self._btn_play.setText("▶ Play")
-
-    def _on_speed_changed(self, text: str) -> None:
-        try:
-            self._timer.setInterval(int(text))
-        except (TypeError, ValueError):
-            pass
-
-    def _step_animation(self) -> None:
-        if self._series is None:
-            return
-        n = len(self._series.points)
-        if n == 0:
-            return
-        next_val = (self._slider.value() + 1) % n
-        self._slider.setValue(next_val)
-
-    def _on_slider_changed(self, idx: int) -> None:
-        if self._series is None:
-            return
-        for art in self._highlight_artists:
-            try:
-                art.remove()
-            except Exception:
-                pass
-        self._highlight_artists = []
-        if not (0 <= idx < len(self._series.points)):
-            return
-        point = self._series.points[idx]
-        x = float(point.x_value)
-        ys = (point.kF, point.vF, point.m_star, point.gamma_zero)
-        for ax, y in zip(self._canvas.axes, ys):
-            try:
-                if y == y:  # not NaN
-                    art = ax.scatter([x], [y], s=120, facecolor="none",
-                                     edgecolor="#fcd34d", lw=2.0, zorder=10)
-                    self._highlight_artists.append(art)
-            except Exception:
-                pass
-        self._lbl_status.setText(
-            f"Point {idx + 1}/{len(self._series.points)} "
-            f"({self._cmb_x.currentText()} = {x:g})"
-        )
-        self._canvas.redraw()
-
-    def _draw_series(self, series: MultiFileSeries) -> None:
+    def _draw_series(self, series) -> None:
         axes = self._canvas.axes
         for ax in axes:
             ax.cla()
             ax.set_facecolor("white")
         self._canvas.fig.set_facecolor("white")
-        x = np.asarray([p.x_value for p in series.points], dtype=float)
-        labels = [p.x_label for p in series.points]
-        panels = [
-            ("kF (π/a)", [p.kF for p in series.points], [p.kF_sigma for p in series.points]),
-            ("vF (eV·π/a)", [p.vF for p in series.points], [p.vF_sigma for p in series.points]),
-            ("m*/me", [p.m_star for p in series.points], [p.m_star_sigma for p in series.points]),
-            ("Γ0 (π/a)", [p.gamma_zero for p in series.points], [p.gamma_zero_sigma for p in series.points]),
-        ]
-        for ax, (ylabel, values, errors) in zip(axes, panels):
-            y = np.asarray(values, dtype=float)
-            err = np.asarray(errors, dtype=float)
-            valid = np.isfinite(x) & np.isfinite(y)
-            if valid.any():
-                yerr = np.where(np.isfinite(err) & (err > 0), err, np.nan)
-                ax.errorbar(x[valid], y[valid], yerr=yerr[valid],
-                            fmt="o-", color="#1f77b4", ecolor="#6aaed6",
-                            lw=1.2, ms=4, capsize=2)
-            ax.set_ylabel(ylabel, color="black")
-            ax.grid(True, color="#d0d0d0", lw=0.6, alpha=0.85)
-            ax.tick_params(colors="black", labelsize=8)
-            for sp in ax.spines.values():
-                sp.set_edgecolor("black")
-            ax.set_title(ylabel, fontsize=9, color="black")
-        for ax in axes[-2:]:
-            ax.set_xlabel(self._cmb_x.currentText(), color="black")
-        if self._x_axis_key() == "polarisation" and labels:
-            for ax in axes[-2:]:
-                ax.set_xticks(x)
-                ax.set_xticklabels(labels, rotation=20, ha="right")
-        self._canvas.fig.tight_layout(pad=0.6)
-        self._canvas.redraw()
 
-    def _x_axis_key(self) -> str:
-        txt = self._cmb_x.currentText()
-        return "polarisation" if txt == "polarisation" else txt
+        groups: "OrderedDict[str, list]" = OrderedDict()
+        for p in series.points:
+            groups.setdefault(p.compound or p.filename, []).append(p)
+        cmap = plt.get_cmap("tab10")
+        colours = {c: cmap(i % 10) for i, c in enumerate(groups)}
+
+        x_key = self._x_axis_key()
+        categorical = x_key in ("polarisation", "dopant")
+        tick_pos: dict[float, str] = {}
+
+        for ax, (ylabel, attr, sattr) in zip(axes, _PANELS):
+            for comp, pts in groups.items():
+                pts_s = sorted(pts, key=lambda p: p.x_value)
+                x = np.asarray([p.x_value for p in pts_s], dtype=float)
+                y = np.asarray([getattr(p, attr) for p in pts_s], dtype=float)
+                e = np.asarray([getattr(p, sattr) for p in pts_s], dtype=float)
+                valid = np.isfinite(x) & np.isfinite(y)
+                if not valid.any():
+                    continue
+                yerr = np.where(np.isfinite(e) & (e > 0), e, np.nan)
+                ax.errorbar(x[valid], y[valid], yerr=yerr[valid], fmt="o-",
+                            color=colours[comp], ecolor=colours[comp], lw=1.6,
+                            ms=5, capsize=2, elinewidth=1.0, label=comp)
+                for p in pts_s:
+                    tick_pos[float(p.x_value)] = p.x_label
+            ax.set_ylabel(ylabel, color="black", fontsize=11)
+            ax.set_title(ylabel, fontsize=10, color="black")
+            ax.grid(True, color="#d8d8d8", lw=0.6, alpha=0.9)
+            ax.tick_params(colors="black", labelsize=9)
+            for sp in ax.spines.values():
+                sp.set_edgecolor("#444")
+
+        xlabel = {"T (K)": "Temperature (K)", "hν": "hν (eV)",
+                  "polarisation": "Polarisation", "dopant": "Compound"}.get(x_key, x_key)
+        for ax in axes[-2:]:
+            ax.set_xlabel(xlabel, color="black", fontsize=11)
+        if categorical and tick_pos:
+            xs = sorted(tick_pos)
+            for ax in axes:
+                ax.set_xticks(xs)
+                ax.set_xticklabels([tick_pos[v] for v in xs], rotation=25,
+                                   ha="right", fontsize=8)
+
+        handles, labels = axes[0].get_legend_handles_labels()
+        if handles:
+            ncol = min(len(labels), 5)
+            self._canvas.fig.legend(handles, labels, loc="upper center",
+                                    ncol=ncol, fontsize=9, frameon=True,
+                                    facecolor="white", edgecolor="#bbb")
+            self._canvas.fig.tight_layout(rect=(0, 0, 1, 0.93))
+        else:
+            self._canvas.fig.tight_layout()
+        self._canvas.redraw()
