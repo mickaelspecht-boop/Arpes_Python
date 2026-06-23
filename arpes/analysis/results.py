@@ -133,6 +133,19 @@ def weighted_linear_fit(
     intercept = (swxx * swy - swx * swxy) / delta
     slope_var = sw / delta
     intercept_var = swxx / delta
+    # Scale the covariance by the reduced χ² (scipy curve_fit absolute_sigma=False).
+    # The formal covariance trusts the input σ as true statistical errors; when
+    # they are mis-scaled (e.g. ensemble-jitter σ that under-estimate the real
+    # scatter), it reports absurdly small σ_intercept/σ_slope. Rescaling by the
+    # data's own scatter makes the parameter σ reflect the goodness of fit.
+    n_pts = int(valid.sum())
+    dof = n_pts - 2
+    if dof > 0:
+        resid = y - (slope * x + intercept)
+        chi2_red = float(np.sum(w * resid * resid)) / dof
+        if math.isfinite(chi2_red) and chi2_red > 0:
+            slope_var *= chi2_red
+            intercept_var *= chi2_red
     return LinearFit(
         slope=float(slope),
         slope_sigma=float(math.sqrt(max(slope_var, 0.0))),

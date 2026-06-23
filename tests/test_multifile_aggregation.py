@@ -81,6 +81,20 @@ class TestMultiFileAggregation(unittest.TestCase):
         self.assertIn("Missing lattice parameter a", series.warning)
 
 
+class TestWeightedLinearFit(unittest.TestCase):
+    def test_chi2_rescaling_inflates_sigma_when_input_sigma_too_small(self):
+        # Points scatter ±0.1 about the line but the stated σ is 0.001 (100×
+        # too small, e.g. ensemble-jitter σ). The parameter σ must reflect the
+        # real scatter, not the (overconfident) formal covariance.
+        from arpes.analysis.results import weighted_linear_fit
+        x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        y = 2.0 + 1.0 * x + np.array([0.1, -0.1, 0.1, -0.1, 0.1])
+        sigma = np.full(5, 0.001)
+        fit = weighted_linear_fit(x, y, sigma)
+        self.assertAlmostEqual(fit.slope, 1.0, delta=0.1)
+        self.assertGreater(fit.intercept_sigma, 0.02)  # ~0.001 without rescaling
+
+
 class TestRepresentativeBranch(unittest.TestCase):
     def test_picks_lowest_relative_mstar_sigma(self):
         from arpes.analysis.results import BranchResult, select_representative_branch
