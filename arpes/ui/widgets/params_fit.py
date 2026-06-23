@@ -498,13 +498,19 @@ def _build_fit_buttons(panel, _fcl) -> None:
         "(côté E_F). Permet de revenir au slice initial après avoir navigué.")
     panel.btn_goto_fit_slice.clicked.connect(panel.goto_fit_slice_requested)
     post_lay.addWidget(panel.btn_goto_fit_slice)
-    panel.chk_postfit_view = QCheckBox("Vue post-fit (data+modèle+fond)")
-    panel.chk_postfit_view.setToolTip(
-        "Affiche dans la fenêtre MDC le fit STOCKÉ à la tranche courante :\n"
-        "données, modèle total, fond linéaire, pics (fit−fond) et résidu.\n"
-        "Permet de comprendre ce que le fit a réellement ajusté.")
-    panel.chk_postfit_view.toggled.connect(panel.fit_only_changed)
-    post_lay.addWidget(panel.chk_postfit_view)
+    panel.btn_postfit_view = compact_button(
+        QPushButton("Vue post-fit"), max_width=170)
+    panel.btn_postfit_view.setCheckable(True)
+    panel.btn_postfit_view.setStyleSheet(
+        "QPushButton{background:#374151;color:#cde;font-weight:bold;padding:6px;}"
+        "QPushButton:checked{background:#0e7490;color:white;}")
+    panel.btn_postfit_view.setToolTip(
+        "Bascule la fenêtre MDC entre la vue d'init (guess) et la vue POST-FIT :\n"
+        "le fit STOCKÉ à la tranche courante — données, modèle total, fond "
+        "linéaire, pics (fit−fond) et résidu — pour comprendre ce qu'a ajusté "
+        "le fit. Nécessite un Full fit (l'ensemble ne stocke pas le modèle).")
+    panel.btn_postfit_view.toggled.connect(panel.fit_only_changed)
+    post_lay.addWidget(panel.btn_postfit_view)
     post_lay.addStretch(1)
     actions_lay_root.addWidget(post_row)
 

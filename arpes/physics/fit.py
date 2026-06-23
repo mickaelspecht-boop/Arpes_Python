@@ -556,6 +556,8 @@ def detect_n_pairs(
 
 def _sanitize(obj):
     """JSON-safe conversion: numpy scalars, lists, recursive dicts."""
+    if isinstance(obj, np.ndarray):
+        return _sanitize(obj.tolist())  # arrays → nested lists, never str(repr)
     if isinstance(obj, dict):
         return {str(k): _sanitize(v) for k, v in sorted(obj.items())}
     if isinstance(obj, (list, tuple)):

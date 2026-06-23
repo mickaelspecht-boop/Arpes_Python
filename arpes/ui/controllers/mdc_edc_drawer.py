@@ -11,11 +11,24 @@ from arpes.ui.controllers.plot_model_helpers import build_model_pairs
 from arpes.ui.controllers.fit_overlay_drawer import PAIR_COLORS
 
 
+def _num_array(v):
+    """Coerce to a float ndarray, or None if not numeric (e.g. a stringified
+    legacy array saved by an old ensemble fit). Never raises."""
+    if v is None:
+        return None
+    try:
+        a = np.asarray(v, dtype=float)
+    except (ValueError, TypeError):
+        return None
+    return a if a.ndim == 1 and a.size else None
+
+
 def _postfit_slice(ctrl):
     """(fit_kpar, total, bg, residual, E) for the fitted slice nearest _sel_ev.
 
-    None if no fit / no fit_curves. Data is reconstructed as total+residual so it
-    shares the fit's normalisation exactly (no re-scaling mismatch).
+    None if no fit / no usable per-slice model (ensemble fits store no
+    fit_curves; legacy fits may have stringified arrays). Data is reconstructed
+    as total+residual so it shares the fit's normalisation exactly.
     """
     fr = None
     try:
@@ -25,32 +38,46 @@ def _postfit_slice(ctrl):
         fr = getattr(ctrl, "_fit_res", None)
     if not fr:
         return None
-    ev = np.asarray(fr.get("e_fitted") or [], dtype=float)
+    ev = _num_array(fr.get("e_fitted"))
+    kf = _num_array(fr.get("fit_kpar"))
     fc = fr.get("fit_curves") or []
-    kf = np.asarray(fr.get("fit_kpar") or [], dtype=float)
-    if ev.size == 0 or not fc or kf.size == 0:
+    if ev is None or kf is None or not fc:
         return None
     idx = int(np.argmin(np.abs(ev - ctrl._sel_ev)))
     if not (0 <= idx < len(fc)):
         return None
-    total = np.asarray(fc[idx], dtype=float)
-    if total.size != kf.size:
+    total = _num_array(fc[idx])
+    if total is None or total.size != kf.size:
         return None
+
     def _at(key):
         arr = fr.get(key) or []
         if 0 <= idx < len(arr):
-            v = np.asarray(arr[idx], dtype=float)
-            return v if v.size == kf.size else None
+            a = _num_array(arr[idx])
+            return a if (a is not None and a.size == kf.size) else None
         return None
+
     return kf, total, _at("fit_bg"), _at("residuals"), float(ev[idx])
 
 
 def draw_postfit_mdc(ctrl, ax_mdc) -> bool:
     """Draw the stored fit at the current slice: data, total, background, peaks,
-    residual. Returns True if it rendered (a fit exists for this slice)."""
+    residual. Always returns True when called (the toggle owns the view): shows
+    a clear note when no per-slice model is available (e.g. ensemble fit)."""
     out = _postfit_slice(ctrl)
     if out is None:
-        return False
+        ax_mdc.text(
+            0.5, 0.5,
+            "Vue post-fit indisponible pour cette tranche.\n"
+            "Lance un « Full fit » (l'ensemble ne stocke pas le modèle par tranche),\n"
+            "ou re-fitte ce fichier.",
+            transform=ax_mdc.transAxes, ha="center", va="center",
+            color="#e6b35a", fontsize=8.5)
+        ax_mdc.set_title("Post-fit MDC — indisponible", fontsize=8, color="w")
+        ax_mdc.tick_params(colors="w", labelsize=7)
+        for sp in ax_mdc.spines.values():
+            sp.set_edgecolor("#555")
+        return True
     kf, total, bg, resid, e_used = out
     data = total + resid if (resid is not None) else None
     if data is not None:
@@ -97,10 +124,11 @@ def draw_mdc_edc(ctrl) -> None:
         or params.chk_fit_slice_inspector.isChecked()
     )
 
-    # Post-fit view (toggle): show the stored fit decomposition for this slice
-    # instead of the live guess preview.
+    # Post-fit view (toggle button): show the stored fit decomposition for this
+    # slice instead of the live guess preview.
+    _pf = getattr(params, "btn_postfit_view", None)
     mdc_done = False
-    if getattr(params, "chk_postfit_view", None) is not None and params.chk_postfit_view.isChecked():
+    if _pf is not None and _pf.isChecked():
         mdc_done = draw_postfit_mdc(ctrl, ax_mdc)
     res = None if mdc_done else ctrl._get_mdc()
     if res is not None:
