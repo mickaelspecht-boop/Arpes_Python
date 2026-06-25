@@ -30,7 +30,10 @@ def handle_single_click_selection(ctrl, ax, click_disp, *, additive: bool) -> No
             p._fit_selected.remove(nearest)
         else:
             p._fit_selected.append(nearest)
-    ctrl._status(f"{len(p._fit_selected)} point(s) selected. Press Delete to remove.")
+    ctrl._status(
+        f"{len(p._fit_selected)} point(s) sélectionné(s). Delete = invalider "
+        "(sans relancer le fit MDC)."
+    )
     _sync_results_link(ctrl)
 
 
@@ -70,7 +73,10 @@ def handle_rect_selection(ctrl, ax, xs, ys, *, additive: bool) -> None:
             else:
                 existing.add(h)
         p._fit_selected = list(existing)
-    ctrl._status(f"{len(p._fit_selected)} point(s) selected. Press Delete to remove.")
+    ctrl._status(
+        f"{len(p._fit_selected)} point(s) sélectionné(s). Delete = invalider "
+        "(sans relancer le fit MDC)."
+    )
     _sync_results_link(ctrl)
 
 

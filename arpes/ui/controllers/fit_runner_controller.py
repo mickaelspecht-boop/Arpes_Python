@@ -97,9 +97,7 @@ class FitRunnerController:
         tabs.setTabText(0, f"Fit MDC {marker} {n_e}{suffix}")
 
     def _redraw_all_fit_views(self) -> None:
-        """Rafraîchit BM + MDC map + MDC EDC après fit/clear, quel que soit
-        l'onglet actif. Corrige : kF n'apparaissait que sur l'onglet courant
-        (BM si fit lancé depuis BM), forçait switch+revenir pour voir MDC."""
+        """Refresh every consumer of fit_result after fit/clear/zone changes."""
         p = self._parent
         for name in ("_draw_bm", "_draw_mdc_energy_map", "_draw_mdc_edc",
                      "_draw_mdc_waterfall"):
@@ -109,28 +107,20 @@ class FitRunnerController:
                     fn()
                 except Exception:
                     pass
+        results = getattr(p, "_results", None)
+        if results is not None and hasattr(results, "refresh"):
+            try:
+                results.refresh()
+            except Exception:
+                pass
 
     def _status(self, msg: str) -> None:
         self._parent._status(msg)
 
     @staticmethod
     def _geometry_warning(fp) -> str:
-        """Warn when the pair centre Γ sits outside the fit k window.
-
-        That guarantees a meaningless symmetric pair (the band is not in the
-        window) — the exact failure on off-centre bands. Non-blocking.
-        """
-        try:
-            c, lo, hi = float(fp.center_init), float(fp.k_min), float(fp.k_max)
-        except Exception:
-            return ""
-        if lo > hi:
-            lo, hi = hi, lo
-        if not (lo <= c <= hi):
-            return (f"⚠ centre Γ ({c:+.3f}) hors fenêtre k [{lo:+.2f}, {hi:+.2f}] : "
-                    "la paire symétrique ne peut pas tomber sur la bande — "
-                    "élargis la fenêtre k ou recale le centre.")
-        return ""
+        from arpes.ui.controllers.fit_geometry import geometry_warning
+        return geometry_warning(fp)
 
     # ----------------------------------------------------------------- helpers
     def _get_work_data(self):
@@ -193,15 +183,10 @@ class FitRunnerController:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                kF_init_list = [pp.get("kF_init", 0.30) for pp in (fp.pairs or [])]
+                from arpes.ui.controllers.fit_geometry import debug_mdc_kwargs
                 r = p.ap.debug_mdc_fit(
                     data, kpar, ev,
-                    energy=p._sel_ev, n_pairs=fp.n_pairs,
-                    smooth_fit=fp.smooth_fit, smooth_detect=fp.smooth_detect,
-                    gamma_init=fp.gamma_init, gamma_max=fp.gamma_max,
-                    kF_init=kF_init_list or None, center_init=fp.center_init,
-                    xg_range=fp.xg_range, k_min=fp.k_min, k_max=fp.k_max,
-                    k0_max=fp.k0_max, width_mode=fp.width_mode, ax=ax,
+                    energy=p._sel_ev, ax=ax, **debug_mdc_kwargs(fp),
                 )
             ax.set_title(f"Guess  E={p._sel_ev:.3f} eV", fontsize=8, color="w")
             ax.tick_params(colors="w", labelsize=7)
@@ -375,6 +360,9 @@ class FitRunnerController:
             self._status("Warning: enter crystal a (A) > 0 for Im Sigma.")
             return
         wm = str(fr.get("width_mode", "symmetric"))
+        # Strict linearity gate is opt-in (checkbox); default keeps curved bands.
+        chk = getattr(self._params, "chk_strict_linear", None)
+        enforce = bool(chk is not None and chk.isChecked())
         # Mode 'independent' → exposer γL/γR séparés + moyenne. Sinon mean seul.
         wants_sides = (wm == "independent"
                        and bool(fr.get("gamma_left_corrige"))
@@ -382,15 +370,15 @@ class FitRunnerController:
         if wants_sides:
             payload = {
                 "Mean": imaginary_self_energy(fr, a, pair_index=0,
-                                                  side="mean"),
+                                                  side="mean", enforce_linear=enforce),
                 "γL (kF-)": imaginary_self_energy(fr, a, pair_index=0,
-                                                   side="left"),
+                                                   side="left", enforce_linear=enforce),
                 "γR (kF+)": imaginary_self_energy(fr, a, pair_index=0,
-                                                   side="right"),
+                                                   side="right", enforce_linear=enforce),
             }
             ref = payload["Mean"]
         else:
-            payload = imaginary_self_energy(fr, a, pair_index=0)
+            payload = imaginary_self_energy(fr, a, pair_index=0, enforce_linear=enforce)
             ref = payload
         if ref["energy"].size == 0:
             reason = str(ref.get("error") or "missing vF/Gamma")

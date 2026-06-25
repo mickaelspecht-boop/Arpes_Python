@@ -172,6 +172,14 @@ class ArpesExplorer(QMainWindow):
         self._distortion_preview_timer.timeout.connect(self._redraw_distortion_preview)
         self._fs_redraw_timer = QTimer(self); self._fs_redraw_timer.setSingleShot(True)
         self._fs_redraw_timer.timeout.connect(self._on_fs_params_changed)
+        # Coalesced session save: rapid edits and the multi-save load path only
+        # *request* a save; the real disk write fires once after a quiet period.
+        # Fluid apps never write to disk on the hot path. Flushed on close and
+        # before critical ops (folder switch, export).
+        self._save_timer = QTimer(self); self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(700)
+        self._save_timer.timeout.connect(self._flush_save)
+        self._session.set_save_scheduler(self._request_save)
 
         self._build_ui()
         self._install_shortcuts()
@@ -506,6 +514,28 @@ class ArpesExplorer(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
 
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _request_save(self) -> None:
+        """Debounce trampoline installed on the session: (re)start the timer so
+        a burst of save() requests collapses into one disk write."""
+        self._save_timer.start()
+
+    def _flush_save(self) -> None:
+        """Write the session now, cancelling any pending debounce."""
+        try:
+            self._save_timer.stop()
+        except Exception:
+            pass
+        try:
+            self._session.flush_save()
+        except Exception:
+            pass
+
+    def closeEvent(self, event):  # noqa: N802 (Qt API)
+        # Never lose edits made inside the debounce window.
+        self._flush_save()
+        super().closeEvent(event)
 
     # ─────────────────────────────────────────────────────────────────────────
     def _status(self, msg: str):

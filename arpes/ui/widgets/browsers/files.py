@@ -201,6 +201,12 @@ class FileBrowserPanel(QWidget):
         self.set_folder(Path(folder), fresh=fresh)
 
     def set_folder(self, folder: Path, *, fresh: bool = False):
+        # Persist any debounce-pending edits to the OLD folder before the path
+        # changes (reset sets folder=None, which would drop a queued save).
+        try:
+            self._session.flush_save()
+        except Exception:
+            pass
         if fresh:
             # Clear in-memory state (fits/logbook/calibs from a previous folder).
             self._session.reset(keep_folder=False)

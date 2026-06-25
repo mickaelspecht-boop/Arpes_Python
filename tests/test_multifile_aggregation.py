@@ -80,6 +80,20 @@ class TestMultiFileAggregation(unittest.TestCase):
         self.assertEqual(series.skipped, 1)
         self.assertIn("Missing lattice parameter a", series.warning)
 
+    def test_curved_dispersion_is_kept_with_quadratic_notice(self):
+        fr = _fit_result()
+        e = np.asarray(fr["e_fitted"], dtype=float)
+        fr["kF_plus"][0] = (0.25 + 0.5 * e + 8.0 * e ** 2).tolist()
+        fr["kF_minus"][0] = (-0.25 - 0.5 * e - 8.0 * e ** 2).tolist()
+        session = Session()
+        session.files["Ba122Cu_C13/BM2"] = FileEntry(
+            fit_result=fr,
+            meta=FileMeta(temperature=150.0, crystal_a_angstrom=3.96),
+        )
+        series = aggregate_session_entries(session, x_axis="dopant")
+        self.assertEqual(len(series.points), 1)
+        self.assertIn("quadratic", series.warning)
+
 
 class TestWeightedLinearFit(unittest.TestCase):
     def test_chi2_rescaling_inflates_sigma_when_input_sigma_too_small(self):

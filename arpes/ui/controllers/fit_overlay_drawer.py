@@ -301,25 +301,31 @@ def draw_kf_overlay(ctrl, ax):
     for i in range(n):
         c = PAIR_COLORS[i % len(PAIR_COLORS)]
         if i < len(fr.get("kF_minus", [])):
+            raw_m = np.asarray(fr["kF_minus"][i], dtype=float)
             xerr_m = (np.asarray(km_std_all[i], dtype=float)
                       if i < len(km_std_all) else None)
             scatter_kf_with_chi2(
-                ax,
-                smooth_kf_for_display(
-                    fr["kF_minus"][i], smooth_on=smooth_on, sigma=sm_sigma),
-                ev_f, bad_mask, c, "o",
+                ax, raw_m, ev_f, bad_mask, c, "o",
                 kf_std=xerr_m,
             )
+            if smooth_on:
+                ax.plot(
+                    smooth_kf_for_display(raw_m, smooth_on=True, sigma=sm_sigma),
+                    ev_f, color=c, lw=1.0, ls="--", alpha=0.55, zorder=4,
+                )
         if i < len(fr.get("kF_plus", [])):
+            raw_p = np.asarray(fr["kF_plus"][i], dtype=float)
             xerr_p = (np.asarray(kp_std_all[i], dtype=float)
                       if i < len(kp_std_all) else None)
             scatter_kf_with_chi2(
-                ax,
-                smooth_kf_for_display(
-                    fr["kF_plus"][i], smooth_on=smooth_on, sigma=sm_sigma),
-                ev_f, bad_mask, c, "^",
+                ax, raw_p, ev_f, bad_mask, c, "^",
                 kf_std=xerr_p,
             )
+            if smooth_on:
+                ax.plot(
+                    smooth_kf_for_display(raw_p, smooth_on=True, sigma=sm_sigma),
+                    ev_f, color=c, lw=1.0, ls="--", alpha=0.55, zorder=4,
+                )
     selected = list(getattr(ctrl._parent, "_fit_selected", []) or [])
     if selected:
         ev_f = np.asarray(fr["e_fitted"])

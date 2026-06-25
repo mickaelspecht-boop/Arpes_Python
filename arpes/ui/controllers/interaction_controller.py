@@ -68,13 +68,16 @@ class InteractionController:
         self._draw_current_view()
 
     def _on_deriv_params_changed(self, _=None):
-        """Re-run the SecDev/Curvature display when a tuning value changes."""
+        """Re-run the SecDev/Curvature display when a tuning value changes.
+
+        Debounced through the shared redraw timer: the recompute is a Gaussian
+        filter over the full image, far too heavy to run on every spinbox tick
+        while the user drags. The timer coalesces a burst into one recompute."""
         p = self._parent
         if p._cmb_view.currentText() not in ("SecDev", "Curvature"):
             return
-        p._disp_cache_key = None  # force recompute (deriv params feed the key)
-        p._update_display_data()
-        self._draw_current_view()
+        p._disp_cache_key = None      # force recompute (deriv params feed the key)
+        p._redraw_timer.start(120)    # -> _on_model_changed (recompute + redraw)
 
     def _on_view_fit_changed(self):
         p = self._parent
@@ -541,7 +544,10 @@ class InteractionController:
             summary=f"{len(sel)} point(s) marked bad",
         )
         self._params.set_fit_undo_enabled(p._undo_stack.can_undo())
-        self._status(f"{len(sel)} point(s) deleted. Use Undo to restore.")
+        self._status(
+            f"✓ {len(sel)} point(s) marqué(s) invalide(s); fit MDC non relancé. "
+            "Résultats dérivés recalculés sans ces points. Undo pour restaurer."
+        )
         self._draw_current_view(include_curves=False)
 
     def _undo_fit_delete(self) -> None:

@@ -16,6 +16,7 @@ from arpes.physics.dispersion_fit import (
     MIN_DISP_POINTS,
     curvature_ratio,
     linear_dispersion_fit,
+    local_k_of_e_fit,
 )
 from arpes.physics.fit import compute_fermi_velocity_mstar
 from arpes.analysis.results import extract_branch_result
@@ -74,6 +75,26 @@ class TestLinearDispersionFit:
         assert out["cov"][0, 0] > 0 and out["cov"][1, 1] > 0
 
 
+class TestLocalKOfEFit:
+    def test_selects_linear_for_linear_dispersion(self):
+        e = np.linspace(-0.10, 0.0, 8)
+        k = 0.25 + 0.5 * e
+        out = local_k_of_e_fit(e, k, np.full(e.size, 0.003))
+        assert out["ok"]
+        assert out["method"] == "local_linear_k_of_e"
+        assert abs(out["k0"] - 0.25) < 1e-8
+        assert abs(1.0 / out["dk_dE"] - 2.0) < 1e-8
+
+    def test_selects_quadratic_and_evaluates_at_ef(self):
+        e = np.linspace(-0.10, 0.0, 8)
+        k = 0.25 + 0.5 * e + 8.0 * e ** 2
+        out = local_k_of_e_fit(e, k, np.full(e.size, 0.001))
+        assert out["ok"]
+        assert out["method"] == "local_quadratic_k_of_e"
+        assert abs(out["k0"] - 0.25) < 1e-8
+        assert abs(1.0 / out["dk_dE"] - 2.0) < 1e-8
+
+
 # ---------------------------------------------------- extract_branch_result
 
 def _fr(slope=2.0, intercept=-0.5, *, n=25, curv=0.0, sigma_k=0.003, seed=0):
@@ -96,13 +117,12 @@ class TestExtractBranchGate:
         assert abs(br.kF_at_EF - 0.25) < 0.03
         assert br.kF_at_EF_sigma > 0
 
-    def test_nonlinear_refused(self):
-        # Strong curvature → gate rejects kF=−α/β.
+    def test_nonlinear_uses_local_quadratic(self):
         br = extract_branch_result(_fr(curv=40.0), branch="kF_plus",
                                    pair_index=0, e_window=0.10)
-        assert br.linear_ok is False
-        assert "nonlinear" in br.refused_reason
-        assert math.isnan(br.kF_at_EF)
+        assert br.linear_ok is True
+        assert br.dispersion_model == "local_quadratic_k_of_e"
+        assert math.isfinite(br.kF_at_EF)
 
     def test_too_few_points_refused(self):
         br = extract_branch_result(_fr(n=25), branch="kF_plus",
@@ -125,9 +145,19 @@ class TestFermiVelocityMstar:
         assert out["vF_sigma_eV_A"] >= 0 and out["kF_inv_A_sigma"] >= 0
         assert out["sigma_type"] in ("orthogonal_tls", "ols_regression")
 
-    def test_curved_refused_nan(self):
+    def test_curved_accepted_by_default(self):
+        # Curvature is a physical observable: by default a curved band is kept
+        # (flagged), with vF from the local slope — not rejected.
         out = compute_fermi_velocity_mstar(_fr(curv=40.0), crystal_a=4.0,
                                            branch="kF_plus", window_eV=0.10)
+        assert out["linear_ok"] is True
+        assert out["curved"] is True
+        assert math.isfinite(out["vF_eV_A"]) and out["vF_eV_A"] > 0
+
+    def test_curved_refused_when_enforce_linear(self):
+        out = compute_fermi_velocity_mstar(_fr(curv=40.0), crystal_a=4.0,
+                                           branch="kF_plus", window_eV=0.10,
+                                           enforce_linear=True)
         assert out["linear_ok"] is False
         assert "nonlinear" in out["refused_reason"]
         assert math.isnan(out["vF_eV_A"]) and math.isnan(out["mstar_over_me"])

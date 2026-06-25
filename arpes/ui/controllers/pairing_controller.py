@@ -18,6 +18,8 @@ from arpes.io.file_pairing import (
     find_bms_for_fs,
     find_fs_for_bm,
 )
+from dataclasses import replace
+
 from arpes.core.sample import lattice_a_for_entry, work_function_for_entry
 from arpes.physics.bm_cut_overlay import BZGeometry, compute_bm_cut_in_fs_frame
 

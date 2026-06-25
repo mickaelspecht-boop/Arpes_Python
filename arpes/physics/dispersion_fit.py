@@ -1,4 +1,4 @@
-"""Shared linear dispersion fit E(k) near E_F.
+"""Shared local dispersion fits near E_F.
 
 * ``linear_dispersion_fit``: E ~= slope*k + intercept with 2x2 covariance.
   Uses orthogonal regression (total least squares) when a per-point k
@@ -12,6 +12,16 @@
 
 * ``curvature_ratio``: |a|*delta_k / |b| for the quadratic fit E=a*k^2+b*k+c.
   Linearity gate before trusting kF=-intercept/slope.
+
+* ``local_k_of_e_fit``: weighted local Taylor fit
+  k(E)=k_F+(dk/dE)_F E+q E^2.  MDC fits measure k at fixed E, so this is the
+  statistically natural orientation when sigma_k is known.  AICc selects the
+  linear or quadratic local model; v_F=(dE/dk)_F=1/(dk/dE)_F.
+
+The quadratic fallback follows standard ARPES practice: measured dispersion
+may be curved near E_F, and velocity/curvature are physical observables rather
+than reasons to discard a band (Levy et al., PRB 90, 045150, 2014,
+doi:10.1103/PhysRevB.90.045150).
 
 No PyQt, no deprecated dependency. Used by ``physics.fit`` (Im Sigma path) and
 ``analysis.results`` / ``analysis.bootstrap`` (table/export).
@@ -155,3 +165,106 @@ def linear_dispersion_fit(
         return fail
     return {"ok": True, "slope": slope, "intercept": intercept,
             "cov": np.asarray(cov, dtype=float), "method": "orthogonal_tls"}
+
+
+def local_k_of_e_fit(
+    e: np.ndarray,
+    k: np.ndarray,
+    sk: np.ndarray | None,
+) -> dict:
+    """Fit local MDC dispersion ``k(E)`` and evaluate it at ``E_F=0``.
+
+    Fits degree 1 and, for at least five points, degree 2.  AICc selects the
+    quadratic only when its improved residuals justify the extra parameter.
+    ``sk`` is the MDC peak-position uncertainty and is therefore applied
+    directly on the dependent variable k.  Absolute covariance is inflated by
+    max(1, reduced chi-square), preventing overconfident input uncertainties
+    from shrinking the reported parameter errors.
+
+    Returns ``k0=k(E=0)``, ``dk_dE=(dk/dE)|0`` and their 2x2 covariance in the
+    order (dk_dE, k0).  The caller obtains ``v_F=dE/dk=1/dk_dE``.
+    """
+    fail = {
+        "ok": False, "k0": float("nan"), "dk_dE": float("nan"),
+        "cov": None, "method": "none", "degree": 0,
+        "delta_aicc": float("nan"),
+    }
+    e = np.asarray(e, dtype=float)
+    k = np.asarray(k, dtype=float)
+    if e.size < 3 or e.size != k.size or not np.all(np.isfinite(e) & np.isfinite(k)):
+        return fail
+    if float(np.ptp(e)) <= 0 or float(np.ptp(k)) <= 0:
+        return fail
+
+    sk_arr = None if sk is None else np.asarray(sk, dtype=float)
+    weighted = (
+        sk_arr is not None and sk_arr.size == e.size
+        and np.all(np.isfinite(sk_arr)) and np.all(sk_arr > 0)
+    )
+
+    def _candidate(degree: int) -> dict | None:
+        n_params = degree + 1
+        if e.size <= n_params:
+            return None
+        weights = 1.0 / sk_arr if weighted else None
+        try:
+            coef, cov = np.polyfit(
+                e, k, degree, w=weights,
+                cov="unscaled" if weighted else True,
+            )
+        except (np.linalg.LinAlgError, ValueError, TypeError):
+            return None
+        pred = np.polyval(coef, e)
+        resid = k - pred
+        if weighted:
+            chi2 = float(np.sum((resid / sk_arr) ** 2))
+            dof = e.size - n_params
+            if dof > 0:
+                cov = np.asarray(cov, dtype=float) * max(1.0, chi2 / dof)
+            score_base = chi2
+        else:
+            rss = max(float(np.sum(resid ** 2)), np.finfo(float).tiny)
+            score_base = float(e.size) * float(np.log(rss / e.size))
+        denom = e.size - n_params - 1
+        correction = (
+            2.0 * n_params * (n_params + 1) / denom
+            if denom > 0 else 1e6
+        )
+        aicc = score_base + 2.0 * n_params + correction
+        return {
+            "coef": np.asarray(coef, dtype=float),
+            "cov_full": np.asarray(cov, dtype=float),
+            "aicc": float(aicc),
+            "degree": degree,
+        }
+
+    linear = _candidate(1)
+    if linear is None:
+        return fail
+    quadratic = _candidate(2) if e.size >= MIN_DISP_POINTS else None
+    delta_aicc = (
+        float(linear["aicc"] - quadratic["aicc"])
+        if quadratic is not None else float("-inf")
+    )
+    chosen = quadratic if quadratic is not None and delta_aicc > 2.0 else linear
+    coef = chosen["coef"]
+    cov_full = chosen["cov_full"]
+    if chosen["degree"] == 1:
+        dk_dE, k0 = float(coef[0]), float(coef[1])
+        cov_local = cov_full
+        method = "local_linear_k_of_e"
+    else:
+        dk_dE, k0 = float(coef[1]), float(coef[2])
+        cov_local = cov_full[np.ix_([1, 2], [1, 2])]
+        method = "local_quadratic_k_of_e"
+    if (
+        not np.isfinite(dk_dE) or abs(dk_dE) < SLOPE_FLOOR
+        or not np.isfinite(k0) or not np.all(np.isfinite(cov_local))
+    ):
+        return fail
+    return {
+        "ok": True, "k0": k0, "dk_dE": dk_dE,
+        "cov": np.asarray(cov_local, dtype=float),
+        "method": method, "degree": int(chosen["degree"]),
+        "delta_aicc": delta_aicc,
+    }

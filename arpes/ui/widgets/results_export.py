@@ -33,6 +33,7 @@ def export_fig(panel) -> None:
 
 
 def build_scientific_export_figure(panel):
+    from arpes.ui.widgets import results_bands
     visible = panel._visible_files()
     fig, (ax_d, ax_g) = plt.subplots(1, 2, figsize=(11.0, 4.6), constrained_layout=True)
     fig.patch.set_facecolor("white")
@@ -60,20 +61,35 @@ def build_scientific_export_figure(panel):
         fidx += 1
         label_base = f"{name}"
         for i in range(int(fr.get("n_pairs") or entry.fit_params.n_pairs or 1)):
+            if not results_bands.band_visible(panel, name, i):
+                continue
+            style = results_bands.band_style(color, i)
             km = np.asarray((fr.get("kF_minus") or [])[i], dtype=float) if i < len(fr.get("kF_minus") or []) else np.array([])
             kp = np.asarray((fr.get("kF_plus") or [])[i], dtype=float) if i < len(fr.get("kF_plus") or []) else np.array([])
             km_p, ev_p = panel._aligned_dispersion_values(name, entry, km, ev)
             kp_p, _ = panel._aligned_dispersion_values(name, entry, kp, ev)
-            lbl = f"{label_base} P{i+1}" if i == 0 else "_"
-            ax_d.plot(km_p, ev_p, "o-", ms=3.2, lw=0.9, color=color, alpha=0.90, label=lbl)
-            ax_d.plot(kp_p, ev_p, "^-", ms=3.2, lw=0.9, color=color, alpha=0.90, label="_")
+            lbl = results_bands.band_label(name, entry, i)
+            ax_d.plot(
+                km_p, ev_p, marker=style["marker_minus"],
+                linestyle=style["linestyle"], ms=3.2, lw=0.9,
+                color=style["color"], alpha=0.90, label=lbl,
+            )
+            ax_d.plot(
+                kp_p, ev_p, marker=style["marker_plus"],
+                linestyle=style["linestyle"], ms=3.2, lw=0.9,
+                color=style["color"], alpha=0.90, label="_",
+            )
             plotted_d += 1
         g_arrays = fr.get("gamma_corrige") or fr.get("gamma") or []
         sg_arrays = fr.get("sigma_gamma") or []
         if not sg_arrays:
             sg_arrays = (fr.get("ensemble") or {}).get("gamma_std") or []
-        gmax = getattr(getattr(entry, "fit_params", None), "gamma_max", None)
         for i, g_raw in enumerate(g_arrays):
+            if not results_bands.band_visible(panel, name, i):
+                continue
+            style = results_bands.band_style(color, i)
+            pairs = list(getattr(entry.fit_params, "pairs", None) or [])
+            gmax = pairs[i].get("gamma_max") if i < len(pairs) else entry.fit_params.gamma_max
             g = np.asarray(g_raw, dtype=float)
             n = min(ev.size, g.size)
             if n < 3:
@@ -87,8 +103,13 @@ def build_scientific_export_figure(panel):
             reliable = gamma_reliability_mask(fr, pair_index=i, gamma_max=gmax)[:n] & finite & inrange
             unreliable = finite & inrange & ~reliable
             if reliable.any():
-                ax_g.plot(e_n[reliable], g[:n][reliable], "o-", ms=3.2, lw=0.9, color=color,
-                          alpha=0.90, label=f"{label_base} Γ P{i+1}" if plotted_g < 8 else "_")
+                ax_g.plot(
+                    e_n[reliable], g[:n][reliable],
+                    marker=style["marker_plus"], linestyle=style["linestyle"],
+                    ms=3.2, lw=0.9, color=style["color"], alpha=0.90,
+                    label=results_bands.band_label(name, entry, i)
+                    if plotted_g < 8 else "_",
+                )
             if unreliable.any():
                 ax_g.plot(e_n[unreliable], g[:n][unreliable], "x", ms=4, color="#999",
                           alpha=0.6, label="unreliable" if plotted_g == 0 else "_")
@@ -99,19 +120,21 @@ def build_scientific_export_figure(panel):
                 bv = reliable & np.isfinite(sg) & (sg > 0)
                 if bv.any():
                     ax_g.errorbar(e_n[bv], g[:n][bv], yerr=sg[bv], fmt="none",
-                                  ecolor=color, elinewidth=0.7, capsize=2, alpha=0.7)
+                                  ecolor=style["color"], elinewidth=0.7,
+                                  capsize=2, alpha=0.7)
             # Chosen trend on the reliable + in-range slices, with its equation.
             sg_rel = sg_arr[reliable] if sg_arr is not None else None
             trend = _gamma_trend(e_n[reliable], g[:n][reliable], sg_rel,
                                  model=model, e_range=(g_lo, g_hi))
             if trend is not None:
-                ax_g.plot(trend[0], trend[1], "--", color=color, lw=1.2, alpha=0.9)
+                ax_g.plot(trend[0], trend[1], "--", color=style["color"], lw=1.2, alpha=0.9)
                 intercept, slope = trend[2], trend[3]
+                band_lbl = results_bands.band_label(name, entry, i)
                 if model == "linear":
-                    eq = f"{name} P{i+1}: Γ = {intercept:.3f} + {slope:.2f}·E"
+                    eq = f"{band_lbl}: Γ = {intercept:.3f} + {slope:.2f}·E"
                 else:
-                    eq = f"{name} P{i+1}: Γ₀ = {intercept:.3f}, a = {slope:.1f}"
-                eq_lines.append((eq, color, name, i, intercept, slope))
+                    eq = f"{band_lbl}: Γ₀ = {intercept:.3f}, a = {slope:.1f}"
+                eq_lines.append((eq, style["color"], name, i, intercept, slope))
             plotted_g += 1
     if eq_lines:
         header = ("a + b·E" if model == "linear" else "Γ₀ + a·E²")

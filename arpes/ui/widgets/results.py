@@ -6,22 +6,16 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
     QSplitter,
-    QTableWidget,
     QTabWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -140,26 +134,11 @@ class ResultsPanel(QWidget):
         # droite : table + boutons
         right = QVBoxLayout()
         right.addWidget(QLabel("Show fitted files"))
-        filter_btn_row = QHBoxLayout()
-        btn_filter_all = QPushButton("All")
-        btn_filter_all.setMaximumWidth(60)
-        btn_filter_all.clicked.connect(lambda: self._set_all_filter(True))
-        btn_filter_none = QPushButton("None")
-        btn_filter_none.setMaximumWidth(60)
-        btn_filter_none.clicked.connect(lambda: self._set_all_filter(False))
-        filter_btn_row.addWidget(btn_filter_all)
-        filter_btn_row.addWidget(btn_filter_none)
-        filter_btn_row.addStretch(1)
-        right.addLayout(filter_btn_row)
-        self._file_filter = QListWidget()
-        self._file_filter.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        self._file_filter.setMaximumHeight(110)
-        self._file_filter.setStyleSheet(
-            "QListWidget{background:#222;color:#ddd;font-size:10px;}"
-        )
-        self._file_filter.itemChanged.connect(self._on_file_filter_changed)
-        self._file_filter_unchecked: set[str] = set()
-        right.addWidget(self._file_filter)
+        from arpes.ui.widgets import results_groups
+        results_groups.build_group_filter(self, right)
+        right.addWidget(QLabel("Bandes visibles / noms"))
+        from arpes.ui.widgets import results_bands
+        results_bands.build_band_registry(self, right)
 
         right.addWidget(QLabel("Alignement dispersion (affichage/export)"))
         self._chk_align_gamma = QCheckBox("Centrer chaque fichier sur Γ")
@@ -202,80 +181,15 @@ class ResultsPanel(QWidget):
         align_btns.addWidget(self._lbl_align_state, stretch=1)
         right.addLayout(align_btns)
 
-        right.addWidget(QLabel("Per-slice diagnostics"))
-        self._table = QTableWidget(0, 9)
-        self._table.setHorizontalHeaderLabels(
-            ["File", "hν", "T (K)", "Dir.", "kF+ (π/a)", "xg (π/a)",
-             "Raw Γ", "Corr. Γ", "median χ²_red"])
-        _DIAG_TIPS = [
-            "Filename.",
-            "Photon energy (eV).",
-            "Sample temperature (K).",
-            "Measurement direction (logbook/metadata).",
-            "k_F of the + branch at the slice closest to E_F (π/a). Snapshot "
-            "only — use the Physical results table for the fitted value ± σ.",
-            "Mean common center offset of the pair fit (π/a): how far the band "
-            "center drifts from 0. Large |xg| → check the Γ centering.",
-            "Median MDC half-width Γ before resolution correction (π/a).",
-            "Median MDC half-width Γ after instrumental-resolution correction "
-            "(π/a). This is the physical linewidth.",
-            "Median reduced χ² over the fitted slices. ≲1.5 good fit · 1.5–4 "
-            "acceptable · >4 poor (check ROI, pair count, ΔE window).",
-        ]
-        for _c, _t in enumerate(_DIAG_TIPS):
-            it = self._table.horizontalHeaderItem(_c)
-            if it is not None:
-                it.setToolTip(_t)
-        self._table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch)
-        self._table.setAlternatingRowColors(True)
-        self._table.setStyleSheet(
-            "QTableWidget{background:#222;color:#ddd;font-size:11px;"
-            "alternate-background-color:#2a2a2a;}"
-            "QHeaderView::section{background:#333;color:#eee;font-weight:bold;}")
-        right.addWidget(self._table, stretch=1)
-
-        self._chk_bootstrap = QCheckBox("Bootstrap σ (N=500, robust to outliers)")
-        self._chk_bootstrap.setToolTip(
-            "Replaces propagated statistical σ with bootstrap σ (resampling\n"
-            "fitted points near E_F). More robust to remaining outlier points.\n"
-            "~1 s for 4 branches × 500 iterations."
-        )
-        self._chk_bootstrap.toggled.connect(self.refresh)
-        right.addWidget(self._chk_bootstrap)
-        right.addWidget(QLabel("Physical results ± σ — the quantities to report"))
-        self._table_phys = QTableWidget(0, 6)
-        self._table_phys.setHorizontalHeaderLabels([
-            "File", "Pair/Branch",
-            "kF (π/a) ± σ", "vF (eV·π/a) ± σ",
-            "m*/me ± σ", "Γ₀ (π/a) ± σ",
-        ])
-        _PHYS_TIPS = [
-            "Filename.",
-            "Lorentzian pair index and branch (kF− left / kF+ right of center).",
-            "Fermi wavevector from the weighted linear fit E = α + β·k of the "
-            "dispersion near E_F (kF = −α/β). Units π/a; ×π/a[Å] for Å⁻¹.",
-            "Fermi velocity = slope β of the same linear fit (eV·π/a). "
-            "Only meaningful if the dispersion is linear in the fit window.",
-            "Effective mass ℏ²k_F/v_F in units of m_e. Typically 1–5 for "
-            "correlated metals; ≫10 usually means a bad vF.",
-            "Residual linewidth at E=0 from the Fermi-liquid fit "
-            "Γ(E) = Γ₀ + a·E² — proxy for the impurity scattering rate.",
-        ]
-        for _c, _t in enumerate(_PHYS_TIPS):
-            it = self._table_phys.horizontalHeaderItem(_c)
-            if it is not None:
-                it.setToolTip(_t)
-        self._table_phys.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch)
-        self._table_phys.setAlternatingRowColors(True)
-        self._table_phys.setStyleSheet(
-            "QTableWidget{background:#222;color:#ddd;font-size:11px;"
-            "alternate-background-color:#2a2a2a;}"
-            "QHeaderView::section{background:#333;color:#eee;font-weight:bold;}")
-        # The physical table is THE result; the per-slice table above is
-        # diagnostic — give the physics twice the vertical share.
-        right.addWidget(self._table_phys, stretch=2)
+        # Result tables were removed from the panel to declutter the UI: the
+        # numbers now live behind "Export results…" which shows a live preview
+        # (per-slice or physical ± σ) before writing. The plots stay here.
+        right.addStretch(1)
+        lbl_hint = QLabel(
+            "Résultats chiffrés → bouton « Export results… » (aperçu avant écriture).")
+        lbl_hint.setWordWrap(True)
+        lbl_hint.setStyleSheet("color:#9aa;font-size:11px;")
+        right.addWidget(lbl_hint)
 
         btn_ref = QPushButton("Refresh all")
         btn_ref.setToolTip("Redraws dispersion + Γ(E) and recomputes the tables.")
@@ -330,11 +244,12 @@ class ResultsPanel(QWidget):
 
     def refresh(self):
         self._sync_file_filter()
+        from arpes.ui.widgets import results_bands
+        results_bands.sync_band_registry(self)
         visible = self._visible_files()
-        self._table.setRowCount(0)
-        self._table_phys.setRowCount(0)
         ax = self._canvas.ax
         self._result_point_refs = []
+        self._disp_uncertainty_labeled = False
         ax.cla(); ax.set_facecolor("#1a1a1a")
         self._canvas.fig.set_facecolor("#2b2b2b")
 
@@ -346,67 +261,55 @@ class ResultsPanel(QWidget):
             if name not in visible:
                 continue
             fr   = entry.fit_result
-            meta = entry.meta
             ev_f = np.asarray(fr["e_fitted"])
-            n    = entry.fit_params.n_pairs
-            label = f"{name}  T={meta.temperature:.0f}K  {meta.direction}"
-            c = colors[ci]
+            n = int(fr.get("n_pairs") or entry.fit_params.n_pairs or 1)
+            c = self._color_for_file(name, ci, colors)
 
             for i in range(n):
+                if not results_bands.band_visible(self, name, i):
+                    continue
                 km = np.asarray(fr["kF_minus"][i]) if i < len(fr["kF_minus"]) else []
                 kp = np.asarray(fr["kF_plus"][i])  if i < len(fr["kF_plus"])  else []
                 km_p, ev_p = self._aligned_dispersion_values(name, entry, km, ev_f)
                 kp_p, _ = self._aligned_dispersion_values(name, entry, kp, ev_f)
-                ax.scatter(km_p, ev_p, s=8, color=c, marker="o", alpha=0.8,
-                           label=label if i == 0 else "_")
-                ax.scatter(kp_p, ev_p, s=8, color=c, marker="^", alpha=0.8)
-                self._plot_branch_segments(ax, km_p, ev_p, color=c, alpha=0.60)
-                self._plot_branch_segments(ax, kp_p, ev_p, color=c, alpha=0.60)
+                style = results_bands.band_style(c, i)
+                band_lbl = results_bands.band_label(name, entry, i)
+                ax.scatter(km_p, ev_p, s=11, color=style["color"],
+                           marker=style["marker_minus"], alpha=0.85, label=band_lbl)
+                ax.scatter(kp_p, ev_p, s=11, color=style["color"],
+                           marker=style["marker_plus"], alpha=0.85)
+                self._plot_branch_segments(
+                    ax, km_p, ev_p, color=style["color"], alpha=0.68,
+                    linestyle=style["linestyle"],
+                )
+                self._plot_branch_segments(
+                    ax, kp_p, ev_p, color=style["color"], alpha=0.68,
+                    linestyle=style["linestyle"],
+                )
+                sigma_m = (fr.get("sigma_kF_minus") or [])
+                sigma_p = (fr.get("sigma_kF_plus") or [])
+                sm = np.asarray(sigma_m[i], dtype=float) if i < len(sigma_m) else np.array([])
+                sp = np.asarray(sigma_p[i], dtype=float) if i < len(sigma_p) else np.array([])
+                for values, sigma in ((km_p, sm), (kp_p, sp)):
+                    uncertain = results_bands.high_uncertainty_mask(values, sigma)
+                    n_u = min(len(values), len(ev_p), len(uncertain))
+                    uncertain = uncertain[:n_u]
+                    if uncertain.any():
+                        ax.scatter(
+                            np.asarray(values)[:n_u][uncertain],
+                            np.asarray(ev_p)[:n_u][uncertain],
+                            s=24, marker="x", color="#d0d0d0", linewidths=0.9,
+                            alpha=0.85, zorder=5,
+                            label="incertitude kF élevée" if not getattr(
+                                self, "_disp_uncertainty_labeled", False) else "_",
+                        )
+                        self._disp_uncertainty_labeled = True
                 from arpes.ui.widgets.results_link import append_branch_refs
                 append_branch_refs(self, name, "kF_minus", i, km_p, ev_p)
                 append_branch_refs(self, name, "kF_plus", i, kp_p, ev_p)
 
-            # Table row
-            kf_ef = np.nan
-            if len(fr["kF_plus"]) > 0:
-                idx_ef = np.argmin(np.abs(ev_f))
-                kf_arr = np.asarray(fr["kF_plus"][0])
-                if len(kf_arr) > idx_ef:
-                    kf_ef = kf_arr[idx_ef]
-            _xg = fr.get("xg")
-            xg_arr = np.asarray([] if _xg is None else _xg, dtype=float)
-            xg_m = float(np.nanmean(xg_arr)) if np.isfinite(xg_arr).any() else float("nan")
-            gamma_b = np.nan
-            gamma_c = np.nan
-            if fr.get("gamma_brut"):
-                gamma_b = float(np.nanmedian(np.asarray(fr["gamma_brut"][0], dtype=float)))
-            if fr.get("gamma_corrige"):
-                gamma_c = float(np.nanmedian(np.asarray(fr["gamma_corrige"][0], dtype=float)))
-            chi2_med = np.nan
-            chi2 = np.asarray(fr.get("chi2_red", []), dtype=float)
-            if chi2.size and np.isfinite(chi2).any():
-                chi2_med = float(np.nanmedian(chi2))
-
-            self._table.insertRow(row)
-            for col, val in enumerate([
-                name, f"{meta.hv:.0f}", f"{meta.temperature:.0f}",
-                meta.direction, f"{kf_ef:.4f}", f"{xg_m:.4f}",
-                f"{gamma_b:.4f}", f"{gamma_c:.4f}", f"{chi2_med:.3f}",
-            ]):
-                item = QTableWidgetItem(val)
-                if col == 8 and np.isfinite(chi2_med):
-                    # Traffic light on fit quality (thresholds in header tip).
-                    if chi2_med < 1.5:
-                        item.setForeground(QColor("#7ec97e"))
-                    elif chi2_med <= 4.0:
-                        item.setForeground(QColor("#e6b35a"))
-                    else:
-                        item.setForeground(QColor("#e05c5c"))
-                    item.setToolTip("reduced χ²: ≲1.5 good · 1.5–4 acceptable · >4 poor")
-                self._table.setItem(row, col, item)
+            # Count plotted files to drive the legend below (tables removed).
             row += 1
-
-            self._populate_physics_rows(name, fr, n, entry.meta)
 
         ax.axhline(0, color="cyan", lw=0.8, ls="--", alpha=0.5)
         ax.axvline(0, color="w",    lw=0.5, ls="--", alpha=0.3)
@@ -467,62 +370,19 @@ class ResultsPanel(QWidget):
         sync_from_bm_selection(self, filename, selection)
 
     @staticmethod
-    def _plot_branch_segments(ax, k_values, e_values, *, color, alpha=0.6) -> None:
-        """Relie une branche kF(E) sans franchir NaN ni saut manifeste."""
-        k = np.asarray(k_values, dtype=float)
-        e = np.asarray(e_values, dtype=float)
-        n = min(k.size, e.size)
-        if n < 2:
-            return
-        k = k[:n]
-        e = e[:n]
-        finite = np.isfinite(k) & np.isfinite(e)
-        if int(finite.sum()) < 2:
-            return
-
-        start = None
-        prev = None
-        for idx, ok in enumerate(finite):
-            if not ok:
-                if start is not None and prev is not None and prev - start + 1 >= 2:
-                    ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
-                            color=color, alpha=alpha, zorder=2)
-                start = None
-                prev = None
-                continue
-            if start is None:
-                start = idx
-            elif prev is not None:
-                # Garde les ruptures visibles: typiquement changement de branche,
-                # mauvais accrochage ou trou dans la fenêtre fit.
-                if abs(k[idx] - k[prev]) > 0.10 or abs(e[idx] - e[prev]) > 0.08:
-                    if prev - start + 1 >= 2:
-                        ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
-                                color=color, alpha=alpha, zorder=2)
-                    start = idx
-            prev = idx
-
-        if start is not None and prev is not None and prev - start + 1 >= 2:
-            ax.plot(k[start:prev + 1], e[start:prev + 1], "-", lw=0.9,
-                    color=color, alpha=alpha, zorder=2)
-
-    def _populate_physics_rows(self, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
-        from arpes.ui.widgets.results_physics_table import populate_physics_rows
-        populate_physics_rows(self, filename, fr, n_pairs, meta)
+    def _plot_branch_segments(
+        ax, k_values, e_values, *, color, alpha=0.6, linestyle="-"
+    ) -> None:
+        from arpes.ui.widgets.results_bands import plot_branch_segments
+        plot_branch_segments(
+            ax, k_values, e_values, color=color, alpha=alpha, linestyle=linestyle,
+        )
 
     def refresh_physics_only(self) -> None:
-        """Repopulate the physics table and redraw Gamma(E) without touching dispersion."""
-        import matplotlib.pyplot as _plt
+        """Redraw Γ(E) and refresh the file filter without touching the dispersion plot."""
         self._sync_file_filter()
-        visible = self._visible_files()
-        self._table_phys.setRowCount(0)
-        for name, entry in self._session.files.items():
-            if entry.fit_result is None:
-                continue
-            if name not in visible:
-                continue
-            n = entry.fit_params.n_pairs
-            self._populate_physics_rows(name, entry.fit_result, n, entry.meta)
+        from arpes.ui.widgets import results_bands
+        results_bands.sync_band_registry(self)
         colors = self._palette(len(self._session.files))
         self._draw_gamma_panel(colors)
 
@@ -568,55 +428,27 @@ class ResultsPanel(QWidget):
             return "—"
         return f"{value:.{dec}f} ± {sigma:.{dec}f}"
 
-    # -- file filter ----------------------------------------------------------
+    # -- file filter / grouping (delegated to results_groups) -----------------
     def _sync_file_filter(self) -> None:
-        """Synchronize QListWidget with session.files (fitted files only)."""
-        self._file_filter.blockSignals(True)
-        # Preserve the current state before rebuilding.
-        current_unchecked = set(self._file_filter_unchecked)
-        for i in range(self._file_filter.count()):
-            it = self._file_filter.item(i)
-            if it.checkState() == Qt.CheckState.Checked:
-                current_unchecked.discard(it.text())
-            else:
-                current_unchecked.add(it.text())
-        self._file_filter.clear()
-        align_names: list[str] = []
-        for name, entry in self._session.files.items():
-            if entry.fit_result is None:
-                continue
-            align_names.append(name)
-            it = QListWidgetItem(name)
-            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            it.setCheckState(
-                Qt.CheckState.Unchecked if name in current_unchecked
-                else Qt.CheckState.Checked
-            )
-            self._file_filter.addItem(it)
-        self._file_filter_unchecked = current_unchecked
-        self._file_filter.blockSignals(False)
+        from arpes.ui.widgets import results_groups
+        results_groups.sync_group_tree(self)
+        align_names = [n for n, e in self._session.files.items()
+                       if e.fit_result is not None]
         self._sync_alignment_combo(align_names)
 
     def _visible_files(self) -> set[str]:
-        out: set[str] = set()
-        for i in range(self._file_filter.count()):
-            it = self._file_filter.item(i)
-            if it.checkState() == Qt.CheckState.Checked:
-                out.add(it.text())
-        return out
+        from arpes.ui.widgets import results_groups
+        return results_groups.visible_files(self)
 
     def _set_all_filter(self, checked: bool) -> None:
-        if self._file_filter.count() == 0:
-            return
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        self._file_filter.blockSignals(True)
-        for i in range(self._file_filter.count()):
-            self._file_filter.item(i).setCheckState(state)
-        self._file_filter.blockSignals(False)
-        self.refresh()
+        from arpes.ui.widgets import results_groups
+        results_groups.set_all(self, checked)
 
-    def _on_file_filter_changed(self, _item) -> None:
-        self.refresh()
+    def _color_for_file(self, name: str, ci: int, default_colors):
+        """Per-file plot colour, overridden by the group colour when
+        'Colour by group' is on (delegated to results_groups)."""
+        from arpes.ui.widgets import results_groups
+        return results_groups.color_for_file(self, name, ci, default_colors)
 
     def _sync_alignment_combo(self, names: list[str]) -> None:
         current = self._cmb_align_file.currentText() if hasattr(self, "_cmb_align_file") else ""
@@ -665,7 +497,7 @@ class ResultsPanel(QWidget):
 
     def _export_results(self):
         from arpes.ui.widgets.dialogs import ExportDialog
-        dlg = ExportDialog(self)
+        dlg = ExportDialog(self._session, self)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         try:

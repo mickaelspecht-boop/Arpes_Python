@@ -160,7 +160,7 @@ def _build_roi_group(panel, _fcl) -> None:
     for w in (panel.sp_evs, panel.sp_eve, panel.sp_kmin, panel.sp_kmax):
         w.valueChanged.connect(panel.params_changed)
         w.valueChanged.connect(panel.fit_only_changed)
-    panel.sp_mdc_ewin.valueChanged.connect(panel.fit_only_changed)
+    panel.sp_mdc_ewin.valueChanged.connect(panel._on_mdc_full_window_changed)
     panel.sp_mdc_estep.valueChanged.connect(panel.fit_only_changed)
     panel.btn_fit_roi = compact_button(QPushButton("Select on map"), max_width=180)
     panel.btn_fit_roi.setCheckable(True)
@@ -215,7 +215,7 @@ def _build_init_section(panel, _fcl) -> None:
     panel._pair_lbl.pair_changed.connect(panel._on_pair_changed)
     panel.sp_kfi = dspin(0.30, 0.0, 3.0, 0.01)
     panel.sp_kfi.setToolTip(
-        "Initial kF position (π/a) for this pair, counted from the Γ center.\n"
+        "Positive half-separation |kF − center| (π/a) for this pair.\n"
         "See the colored dash-dot lines in the MDC plot."
     )
     panel.sp_gi = dspin(0.08, 0.01, 0.5, 0.01)
@@ -232,7 +232,7 @@ def _build_init_section(panel, _fcl) -> None:
         w.valueChanged.connect(panel._on_pair_param_changed)
     fl.addRow("Pair count:", panel.sp_np)
     fl.addRow(panel._pair_lbl)
-    fl.addRow("kF init (π/a):", panel.sp_kfi)
+    fl.addRow("|kF − center| init (π/a):", panel.sp_kfi)
     fl.addRow("γ init (π/a):", panel.sp_gi)
     fl.addRow("γ max (π/a):", panel.sp_gm)
     _fcl.addWidget(grp)
@@ -269,6 +269,7 @@ def _build_constraint_section(panel, _fcl) -> None:
     panel.chk_k0a.stateChanged.connect(
         lambda: panel.sp_k0m.setEnabled(not panel.chk_k0a.isChecked())
     )
+    panel.chk_k0a.stateChanged.connect(panel.fit_only_changed)
     panel.cmb_wm = QComboBox()
     # Valeur = nom backend canonique. Label = explication physique.
     panel.cmb_wm.addItem("Symmetric (γL = γR)", "symmetric")
@@ -528,7 +529,8 @@ def _build_fit_buttons(panel, _fcl) -> None:
     panel.chk_smooth_kf = QCheckBox("Smooth kF(E) (σ slices)")
     panel.chk_smooth_kf.setToolTip(
         "Gaussian smoothing of kF(E) over an energy window (σ slices).\n"
-        "Reduces slice-to-slice jitter without biasing the dispersion.\n"
+        "The actual fitted points remain at their raw coordinates; smoothing "
+        "adds only a dashed visual guide through them.\n"
         "Applied to display only (fit_result unchanged)."
     )
     panel.sp_smooth_kf_sigma = dspin(1.5, 0.0, 10.0, 0.5, dec=2)
@@ -616,6 +618,17 @@ def _build_fit_buttons(panel, _fcl) -> None:
     _im_sigma_help.setWordWrap(True)
     _im_sigma_help.setStyleSheet("color:#7f8896;font-size:9px;")
     advanced_lay.addWidget(_im_sigma_help)
+    panel.chk_strict_linear = QCheckBox("Strict linearity gate (reject curved bands)")
+    panel.chk_strict_linear.setChecked(False)
+    panel.chk_strict_linear.setToolTip(
+        "Off (default): a band is kept even if its dispersion is not perfectly "
+        "linear in the vF window — curvature is a physical observable, so vF is "
+        "taken from the local slope at E_F (the band is just flagged curved). "
+        "This avoids needlessly rejecting multi-band fits.\n"
+        "On: re-enable the strict gate that refuses a band whose quadratic "
+        "curvature dominates (|a|·Δk/|b| > 0.10), for a pure-linear vF only.")
+    panel.chk_strict_linear.setStyleSheet("color:#9aa0a6;font-size:10px;")
+    advanced_lay.addWidget(panel.chk_strict_linear)
     btn_batch = compact_button(QPushButton("Batch fit folder"), max_width=200)
     btn_batch.setToolTip(
         "Runs Full fit on every folder file that does not yet have\n"
@@ -628,17 +641,18 @@ def _build_fit_buttons(panel, _fcl) -> None:
     actions_row = QWidget()
     actions_lay = QHBoxLayout(actions_row)
     actions_lay.setContentsMargins(0, 0, 0, 0)
-    btn_cl = compact_button(QPushButton("Clear kF"), max_width=120)
+    btn_cl = compact_button(QPushButton("Invalider points kF"), max_width=160)
     btn_cl.setToolTip(
-        "Removes selected kF points from the MDC Fit plot.\n"
-        "Reversible with 'Undo deletion' or Ctrl+Z."
+        "Marque les points kF sélectionnés comme invalides (NaN).\n"
+        "Le fit MDC n'est PAS relancé; seuls les résultats dérivés sont "
+        "recalculés sans ces points.\nRéversible avec Ctrl+Z."
     )
     btn_cl.clicked.connect(panel.clear_kf_requested)
-    panel.btn_fit_undo = compact_button(QPushButton("↶ Undo deletion"), max_width=180)
+    panel.btn_fit_undo = compact_button(QPushButton("↶ Restaurer points"), max_width=180)
     panel.btn_fit_undo.setEnabled(False)
     panel.btn_fit_undo.setToolTip(
-        "Restores fit points removed by the last deletion "
-        "(Delete/Backspace after selection)."
+        "Restaure les points invalidés par la dernière action "
+        "(Delete/Backspace après sélection)."
     )
     panel.btn_fit_undo.clicked.connect(panel.fit_undo_requested)
     actions_lay.addWidget(btn_cl)

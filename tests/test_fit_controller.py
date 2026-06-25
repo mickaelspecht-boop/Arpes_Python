@@ -53,14 +53,47 @@ class TestImSigmaConvention(unittest.TestCase):
 class TestFitGeometryGuard(unittest.TestCase):
     def test_center_in_window_no_warning(self):
         from arpes.ui.controllers.fit_runner_controller import FitRunnerController
-        fp = FitParams(center_init=0.0, k_min=-0.8, k_max=0.25)
+        fp = FitParams(center_init=0.0, k_min=-0.8, k_max=0.8)
         self.assertEqual(FitRunnerController._geometry_warning(fp), "")
+
+    def test_pair_beyond_nearest_edge_warns(self):
+        from arpes.ui.controllers.fit_runner_controller import FitRunnerController
+        fp = FitParams(center_init=0.0, k_min=-0.8, k_max=0.25)
+        msg = FitRunnerController._geometry_warning(fp)
+        self.assertIn("|kF−centre|", msg)
+        self.assertIn("bord le plus proche", msg)
 
     def test_center_outside_window_warns(self):
         from arpes.ui.controllers.fit_runner_controller import FitRunnerController
         fp = FitParams(center_init=-0.40, k_min=-0.35, k_max=0.55)
         msg = FitRunnerController._geometry_warning(fp)
         self.assertIn("hors fenêtre", msg)
+
+
+def test_fit_hash_ignores_results_only_band_metadata():
+    from arpes.physics.fit import compute_fit_params_hash
+
+    fp = FitParams(n_pairs=1)
+    before = compute_fit_params_hash(fp)
+    fp.pairs[0]["label"] = "alpha"
+    fp.pairs[0]["results_visible"] = False
+    assert compute_fit_params_hash(fp) == before
+
+
+def test_redraw_all_fit_views_refreshes_results_panel():
+    from arpes.ui.controllers.fit_runner_controller import FitRunnerController
+    from types import SimpleNamespace
+
+    calls = []
+    parent = SimpleNamespace(
+        _draw_bm=lambda: calls.append("bm"),
+        _draw_mdc_energy_map=lambda: calls.append("map"),
+        _draw_mdc_edc=lambda: calls.append("mdc"),
+        _draw_mdc_waterfall=lambda: calls.append("waterfall"),
+        _results=SimpleNamespace(refresh=lambda: calls.append("results")),
+    )
+    FitRunnerController(parent)._redraw_all_fit_views()
+    assert calls == ["bm", "map", "mdc", "waterfall", "results"]
 
 
 class TestGammaHwhmMigration(unittest.TestCase):

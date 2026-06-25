@@ -5,9 +5,11 @@ from types import SimpleNamespace
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 
 from arpes.ui.widgets import results_link
 from arpes.ui.controllers.interaction_selection import handle_rect_selection
+from arpes.core.undo import UndoStack
 
 
 class _Canvas:
@@ -87,3 +89,30 @@ def test_rect_selection_non_additive_still_selects_hits():
     ctrl = SimpleNamespace(_parent=parent, _status=lambda _m: None)
     handle_rect_selection(ctrl, None, (0.19, 0.26), (-0.11, 0.01), additive=False)
     assert parent._fit_selected == [("kF_plus", 0, 0), ("kF_plus", 0, 1)]
+
+
+def test_delete_marks_nan_without_rerunning_mdc_optimizer():
+    from arpes.ui.controllers.interaction_controller import InteractionController
+
+    statuses = []
+    fit_calls = []
+    fr = {
+        "e_fitted": [-0.1, 0.0],
+        "kF_minus": [[-0.2, -0.1]],
+        "kF_plus": [[0.2, 0.1]],
+    }
+    parent = SimpleNamespace(
+        _fit_res=fr,
+        _fit_selected=[("kF_plus", 0, 1)],
+        _undo_stack=UndoStack(),
+        _params=SimpleNamespace(set_fit_undo_enabled=lambda _v: None),
+        _status=statuses.append,
+        _draw_current_view=lambda **_kwargs: None,
+        _fit_guess=lambda: fit_calls.append(True),
+    )
+    ctrl = InteractionController(parent)
+    ctrl._persist_fit_result = lambda _fr: None
+    ctrl._delete_selected_fit_points()
+    assert np.isnan(parent._fit_res["kF_plus"][0][1])
+    assert fit_calls == []
+    assert "fit MDC non relancé" in statuses[-1]

@@ -10,6 +10,8 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
+from arpes.physics.mdc_geometry import energy_window_plan
+
 from .fit_overlay import (
     _lor_peak,
     _resolution_correct_gamma,
@@ -152,11 +154,10 @@ def _fit_mdc_free_peaks(
             right.append((np.nan, np.nan, np.nan, np.nan))
         return left[:n_pairs], right[:n_pairs]
 
-    for ev_i in wf_energies:
-        ie = int(np.argmin(np.abs(ev_arr - ev_i)))
+    window_plan = energy_window_plan(ev_arr, wf_energies, mdc_energy_window)
+    for ev_i, (ie, e_selector) in zip(wf_energies, window_plan):
         if mdc_energy_window > 0:
-            e_mask = np.abs(ev_arr - ev_arr[ie]) <= 0.5 * float(mdc_energy_window)
-            block = data_cut[:, e_mask]   # intègre la donnée BRUTE (pas I_fit lissé-k)
+            block = data_cut[:, e_selector]  # donnée BRUTE, avant lissage k
             mdc_raw = np.nanmean(block, axis=1) if block.shape[1] else data_cut[:, ie].astype(float)
         else:
             mdc_raw = data_cut[:, ie].astype(float)
@@ -336,4 +337,3 @@ def _empty_free_result(I_fit, kpar, ev_arr, kpar_fit, n_pairs, shape, resolution
             "source": str(resolution_source or ""),
         },
     }
-

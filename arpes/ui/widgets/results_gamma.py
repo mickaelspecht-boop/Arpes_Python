@@ -77,6 +77,7 @@ def _apply_robust_limits(ax, xs, ys) -> None:
 
 def draw_gamma_panel(panel, colors) -> None:
     from arpes.analysis.results import gamma_reliability_mask
+    from arpes.ui.widgets import results_bands
     visible = panel._visible_files()
     model = _trend_model(panel)
     ax = panel._canvas_gamma.ax
@@ -99,9 +100,14 @@ def draw_gamma_panel(panel, colors) -> None:
         sg_arrays = fr.get("sigma_gamma") or []
         if not sg_arrays:
             sg_arrays = (fr.get("ensemble") or {}).get("gamma_std") or []
-        gmax = getattr(getattr(entry, "fit_params", None), "gamma_max", None)
-        color = colors[ci]
+        base_color = panel._color_for_file(name, ci, colors)
         for i, g_raw in enumerate(g_arrays):
+            if not results_bands.band_visible(panel, name, i):
+                continue
+            style = results_bands.band_style(base_color, i)
+            color = style["color"]
+            pairs = list(getattr(entry.fit_params, "pairs", None) or [])
+            gmax = pairs[i].get("gamma_max") if i < len(pairs) else entry.fit_params.gamma_max
             g = np.asarray(g_raw, dtype=float)
             n = min(len(ev), len(g))
             if n == 0:
@@ -115,8 +121,13 @@ def draw_gamma_panel(panel, colors) -> None:
             unreliable = finite & ~reliable
             # Reliable points: solid line + markers, framed by the y-limits.
             if reliable.any():
-                ax.plot(e_n[reliable], g_n[reliable], "o-", ms=3, lw=0.8, color=color,
-                        alpha=0.85, label=f"{name} P{i+1}" if plotted < 6 else "_")
+                ax.plot(
+                    e_n[reliable], g_n[reliable],
+                    marker=style["marker_plus"], linestyle=style["linestyle"],
+                    ms=3, lw=0.8, color=color, alpha=0.85,
+                    label=results_bands.band_label(name, entry, i)
+                    if plotted < 8 else "_",
+                )
                 xs.append(e_n[reliable]); ys.append(g_n[reliable])
             # Unreliable points: grey crosses, no line — visible but flagged.
             if unreliable.any():
@@ -149,9 +160,15 @@ def draw_gamma_panel(panel, colors) -> None:
                 ax.plot(trend[0], trend[1], "--", color=color, lw=1.3, alpha=0.85)
                 intercept, slope = trend[2], trend[3]
                 if model == "linear":
-                    eq = f"{name} P{i+1}:  Γ = {intercept:.3f} + {slope:.2f}·E"
+                    eq = (
+                        f"{results_bands.band_label(name, entry, i)}:  "
+                        f"Γ = {intercept:.3f} + {slope:.2f}·E"
+                    )
                 else:
-                    eq = f"{name} P{i+1}:  Γ₀ = {intercept:.3f}, a = {slope:.1f}"
+                    eq = (
+                        f"{results_bands.band_label(name, entry, i)}:  "
+                        f"Γ₀ = {intercept:.3f}, a = {slope:.1f}"
+                    )
                 eq_lines.append((eq, color))
             plotted += 1
     # Chosen fit equations, one coloured line each (also written to the export).

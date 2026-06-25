@@ -7,6 +7,7 @@ from __future__ import annotations
 import numpy as np
 from matplotlib.lines import Line2D
 
+from arpes.physics.mdc_geometry import symmetric_peak_positions
 from arpes.ui.controllers.plot_model_helpers import build_model_pairs
 from arpes.ui.controllers.fit_overlay_drawer import PAIR_COLORS
 
@@ -130,6 +131,7 @@ def draw_mdc_edc(ctrl) -> None:
         ctrl._edc_canvas._dark()
 
     params = ctrl._params
+    fp = params.get_fit_params()
     show_logic = bool(
         getattr(params, "chk_fit_slice_inspector", None) is None
         or params.chk_fit_slice_inspector.isChecked()
@@ -167,11 +169,13 @@ def draw_mdc_edc(ctrl) -> None:
         if show_logic:
             pairs, mdc_smooth = build_model_pairs(
                 kpar, mdc_n,
-                n_pairs=params.sp_np.value(),
-                gamma_init=params.sp_gi.value(),
+                n_pairs=fp.n_pairs,
+                gamma_init=fp.gamma_init,
                 k_min=kmin, k_max=kmax,
-                center_init=params.sp_cx.value(),
-                smooth_sigma=params.sp_sfd.value(),
+                center_init=fp.center_init,
+                smooth_sigma=fp.smooth_detect,
+                pair_params=fp.pairs,
+                shape=fp.shape,
             )
             ax_mdc.plot(kpar, mdc_smooth, color="#aaa", lw=0.8, ls="-",
                         alpha=0.55,
@@ -216,18 +220,19 @@ def draw_mdc_edc(ctrl) -> None:
         handle_h = min(0.13, 0.78 / n_handles + 0.02)
         slot = 0
         logic_lines = [
-            f"slice E={ctrl._sel_ev:+.3f} eV  int=±{params.sp_int_win.value()*1000:.0f} meV",
+            f"slice E={ctrl._sel_ev:+.3f} eV  fit ΔE={fp.mdc_energy_window*1000:.0f} meV",
             f"fit k=[{kmin:+.3f},{kmax:+.3f}]  scan E=[{params.sp_evs.value():+.3f},{params.sp_eve.value():+.3f}]",
             f"xg={cx:+.3f}±{xgr:.3f}  γ0={params.sp_gi.value():.3f}  γmax={params.sp_gm.value():.3f}",
             f"σfit={params.sp_sff.value():.1f}  σdetect={params.sp_sfd.value():.1f}"
             f"  Amin={params.sp_ma.value():.2f}  jump={params.sp_mj.value():.2f}",
         ]
         pair_line_parts = []
-        for pi, pp in enumerate(params._pair_params[:n_p]):
+        for pi, pp in enumerate(fp.pairs[:n_p]):
             kf = pp.get("kF_init", 0.30)
             pc = PAIR_COLORS[pi % len(PAIR_COLORS)]
             for sign in (+1, -1):
-                xk = cx + sign * kf
+                km, kp = symmetric_peak_positions(cx, kf)
+                xk = kp if sign > 0 else km
                 guide = ax_mdc.axvline(xk, color=pc, lw=0.7, ls=":",
                                        alpha=0.30, zorder=2)
                 yc = float(y_centers[slot % n_handles]); slot += 1
@@ -252,18 +257,25 @@ def draw_mdc_edc(ctrl) -> None:
         if pair_line_parts:
             plot_logic_lines.append("  ".join(pair_line_parts))
 
-        gmax = params.sp_gm.value()
+        active_pair = int(getattr(params, "_current_pair", 0))
         total = np.zeros_like(mdc_n)
         for i, (curve, km, kp, cl, cr) in enumerate(pairs):
             c = PAIR_COLORS[i % len(PAIR_COLORS)]
+            pp = fp.pairs[i] if i < len(fp.pairs) else {}
+            gmax = float(pp.get("gamma_max", fp.gamma_max))
             for k0 in (km, kp):
                 ax_mdc.axvspan(k0 - gmax, k0 + gmax, alpha=0.05, color=c,
                                zorder=0)
             valid = np.isfinite(curve)
             if valid.any():
                 ax_mdc.plot(kpar, np.where(valid, curve, np.nan),
-                            color=c, lw=1.3, ls="--", zorder=4,
-                            label=f"P{i+1}  kF≈{abs(kp - km) / 2:.3f}")
+                            color=c, lw=2.0 if i == active_pair else 1.2,
+                            alpha=1.0 if i == active_pair else 0.65,
+                            ls="--", zorder=4,
+                            label=(
+                                f"P{i+1} init  kF={abs(kp - km) / 2:.3f}"
+                                f"  γ={float(pp.get('gamma_init', fp.gamma_init)):.3f}"
+                            ))
                 for comp in (cl, cr):
                     vc = np.isfinite(comp)
                     if vc.any():

@@ -6,6 +6,12 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
+from arpes.physics.mdc_geometry import (
+    per_pair_values,
+    relative_k0_guesses,
+    symmetric_k0_ceiling,
+)
+
 from .fit_overlay import _make_peak_pairs_model, _normalize_width_mode
 from .mdc_fit import fit_mdc_peak_pairs
 
@@ -28,6 +34,7 @@ def debug_mdc_fit(
     title=None,
     verbose=True,
     show_residual=True,
+    mdc_energy_window=0.0,
 ):
     """
     Fit et affiche UNE MDC a l'energie donnee, avec le modele ajuste superpose.
@@ -59,9 +66,17 @@ def debug_mdc_fit(
         'residual' : float — norme des residus normalises
         'ax'       : matplotlib Axes
     """
+    width_mode = _normalize_width_mode(width_mode)
     # --- preparation des donnees ---
-    I_fit    = gaussian_filter1d(data_cut.astype(float), sigma=smooth_fit,    axis=0)
-    I_detect = gaussian_filter1d(data_cut.astype(float), sigma=smooth_detect, axis=0)
+    data_float = data_cut.astype(float)
+    I_fit = (
+        gaussian_filter1d(data_float, sigma=smooth_fit, axis=0)
+        if smooth_fit and smooth_fit > 0 else data_float
+    )
+    I_detect = (
+        gaussian_filter1d(data_float, sigma=smooth_detect, axis=0)
+        if smooth_detect and smooth_detect > 0 else data_float
+    )
 
     ie = int(np.argmin(np.abs(ev_arr - energy)))
     energy_actual = float(ev_arr[ie])
@@ -71,7 +86,15 @@ def debug_mdc_fit(
     k_mask   = (kpar >= k_lo) & (kpar <= k_hi)
     kpar_fit = kpar[k_mask]
 
-    mdc_full   = I_fit[:, ie]
+    if mdc_energy_window > 0:
+        e_mask = np.abs(ev_arr - ev_arr[ie]) <= 0.5 * float(mdc_energy_window)
+        mdc_raw = np.nanmean(data_cut[:, e_mask], axis=1)
+        mdc_full = (
+            gaussian_filter1d(mdc_raw, sigma=smooth_fit)
+            if smooth_fit and smooth_fit > 0 else mdc_raw
+        )
+    else:
+        mdc_full = I_fit[:, ie]
     mdc        = mdc_full[k_mask]
     mdc_detect = I_detect[k_mask, ie]
     mx = mdc.max()
@@ -161,14 +184,19 @@ def debug_mdc_fit(
     # --- guess initial ---
     dk = abs(float(kpar[1] - kpar[0]))
     k0_lo = max(dk * 2, 0.02)
-    k0_hi_auto = (k_hi - center_init) * 0.95
+    k0_hi_auto = symmetric_k0_ceiling(k_lo, k_hi, center_init)
+    if k0_hi_auto <= k0_lo:
+        raise ValueError(
+            f"Symmetry center {center_init:+.4f} leaves no two-sided fit range "
+            f"inside [{k_lo:+.4f}, {k_hi:+.4f}]."
+        )
 
     if k0_max is None:
         k0_hi_list = [k0_hi_auto] * n_pairs
     elif np.isscalar(k0_max):
-        k0_hi_list = [float(k0_max)] * n_pairs
+        k0_hi_list = [min(float(k0_max), k0_hi_auto)] * n_pairs
     else:
-        k0_hi_list = list(k0_max)
+        k0_hi_list = [min(float(v), k0_hi_auto) for v in k0_max]
         while len(k0_hi_list) < n_pairs:
             k0_hi_list.append(k0_hi_auto)
 
@@ -177,44 +205,53 @@ def debug_mdc_fit(
         pk_idx, _ = find_peaks(mdc_d_n, prominence=0.05,
                                distance=max(1, int(0.05 / dk)))
         pos_k = kpar_fit[pk_idx]
-        pos_k_pos = pos_k[pos_k > center_init]
-        if len(pos_k_pos) >= n_pairs:
-            kF_use = sorted(pos_k_pos)[:n_pairs]
+        detected_k0 = relative_k0_guesses(pos_k, center_init, n_pairs)
+        if len(detected_k0) >= n_pairs:
+            kF_use = detected_k0
         else:
             kF_use = list(np.linspace(0.05, k0_hi_auto * 0.8, n_pairs))
     else:
-        kF_use = list(kF_init)
+        kF_use = [
+            float(np.clip(abs(v), k0_lo, k0_hi_list[i]))
+            for i, v in enumerate(kF_init)
+        ]
 
     # --- construction du modele et des bornes ---
+    gamma_init_list = per_pair_values(gamma_init, n_pairs, 0.05)
+    gamma_max_list = per_pair_values(gamma_max, n_pairs, 0.20)
     model, n_pp, _ = _make_peak_pairs_model(n_pairs, width_mode)
 
     lo = [-np.inf, -np.inf, center_init - xg_range]
     hi = [ np.inf,  np.inf, center_init + xg_range]
     for pi in range(n_pairs):
         k0_hi = k0_hi_list[pi]
+        gamma0 = gamma_init_list[pi]
+        gamma_cap = gamma_max_list[pi]
         if width_mode == 'independent':
             lo += [k0_lo,  0.0,       0.001, 0.0,       0.001]
-            hi += [k0_hi,  np.inf, gamma_max, np.inf, gamma_max]
+            hi += [k0_hi,  np.inf, gamma_cap, np.inf, gamma_cap]
         elif width_mode == 'symmetric':
             lo += [k0_lo, 0.0, 0.0, 0.001]
-            hi += [k0_hi, np.inf, np.inf, gamma_max]
+            hi += [k0_hi, np.inf, np.inf, gamma_cap]
         else:
             lo += [k0_lo, 0.0, 0.0]
             hi += [k0_hi, np.inf, np.inf]
     if width_mode == 'global':
-        lo += [0.001]; hi += [gamma_max]
+        lo += [0.001]
+        hi += [gamma_max_list[0]]
 
     p0 = [0.0, float(np.percentile(mdc_n, 10)), center_init]
-    for k0g in kF_use:
+    for pi, k0g in enumerate(kF_use):
         A_g = max(float(np.interp(abs(k0g) + center_init, kpar_fit, mdc_n)), 0.05)
+        gamma0 = gamma_init_list[pi]
         if width_mode == 'independent':
-            p0 += [abs(k0g), A_g, gamma_init, A_g, gamma_init]
+            p0 += [abs(k0g), A_g, gamma0, A_g, gamma0]
         elif width_mode == 'symmetric':
-            p0 += [abs(k0g), A_g, A_g, gamma_init]
+            p0 += [abs(k0g), A_g, A_g, gamma0]
         else:
             p0 += [abs(k0g), A_g, A_g]
     if width_mode == 'global':
-        p0 += [gamma_init]
+        p0 += [gamma_init_list[0]]
 
     # --- fit ---
     popt = None
@@ -265,7 +302,7 @@ def debug_mdc_fit(
             elif width_mode == 'symmetric':
                 gamma_out.append(popt[3 + n_pp*i + 3])
             else:
-                gamma_out.append(popt[-1] if width_mode == 'global' else gamma_init)
+                gamma_out.append(popt[-1])
 
         residual = float(np.sqrt(np.mean((mdc_n - mdc_fit)**2)))
         # Résidu en remplissage (pas de twinx — compatible panel)

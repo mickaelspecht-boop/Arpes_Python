@@ -28,15 +28,15 @@ def build_energy_section(panel, lay) -> None:
     panel._energy_widget = QGroupBox("Selected energy")
     fl = QFormLayout(panel._energy_widget)
     panel.sp_ev = dspin(-0.30, -3.0, 0.2, 0.01)
-    panel.sp_int_win = dspin(0.010, 0.001, 0.200, 0.005, dec=3)
+    panel.sp_int_win = dspin(0.010, 0.0, 0.100, 0.0025, dec=4)
     panel.sp_int_win.setToolTip(
-        "Integration window ±eV for the MDC\n"
-        "Wider = less noise, less energy resolution\n"
-        "Equivalent to the 'range' parameter of a cut in Igor"
+        "MDC half-integration window (±eV).\n"
+        "Linked to Analysis range > Energy integ. ΔE: this value is always ΔE/2.\n"
+        "Wider = less noise, less energy resolution."
     )
-    panel.sp_int_win.valueChanged.connect(panel.fit_only_changed)
+    panel.sp_int_win.valueChanged.connect(panel._on_mdc_half_window_changed)
     fl.addRow("E (eV):", panel.sp_ev)
-    fl.addRow("± integr. (eV):", panel.sp_int_win)
+    fl.addRow("MDC ±ΔE/2 (eV):", panel.sp_int_win)
     fl.addRow(QLabel("Click on the map or type here"))
     lay.addWidget(panel._energy_widget)
 

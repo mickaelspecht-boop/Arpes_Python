@@ -5,6 +5,13 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
+from arpes.physics.mdc_geometry import (
+    energy_window_plan,
+    per_pair_values,
+    relative_k0_guesses,
+    symmetric_k0_ceiling,
+)
+
 from .fit_overlay import (
     _lor_peak,
     _make_peak_pairs_model,
@@ -101,13 +108,15 @@ def fit_mdc_peak_pairs(
     # sont INDÉPENDANTS — step échantillonne la dispersion, la fenêtre denoise
     # chaque MDC. On peut vouloir step < window (oversampling avec recouvrement).
     if width_mode == "free":
+        gamma0_free = per_pair_values(gamma_init, n_pairs, 0.05)[0]
+        gamma_max_free = per_pair_values(gamma_max, n_pairs, 0.20)[0]
         from .mdc_free import _fit_mdc_free_peaks
         return _fit_mdc_free_peaks(
             data_cut, kpar, ev_arr,
             n_pairs=n_pairs,
             ev_start=ev_start, ev_end=ev_end,
             smooth_fit=smooth_fit, smooth_detect=smooth_detect,
-            gamma_init=gamma_init, gamma_max=gamma_max,
+            gamma_init=gamma0_free, gamma_max=gamma_max_free,
             kF_init=kF_init, center_init=center_init,
             min_amplitude=min_amplitude, max_jump=max_jump,
             mdc_energy_window=mdc_energy_window,
@@ -120,10 +129,19 @@ def fit_mdc_peak_pairs(
             hold_gamma=hold_gamma,
             verbose=verbose,
         )
+    gamma_init_list = per_pair_values(gamma_init, n_pairs, 0.05)
+    gamma_max_list = per_pair_values(gamma_max, n_pairs, 0.20)
     model, n_pp, n_extra = _make_peak_pairs_model(n_pairs, width_mode, shape=shape)
 
-    I_fit    = gaussian_filter1d(data_cut.astype(float), sigma=smooth_fit,    axis=0)
-    I_detect = gaussian_filter1d(data_cut.astype(float), sigma=smooth_detect, axis=0)
+    data_float = data_cut.astype(float)
+    I_fit = (
+        gaussian_filter1d(data_float, sigma=smooth_fit, axis=0)
+        if smooth_fit and smooth_fit > 0 else data_float
+    )
+    I_detect = (
+        gaussian_filter1d(data_float, sigma=smooth_detect, axis=0)
+        if smooth_detect and smooth_detect > 0 else data_float
+    )
 
     # Masque k pour restreindre la plage de fit (équivalent curseurs Igor)
     k_lo_fit = k_min if k_min is not None else float(kpar[0])
@@ -134,7 +152,12 @@ def fit_mdc_peak_pairs(
     # Bornes — xg contraint autour de center_init pour éviter la dérive
     dk = abs(float(kpar[1] - kpar[0]))
     k0_lo = max(dk * 2, 0.02)   # k0 > 0 strict pour éviter la solution dégénérée k0→0
-    k0_hi_auto = (k_hi_fit - center_init) * 0.95  # k0 borné par la plage de fit
+    k0_hi_auto = symmetric_k0_ceiling(k_lo_fit, k_hi_fit, center_init)
+    if k0_hi_auto <= k0_lo:
+        raise ValueError(
+            f"Symmetry center {center_init:+.4f} leaves no two-sided fit range "
+            f"inside [{k_lo_fit:+.4f}, {k_hi_fit:+.4f}]."
+        )
 
     # k0_max optionnel : borne supérieure explicite par paire
     # ex: k0_max=[0.40, 0.65] pour forcer paire1 < 0.40 et paire2 < 0.65
@@ -142,9 +165,9 @@ def fit_mdc_peak_pairs(
     if k0_max is None:
         k0_hi_list = [k0_hi_auto] * n_pairs
     elif np.isscalar(k0_max):
-        k0_hi_list = [float(k0_max)] * n_pairs
+        k0_hi_list = [min(float(k0_max), k0_hi_auto)] * n_pairs
     else:
-        k0_hi_list = list(k0_max)
+        k0_hi_list = [min(float(v), k0_hi_auto) for v in k0_max]
         while len(k0_hi_list) < n_pairs:
             k0_hi_list.append(k0_hi_auto)
 
@@ -155,15 +178,17 @@ def fit_mdc_peak_pairs(
         xg_lo, xg_hi = center_init - xg_range, center_init + xg_range
     lo = [-np.inf, -np.inf, xg_lo]   # bg_a, bg_b, xg
     hi = [ np.inf,  np.inf, xg_hi]
-    if hold_gamma:
-        gamma_eps = max(abs(float(gamma_init)) * 1e-6, 1e-7)
-        gamma_floor = max(1e-9, float(gamma_init) - gamma_eps)
-        gamma_upper = float(gamma_init) + gamma_eps
-    else:
-        gamma_floor = min(max(0.001, float(dk_inv_a or 0.0)), float(gamma_max) * 0.95)
-        gamma_upper = float(gamma_max)
     for pi in range(n_pairs):
         k0_hi = k0_hi_list[pi]
+        gamma0 = gamma_init_list[pi]
+        gamma_cap = gamma_max_list[pi]
+        if hold_gamma:
+            gamma_eps = max(abs(gamma0) * 1e-6, 1e-7)
+            gamma_floor = max(1e-9, gamma0 - gamma_eps)
+            gamma_upper = gamma0 + gamma_eps
+        else:
+            gamma_floor = min(max(0.001, float(dk_inv_a or 0.0)), gamma_cap * 0.95)
+            gamma_upper = gamma_cap
         if width_mode == 'independent':
             lo += [k0_lo,  0.0, gamma_floor, 0.0, gamma_floor]
             hi += [k0_hi,  np.inf, gamma_upper, np.inf, gamma_upper]
@@ -174,7 +199,18 @@ def fit_mdc_peak_pairs(
             lo += [k0_lo,  0.0,  0.0]
             hi += [k0_hi,  np.inf, np.inf]
     if width_mode == 'global':
-        lo += [gamma_floor]; hi += [gamma_upper]
+        if hold_gamma:
+            gamma_eps = max(abs(gamma_init_list[0]) * 1e-6, 1e-7)
+            global_floor = max(1e-9, gamma_init_list[0] - gamma_eps)
+            global_upper = gamma_init_list[0] + gamma_eps
+        else:
+            global_upper = gamma_max_list[0]
+            global_floor = min(
+                max(0.001, float(dk_inv_a or 0.0)),
+                global_upper * 0.95,
+            )
+        lo += [global_floor]
+        hi += [global_upper]
     # Voigt : paramètre η_global ∈ [0,1] appended à la fin de p
     if is_voigt:
         lo += [0.0]; hi += [1.0]
@@ -219,9 +255,9 @@ def fit_mdc_peak_pairs(
         pk_idx, _ = find_peaks(mdc_init_n, prominence=0.05,
                                distance=max(1, int(0.05 / dk)))
         pos_k = kpar_fit[pk_idx]
-        pos_k_pos = pos_k[pos_k > center_init]
-        if len(pos_k_pos) >= n_pairs:
-            kF_init = sorted(pos_k_pos)[:n_pairs]
+        detected_k0 = relative_k0_guesses(pos_k, center_init, n_pairs)
+        if len(detected_k0) >= n_pairs:
+            kF_init = detected_k0
         else:
             # Fallback : pic le plus intense côté k>0 (sans critère de prominence)
             mdc_pos_mask = kpar_fit > center_init
@@ -230,7 +266,10 @@ def fit_mdc_peak_pairs(
                 kpar_pos = kpar_fit[mdc_pos_mask]
                 mdc_pos  = mdc_init_n[mdc_pos_mask]
                 segments = np.array_split(np.arange(len(kpar_pos)), n_pairs)
-                kF_init  = [float(kpar_pos[seg[np.argmax(mdc_pos[seg])]]) for seg in segments]
+                kF_init = [
+                    float(kpar_pos[seg[np.argmax(mdc_pos[seg])]] - center_init)
+                    for seg in segments
+                ]
             else:
                 # Dernier recours : valeurs équiréparties dans la plage k0
                 kF_init = list(np.linspace(k0_hi_auto * 0.3, k0_hi_auto * 0.8, n_pairs))
@@ -257,36 +296,39 @@ def fit_mdc_peak_pairs(
     chi2_list = []
     eta_list = []  # paramètre η_global du pseudo-Voigt (NaN si shape=lorentzian)
     prev_popt     = None
-    prev_k0       = list(kF_init)   # derniers k0 valides pour détecter les sauts
+    prev_k0 = [
+        float(np.clip(abs(v), k0_lo, k0_hi_list[i]))
+        for i, v in enumerate(kF_init)
+    ]
 
     def _make_p0(kF_list):
         """Construit le vecteur p0 depuis une liste de k0 (un par paire)."""
         p = [0.0, float(np.percentile(mdc_n, 10)), center_init]
-        for k0g in kF_list:
+        for pi, k0g in enumerate(kF_list):
             A_g = float(np.interp(abs(k0g) + center_init, kpar_fit, mdc_n))
             A_g = max(A_g, 0.05)
+            gamma0 = gamma_init_list[pi]
             if width_mode == 'independent':
-                p += [abs(k0g), A_g, gamma_init, A_g, gamma_init]
+                p += [abs(k0g), A_g, gamma0, A_g, gamma0]
             elif width_mode == 'symmetric':
-                p += [abs(k0g), A_g, A_g, gamma_init]
+                p += [abs(k0g), A_g, A_g, gamma0]
             else:
                 p += [abs(k0g), A_g, A_g]
         if width_mode == 'global':
-            p += [gamma_init]
+            p += [gamma_init_list[0]]
         if is_voigt:
             p += [0.5]
         return p
 
-    for ev_i in wf_energies:
-        ie = int(np.argmin(np.abs(ev_arr - ev_i)))
+    window_plan = energy_window_plan(ev_arr, wf_energies, mdc_energy_window)
+    for ev_i, (ie, e_selector) in zip(wf_energies, window_plan):
         # MDC restreinte à la plage [k_min, k_max] — comme les curseurs Igor.
         # mdc_energy_window > 0 : intègre ±window/2 en énergie autour de ev_i
         # (moyenne des lignes) pour réduire le bruit qui fait serpenter kF(E).
         # kF/Γ varient lentement en E → non biaisés tant que la fenêtre reste
         # petite devant l'échelle de dispersion.
         if mdc_energy_window > 0:
-            e_mask = np.abs(ev_arr - ev_arr[ie]) <= 0.5 * float(mdc_energy_window)
-            block = data_cut[:, e_mask]   # intègre la donnée BRUTE (pas I_fit lissé-k)
+            block = data_cut[:, e_selector]  # donnée BRUTE, avant lissage k
             mdc_raw = np.nanmean(block, axis=1) if block.shape[1] else data_cut[:, ie].astype(float)
         else:
             mdc_raw = data_cut[:, ie].astype(float)

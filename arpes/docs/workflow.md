@@ -40,6 +40,8 @@ FS Explorer is disabled on raw Browse-only axes. Free cuts need calibrated k axe
 
 Move to MDC Fit once the BM cut, EF, and Gamma are in good shape. Define the energy and k window first. Pick the number of Lorentzian peak pairs, run an estimate at the current energy, and check whether the initial peaks sit on the visible bands.
 
+`Energy integ. ΔE` is the full integration width used by both the displayed MDC and the fitter; the selected-energy control shows the linked half-width `±ΔE/2`. For a paired fit, `|kF − center| init` is always a positive distance from the symmetry center, so the two initial peaks are placed at `center ± kF`. For an off-center pocket, place the center first, then tune this distance. The automatic kF bound uses the nearest edge of the selected k window; widen the window if either mirrored peak is clipped.
+
 Fit zones are for files that need several independent windows, branches, or parameter sets. In the Zones MDC table, add a zone from the current range, then select its row to load and edit its parameters; the selected zone follows your analysis range as you adjust it, so refining a window updates that zone in place. Run all fits every active zone in one pass. Each zone keeps its own parameters and result, and the active zone is the one shown by legacy plots and exports.
 
 Run the full fit after the estimate looks sane. Then check Waterfall and EDC views to see whether the model follows the data slice by slice. Bad points can be selected, deleted, undone, redone, and annotated.
@@ -49,6 +51,10 @@ Batch fit works best after one representative file has been tuned by hand. Propa
 ## 7. Check Results Before Reporting
 
 The Results tab gathers the fitted files. The dispersion plot shows kF(E); the lifetime view shows Gamma(E). In the per-slice table, large center drift, broad corrected Gamma, or high reduced chi2 usually points back to the ROI, Gamma centering, pair count, or EF calibration.
+
+For multi-band fits, use `Bandes visibles / noms` to show or hide each fitted pair and double-click its name to assign a physical label such as `alpha`, `beta`, or `electron pocket`. Names and visibility are saved in the session and reused by the dispersion, lifetime, waterfall, physical table, and figure export. Pale crosses on the dispersion flag unusually large kF uncertainty; the point remains stored.
+
+On the BM/MDC Fit map, fitted points always remain at their raw fitted coordinates. `Smooth kF(E)` adds only a dashed guide. Selecting a point then pressing Delete marks that stored point invalid and recomputes derived tables without it; it does not rerun the MDC optimizer. Use Undo to restore it.
 
 The physical table contains the values you would report: kF, vF, effective mass, and Gamma0 with uncertainties. Bootstrap sigma is useful when a few remaining outliers would make propagated errors too optimistic.
 

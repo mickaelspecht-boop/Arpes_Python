@@ -20,6 +20,8 @@ Gamma is the symmetry center used by overlays, cuts, and paired MDC fits. A wron
 
 An MDC is intensity versus k at fixed energy. The fitter models each MDC with Lorentzian peak pairs around a common center. The resulting kF points form the experimental dispersion.
 
+In the paired model, the fitted position parameter is the non-negative half-separation `k0 = |kF − center|`, not an absolute detector coordinate. Peak coordinates are `center − k0` and `center + k0`. The integration parameter `ΔE` is a full energy width, applied before k smoothing and shared by the preview, one-slice diagnostic, and full fit.
+
 Window choice matters. Too wide, and unrelated bands can pull the fit. Too narrow, and shoulders, asymmetry, or background problems can disappear from view.
 
 ## Width and Resolution

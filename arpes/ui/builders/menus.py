@@ -101,7 +101,21 @@ def build_menubar(window) -> QMenuBar:
     )
     act_proc_log.triggered.connect(lambda: window._experience_log_ctrl.toggle_dock())
     view_menu.addAction(act_proc_log)
+
+    settings_menu = bar.addMenu("&Settings")
+    act_api = QAction("Materials Project API key…", window)
+    act_api.setToolTip(
+        "Enter and store your Materials Project API key (per-user, local).\n"
+        "Also shows whether a key is in effect and if mp-api is available."
+    )
+    act_api.triggered.connect(lambda: _open_api_settings(window))
+    settings_menu.addAction(act_api)
     return bar
+
+
+def _open_api_settings(window) -> None:
+    from arpes.ui.widgets.dialogs.api_settings_dialog import ApiSettingsDialog
+    ApiSettingsDialog(window).exec()
 
 
 def _populate_attached_logbooks(window, menu: QMenu) -> None:

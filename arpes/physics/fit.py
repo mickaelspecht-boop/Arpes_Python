@@ -1,10 +1,8 @@
 """Controleur de fit MDC sans dependance PyQt."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass
 from typing import Any
-import hashlib
-import json
 import warnings
 
 import numpy as np
@@ -15,46 +13,7 @@ from arpes.physics.dispersion_fit import (
     curvature_ratio,
     linear_dispersion_fit,
 )
-
-
-def compute_fit_params_hash(
-    fp: Any,
-    *,
-    ef_offset: float = 0.0,
-    view_mode: str = "",
-    hv: float | None = None,
-    bm_distortion: dict | None = None,
-    grid_correction: dict | None = None,
-    ef_correction: dict | None = None,
-    ensemble_settings: dict | None = None,
-) -> str:
-    """Empreinte stable des paramètres ayant un impact sur le fit MDC.
-
-    Stockée dans fit_result et recalculée à l'affichage : si l'état
-    courant diffère du hash mémorisé, le fit affiché est marqué STALE
-    (paramètres modifiés depuis le fit → résultats potentiellement
-    incohérents). Cohérence cache (arpes-redteam).
-    """
-    fp_dict: dict
-    if is_dataclass(fp):
-        fp_dict = asdict(fp)
-    elif isinstance(fp, dict):
-        fp_dict = dict(fp)
-    else:
-        fp_dict = {k: getattr(fp, k) for k in dir(fp)
-                    if not k.startswith("_") and not callable(getattr(fp, k))}
-    payload = {
-        "fp": _sanitize(fp_dict),
-        "ef_offset": float(ef_offset or 0.0),
-        "view_mode": str(view_mode or ""),
-        "hv": float(hv) if hv is not None else None,
-        "bm_distortion": _sanitize(bm_distortion or {}),
-        "grid_correction": _sanitize(grid_correction or {}),
-        "ef_correction": _sanitize(ef_correction or {}),
-        "ensemble_settings": _sanitize(ensemble_settings or {}),
-    }
-    raw = json.dumps(payload, sort_keys=True, default=str)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+from arpes.physics.fit_hash import compute_fit_params_hash, sanitize as _sanitize
 
 
 # P2.2 — rigueur quantitative vF/kF/m* (fit partagé physics.dispersion_fit).
@@ -67,7 +26,8 @@ def compute_fermi_velocity_mstar(
     *,
     branch: str = "kF_minus",
     pair_index: int = 0,
-    window_eV: float = 0.05,
+    window_eV: float = 0.10,
+    enforce_linear: bool = False,
 ) -> dict[str, float]:
     """vF (eV·Å), kF (Å⁻¹), m*/m_e + incertitudes à partir de kF(E).
 
@@ -96,7 +56,7 @@ def compute_fermi_velocity_mstar(
         "vF_eV_A": nan, "kF_inv_A": nan, "mstar_over_me": nan,
         "vF_sigma_eV_A": nan, "kF_inv_A_sigma": nan, "mstar_sigma": nan,
         "linear_ok": False, "refused_reason": "", "sigma_type": "none",
-        "n_points": 0, "curvature_ratio": nan,
+        "n_points": 0, "curvature_ratio": nan, "curved": False,
     }
 
     def _refuse(reason: str) -> dict[str, float]:
@@ -112,6 +72,10 @@ def compute_fermi_velocity_mstar(
         return _refuse("branche/paire absente")
     k = np.asarray(branches[pair_index], dtype=float)  # en π/a
     mask = np.isfinite(e) & np.isfinite(k) & (np.abs(e) <= float(window_eV))
+    if int(mask.sum()) < MIN_DISP_POINTS:
+        # One bounded expansion for coarse MDC grids whose 5th point sits just
+        # outside the nominal window (mirrors extract_branch_result).
+        mask = np.isfinite(e) & np.isfinite(k) & (np.abs(e) <= 1.25 * float(window_eV))
     n = int(mask.sum())
     out["n_points"] = n
     if n < MIN_DISP_POINTS:
@@ -119,12 +83,18 @@ def compute_fermi_velocity_mstar(
     ew = e[mask]
     kw = k[mask]
 
-    # Linearity gate: quadratic curvature relative to the linear slope.
     if float(np.ptp(kw)) <= 0:
         return _refuse("constant k (vertical slope)")
+    # Curvature is a physical observable, not a reason to discard a band
+    # (Levy et al., PRB 90, 045150). By default the band is kept and its near-EF
+    # linear slope is reported as an effective vF, only flagged ``curved``. The
+    # strict gate (``enforce_linear``, a UI toggle) is the sole path that refuses
+    # a curved band, for users who want a pure-linear vF.
     curv = curvature_ratio(kw, ew)
     out["curvature_ratio"] = float(curv)
-    if not np.isfinite(curv) or curv > CURVATURE_MAX:
+    is_curved = (not np.isfinite(curv)) or curv > CURVATURE_MAX
+    out["curved"] = bool(is_curved)
+    if is_curved and enforce_linear:
         return _refuse(f"nonlinear band (curvature {curv:.2f} > {CURVATURE_MAX})")
 
     # σ_k per point: proxy = Γ (HWHM in π/a) if available in the fit.
@@ -245,6 +215,7 @@ def imaginary_self_energy(
     pair_index: int = 0,
     use_corrected: bool = True,
     side: str = "mean",
+    enforce_linear: bool = False,
 ) -> dict:
     """Im Sigma(E) = vF * Gamma_k_HWHM(E), in eV.
 
@@ -297,7 +268,7 @@ def imaginary_self_energy(
         empty["error"] = "Gamma/E arrays misaligned"
         return empty
     vfd = compute_fermi_velocity_mstar(
-        fit_result, crystal_a, pair_index=pair_index)
+        fit_result, crystal_a, pair_index=pair_index, enforce_linear=enforce_linear)
     vF = vfd.get("vF_eV_A", float("nan"))
     if not np.isfinite(vF) or vF <= 0:
         empty["error"] = vfd.get("refused_reason") or "missing vF"
@@ -554,24 +525,6 @@ def detect_n_pairs(
     return max(1, min(int(max_pairs), min(left, right)))
 
 
-def _sanitize(obj):
-    """JSON-safe conversion: numpy scalars, lists, recursive dicts."""
-    if isinstance(obj, np.ndarray):
-        return _sanitize(obj.tolist())  # arrays → nested lists, never str(repr)
-    if isinstance(obj, dict):
-        return {str(k): _sanitize(v) for k, v in sorted(obj.items())}
-    if isinstance(obj, (list, tuple)):
-        return [_sanitize(x) for x in obj]
-    if hasattr(obj, "item") and not isinstance(obj, (str, bytes)):
-        try:
-            return obj.item()
-        except Exception:
-            return str(obj)
-    if isinstance(obj, (int, float, str, bool)) or obj is None:
-        return obj
-    return str(obj)
-
-
 @dataclass(frozen=True)
 class FitSummary:
     n_points: int
@@ -581,7 +534,6 @@ class FitSummary:
     status_text: str
     resolution_dominates: bool = False
 
-
 class MdcFitter:
     """Prepare les arguments, appelle arpes_plots, resume le resultat."""
 
@@ -590,15 +542,16 @@ class MdcFitter:
 
     @staticmethod
     def fit_kwargs(fp: Any, resolution_source: str = "") -> dict[str, Any]:
-        kF_init_list = [p.get("kF_init", 0.30) for p in (getattr(fp, "pairs", None) or [])]
+        from arpes.physics.mdc_geometry import fit_pair_parameter_lists
+        kF_init_list, gamma_init, gamma_max = fit_pair_parameter_lists(fp)
         return {
             "n_pairs": fp.n_pairs,
             "ev_start": fp.ev_start,
             "ev_end": fp.ev_end,
             "smooth_fit": fp.smooth_fit,
             "smooth_detect": fp.smooth_detect,
-            "gamma_init": fp.gamma_init,
-            "gamma_max": fp.gamma_max,
+            "gamma_init": gamma_init,
+            "gamma_max": gamma_max,
             "kF_init": kF_init_list or None,
             "center_init": fp.center_init,
             "xg_range": fp.xg_range,

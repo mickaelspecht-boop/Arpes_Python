@@ -15,6 +15,7 @@ from arpes.core.sample import require_lattice_a, sample_for_entry
 
 
 def populate_physics_rows(panel, filename: str, fr: dict, n_pairs: int, meta=None) -> None:
+    from arpes.ui.widgets import results_bands
     entry = panel._session.files.get(filename)
     try:
         a_val = require_lattice_a(
@@ -47,9 +48,14 @@ def populate_physics_rows(panel, filename: str, fr: dict, n_pairs: int, meta=Non
         branches = bundle.branches
     gamma_by_pair = {g.pair_index: g for g in bundle.gamma_fl}
     for br in branches:
+        if not results_bands.band_visible(panel, filename, br.pair_index):
+            continue
         row = panel._table_phys.rowCount()
         panel._table_phys.insertRow(row)
-        label = f"P{br.pair_index + 1} {br.branch.replace('kF_', '')}"
+        label = (
+            f"{results_bands.band_name(entry, br.pair_index)} "
+            f"{br.branch.replace('kF_', '')}"
+        )
         kf = panel._fmt(br.kF_at_EF, br.kF_at_EF_sigma, dec=4)
         vf = panel._fmt(br.vF_eV_pi_a, br.vF_sigma, dec=2)
         mstar = panel._fmt(br.m_star_over_me, br.m_star_sigma, dec=2)

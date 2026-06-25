@@ -404,6 +404,21 @@ class FitParamsPanel(QScrollArea):
         from arpes.ui.widgets.params_theory_state import schedule_theory_overlay_changed
         return schedule_theory_overlay_changed(self)
 
+    def _on_mdc_half_window_changed(self, half_width: float) -> None:
+        """Keep preview and fitter integration windows physically identical."""
+        full_width = 2.0 * float(half_width)
+        self.sp_mdc_ewin.blockSignals(True)
+        self.sp_mdc_ewin.setValue(full_width)
+        self.sp_mdc_ewin.blockSignals(False)
+        self.fit_only_changed.emit()
+
+    def _on_mdc_full_window_changed(self, full_width: float) -> None:
+        """Keep preview half-window synchronized without a second redraw."""
+        self.sp_int_win.blockSignals(True)
+        self.sp_int_win.setValue(0.5 * float(full_width))
+        self.sp_int_win.blockSignals(False)
+        self.fit_only_changed.emit()
+
     def _emit_theory_overlay_changed_now(self):
         from arpes.ui.widgets.params_theory_state import emit_theory_overlay_changed_now
         return emit_theory_overlay_changed_now(self)
@@ -423,6 +438,9 @@ class FitParamsPanel(QScrollArea):
             sp.blockSignals(True)
             sp.setValue(val)
             sp.blockSignals(False)
+        self.sp_int_win.blockSignals(True)
+        self.sp_int_win.setValue(0.5 * float(getattr(fp, "mdc_energy_window", 0.0)))
+        self.sp_int_win.blockSignals(False)
         # Block signals on every programmatic load: a zone switch must not emit
         # fit_only_changed (which would trip the zone auto-bind / extra redraws).
         self.chk_k0a.blockSignals(True)
@@ -467,7 +485,10 @@ class FitParamsPanel(QScrollArea):
         if not raw:
             raw = [{"kF_init": 0.30, "gamma_init": fp.gamma_init, "gamma_max": fp.gamma_max}]
         while len(raw) < n:
-            raw.append(dict(raw[-1]))
+            new_pair = dict(raw[-1])
+            new_pair.pop("label", None)
+            new_pair.pop("results_visible", None)
+            raw.append(new_pair)
         self._pair_params = raw[:max(n, 1)]
         self._current_pair = 0
         self.sp_np.blockSignals(True)
@@ -480,11 +501,13 @@ class FitParamsPanel(QScrollArea):
     def _save_pair(self):
         i = self._current_pair
         if i < len(self._pair_params):
-            self._pair_params[i] = {
+            current = dict(self._pair_params[i])
+            current.update({
                 "kF_init": self.sp_kfi.value(),
                 "gamma_init": self.sp_gi.value(),
                 "gamma_max": self.sp_gm.value(),
-            }
+            })
+            self._pair_params[i] = current
 
     def _on_pair_param_changed(self, _=None):
         self._save_pair()
@@ -506,6 +529,8 @@ class FitParamsPanel(QScrollArea):
         self._save_pair()
         default = dict(self._pair_params[-1]) if self._pair_params else \
             {"kF_init": 0.30, "gamma_init": 0.08, "gamma_max": 0.30}
+        default.pop("label", None)
+        default.pop("results_visible", None)
         while len(self._pair_params) < n:
             self._pair_params.append(dict(default))
         self._pair_params = self._pair_params[:max(n, 1)]
@@ -518,6 +543,8 @@ class FitParamsPanel(QScrollArea):
         self._save_pair()
         self._current_pair = i
         self._load_pair(i)
+        # Redraw to highlight the selected pair and show its own γ bounds.
+        self.fit_only_changed.emit()
 
     # ── sections collapsibles + presets ──────────────────────────────────────
     def apply_fit_section_states(self, states: dict | None) -> None:

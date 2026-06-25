@@ -25,10 +25,8 @@ import math
 import numpy as np
 
 from arpes.physics.dispersion_fit import (
-    CURVATURE_MAX,
     MIN_DISP_POINTS,
-    curvature_ratio,
-    linear_dispersion_fit,
+    local_k_of_e_fit,
 )
 
 # ℏ²/m_e in eV·Å² (ℏ²/2m_e = 3.80998 eV·Å²). Fixed bug: previously 7.62e-2
@@ -62,6 +60,7 @@ class BranchResult:
     n_points_used: int = 0
     linear_ok: bool = True
     refused_reason: str = ""
+    dispersion_model: str = ""
 
 
 @dataclass(frozen=True)
@@ -193,11 +192,18 @@ def extract_branch_result(
     σ_kF, σ_vF, σ_m* (a constant centre shift leaves the σ unchanged).
     """
     e, k, sk = _branch_arrays(fit_result, branch, pair_index)
-    valid = np.isfinite(k) & np.isfinite(e) & (np.abs(e) <= float(e_window))
+    finite = np.isfinite(k) & np.isfinite(e)
+    valid = finite & (np.abs(e) <= float(e_window))
+    if int(valid.sum()) < MIN_DISP_POINTS:
+        # One bounded expansion avoids rejecting coarse MDC grids where the
+        # fifth point lies just outside the nominal window.  Never expand an
+        # arbitrarily tiny user window into a broad fit.
+        valid = finite & (np.abs(e) <= 1.25 * float(e_window))
     e_w, k_w = e[valid], k[valid]
     sk_w = sk[valid] if sk.size else None
     n_valid = int(valid.sum())
-    # P2.2: ≥5 points required (quadratic gate + ODR is meaningless below this threshold).
+    # A local quadratic has three parameters; require >=5 points for stable
+    # model selection and uncertainty estimation.
     if n_valid < MIN_DISP_POINTS:
         return BranchResult(
             branch=branch, pair_index=pair_index, n_points_used=n_valid,
@@ -205,46 +211,30 @@ def extract_branch_result(
             refused_reason=f"too few points ({n_valid} < {MIN_DISP_POINTS})",
         )
 
-    # P2.2: linearity gate: quadratic curvature relative to the slope.
-    # kF=−α/β only makes sense if E(k) is linear near E_F (otherwise a kink or
-    # Fermi cutoff contaminates the extrapolation).
-    curv = curvature_ratio(k_w, e_w)
-    if not math.isfinite(curv) or curv > CURVATURE_MAX:
-        return BranchResult(
-            branch=branch, pair_index=pair_index, n_points_used=n_valid,
-            linear_ok=False,
-            refused_reason=f"nonlinear band (curvature {curv:.2f} > {CURVATURE_MAX})",
-        )
-
-    # P2.2: orthogonal regression (scipy.odr), weighted by real σ_k when
-    # available: both E and k carry noise, so vertical OLS underestimates β.
-    # Weighted OLS fallback (polyfit cov) without σ_k. Returns β=dE/dk=vF
-    # (eV·π/a) and the 2×2 covariance (α↔β correlation kept for σ_kF/σ_m*).
+    # MDC analysis gives k at fixed E.  Fit k(E) with sigma_k directly, then
+    # evaluate k_F=k(0) and v_F=[dk/dE|0]^-1.  AICc permits physical curvature
+    # without silently forcing every band to be linear.
     sk_use = (
         sk_w if (sk_w is not None and np.all(np.isfinite(sk_w)) and np.all(sk_w > 0))
         else None
     )
-    fit = linear_dispersion_fit(k_w, e_w, sk_use)
+    fit = local_k_of_e_fit(e_w, k_w, sk_use)
     if not fit["ok"]:
         return BranchResult(
             branch=branch, pair_index=pair_index, n_points_used=n_valid,
             linear_ok=False, refused_reason="regression did not converge / degenerate",
         )
 
-    beta = float(fit["slope"])        # vF in eV·(π/a)
-    alpha = float(fit["intercept"])
+    dk_dE = float(fit["dk_dE"])
+    beta = 1.0 / dk_dE                # vF=dE/dk in eV·(π/a)
+    k_crossing = float(fit["k0"])
     cov = fit["cov"]
-    var_b = float(cov[0, 0])
-    var_a = float(cov[1, 1])
-    cov_ab = float(cov[0, 1])
-    sigma_beta = math.sqrt(max(var_b, 0.0))
-    kF = (-alpha / beta) - float(center)  # Fermi momentum from the band centre Γ
-    # σ_kF with full covariance: ∂kF/∂α=−1/β, ∂kF/∂β=α/β².
-    dkF_da = -1.0 / beta
-    dkF_db = alpha / (beta * beta)
-    var_kF = (dkF_da ** 2 * var_a + dkF_db ** 2 * var_b
-              + 2.0 * dkF_da * dkF_db * cov_ab)
-    sigma_kF = math.sqrt(max(var_kF, 0.0))
+    var_dk_dE = float(cov[0, 0])
+    var_k0 = float(cov[1, 1])
+    cov_dk_k0 = float(cov[0, 1])
+    sigma_beta = math.sqrt(max(var_dk_dE, 0.0)) / (dk_dE * dk_dE)
+    kF = k_crossing - float(center)
+    sigma_kF = math.sqrt(max(var_k0, 0.0))
 
     # vF in eV·(π/a). m*/m_e is computed only if crystal_a_angstrom > 0.
     vF = beta
@@ -267,13 +257,10 @@ def extract_branch_result(
         # (kF in Å⁻¹, vF in eV·Å -> dimensionless ratio)
         m_star_ratio = HBAR2_OVER_ME_eV_A2 * abs(kF_A) / abs(vF_A) if abs(vF_A) > 0 else float("nan")
         if math.isfinite(m_star_ratio) and kF != 0.0 and beta != 0.0:
-            # m* ∝ |kF|/|vF|, with kF = −α/β − center and vF = β. Propagate σ_m*
-            # through (kF, vF) — both already computed with the correct
-            # derivatives — using their covariance. The earlier |α|/β² form
-            # dropped `center`: for an off-Γ pocket (center≠0) it divided by the
-            # k=0 intercept α≈0 and blew σ_m* up spuriously even though kF/vF are
-            # well determined (e.g. C05). cov(kF,vF) = ∂kF/∂α·cov_ab + ∂kF/∂β·var_β.
-            cov_kf_vf = dkF_da * cov_ab + dkF_db * var_b
+            # m* ∝ |kF|/|vF|.  Here kF=k(0)-center and
+            # vF=1/(dk/dE)|0, so their covariance follows directly from the
+            # local k(E) coefficient covariance.
+            cov_kf_vf = -cov_dk_k0 / (dk_dE * dk_dE)
             rel_var = ((sigma_kF / kF) ** 2 + (sigma_vF / beta) ** 2
                        - 2.0 * cov_kf_vf / (kF * beta))
             sigma_m_star = m_star_ratio * math.sqrt(max(rel_var, 0.0))
@@ -302,6 +289,7 @@ def extract_branch_result(
         n_points_used=n_valid,
         linear_ok=True,
         refused_reason="",
+        dispersion_model=str(fit["method"]),
     )
 
 

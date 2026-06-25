@@ -42,6 +42,7 @@ def populate_waterfall_files(panel) -> None:
 
 
 def draw_mdc_waterfall(panel) -> None:
+    from arpes.ui.widgets import results_bands
     canvas = panel._canvas_wf
     ax = canvas.ax
     ax.cla()
@@ -87,9 +88,14 @@ def draw_mdc_waterfall(panel) -> None:
     espan = (emax - emin) or 1.0
     show_model = (not hasattr(panel, "_chk_wf_model")) or panel._chk_wf_model.isChecked()
 
-    kfm, kfp = fr.get("kF_minus"), fr.get("kF_plus")
-    disp_m: list[tuple[float, float]] = []
-    disp_p: list[tuple[float, float]] = []
+    kfm, kfp = fr.get("kF_minus") or [], fr.get("kF_plus") or []
+    n_pairs = int(fr.get("n_pairs") or entry.fit_params.n_pairs or 1)
+    dispersion = {
+        (pair_idx, branch_idx): []
+        for pair_idx in range(n_pairs)
+        if results_bands.band_visible(panel, name, pair_idx)
+        for branch_idx in (0, 1)
+    }
     for j, i in enumerate(idxs):
         cv = np.asarray(curves[i], dtype=float)
         if cv.size != fit_kpar.size:
@@ -103,20 +109,31 @@ def draw_mdc_waterfall(panel) -> None:
         ax.plot(fit_kpar, data + y0, color=col, lw=0.6, alpha=0.65)
         if show_model:
             ax.plot(fit_kpar, cv + y0, color=col, lw=1.4, alpha=0.95)
-        for branch, store in ((kfm, disp_m), (kfp, disp_p)):
-            if not branch:
+        for pair_idx in range(n_pairs):
+            if not results_bands.band_visible(panel, name, pair_idx):
                 continue
-            kf = np.asarray(branch[0], dtype=float)
-            if i < kf.size and np.isfinite(kf[i]) and fit_kpar.min() <= kf[i] <= fit_kpar.max():
-                yi = float(np.interp(kf[i], fit_kpar, data)) + y0
-                ax.plot(kf[i], yi, marker="o", ms=3, color="w",
-                        mec=col, mew=0.8, zorder=5)
-                store.append((float(kf[i]), yi))
+            style = results_bands.band_style((0.95, 0.55, 0.15), pair_idx)
+            for branch_idx, branch in enumerate((kfm, kfp)):
+                if pair_idx >= len(branch):
+                    continue
+                kf = np.asarray(branch[pair_idx], dtype=float)
+                if i < kf.size and np.isfinite(kf[i]) and fit_kpar.min() <= kf[i] <= fit_kpar.max():
+                    yi = float(np.interp(kf[i], fit_kpar, data)) + y0
+                    marker = style["marker_minus"] if branch_idx == 0 else style["marker_plus"]
+                    ax.plot(kf[i], yi, marker=marker, ms=3, color="w",
+                            mec=style["color"], mew=0.8, zorder=5)
+                    dispersion[(pair_idx, branch_idx)].append((float(kf[i]), yi))
 
-    for store, cl in ((disp_m, "#ff6b6b"), (disp_p, "#6bb6ff")):
+    for (pair_idx, branch_idx), store in dispersion.items():
         if len(store) >= 2:
             xs, ys = zip(*store)
-            ax.plot(xs, ys, color=cl, lw=1.1, alpha=0.85, zorder=4)
+            style = results_bands.band_style((0.95, 0.55, 0.15), pair_idx)
+            ax.plot(
+                xs, ys, color=style["color"], linestyle=style["linestyle"],
+                lw=1.1, alpha=0.85, zorder=4,
+                label=results_bands.band_name(entry, pair_idx)
+                if branch_idx == 0 else "_",
+            )
 
     ax.set_xlabel(r"$k_\parallel$ (π/a)", color="w", fontsize=10)
     ax.set_ylabel("MDC intensity  (stacked, low E → top = E_F)", color="w", fontsize=9)
@@ -124,6 +141,8 @@ def draw_mdc_waterfall(panel) -> None:
     extra = f", 1/{decim}" if decim > 1 else ""
     ax.set_title(f"{name} — MDC waterfall ({shown}/{n} fitted slices{extra})",
                  color="w", fontsize=9)
+    if dispersion:
+        ax.legend(fontsize=7, facecolor="#333", labelcolor="w", loc="best")
     try:
         canvas.fig.tight_layout()
     except Exception:

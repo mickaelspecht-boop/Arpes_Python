@@ -27,6 +27,7 @@ class MultiFilePoint:
     gamma_zero_sigma: float = float("nan")
     direction: str = ""
     compound: str = ""              # sample/compound label (grouping & colour)
+    dispersion_model: str = ""
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,13 @@ def aggregate_session_entries(
         points.append(point)
     if len(a_values) > 1:
         warnings.append("Heterogeneous a parameter across files.")
+    n_quadratic = sum(
+        p.dispersion_model == "local_quadratic_k_of_e" for p in points
+    )
+    if n_quadratic:
+        warnings.append(
+            f"{n_quadratic} local quadratic dispersion estimate(s) near EF."
+        )
     points.sort(key=lambda p: (p.x_value, p.filename))
     return MultiFileSeries(points=tuple(points), skipped=skipped, warning=" ".join(warnings))
 
@@ -133,6 +141,7 @@ def _point_from_entry(
         gamma_zero_sigma=float(gamma.gamma_zero_sigma) if gamma is not None else float("nan"),
         direction=str(entry.meta.direction or ""),
         compound=compound,
+        dispersion_model=str(getattr(branch, "dispersion_model", "") or ""),
     )
 
 
