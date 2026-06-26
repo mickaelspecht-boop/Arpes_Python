@@ -37,6 +37,13 @@ class FSParams:
     klim: float = 1.3
     kx_center: float = 0.0
     ky_center: float = 0.0
+    # Display window in centered (kx-kx_center, ky-ky_center) π/a coordinates.
+    # NaN = unbounded on that side. A set window crops the map and the contrast
+    # is renormalized over the crop (see _apply_k_window).
+    kx_min: float = float("nan")
+    kx_max: float = float("nan")
+    ky_min: float = float("nan")
+    ky_max: float = float("nan")
     bz_shape: str = "rectangle"
     bz_half_x: float = 1.0
     bz_half_y: float = 1.0
@@ -123,6 +130,61 @@ def _robust_norm(img: np.ndarray) -> np.ndarray:
     return np.clip((arr - lo) / (hi - lo + 1e-12), 0, 1)
 
 
+def _key_num(x) -> float | None:
+    """Round for a cache key, mapping NaN/non-numeric to None.
+
+    NaN must never appear in a cache key: NaN != NaN, so a key holding NaN
+    never equals itself and the cache always misses (re-extract on every draw).
+    """
+    try:
+        xf = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if not np.isfinite(xf) else round(xf, 8)
+
+
+def _window_bound(value, default: float) -> float:
+    try:
+        vf = float(value)
+    except (TypeError, ValueError):
+        return default
+    return vf if np.isfinite(vf) else default
+
+
+def _window_is_set(params: FSParams) -> bool:
+    return any(
+        np.isfinite(_window_bound(v, np.nan))
+        for v in (params.kx_min, params.kx_max, params.ky_min, params.ky_max)
+    )
+
+
+def _apply_k_window(kx: np.ndarray, ky: np.ndarray, fs: np.ndarray, params: FSParams):
+    """Crop the FS map to the centered (kx, ky) window before renormalization.
+
+    The window is given in centered π/a coordinates (the displayed axes). An
+    axis is cropped only when at least two points survive, so a window cannot
+    collapse the map. ``fs`` is laid out as (ny, nx) = (rows ky, cols kx).
+    """
+    if not _window_is_set(params):
+        return kx, ky, fs
+    kx = np.asarray(kx, dtype=float)
+    ky = np.asarray(ky, dtype=float)
+    fs = np.asarray(fs, dtype=float)
+    xlo, xhi = _window_bound(params.kx_min, -np.inf), _window_bound(params.kx_max, np.inf)
+    ylo, yhi = _window_bound(params.ky_min, -np.inf), _window_bound(params.ky_max, np.inf)
+    xc = kx - float(params.kx_center)
+    yc = ky - float(params.ky_center)
+    xmask = (xc >= xlo) & (xc <= xhi)
+    if 2 <= int(xmask.sum()) < kx.size and fs.shape[1] == kx.size:
+        kx = kx[xmask]
+        fs = fs[:, xmask]
+    ymask = (yc >= ylo) & (yc <= yhi)
+    if 2 <= int(ymask.sum()) < ky.size and fs.shape[0] == ky.size:
+        ky = ky[ymask]
+        fs = fs[ymask, :]
+    return kx, ky, fs
+
+
 def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
     """Return kx, ky, fs_norm, title from the explorer legacy dict."""
     if raw_data is None:
@@ -161,6 +223,10 @@ def extract_fs_map(raw_data: dict[str, Any], params: FSParams):
             normalize_x=True,
         )
         fs = apply_fs_flux_factors_to_map(fs, safe_y, safe_x)
+
+    # Crop to the chosen window before smoothing/normalization so the contrast
+    # is recomputed over the visible region (a smaller axis renormalizes).
+    kx, ky, fs = _apply_k_window(kx, ky, fs, params)
 
     if params.smooth_sigma > 0 and gaussian_filter is not None:
         nan = ~np.isfinite(fs)
@@ -227,4 +293,12 @@ def _fs_cache_key(raw_data: dict[str, Any], params: FSParams) -> tuple:
         round(float(params.norm_ref_hi), 8),
         round(float(params.smooth_sigma), 8),
         bool(params.normalize_profile),
+        _key_num(params.kx_min),
+        _key_num(params.kx_max),
+        _key_num(params.ky_min),
+        _key_num(params.ky_max),
+        # Centers only matter for the key when a window is active (the crop is
+        # taken in centered coordinates); otherwise recentering stays display-only.
+        _key_num(params.kx_center) if _window_is_set(params) else None,
+        _key_num(params.ky_center) if _window_is_set(params) else None,
     )

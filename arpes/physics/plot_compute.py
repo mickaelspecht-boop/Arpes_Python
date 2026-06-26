@@ -32,6 +32,10 @@ class DerivParams:
     sigma_k_inv_a: float = 0.04
     c0_alpha: float = 0.05
     ef_margin_eV: float = 0.05
+    # Curvature anisotropy: relative weight of the k vs E direction (Igor's
+    # "MDC weight"). The effective weight is (dk/dE)^2 * curv_weight_scale,
+    # so 1.0 reproduces the Igor default (dk/dE)^2. Curvature only.
+    curv_weight_scale: float = 1.0
 
 
 def _sigma_px(coord, sigma_phys: float, fallback: float = 2.0) -> float:
@@ -86,26 +90,52 @@ def _clip_border(arr: np.ndarray, border_clip: int) -> None:
         arr[:, -bc:] = np.nan
 
 
+def _median_step(coord) -> float:
+    """Median absolute spacing of a 1D axis (0.0 if undefined)."""
+    coord = np.asarray(coord, dtype=float)
+    if coord.size < 2:
+        return 0.0
+    d = np.abs(np.diff(coord))
+    d = d[np.isfinite(d) & (d > 0)]
+    return float(np.median(d)) if d.size else 0.0
+
+
 def compute_curvature(
     data, kpar, ev_arr, *,
-    sigma_k_px=2.0, sigma_e_px=2.0, c0_alpha=0.05, border_clip=3, **_ignored,
+    sigma_k_px=2.0, sigma_e_px=2.0, c0_alpha=0.05, border_clip=3,
+    weight=None, weight_scale=1.0, **_ignored,
 ) -> np.ndarray:
     """Full 2D curvature, Zhang et al. RSI 82, 043712 (2011).
 
-        C = -[ (C0 + I_E²)·I_kk − 2·I_k·I_E·I_kE + (C0 + I_k²)·I_EE ]
-             / (C0 + I_k² + I_E²)^(3/2)
+        C = -[ (C0 + w·I_k²)·I_EE − 2·w·I_k·I_E·I_kE + w·(C0 + I_E²)·I_kk ]
+             / (C0 + w·I_k² + I_E²)^(3/2)
 
     Both cross term (factor 2) and the I_EE term are included — the previous
     implementation dropped them, so it only enhanced k-direction structure and
-    looked flat on steep bands. C0 is the regularization scale: set from the
-    95th percentile of the gradient magnitude on the *eroded interior* (never
-    the max, which sits on the trapezoid border cliff and would wash the band).
+    looked flat on steep bands. ``w`` is the k/E anisotropy weight, exactly as
+    in the Igor procedure (Pierre Richard): it reconciles the incommensurate
+    eV and π/a axes and tunes whether the sharpening favours the dispersing
+    (k) or the flat (E) direction. Default ``w = (dk/dE)² · weight_scale``;
+    ``weight_scale = 1`` reproduces the Igor default (dk/dE)², and ``weight``
+    overrides it outright. C0 is the regularization scale: set from the 95th
+    percentile of the gradient magnitude on the *eroded interior* (never the
+    max, which sits on the trapezoid border cliff and would wash the band),
+    with the k contribution carrying the same weight ``w`` as the denominator.
     """
     from scipy.ndimage import binary_erosion
 
     kpar = np.asarray(kpar, dtype=float)
     ev_arr = np.asarray(ev_arr, dtype=float)
     smooth, mask_sm = _smooth_masked(data, [sigma_k_px, sigma_e_px])
+
+    if weight is None:
+        dk = _median_step(kpar)
+        de = _median_step(ev_arr)
+        base = (dk / de) ** 2 if de > 0 else 1.0
+        w = base * float(weight_scale)
+    else:
+        w = float(weight)
+    w = max(w, 1e-30)
 
     I_E = np.gradient(smooth, ev_arr, axis=1)
     I_k = np.gradient(smooth, kpar, axis=0)
@@ -121,14 +151,20 @@ def compute_curvature(
         gk = np.abs(I_k[interior])
         ge = np.abs(I_E[interior])
         C0 = float(c0_alpha) * (
-            float(np.percentile(gk, 95)) ** 2 + float(np.percentile(ge, 95)) ** 2
+            w * float(np.percentile(gk, 95)) ** 2 + float(np.percentile(ge, 95)) ** 2
         )
     else:
-        C0 = float(c0_alpha) * (np.nanmax(np.abs(I_k)) ** 2 + np.nanmax(np.abs(I_E)) ** 2)
+        C0 = float(c0_alpha) * (
+            w * np.nanmax(np.abs(I_k)) ** 2 + np.nanmax(np.abs(I_E)) ** 2
+        )
     C0 = max(C0, 1e-30)
 
-    numer = (C0 + I_E**2) * I_kk - 2.0 * I_k * I_E * I_kE + (C0 + I_k**2) * I_EE
-    denom = (C0 + I_k**2 + I_E**2) ** 1.5
+    numer = (
+        (C0 + w * I_k**2) * I_EE
+        - 2.0 * w * I_k * I_E * I_kE
+        + w * (C0 + I_E**2) * I_kk
+    )
+    denom = (C0 + w * I_k**2 + I_E**2) ** 1.5
     curv = -numer / (denom + 1e-30)
 
     curv[mask_sm < 0.5] = np.nan
@@ -159,7 +195,8 @@ def _compute_deriv_below_ef(kind: str, data: np.ndarray, kpar, ev_arr,
     elif kind == "Curvature":
         out[:, below] = compute_curvature(
             data[:, below], kpar, ev_b,
-            sigma_k_px=sk_px, sigma_e_px=se_px, c0_alpha=dp.c0_alpha)
+            sigma_k_px=sk_px, sigma_e_px=se_px, c0_alpha=dp.c0_alpha,
+            weight_scale=dp.curv_weight_scale)
     return out
 
 

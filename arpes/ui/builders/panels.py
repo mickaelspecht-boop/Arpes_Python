@@ -199,6 +199,25 @@ def _build_carte_tab(window) -> QWidget:
 
     window._bm_canvas = MplCanvas(figsize=(7, 6), toolbar=True)
     window._bm_canvas.reset_callback = window._reset_bm_view
+    window._show_mdc_overlay = True
+    _bm_tb = window._bm_canvas.toolbar
+    if _bm_tb is not None:
+        _act_mdc = _bm_tb.addAction("MDC fit")
+        _act_mdc.setCheckable(True)
+        _act_mdc.setChecked(True)
+        _act_mdc.setToolTip(
+            "Show or hide the MDC fit selection overlay. When off, the band map "
+            "is shown raw (only the EF line stays)."
+        )
+        _act_mdc.toggled.connect(
+            lambda checked: window._bm_toolbar_action("toggle_mdc", checked))
+        _act_exp = _bm_tb.addAction("Export figure…")
+        _act_exp.setToolTip(
+            "Export the band map as displayed (current mode: raw, second "
+            "derivative, or curvature), with only the EF line and no fit overlay."
+        )
+        _act_exp.triggered.connect(
+            lambda: window._bm_toolbar_action("export"))
     carte_lay.addWidget(window._bm_canvas, stretch=1)
     return carte_widget
 
@@ -236,6 +255,16 @@ def _build_deriv_params_bar(window) -> QWidget:
         "Curvature regularization (Zhang C0 as a fraction of the interior\n"
         "gradient). Small = sharper but noisier; large = smoother. Curvature only.")
     lay.addWidget(window._sp_deriv_c0)
+
+    window._lbl_deriv_w = QLabel("k/E weight:")
+    lay.addWidget(window._lbl_deriv_w)
+    window._sp_deriv_w = _spin(
+        0.0, 1000.0, 0.1, 2, 1.0,
+        "Curvature anisotropy (Igor 'MDC weight'). Effective weight is\n"
+        "(dk/dE)² × this value; 1.0 = Igor default (dk/dE)². Larger favours the\n"
+        "dispersing k-direction, smaller the flat E-direction. Curvature only.",
+        width=56)
+    lay.addWidget(window._sp_deriv_w)
     lay.addStretch()
 
     bar.setVisible(False)

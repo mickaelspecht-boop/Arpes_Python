@@ -35,6 +35,7 @@ PROXY_MAP = {
     "_ef_offset_text": "_plot_ctrl",
     "_draw_ef_label": "_plot_ctrl",
     "_draw_bm": "_plot_ctrl",
+    "_bm_toolbar_action": "_plot_ctrl",
     "_reset_bm_view": "_plot_ctrl",
     "_draw_mdc_energy_map": "_plot_ctrl",
     "_draw_mdc_waterfall": "_plot_ctrl",

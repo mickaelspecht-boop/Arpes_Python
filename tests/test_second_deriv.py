@@ -76,10 +76,16 @@ class TestCurvature(unittest.TestCase):
         f_kE = np.gradient(f_k, ev, axis=1)
         from scipy.ndimage import binary_erosion
         interior = binary_erosion(np.ones(data.shape, bool), iterations=5)
-        C0 = 0.05 * (np.percentile(np.abs(f_k[interior]), 95) ** 2
+        # Default anisotropy weight w = (dk/dE)^2 (Igor parity).
+        dk = float(np.median(np.abs(np.diff(kpar))))
+        de = float(np.median(np.abs(np.diff(ev))))
+        w = (dk / de) ** 2
+        C0 = 0.05 * (w * np.percentile(np.abs(f_k[interior]), 95) ** 2
                      + np.percentile(np.abs(f_E[interior]), 95) ** 2)
-        numer = (C0 + f_E**2) * f_kk - 2.0 * f_k * f_E * f_kE + (C0 + f_k**2) * f_EE
-        denom = (C0 + f_k**2 + f_E**2) ** 1.5
+        numer = ((C0 + w * f_k**2) * f_EE
+                 - 2.0 * w * f_k * f_E * f_kE
+                 + w * (C0 + f_E**2) * f_kk)
+        denom = (C0 + w * f_k**2 + f_E**2) ** 1.5
         expected = -numer / (denom + 1e-30)
 
         # Compare the interior (border smoothing differs negligibly but exclude it).

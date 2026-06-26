@@ -187,6 +187,10 @@ class FSController:
         propagated = self._apply_distortion_to_fs_volume_if_enabled()
         fs_params = self._fs_controls.params()
         info = self._fs_canvas.draw_fs(self._raw_data, fs_params)
+        cur_path = getattr(self, "_current_path", None)
+        if cur_path and hasattr(self._fs_canvas, "fs_display_name"):
+            from pathlib import Path as _PName
+            self._fs_canvas.fs_display_name = _PName(str(cur_path)).name
         if hasattr(self._fs_canvas, "set_pending"):
             self._fs_canvas.set_pending(False)
         entry = self._current_entry()

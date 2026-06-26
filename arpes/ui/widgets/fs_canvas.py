@@ -8,6 +8,7 @@ import numpy as np
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QLabel,
     QMessageBox,
@@ -64,6 +65,8 @@ class FermiSurfaceCanvas(QWidget):
         self._fs_rotation_deg = 0.0
         self._pocket_preview_artists: list = []
         self._pocket_preview_active = False
+        self.fs_display_name = ""
+        self._last_fs: dict | None = None
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         self.toolbar = NavToolbar(self.canvas, self)
@@ -136,6 +139,19 @@ class FermiSurfaceCanvas(QWidget):
             pass
 
     def export_figure(self) -> None:
+        if not self._last_fs:
+            QMessageBox.information(
+                self, "Export figure", "Load and draw a Fermi surface first."
+            )
+            return
+        src = self.fs_display_name or str(self._last_fs.get("title", "") or "")
+        default_title = f"FS : {src}" if src else "FS"
+        from arpes.ui.widgets.dialogs.fs_export_dialog import FsExportDialog
+
+        dlg = FsExportDialog(self, default_title=default_title)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        opts = dlg.options()
         path, selected = QFileDialog.getSaveFileName(
             self, "Export figure", "fs_map.png",
             "PNG image, 300 dpi (*.png);;SVG vector (*.svg)",
@@ -147,8 +163,15 @@ class FermiSurfaceCanvas(QWidget):
         elif "PNG" in selected and not path.lower().endswith(".png"):
             path += ".png"
         try:
-            self.canvas.draw()
-            self.fig.savefig(path, dpi=300, facecolor=self.fig.get_facecolor())
+            from arpes.ui.widgets.fs_export import build_export_figure
+
+            fig = build_export_figure(
+                self._last_fs,
+                add_hsym=opts["add_hsym"],
+                title=opts["title"],
+                to_plot=self.to_plot_points,
+            )
+            fig.savefig(path, dpi=300, transparent=True, bbox_inches="tight")
         except Exception:
             QMessageBox.critical(
                 self,
@@ -203,6 +226,7 @@ class FermiSurfaceCanvas(QWidget):
             self._mesh = None
             self._mesh_signature = None
             self._hover_data = None
+            self._last_fs = None
             self._overlay_artists = []
             self._clear_pocket_artists()
             self.ax.text(0.5, 0.5, "Load an FS", transform=self.ax.transAxes, ha="center", va="center", color="w")
@@ -275,6 +299,14 @@ class FermiSurfaceCanvas(QWidget):
             for sp in self.ax.spines.values():
                 sp.set_edgecolor("#555")
             self._hover_data = (x.ravel(), y.ravel(), np.asarray(fs))
+            self._last_fs = {
+                "x_plot": np.asarray(x_plot, dtype=float),
+                "y_plot": np.asarray(y_plot, dtype=float),
+                "fs": np.asarray(fs, dtype=float),
+                "params": params,
+                "fs_kind": fs_kind,
+                "title": title,
+            }
             self.ax.format_coord = self._format_coord
             self.canvas.draw_idle()
             return f"{title}{suffix} | shape={fs.shape}"
@@ -284,6 +316,7 @@ class FermiSurfaceCanvas(QWidget):
             self._mesh = None
             self._mesh_signature = None
             self._hover_data = None
+            self._last_fs = None
             self._overlay_artists = []
             self._clear_pocket_artists()
             self.ax.text(0.5, 0.5, str(exc), transform=self.ax.transAxes, ha="center", va="center", color="tomato", wrap=True)

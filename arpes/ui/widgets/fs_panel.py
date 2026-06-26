@@ -209,6 +209,36 @@ class FSControlPanel(QScrollArea):
         fl2.addRow("Rotation (°):", rot_row)
         fl2.addRow("Colormap:", self.cmb_cmap)
         fl2.addRow(self.chk_norm)
+        # --- Crop k-window: restrict the map to a kx/ky sub-window and
+        # renormalize the contrast over the crop. Same window feeds the export.
+        self.chk_kwin = QCheckBox("Crop k-window (renormalize)")
+        self.chk_kwin.setToolTip(
+            "Restrict the FS map to a kx/ky sub-window in centered π/a units.\n"
+            "The intensity is recomputed and renormalized over the crop, and the\n"
+            "exported figure uses the same window."
+        )
+        self.chk_kwin.stateChanged.connect(self.params_changed)
+        self.sp_kx_min = self._dspin(-1.0, -10.0, 10.0, 0.05)
+        self.sp_kx_max = self._dspin(1.0, -10.0, 10.0, 0.05)
+        self.sp_ky_min = self._dspin(-1.0, -10.0, 10.0, 0.05)
+        self.sp_ky_max = self._dspin(1.0, -10.0, 10.0, 0.05)
+        for _sp, _tip in (
+            (self.sp_kx_min, "kx min"), (self.sp_kx_max, "kx max"),
+            (self.sp_ky_min, "ky min"), (self.sp_ky_max, "ky max"),
+        ):
+            _sp.setToolTip(f"{_tip} (centered π/a). Active only when 'Crop k-window' is checked.")
+        kwin_row = QWidget()
+        kl = QHBoxLayout(kwin_row)
+        kl.setContentsMargins(0, 0, 0, 0)
+        kl.setSpacing(3)
+        kl.addWidget(QLabel("kx"))
+        kl.addWidget(self.sp_kx_min)
+        kl.addWidget(self.sp_kx_max)
+        kl.addWidget(QLabel("ky"))
+        kl.addWidget(self.sp_ky_min)
+        kl.addWidget(self.sp_ky_max)
+        fl2.addRow(self.chk_kwin)
+        fl2.addRow(kwin_row)
         self.btn_nesting = compact_button(QPushButton("C(q) nesting…"), max_width=200)
         self.btn_nesting.setToolTip(
             "Compute the FS autocorrelation C(q) = Σ_k A(k) A(k+q) of the current "
@@ -390,6 +420,8 @@ class FSControlPanel(QScrollArea):
         lay.addStretch(1)
 
     def params(self) -> FSParams:
+        crop = self.chk_kwin.isChecked()
+        _nan = float("nan")
         return FSParams(
             a_lattice=self.sp_a.value(), b_lattice=self.sp_b.value(),
             ef_window=self.sp_win.value(),
@@ -397,6 +429,10 @@ class FSControlPanel(QScrollArea):
             smooth_sigma=self.sp_sm.value(),
             fs_rotation_deg=self.sp_fs_rotation.value(),
             klim=self.sp_klim.value(), kx_center=self.sp_kx0.value(), ky_center=self.sp_ky0.value(),
+            kx_min=self.sp_kx_min.value() if crop else _nan,
+            kx_max=self.sp_kx_max.value() if crop else _nan,
+            ky_min=self.sp_ky_min.value() if crop else _nan,
+            ky_max=self.sp_ky_max.value() if crop else _nan,
             bz_shape=self.cmb_bz_shape.currentText(),
             bz_half_x=self.sp_bzx.value(), bz_half_y=self.sp_bzy.value(),
             bz_angle_deg=self.sp_bz_angle.value(),

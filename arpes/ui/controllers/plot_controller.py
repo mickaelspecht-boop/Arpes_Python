@@ -36,6 +36,7 @@ class PlotController:
     _PARENT_WRITES = frozenset({
         "_data_disp", "_data_disp_ev", "_data_disp_kpar", "_disp_cache_key",
         "_distortion_display_info", "_grid_display_info", "_kf_drag_lines",
+        "_show_mdc_overlay",
     })
 
     def __init__(self, parent):
@@ -92,6 +93,7 @@ class PlotController:
             dp.sigma_e_eV = float(p._sp_deriv_sigma_e.value())
             dp.sigma_k_inv_a = float(p._sp_deriv_sigma_k.value())
             dp.c0_alpha = float(p._sp_deriv_c0.value())
+            dp.curv_weight_scale = float(p._sp_deriv_w.value())
         except (AttributeError, RuntimeError):
             pass  # widgets not built yet (headless / early load)
         return dp
@@ -247,7 +249,26 @@ class PlotController:
         return labels, "raw axes — θ is non-linear in k// beyond ±15°"
 
     def _draw_fit_roi_overlay(self, ax):
+        if not getattr(self, "_show_mdc_overlay", True):
+            return
         _plot_draw_fit_roi_overlay(ax, self._fit_roi_bounds())
+
+    def _bm_toolbar_action(self, verb: str, payload=None) -> None:
+        """Single PROXY_MAP entry for the band-map toolbar buttons."""
+        if verb == "toggle_mdc":
+            self._toggle_mdc_overlay(bool(payload))
+        elif verb == "export":
+            self._export_bm_figure()
+
+    def _toggle_mdc_overlay(self, checked: bool) -> None:
+        """Show or hide the MDC fit selection overlay on the band map."""
+        self._show_mdc_overlay = bool(checked)
+        self._draw_bm(overlays_only=True)
+
+    def _export_bm_figure(self) -> None:
+        """Export the band map as displayed (current mode) with only the EF line."""
+        from arpes.ui.controllers.bm_export_action import export_bm_figure
+        export_bm_figure(self)
 
     def _ef_offset_text(self) -> str:
         return f"EF offset={self._params.sp_ef.value()*1000:+.0f} meV"
@@ -542,6 +563,8 @@ class PlotController:
     # Fit-overlay drawing methods live in fit_overlay_drawer.py; thin
     # wrappers keep external callers (other controllers, tests) working.
     def _draw_kf_overlay(self, ax):
+        if not getattr(self, "_show_mdc_overlay", True):
+            return
         from arpes.ui.controllers.fit_overlay_drawer import draw_kf_overlay
         return draw_kf_overlay(self, ax)
 
